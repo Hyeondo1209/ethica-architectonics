@@ -2,7 +2,26 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { useRef, useEffect, useLayoutEffect, useMemo } from 'react'
 import * as THREE from 'three'
 
-// ── 1인칭 컨트롤 (슬라이스 1과 동일) ──
+// ============================================================
+//  Ethica Architectonics — 1부 (1~15) 경선-돔 기하 코어
+//  설계 명세 v0.2 §6 한 조각:
+//    "속 빈 경선 기둥 1개 → 회전 복제로 돔 골격 → 광원 apex 자리표시"
+//  경선 = 짧은 수직 바닥 → 수평 셸프 → 긴 수직 상승(빛 속으로 끊김).
+// ============================================================
+
+// ── 돔 치수 ──
+const R_BASE    = 60      // 바닥 경선 반지름
+const R_TOP     = 35       // 꼭대기(수직 기둥) 반지름 — 0이 아니라 작게 → 중앙 빛기둥
+const H         = 200     // ▶ 총 높이. 키우면 '수직 상승'이 길어짐
+const MERIDIANS = 72      // ▶ 경선 개수(시각 밀도). 24·48·72로 바꿔보며 판단
+
+// ── 셸프(전환) 조절 — 이 둘이 '변곡' 손잡이 ──
+const KNEE      = 0.25    // ▶ 셸프가 앉는 높이(0~1). 낮출수록 셸프가 아래로, 위 수직이 길어짐
+const WIDTH     = 0.02    // ▶ 셸프 펼침. 작을수록 더 납작·수평한 셸프 / 클수록 비스듬
+
+const RIB_R     = 3.5     // 경선 굵기(반지름, m)
+
+// ── 1인칭 컨트롤 (기존 그대로 재활용) ──
 function FirstPersonControls() {
   const { camera, gl } = useThree()
   const keys = useRef({})
@@ -54,157 +73,113 @@ function FirstPersonControls() {
     if (k['KeyD'] || k['ArrowRight']) move.add(right)
     if (k['KeyA'] || k['ArrowLeft'])  move.sub(right)
     if (move.lengthSq() > 0) { move.normalize().multiplyScalar(SPEED * d); camera.position.add(move) }
-    camera.position.y = 1.6
+    // ★ Q/E로 위아래 비행 (테라스 높이 미리보기). 1.6m ~ 꼭대기 사이로 제한
+    let dy = 0
+    if (k['KeyE']) dy += 1
+    if (k['KeyQ']) dy -= 1
+    camera.position.y += dy * SPEED * d
+    camera.position.y = Math.max(1.6, Math.min(H - 4, camera.position.y))
   })
   return null
 }
 
-// ── 바닥 (동일) ──
+// ── 바닥 (따뜻한 톤) ──
 function Ground() {
   return (
-    <mesh rotation-x={-Math.PI / 2} receiveShadow>
+    <mesh rotation-x={-Math.PI / 2}>
       <planeGeometry args={[800, 800]} />
-      <meshStandardMaterial color="#b7b2a6" roughness={1} />
+      <meshStandardMaterial color="#6f5e44" roughness={1} />
     </mesh>
   )
 }
 
-// ── 구조 A 무한 반복 (슬라이스 2와 동일) ──
-function Structures() {
-  const baseRef = useRef(), colRef = useRef(), roofRef = useRef()
-  const GRID = 21, SPACING = 16
-  const offset = (GRID - 1) * SPACING / 2
-  const total = GRID * GRID
+// ── ① 경선 한 줄 — 반지름을 '높이의 함수'로 정의 ──
+//   u = 정규화 높이(0~1).  f(u) = 0.5*(1 - tanh((u-KNEE)/WIDTH))  → R_BASE에서 R_TOP로 부드러운 계단.
+//   · u 작음(바닥): f≈1 → r≈R_BASE, 거의 변화 없음 = 짧은 수직 바닥
+//   · u≈KNEE      : f가 1→0으로 빠르게 = 수평 셸프(안쪽으로 휨). WIDTH가 작을수록 더 납작
+//   · u 큼(꼭대기): f≈0 → r≈R_TOP 고정 = 긴 수직 상승
+function useMeridianCurve() {
+  return useMemo(() => {
+    const pts = []
+    const SEG = 160
+    for (let i = 0; i <= SEG; i++) {
+      const u = i / SEG
+      const f = 0.5 * (1 - Math.tanh((u - KNEE) / WIDTH))
+      const r = R_TOP + (R_BASE - R_TOP) * f
+      const y = H * u
+      pts.push(new THREE.Vector3(r, y, 0))
+    }
+    return new THREE.CatmullRomCurve3(pts)
+  }, [])
+}
+
+// ── ② 경선 1개를 회전 복제 → 돔 골격 (InstancedMesh 재활용) ──
+function Dome() {
+  const ribRef = useRef()
+  const curve = useMeridianCurve()
+
   useLayoutEffect(() => {
     const dummy = new THREE.Object3D()
-    const colOffsets = [[-2.4, -2.4], [2.4, -2.4], [2.4, 2.4], [-2.4, 2.4]]
-    let bi = 0, ci = 0, ri = 0
-    for (let gx = 0; gx < GRID; gx++) {
-      for (let gz = 0; gz < GRID; gz++) {
-        const cx = gx * SPACING - offset, cz = gz * SPACING - offset
-        dummy.position.set(cx, 0.15, cz); dummy.updateMatrix(); baseRef.current.setMatrixAt(bi++, dummy.matrix)
-        dummy.position.set(cx, 4.5,  cz); dummy.updateMatrix(); roofRef.current.setMatrixAt(ri++, dummy.matrix)
-        for (const [ox, oz] of colOffsets) {
-          dummy.position.set(cx + ox, 2.3, cz + oz); dummy.updateMatrix()
-          colRef.current.setMatrixAt(ci++, dummy.matrix)
-        }
-      }
+    for (let i = 0; i < MERIDIANS; i++) {
+      dummy.rotation.set(0, (i / MERIDIANS) * Math.PI * 2, 0)
+      dummy.updateMatrix()
+      ribRef.current.setMatrixAt(i, dummy.matrix)
     }
-    baseRef.current.instanceMatrix.needsUpdate = true
-    colRef.current.instanceMatrix.needsUpdate  = true
-    roofRef.current.instanceMatrix.needsUpdate = true
+    ribRef.current.instanceMatrix.needsUpdate = true
   }, [])
+
   return (
-    <>
-      <instancedMesh ref={baseRef} args={[undefined, undefined, total]} castShadow receiveShadow>
-        <boxGeometry args={[6, 0.3, 6]} /><meshStandardMaterial color="#ece8df" roughness={0.85} />
-      </instancedMesh>
-      <instancedMesh ref={colRef} args={[undefined, undefined, total * 4]} castShadow receiveShadow>
-        <cylinderGeometry args={[0.32, 0.36, 4, 20]} /><meshStandardMaterial color="#ece8df" roughness={0.85} />
-      </instancedMesh>
-      <instancedMesh ref={roofRef} args={[undefined, undefined, total]} castShadow receiveShadow>
-        <boxGeometry args={[6.4, 0.4, 6.4]} /><meshStandardMaterial color="#ece8df" roughness={0.85} />
-      </instancedMesh>
-    </>
+    <instancedMesh ref={ribRef} args={[undefined, undefined, MERIDIANS]}>
+      {/* (곡선, 길이방향 분할, 굵기, 단면 분할, 닫힘여부) */}
+      <tubeGeometry args={[curve, 200, RIB_R, 8, false]} />
+      <meshStandardMaterial color="#bb8a4e" roughness={0.7} metalness={0} />
+    </instancedMesh>
   )
 }
 
-// ── 표시할 정리 (노션/구획 문서 본문 그대로 — 해석은 안 건드림) ──
-const PROPS = [
-  ['1p1', '실체는 본성상 자신의 변용에 앞선다.'],
-  ['1p2', '서로 다른 속성을 소유하는 두 실체는 공통되는 것을 갖지 않는다.'],
-  ['1p3', '공통점 없는 사물들은 하나가 다른 것의 원인이 될 수 없다.'],
-  ['1p4', '둘 또는 다수의 사물은 속성 또는 변용에 의해 구분된다.'],
-  ['1p5', '동일한 본성·속성을 가지는 둘 이상의 실체는 존재할 수 없다.'],
-  ['1p6', '하나의 실체는 다른 실체에서 산출될 수 없다.'],
-  ['1p7', '실체의 본성에는 존재가 속한다.'],
-  ['1p8', '모든 실체는 필연적으로 무한하다.'],
-]
-
-// 캔버스에 글씨를 그려 텍스처 하나를 만드는 공장 함수 (POC와 동일)
-const FONT = '"Helvetica Neue", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif'
-function makeTextTexture(tag, text) {
-  const cw = 1024, ch = 448
-  const canvas = document.createElement('canvas')
-  canvas.width = cw; canvas.height = ch
-  const ctx = canvas.getContext('2d')
-  ctx.shadowColor = 'rgba(255,255,255,0.65)'; ctx.shadowBlur = 10
-  ctx.fillStyle = '#6b6658'; ctx.font = `600 40px ${FONT}`
-  ctx.fillText(tag, 60, 92)
-  ctx.fillStyle = '#2a2a28'; ctx.font = `600 58px ${FONT}`
-  const maxW = cw - 120, lineH = 74
-  let line = '', y = 200
-  for (const word of text.split(' ')) {
-    const test = line ? line + ' ' + word : word
-    if (ctx.measureText(test).width > maxW && line) { ctx.fillText(line, 60, y); line = word; y += lineH }
-    else line = test
-  }
-  ctx.fillText(line, 60, y)
-  const tex = new THREE.CanvasTexture(canvas)
-  tex.minFilter = THREE.LinearFilter
-  return tex
-}
-
-// ★ 새로 추가: 원점 구조물 둘레에 정리 8장을 두르고, 거리로 선명도 조절 ★
-function Propositions() {
-  const { gl } = useThree()
-  const matRefs = useRef([])
-
-  // 텍스처·위치는 한 번만 계산해 둔다
-  const panels = useMemo(() => {
-    const R = 4.3
-    return PROPS.map(([tag, text], i) => {
-      const tex = makeTextTexture(tag, text)
-      tex.anisotropy = gl.capabilities.getMaxAnisotropy()  // 비스듬히 봐도 또렷
-      const a = (i / PROPS.length) * Math.PI * 2
-      const pos = new THREE.Vector3(Math.sin(a) * R, 1.85, Math.cos(a) * R)
-      return { tex, a, pos }
-    })
-  }, [gl])
-
-  // 매 프레임: 카메라와의 거리로 투명도(=선명도) 조절
-  useFrame(({ camera }) => {
-    const NEAR = 6, FAR = 18
-    for (let i = 0; i < panels.length; i++) {
-      const mat = matRefs.current[i]
-      if (!mat) continue
-      const d = camera.position.distanceTo(panels[i].pos)
-      let o = (FAR - d) / (FAR - NEAR)
-      o = Math.max(0, Math.min(1, o))
-      o = o * o * (3 - 2 * o)               // smoothstep: 부드럽게
-      mat.opacity = o
-    }
-  })
-
+// ── ③ 광원 apex 자리표시 (수직 기둥 끝을 빛으로 덮음) ──
+function Apex() {
   return (
-    <>
-      {panels.map((p, i) => (
-        <mesh key={i} position={p.pos.toArray()} rotation-y={p.a}>
-          <planeGeometry args={[2.9, 2.9 * 448 / 1024]} />
-          <meshBasicMaterial
-            ref={(el) => (matRefs.current[i] = el)}
-            map={p.tex} transparent side={THREE.DoubleSide} alphaTest={0.04}
-          />
-        </mesh>
-      ))}
-    </>
+    <group position={[0, H, 0]}>
+      <pointLight color="#ffe3b0" intensity={2.2} distance={0} decay={0} />
+      <mesh>
+        <sphereGeometry args={[5, 28, 28]} />
+        <meshBasicMaterial color="#fff1d4" />
+      </mesh>
+    </group>
   )
 }
 
 export default function App() {
   return (
-    <Canvas shadows camera={{ fov: 70, near: 0.1, far: 300, position: [0, 1.6, 0] }}>
-      <color attach="background" args={['#d8d3c8']} />
-      <fog attach="fog" args={['#d8d3c8', 24, 90]} />
-      <hemisphereLight args={['#ffffff', '#9a937f', 0.85]} />
-      <directionalLight position={[14, 22, 8]} intensity={0.9} color="#fff3e0" castShadow
-        shadow-mapSize-width={1024} shadow-mapSize-height={1024}>
-        <orthographicCamera attach="shadow-camera" args={[-25, 25, 25, -25, 0.5, 80]} />
-      </directionalLight>
-      <Ground />
-      <Structures />
-      <Propositions />
-      <FirstPersonControls />
-    </Canvas>
+    <>
+      <Canvas camera={{ fov: 70, near: 0.1, far: 600, position: [0, 1.6, 0] }}>
+        {/* 따뜻한 대기 — 위로 갈수록 안개+빛에 녹아들어 끝이 사라짐 */}
+        <color attach="background" args={['#e7d6ad']} />
+        <fog attach="fog" args={['#e7d6ad', 30, 150]} />
+
+        <hemisphereLight args={['#ffeccb', '#2e2618', 0.85]} />
+        <directionalLight position={[30, 120, 20]} intensity={0.3} color="#ffe6bf" />
+
+        <Ground />
+        <Dome />
+        <Apex />
+        <FirstPersonControls />
+      </Canvas>
+
+      <div style={{
+        position: 'fixed', left: 24, bottom: 22, maxWidth: 320, pointerEvents: 'none',
+        fontFamily: '"Helvetica Neue", Arial, sans-serif', color: '#3a3324',
+        textShadow: '0 1px 2px rgba(255,255,255,0.4)'
+      }}>
+        <div style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: '#7a6a48', marginBottom: 8 }}>
+          Ethica · 1p1–1p15 · 경선-돔 기하 코어
+        </div>
+        <div style={{ fontSize: 13, lineHeight: 1.7 }}>
+          <b>W A S D</b> 이동 · 화면 <b>드래그</b>로 둘러보기<br />
+          위를 올려다보면 경선들이 빛 속으로 무한히 솟아오릅니다.
+        </div>
+      </div>
+    </>
   )
 }
