@@ -3,59 +3,72 @@ import { useRef, useEffect, useLayoutEffect, useMemo } from 'react'
 import * as THREE from 'three'
 
 // ============================================================
-//  Ethica Architectonics — 1부 (1~15)
-//  · 경선-돔 기하 코어 (확정)
-//  · ★ 이번 조각(재작업): 경선 립 '하나의 튜브 속' 나선 계단
-//    명세 §3 ①상승 — "좁은 기둥(=립) 내부 나선 상승 → 셸프 높이로"
-//    립이 외피(셸), 그 안에 단 있는 계단이 휘감아 오른다.
+//  Ethica Architectonics — 1부 (1~15) · 셸 B · 수직축
+//  ★ 깨끗한 복구본: 립 온전(72개 전부) + 단순 나선 계단(꺾임/직각 직선계단 없음)
+//    다음 단계에서 '나선 → 정사각 계단참 → 직선 오르막'(방식 a)을 여기에 얹는다.
 // ============================================================
 
-// ── 돔 치수 (확정) ──
-const R_BASE    = 60
-const R_TOP     = 35
-const H         = 200
+const R_BASE = 60, R_TOP = 35, H = 200, KNEE = 0.25, WIDTH = 0.02
 const MERIDIANS = 72
-const KNEE      = 0.25
-const WIDTH     = 0.02
-const RIB_R     = 3.5     // 립(튜브) 반지름 → 계단이 들어갈 '외피'의 안지름
+const SHELL_RIB_R = 1.1
 
-// ── ★ 립 속 나선 계단 치수 ──
-const STAIR_TOP_U  = KNEE          // 도착 높이: u=0.25 → y=50 (셸프)
-const STAIR_STEPS  = 140           // ▶ 계단 수(=매끄러움/완만함). 리저 = 50/STEPS
-const STAIR_TURNS  = 7.5           // ▶ 나선 회전 수
-const STAIR_R      = 1.8           // ▶ 헬릭스 반지름(립 중심선 → 디딤판 중심). RIB_R(3.5)보다 작게
-const TREAD_DEPTH  = 2.6           // 디딤판 깊이(반지름 방향) — 깊게 잡아 단 사이 빈틈 방지
-const TREAD_WIDTH  = 0.9           // 디딤판 폭(접선 방향)
-const TREAD_THICK  = 0.22
-const POLE_R       = 0.35          // 중앙 뉴얼 폴 굵기
+const RIB_PHI = 0
+const SHAFT_R = 4.5
+const SHAFT_TOP_U = 0.235
 
-const RIB_PHI = 0                  // ▶ 계단이 들어갈 립의 각도(0 = +x 방향 립)
+// ── 나선 계단 (테라스보다 살짝 아래 Y_LAND에서 끝남) ──
+const STAIR_STEPS = 150
+const STAIR_TURNS = 4.5             // 도착이 안쪽(θ=π, '12시' 방향)
+const STAIR_R     = 2.8
+const Y_LAND      = 47              // 나선 도착 = 계단참 높이 (테라스 y50보다 3 아래)
+const U_LAND      = Y_LAND / H
+const TREAD_DEPTH = 2.8
+const TREAD_WIDTH = 1.0
+const TREAD_THICK = 0.22
+const POLE_R      = 0.4
+
+// ── 정사각 계단참(landing) — 나선↔직선 전환을 받아주는 평평한 판 ──
+const PAD_CX   = 43.0               // 중심 x (나선 도착 44.7을 덮고 안쪽으로 뻗음)
+const PAD_SIZE = 5.0
+
+// ── 직선 오르막 계단 (계단참 → 테라스), 안쪽(-x)으로 곧게 ──
+const FLIGHT_STEPS = 8
+const FLIGHT_WIDTH = 4.0
+const FLIGHT_X0    = PAD_CX - PAD_SIZE / 2   // 계단참 안쪽 끝에서 시작
+
+// ── 테라스 (직선 계단 착지 ≈35 를 받도록 안쪽으로) ──
+const TERRACE_Y    = H * KNEE
+const TERRACE_RIN  = 27
+const TERRACE_ROUT = 37
+const TERRACE_ARC  = 2.4
+
 const DOWN = new THREE.Vector3(0, -1, 0)
 
-// 선택된 립(φ=RIB_PHI)의 중심선 한 점 — u(0~1) → (x,y,z)
-//   r(u)=35+25·f(u),  f(u)=0.5(1−tanh((u−KNEE)/WIDTH)),  y=H·u
-function ribCenter(u) {
+function rOf(u) {
   const f = 0.5 * (1 - Math.tanh((u - KNEE) / WIDTH))
-  const r = R_TOP + (R_BASE - R_TOP) * f
-  const x = r * Math.cos(RIB_PHI)
-  const z = r * Math.sin(RIB_PHI)
-  return new THREE.Vector3(x, H * u, z)
+  return R_TOP + (R_BASE - R_TOP) * f
+}
+const ARRIVAL_R = rOf(KNEE)        // = 47.5
+
+// 계단/샤프트 중심축 — 수직 고정
+function axisPoint(u) {
+  return new THREE.Vector3(ARRIVAL_R * Math.cos(RIB_PHI), H * u, ARRIVAL_R * Math.sin(RIB_PHI))
 }
 
-// ── ① 1인칭 컨트롤 — '발밑 짧은 레이캐스트'로 계단 한 단씩 오름 ──
+// ── ① 1인칭 컨트롤 ──
 function FirstPersonControls() {
   const { camera, gl, scene } = useThree()
   const keys = useRef({})
   const drag = useRef({ active: false, lastX: 0, lastY: 0 })
-  const look = useRef({ yaw: 0, pitch: 0 })
+  const look = useRef({ yaw: Math.PI, pitch: 0 })
   const ray  = useRef(new THREE.Raycaster())
 
   useEffect(() => {
     camera.rotation.order = 'YXZ'
-    // ★ 시작점 = 선택된 립의 계단 입구(첫 디딤판 위), 나선 오르는 방향을 향함
-    const start = ribCenter(0)
+    const start = axisPoint(0)
     camera.position.set(start.x + STAIR_R, 1.6, start.z)
     look.current.yaw = Math.PI
+    look.current.pitch = 0
     const down = (e) => (keys.current[e.code] = true)
     const up   = (e) => (keys.current[e.code] = false)
     window.addEventListener('keydown', down)
@@ -90,7 +103,6 @@ function FirstPersonControls() {
     camera.rotation.y = yaw
     camera.rotation.x = pitch
 
-    // 수평 이동 (y성분 0)
     const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw))
     const right   = new THREE.Vector3( Math.cos(yaw), 0, -Math.sin(yaw))
     const move = new THREE.Vector3()
@@ -103,15 +115,12 @@ function FirstPersonControls() {
 
     const flying = k['KeyQ'] || k['KeyE']
     if (flying) {
-      // Q/E 누르는 동안만 자유 수직 비행(미리보기)
       let dy = 0
       if (k['KeyE']) dy += 1
       if (k['KeyQ']) dy -= 1
       camera.position.y += dy * SPEED * d
       camera.position.y = Math.max(1.6, Math.min(H - 4, camera.position.y))
     } else {
-      // ★ 텔레포트 버그 해결: '발 바로 위(+0.8m)'에서 짧은 거리만 아래로 탐지.
-      //   → 위쪽 코일이 아니라, 지금 딛고 있는/한 단 위의 면만 잡힌다.
       const STEP_UP = 0.8, REACH = 2.6
       const origin = new THREE.Vector3(camera.position.x, camera.position.y + STEP_UP, camera.position.z)
       ray.current.set(origin, DOWN)
@@ -125,7 +134,6 @@ function FirstPersonControls() {
         const targetY = hitY + 1.6
         camera.position.y += (targetY - camera.position.y) * Math.min(1, d * 14)
       } else {
-        // 발밑에 아무 것도 없으면(계단 끝에서 벗어남) 부드럽게 하강
         camera.position.y = Math.max(1.6, camera.position.y - 5 * d)
       }
     }
@@ -133,7 +141,6 @@ function FirstPersonControls() {
   return null
 }
 
-// ── 바닥 (walkable) ──
 function Ground() {
   return (
     <mesh rotation-x={-Math.PI / 2} userData={{ walkable: true }}>
@@ -143,25 +150,14 @@ function Ground() {
   )
 }
 
-// ── 경선 곡선 ──
-function useMeridianCurve() {
-  return useMemo(() => {
-    const pts = []
-    const SEG = 160
-    for (let i = 0; i <= SEG; i++) {
-      const u = i / SEG
-      const f = 0.5 * (1 - Math.tanh((u - KNEE) / WIDTH))
-      const r = R_TOP + (R_BASE - R_TOP) * f
-      pts.push(new THREE.Vector3(r, H * u, 0))
-    }
+// ── 셸 B: 얇은 립 72개 (전부 온전) ──
+function DomeRibs() {
+  const ribRef = useRef()
+  const curve = useMemo(() => {
+    const pts = []; const SEG = 160
+    for (let i = 0; i <= SEG; i++) { const u = i / SEG; pts.push(new THREE.Vector3(rOf(u), H * u, 0)) }
     return new THREE.CatmullRomCurve3(pts)
   }, [])
-}
-
-// ── 경선 1개 → 회전 복제 → 돔 골격 (★ DoubleSide: 립 안쪽에서도 외피로 보이게) ──
-function Dome() {
-  const ribRef = useRef()
-  const curve = useMeridianCurve()
   useLayoutEffect(() => {
     const dummy = new THREE.Object3D()
     for (let i = 0; i < MERIDIANS; i++) {
@@ -170,16 +166,30 @@ function Dome() {
       ribRef.current.setMatrixAt(i, dummy.matrix)
     }
     ribRef.current.instanceMatrix.needsUpdate = true
-  }, [])
+  }, [curve])
   return (
     <instancedMesh ref={ribRef} args={[undefined, undefined, MERIDIANS]}>
-      <tubeGeometry args={[curve, 200, RIB_R, 8, false]} />
+      <tubeGeometry args={[curve, 200, SHELL_RIB_R, 6, false]} />
       <meshStandardMaterial color="#bb8a4e" roughness={0.7} metalness={0} side={THREE.DoubleSide} />
     </instancedMesh>
   )
 }
 
-// ── 광원 apex ──
+// ── 등반 샤프트 (수직 튜브) ──
+function ClimbShaft() {
+  const curve = useMemo(() => {
+    const pts = []
+    for (let i = 0; i <= 80; i++) pts.push(axisPoint((i / 80) * SHAFT_TOP_U))
+    return new THREE.CatmullRomCurve3(pts)
+  }, [])
+  return (
+    <mesh>
+      <tubeGeometry args={[curve, 160, SHAFT_R, 20, false]} />
+      <meshStandardMaterial color="#a87c45" roughness={0.8} metalness={0} side={THREE.DoubleSide} />
+    </mesh>
+  )
+}
+
 function Apex() {
   return (
     <group position={[0, H, 0]}>
@@ -192,30 +202,27 @@ function Apex() {
   )
 }
 
-// ── ★ 립 속 나선 계단 — 디딤판(InstancedMesh) + 중앙 뉴얼 폴 ──
+// ── 나선 계단 (단순 나선, Y_LAND에서 끝남) + 중앙 폴 ──
 function RibStair() {
   const treadRef = useRef()
-
   useLayoutEffect(() => {
     const dum = new THREE.Object3D()
     for (let i = 0; i < STAIR_STEPS; i++) {
-      const t = i / STAIR_STEPS
-      const u = t * STAIR_TOP_U          // 0 → 0.25
-      const c = ribCenter(u)             // 립 중심선(살짝 안쪽으로 휨)
+      const t = i / (STAIR_STEPS - 1)
+      const u = t * U_LAND
+      const c = axisPoint(u)
       const th = t * STAIR_TURNS * Math.PI * 2
-      // 중심선 둘레에 디딤판 배치 (수평 단면 근사)
       dum.position.set(c.x + STAIR_R * Math.cos(th), c.y, c.z + STAIR_R * Math.sin(th))
-      dum.rotation.set(0, -th, 0)        // 디딤판 깊이축을 반지름 방향으로
+      dum.rotation.set(0, -th, 0)
       dum.updateMatrix()
       treadRef.current.setMatrixAt(i, dum.matrix)
     }
     treadRef.current.instanceMatrix.needsUpdate = true
   }, [])
 
-  // 중앙 뉴얼 폴 (립 중심선을 따라가는 가는 튜브)
   const poleCurve = useMemo(() => {
     const pts = []
-    for (let i = 0; i <= 48; i++) pts.push(ribCenter((i / 48) * STAIR_TOP_U))
+    for (let i = 0; i <= 48; i++) pts.push(axisPoint((i / 48) * U_LAND))
     return new THREE.CatmullRomCurve3(pts)
   }, [])
 
@@ -233,6 +240,51 @@ function RibStair() {
   )
 }
 
+// ── 정사각 계단참 — 나선 도착점의 평평한 판(방향 전환을 받아줌) ──
+function LandingPad() {
+  return (
+    <mesh position={[PAD_CX, Y_LAND, 0]} userData={{ walkable: true }}>
+      <boxGeometry args={[PAD_SIZE, TREAD_THICK, PAD_SIZE]} />
+      <meshStandardMaterial color="#cfa765" roughness={0.82} />
+    </mesh>
+  )
+}
+
+// ── 직선 오르막 계단 — 계단참 안쪽 끝에서 -x로 곧게 + 위로, 테라스에 착지 ──
+function StraightFlight() {
+  const ref = useRef()
+  useLayoutEffect(() => {
+    const dum = new THREE.Object3D()
+    const RISER = (H * KNEE - Y_LAND) / FLIGHT_STEPS
+    const RUN   = RISER / Math.tan(Math.PI / 6)            // 30° 경사
+    for (let k = 0; k < FLIGHT_STEPS; k++) {
+      const s = k + 1
+      dum.position.set(FLIGHT_X0 - s * RUN, Y_LAND + s * RISER, 0)
+      dum.rotation.set(0, 0, 0)                            // 회전 없음 = 곧은 계단
+      dum.scale.set(0.5, 1, FLIGHT_WIDTH / TREAD_WIDTH)    // 깊이 살짝 줄이고 가로폭 넓힘
+      dum.updateMatrix()
+      ref.current.setMatrixAt(k, dum.matrix)
+    }
+    ref.current.instanceMatrix.needsUpdate = true
+  }, [])
+  return (
+    <instancedMesh ref={ref} args={[undefined, undefined, FLIGHT_STEPS]} userData={{ walkable: true }}>
+      <boxGeometry args={[TREAD_DEPTH, TREAD_THICK, TREAD_WIDTH]} />
+      <meshStandardMaterial color="#d6ab68" roughness={0.8} />
+    </instancedMesh>
+  )
+}
+
+// ── 테라스 ──
+function Terrace() {
+  return (
+    <mesh position={[0, TERRACE_Y, 0]} rotation-x={-Math.PI / 2} userData={{ walkable: true }}>
+      <ringGeometry args={[TERRACE_RIN, TERRACE_ROUT, 64, 1, -TERRACE_ARC / 2, TERRACE_ARC]} />
+      <meshStandardMaterial color="#caa161" roughness={0.85} side={THREE.DoubleSide} />
+    </mesh>
+  )
+}
+
 export default function App() {
   return (
     <>
@@ -241,26 +293,30 @@ export default function App() {
         <fog attach="fog" args={['#e7d6ad', 30, 150]} />
 
         <hemisphereLight args={['#ffeccb', '#2e2618', 0.85]} />
+        <ambientLight intensity={0.25} />
         <directionalLight position={[30, 120, 20]} intensity={0.3} color="#ffe6bf" />
 
         <Ground />
-        <Dome />
+        <DomeRibs />
+        <ClimbShaft />
         <Apex />
         <RibStair />
+        <LandingPad />
+        <StraightFlight />
+        <Terrace />
         <FirstPersonControls />
       </Canvas>
 
       <div style={{
-        position: 'fixed', left: 24, bottom: 22, maxWidth: 340, pointerEvents: 'none',
+        position: 'fixed', left: 24, bottom: 22, maxWidth: 380, pointerEvents: 'none',
         fontFamily: '"Helvetica Neue", Arial, sans-serif', color: '#3a3324',
         textShadow: '0 1px 2px rgba(255,255,255,0.4)'
       }}>
         <div style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: '#7a6a48', marginBottom: 8 }}>
-          Ethica · 1p1–1p15 · 립 속 나선 계단
+          Ethica · 수직축 · 나선→계단참→직선(방식 a)
         </div>
         <div style={{ fontSize: 13, lineHeight: 1.7 }}>
-          한 경선 립 안에서 시작합니다. <b>W A S D</b> 걷기 · <b>드래그</b>로 둘러보기<br />
-          나선 계단을 따라 한 단씩 올라 셸프 높이에 닿습니다.<br />
+          <b>W A S D</b> 걷기 · <b>드래그</b> 둘러보기 · 나선으로 테라스까지<br />
           <b>Q / E</b> 누르는 동안만 위아래 비행(미리보기).
         </div>
       </div>
