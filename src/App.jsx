@@ -31,6 +31,11 @@ const POLE_R      = 0.4
 const PAD_CX   = 40.2               // 중심 x (나선 도착 44.7을 확실히 받도록 키우고 안쪽으로)
 const PAD_SIZE = 7.0
 
+// ── 작은 계단참 — 나선 도착점 −z 옆에 (나선 진행방향을 받는 발판) ──
+const SMALL_PAD_CX   = 44.2         // 나선 도착 x(≈44.7) 근처
+const SMALL_PAD_CZ   = -2.0         // 도착점에서 −z 옆 (나선 진행방향)
+const SMALL_PAD_SIZE = 3.0
+
 // ── 직선 오르막 계단 (계단참 → 테라스), 안쪽(-x)으로 곧게 ──
 const FLIGHT_STEPS = 8
 const FLIGHT_WIDTH = 4.0
@@ -240,6 +245,16 @@ function RibStair() {
   )
 }
 
+// ── 작은 계단참 — 나선 도착 발판 (나선 → 작은 참 → 큰 참) ──
+function SmallLandingPad() {
+  return (
+    <mesh position={[SMALL_PAD_CX, Y_LAND, SMALL_PAD_CZ]} userData={{ walkable: true }}>
+      <boxGeometry args={[SMALL_PAD_SIZE, TREAD_THICK, SMALL_PAD_SIZE]} />
+      <meshStandardMaterial color="#d2aa68" roughness={0.82} />
+    </mesh>
+  )
+}
+
 // ── 정사각 계단참 — 나선 도착점의 평평한 판(방향 전환을 받아줌) ──
 function LandingPad() {
   return (
@@ -301,6 +316,7 @@ export default function App() {
         <ClimbShaft />
         <Apex />
         <RibStair />
+        <SmallLandingPad />
         <LandingPad />
         <StraightFlight />
         <Terrace />
