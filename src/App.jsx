@@ -67,6 +67,7 @@ function FirstPersonControls() {
   const drag = useRef({ active: false, lastX: 0, lastY: 0 })
   const look = useRef({ yaw: Math.PI, pitch: 0 })
   const ray  = useRef(new THREE.Raycaster())
+  const walkables = useRef([])          // 걸을 수 있는 면만 모아두는 통(매 프레임 갱신)
 
   useEffect(() => {
     camera.rotation.order = 'YXZ'
@@ -101,12 +102,31 @@ function FirstPersonControls() {
     }
   }, [camera, gl])
 
-  const SPEED = 4.5
+  const SPEED    = 4.5
+  const EYE      = 1.6      // 눈높이(발에서 머리까지)
+  const STEP_UP  = 0.8      // 한 번에 오를 수 있는 턱 높이
+  const STEP_DOWN = 2.2     // 한 번에 내려설 수 있는 낙차(이 이상은 '낭떠러지')
+  const FALL     = 5        // 디딜 곳 없을 때 떨어지는 속도
+
+  // (x,z) 발밑에 '걸을 수 있는 면'이 STEP 범위 안에 있으면 그 높이를, 없으면 null
+  const probe = (x, z) => {
+    const feet = camera.position.y - EYE
+    ray.current.set(new THREE.Vector3(x, feet + STEP_UP, z), DOWN)
+    ray.current.far = STEP_UP + STEP_DOWN
+    const hits = ray.current.intersectObjects(walkables.current, false)
+    return hits.length ? hits[0].point.y : null
+  }
+
   useFrame((_, dt) => {
     const d = Math.min(dt, 0.05)
     const { yaw, pitch } = look.current
     camera.rotation.y = yaw
     camera.rotation.x = pitch
+
+    // 매 프레임 'walkable' 면만 추려둔다 (무거운 립/셸은 검사 제외 → 성능)
+    const arr = []
+    scene.traverse(o => { if (o.userData && o.userData.walkable) arr.push(o) })
+    walkables.current = arr
 
     const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw))
     const right   = new THREE.Vector3( Math.cos(yaw), 0, -Math.sin(yaw))
@@ -116,31 +136,55 @@ function FirstPersonControls() {
     if (k['KeyS'] || k['ArrowDown'])  move.sub(forward)
     if (k['KeyD'] || k['ArrowRight']) move.add(right)
     if (k['KeyA'] || k['ArrowLeft'])  move.sub(right)
-    if (move.lengthSq() > 0) { move.normalize().multiplyScalar(SPEED * d); camera.position.add(move) }
 
     const flying = k['KeyQ'] || k['KeyE']
+
     if (flying) {
+      // 미리보기 비행: 충돌·바닥 무시하고 자유 이동 (끼었을 때 탈출용)
+      if (move.lengthSq() > 0) { move.normalize().multiplyScalar(SPEED * d); camera.position.add(move) }
       let dy = 0
       if (k['KeyE']) dy += 1
       if (k['KeyQ']) dy -= 1
       camera.position.y += dy * SPEED * d
-      camera.position.y = Math.max(1.6, Math.min(H - 4, camera.position.y))
+      camera.position.y = Math.max(EYE, Math.min(H - 4, camera.position.y))
+      return
+    }
+
+    // ── 걷기: 가장자리에서 멈추고(edge-stop), 막히면 벽 따라 미끄러진다(slide) ──
+    if (move.lengthSq() > 0) {
+      move.normalize().multiplyScalar(SPEED * d)
+      const px = camera.position.x, pz = camera.position.z
+      const nx = px + move.x, nz = pz + move.z
+      if (probe(nx, nz) !== null) {            // 목적지에 디딜 면 있음 → 그대로 이동
+        camera.position.x = nx; camera.position.z = nz
+      } else if (probe(nx, pz) !== null) {     // x쪽만 가능 → 벽 따라 미끄러짐
+        camera.position.x = nx
+      } else if (probe(px, nz) !== null) {     // z쪽만 가능
+        camera.position.z = nz
+      }                                        // 셋 다 없으면 제자리 (낭떠러지 차단)
+    }
+
+    // ── 시작~등반 구간: 샤프트 벽 밖으로 못 나가게 (반경 제약) ──
+    //   낮은 높이에선 원통 안에 가둬 벽 통과를 막고, 테라스 높이(Y_LAND) 근처에서 풀어
+    //   참·테라스로 나갈 수 있게 한다.
+    if (camera.position.y < Y_LAND - 1) {
+      const ax = axisPoint(0)                 // 샤프트 중심축 (47.5, *, 0)
+      const dx = camera.position.x - ax.x, dz = camera.position.z - ax.z
+      const dist = Math.hypot(dx, dz)
+      const R_WALL = SHAFT_R - 0.2
+      if (dist > R_WALL) {
+        camera.position.x = ax.x + (dx / dist) * R_WALL
+        camera.position.z = ax.z + (dz / dist) * R_WALL
+      }
+    }
+
+    // 발밑 높이에 맞춰 부드럽게 오르내림 / 디딜 곳 없으면 낙하
+    const groundY = probe(camera.position.x, camera.position.z)
+    if (groundY !== null) {
+      const targetY = groundY + EYE
+      camera.position.y += (targetY - camera.position.y) * Math.min(1, d * 14)
     } else {
-      const STEP_UP = 0.8, REACH = 2.6
-      const origin = new THREE.Vector3(camera.position.x, camera.position.y + STEP_UP, camera.position.z)
-      ray.current.set(origin, DOWN)
-      ray.current.far = STEP_UP + REACH
-      const hits = ray.current.intersectObjects(scene.children, true)
-      let hitY = null
-      for (const h of hits) {
-        if (h.object.userData && h.object.userData.walkable) { hitY = h.point.y; break }
-      }
-      if (hitY !== null) {
-        const targetY = hitY + 1.6
-        camera.position.y += (targetY - camera.position.y) * Math.min(1, d * 14)
-      } else {
-        camera.position.y = Math.max(1.6, camera.position.y - 5 * d)
-      }
+      camera.position.y = Math.max(EYE, camera.position.y - FALL * d)
     }
   })
   return null
@@ -273,8 +317,8 @@ function StraightFlight() {
     const RISER = (H * KNEE - Y_LAND) / FLIGHT_STEPS
     const RUN   = RISER / Math.tan(Math.PI / 6)            // 30° 경사
     for (let k = 0; k < FLIGHT_STEPS; k++) {
-      const s = k + 1
-      dum.position.set(FLIGHT_X0 - s * RUN, Y_LAND + s * RISER, 0)
+      // 첫 단(k=0)을 큰 참 위에 겹쳐 시작 → 참↔계단 사이 틈 제거. 마지막 단이 테라스(y=H*KNEE)에 닿음.
+      dum.position.set(FLIGHT_X0 - k * RUN, Y_LAND + (k + 1) * RISER, 0)
       dum.rotation.set(0, 0, 0)                            // 회전 없음 = 곧은 계단
       dum.scale.set(0.5, 1, FLIGHT_WIDTH / TREAD_WIDTH)    // 깊이 살짝 줄이고 가로폭 넓힘
       dum.updateMatrix()
@@ -333,7 +377,7 @@ export default function App() {
         </div>
         <div style={{ fontSize: 13, lineHeight: 1.7 }}>
           <b>W A S D</b> 걷기 · <b>드래그</b> 둘러보기 · 나선으로 테라스까지<br />
-          <b>Q / E</b> 누르는 동안만 위아래 비행(미리보기).
+          가장자리에선 자동으로 멈춤 · 끼면 <b>Q / E</b>로 위아래 비행(탈출·미리보기).
         </div>
       </div>
     </>
