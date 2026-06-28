@@ -1,6 +1,7 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { useRef, useEffect, useLayoutEffect, useMemo } from 'react'
+import { useRef, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import * as THREE from 'three'
+import GraphScaffold from './GraphScaffold'
 
 // ============================================================
 //  Ethica Architectonics — 1부 (1~15) · 셸 B · 수직축
@@ -345,39 +346,70 @@ function Terrace() {
 }
 
 export default function App() {
+  const [view, setView] = useState('dome')   // 'dome' = 돔 씬, 'graph' = 데이터 그래프
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.code === 'KeyG') setView(v => (v === 'dome' ? 'graph' : 'dome'))
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   return (
     <>
       <Canvas camera={{ fov: 70, near: 0.1, far: 600, position: [0, 1.6, 0] }}>
-        <color attach="background" args={['#e7d6ad']} />
-        <fog attach="fog" args={['#e7d6ad', 30, 150]} />
+        {view === 'dome' && (
+          <>
+            <color attach="background" args={['#e7d6ad']} />
+            <fog attach="fog" args={['#e7d6ad', 30, 150]} />
 
-        <hemisphereLight args={['#ffeccb', '#2e2618', 0.85]} />
-        <ambientLight intensity={0.25} />
-        <directionalLight position={[30, 120, 20]} intensity={0.3} color="#ffe6bf" />
+            <hemisphereLight args={['#ffeccb', '#2e2618', 0.85]} />
+            <ambientLight intensity={0.25} />
+            <directionalLight position={[30, 120, 20]} intensity={0.3} color="#ffe6bf" />
 
-        <Ground />
-        <DomeRibs />
-        <ClimbShaft />
-        <Apex />
-        <RibStair />
-        <SmallLandingPad />
-        <LandingPad />
-        <StraightFlight />
-        <Terrace />
-        <FirstPersonControls />
+            <Ground />
+            <DomeRibs />
+            <ClimbShaft />
+            <Apex />
+            <RibStair />
+            <SmallLandingPad />
+            <LandingPad />
+            <StraightFlight />
+            <Terrace />
+            <FirstPersonControls />
+          </>
+        )}
+
+        {view === 'graph' && (
+          <>
+            <color attach="background" args={['#171511']} />
+            <ambientLight intensity={0.8} />
+            <GraphScaffold />
+          </>
+        )}
       </Canvas>
 
       <div style={{
         position: 'fixed', left: 24, bottom: 22, maxWidth: 380, pointerEvents: 'none',
-        fontFamily: '"Helvetica Neue", Arial, sans-serif', color: '#3a3324',
-        textShadow: '0 1px 2px rgba(255,255,255,0.4)'
+        fontFamily: '"Helvetica Neue", Arial, sans-serif',
+        color: view === 'graph' ? '#e8ddc4' : '#3a3324',
+        textShadow: view === 'graph' ? '0 1px 3px rgba(0,0,0,0.5)' : '0 1px 2px rgba(255,255,255,0.4)'
       }}>
-        <div style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: '#7a6a48', marginBottom: 8 }}>
-          Ethica · 수직축 · 나선→계단참→직선(방식 a)
+        <div style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: view === 'graph' ? '#b9a36f' : '#7a6a48', marginBottom: 8 }}>
+          {view === 'graph' ? 'Ethica · 데이터 그래프 (1p1~1p8 의존)' : 'Ethica · 수직축 · 나선→계단참→직선(방식 a)'}
         </div>
         <div style={{ fontSize: 13, lineHeight: 1.7 }}>
-          <b>W A S D</b> 걷기 · <b>드래그</b> 둘러보기 · 나선으로 테라스까지<br />
-          가장자리에선 자동으로 멈춤 · 끼면 <b>Q / E</b>로 위아래 비행(탈출·미리보기).
+          {view === 'graph' ? (
+            <>
+              <b>드래그</b> 회전 · <b>휠</b> 줌 · 점=노드, 선=의존<br />
+              <b>G</b> 키로 돔 씬으로 돌아가기.
+            </>
+          ) : (
+            <>
+              <b>W A S D</b> 걷기 · <b>드래그</b> 둘러보기 · 나선으로 테라스까지<br />
+              가장자리 자동 멈춤 · 끼면 <b>Q / E</b> 비행 · <b>G</b> 데이터 그래프 보기.
+            </>
+          )}
         </div>
       </div>
     </>
