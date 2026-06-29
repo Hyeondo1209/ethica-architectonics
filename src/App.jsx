@@ -14,7 +14,7 @@ const MERIDIANS = 72
 const SHELL_RIB_R = 1.1
 
 const RIB_PHI = 0
-const SHAFT_R = 4.5
+const SHAFT_R = 5        // 등반 기둥 반지름 (= PILLAR_R, 다른 기둥과 동일 굵기)
 const SHAFT_TOP_U = 0.235
 
 // ── 나선 계단 (테라스보다 살짝 아래 Y_LAND에서 끝남) ──
@@ -108,6 +108,7 @@ function FirstPersonControls() {
   const STEP_UP  = 0.8      // 한 번에 오를 수 있는 턱 높이
   const STEP_DOWN = 2.2     // 한 번에 내려설 수 있는 낙차(이 이상은 '낭떠러지')
   const FALL     = 5        // 디딜 곳 없을 때 떨어지는 속도
+  const FREE_WALK = true    // ★ 임시: 벽/가장자리 충돌 끔(자유 이동). 원래대로면 false.
 
   // (x,z) 발밑에 '걸을 수 있는 면'이 STEP 범위 안에 있으면 그 높이를, 없으면 null
   const probe = (x, z) => {
@@ -156,7 +157,9 @@ function FirstPersonControls() {
       move.normalize().multiplyScalar(SPEED * d)
       const px = camera.position.x, pz = camera.position.z
       const nx = px + move.x, nz = pz + move.z
-      if (probe(nx, nz) !== null) {            // 목적지에 디딜 면 있음 → 그대로 이동
+      if (FREE_WALK) {                          // ★ 자유 이동: 벽/가장자리 무시하고 그대로 이동
+        camera.position.x = nx; camera.position.z = nz
+      } else if (probe(nx, nz) !== null) {     // 목적지에 디딜 면 있음 → 그대로 이동
         camera.position.x = nx; camera.position.z = nz
       } else if (probe(nx, pz) !== null) {     // x쪽만 가능 → 벽 따라 미끄러짐
         camera.position.x = nx
@@ -168,7 +171,7 @@ function FirstPersonControls() {
     // ── 시작~등반 구간: 샤프트 벽 밖으로 못 나가게 (반경 제약) ──
     //   낮은 높이에선 원통 안에 가둬 벽 통과를 막고, 테라스 높이(Y_LAND) 근처에서 풀어
     //   참·테라스로 나갈 수 있게 한다.
-    if (camera.position.y < Y_LAND - 1) {
+    if (!FREE_WALK && camera.position.y < Y_LAND - 1) {
       const ax = axisPoint(0)                 // 샤프트 중심축 (47.5, *, 0)
       const dx = camera.position.x - ax.x, dz = camera.position.z - ax.z
       const dist = Math.hypot(dx, dz)
@@ -184,9 +187,9 @@ function FirstPersonControls() {
     if (groundY !== null) {
       const targetY = groundY + EYE
       camera.position.y += (targetY - camera.position.y) * Math.min(1, d * 14)
-    } else {
+    } else if (!FREE_WALK) {
       camera.position.y = Math.max(EYE, camera.position.y - FALL * d)
-    }
+    }                                          // ★ FREE_WALK: 디딜 곳 없으면 낙하 없이 그 자리 높이 유지
   })
   return null
 }
@@ -234,8 +237,8 @@ function ClimbShaft() {
   }, [])
   return (
     <mesh>
-      <tubeGeometry args={[curve, 160, SHAFT_R, 20, false]} />
-      <meshStandardMaterial color="#a87c45" roughness={0.8} metalness={0} side={THREE.DoubleSide} />
+      <tubeGeometry args={[curve, 160, SHAFT_R, 24, false]} />
+      <meshStandardMaterial color="#cda368" roughness={0.8} metalness={0} side={THREE.DoubleSide} transparent opacity={0.5} />
     </mesh>
   )
 }
@@ -345,6 +348,116 @@ function Terrace() {
   )
 }
 
+// ════════ 단일속성 기둥 (무한 반복 암시) — 덩어리 ① ════════
+// 스케치의 '단일 속성 실체' = 기둥. 손그림의 셋은 축약, 실제론 링을 따라 여럿.
+// 스케치 반지름 50 → 기존 돔의 지표 둘레 R_BASE(60)에 매핑(약 ×1.2).
+// (돔은 지표 r=60 → 무릎 y=50에서 r=35로 좁아져 천장이 열림 ⇒ 기둥은 무릎 아래까지만.)
+const PILLAR_RING_R = ARRIVAL_R      // 기둥 링 반지름 = 등반축 반지름(47.5) → 등반 기둥도 같은 링 위에
+const PILLAR_COUNT  = 24             // 링을 도는 기둥 수 (많을수록 '무한' 느낌 ↑)
+const PILLAR_R      = 5              // 기둥 굵기(반지름)
+const PILLAR_H      = TERRACE_Y - 2  // 기둥 높이: 무릎/테라스(50) 살짝 아래 = 48 (드럼 벽 안에 머무름)
+
+function Pillars() {
+  const ref = useRef()
+  useLayoutEffect(() => {
+    const dummy = new THREE.Object3D()
+    for (let i = 0; i < PILLAR_COUNT; i++) {
+      const a = (i / PILLAR_COUNT) * Math.PI * 2          // 링을 한 바퀴 균등 분할
+      dummy.position.set(
+        PILLAR_RING_R * Math.cos(a),
+        PILLAR_H / 2,                                      // 원기둥 중심 = 높이의 절반(바닥~PILLAR_H)
+        PILLAR_RING_R * Math.sin(a)
+      )
+      dummy.scale.setScalar(i === 0 ? 0 : 1)              // +x(i=0) 자리는 등반 기둥(ClimbShaft)이 대신 → 비움
+      dummy.updateMatrix()
+      ref.current.setMatrixAt(i, dummy.matrix)
+    }
+    ref.current.instanceMatrix.needsUpdate = true
+  }, [])
+  return (
+    <instancedMesh ref={ref} args={[undefined, undefined, PILLAR_COUNT]}>
+      <cylinderGeometry args={[PILLAR_R, PILLAR_R, PILLAR_H, 24]} />
+      <meshStandardMaterial color="#cda368" roughness={0.8} metalness={0} />
+    </instancedMesh>
+  )
+}
+
+// ════════ 지하 정의·공리 방 — 덩어리 ② ════════
+// 뒤집힌 깔때기(열린 돔) 한가운데, 지표 아래에 묻힌 돔 = 정의·공리 방.
+// 스케치: 구 중심 (0,0,-8)·지표단면 r=10 → 돔 스케일(×1.2)로 매핑.
+// 안쪽 링 = 정의 8(1d1~8), 바깥 링 = 공리 7(1a1~7), 가운데가 출발점.
+// (지표 입구·하강 동선·번호 라벨은 다음 단계. 지금은 FREE_WALK로 Q눌러 내려가 확인.)
+const ROOM_CY      = -18     // 방 돔 중심 깊이(지표 아래) — 더 깊고 크게
+const ROOM_R       = 22      // 방 돔 반지름 (키움: 15 → 22)
+const ROOM_FLOOR_Y = -14     // 마커가 놓이는 바닥 높이
+const ROOM_FLOOR_R = Math.sqrt(Math.max(0, ROOM_R * ROOM_R - (ROOM_FLOOR_Y - ROOM_CY) ** 2))  // 그 높이의 바닥 원판 반지름
+const DEF_RING_R   = 7       // 정의(안쪽) 링 반지름 — 마커 8
+const AXIOM_RING_R = 12      // 공리(바깥) 링 반지름 — 마커 7
+const MARKER_R     = 0.9     // 마커 구 반지름
+
+function DefAxiomRoom() {
+  const defRef = useRef()
+  const axRef  = useRef()
+  useLayoutEffect(() => {
+    const dum = new THREE.Object3D()
+    for (let i = 0; i < 8; i++) {                       // 정의 8 — 안쪽 링
+      const a = (i / 8) * Math.PI * 2
+      dum.position.set(DEF_RING_R * Math.cos(a), ROOM_FLOOR_Y, DEF_RING_R * Math.sin(a))
+      dum.updateMatrix(); defRef.current.setMatrixAt(i, dum.matrix)
+    }
+    defRef.current.instanceMatrix.needsUpdate = true
+    for (let i = 0; i < 7; i++) {                       // 공리 7 — 바깥 링
+      const a = (i / 7) * Math.PI * 2
+      dum.position.set(AXIOM_RING_R * Math.cos(a), ROOM_FLOOR_Y, AXIOM_RING_R * Math.sin(a))
+      dum.updateMatrix(); axRef.current.setMatrixAt(i, dum.matrix)
+    }
+    axRef.current.instanceMatrix.needsUpdate = true
+  }, [])
+  return (
+    <group>
+      {/* 방 돔 껍질 (반투명 — 안팎으로 보이게) */}
+      <mesh position={[0, ROOM_CY, 0]}>
+        <sphereGeometry args={[ROOM_R, 40, 32]} />
+        <meshStandardMaterial color="#6f5a3c" roughness={0.95} side={THREE.DoubleSide} transparent opacity={0.45} />
+      </mesh>
+      {/* 바닥 원판 */}
+      <mesh position={[0, ROOM_FLOOR_Y, 0]} rotation-x={-Math.PI / 2} userData={{ walkable: true }}>
+        <circleGeometry args={[ROOM_FLOOR_R, 48]} />
+        <meshStandardMaterial color="#7d674a" roughness={0.95} side={THREE.DoubleSide} />
+      </mesh>
+      {/* 정의 마커 8 (안쪽, 따뜻한 색) */}
+      <instancedMesh ref={defRef} args={[undefined, undefined, 8]}>
+        <sphereGeometry args={[MARKER_R, 16, 16]} />
+        <meshStandardMaterial color="#e6c98a" roughness={0.6} emissive="#3a2e14" />
+      </instancedMesh>
+      {/* 공리 마커 7 (바깥, 차가운 색) */}
+      <instancedMesh ref={axRef} args={[undefined, undefined, 7]}>
+        <sphereGeometry args={[MARKER_R, 16, 16]} />
+        <meshStandardMaterial color="#b9c6dd" roughness={0.6} emissive="#16202e" />
+      </instancedMesh>
+    </group>
+  )
+}
+
+// ════════ 수평 통로 + 정리 1~4 — 덩어리 ③ ════════
+// 지하 방(중앙) → 가장자리 경선기둥으로 이어지는 공중 통로(타원 platform).
+// 스케치: z=4 평면, 타원 중심 (-25.4,0)·반축 30.4×12.1 → 돔 스케일(×1.2).
+// 1p1(방 쪽)~1p4(기둥 쪽)을 통로 중심선에 임시 균등 배치(정확 위치·번호 라벨은 추후).
+const WALK_Y   = 5                    // 통로 높이(지표보다 살짝 위)
+const WALK_CX  = 25                   // 통로 타원 중심 x (방 0 ↔ 등반기둥 +47.5 쪽)
+const WALK_RX  = 30                   // 타원 반축(긴쪽, x) — 중심에서 등반기둥까지
+const WALK_RZ  = 14.5                 // 타원 반축(짧은쪽, z)
+
+function Walkway() {
+  // 통로 바닥(타원 platform)만. 정리 1~4 마커(주황 구)는 임시 제거 — 추후 번호 라벨로 대체.
+  return (
+    <mesh position={[WALK_CX, WALK_Y, 0]} rotation-x={-Math.PI / 2} scale={[WALK_RX, WALK_RZ, 1]} userData={{ walkable: true }}>
+      <circleGeometry args={[1, 64]} />
+      <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.DoubleSide} />
+    </mesh>
+  )
+}
+
 export default function App() {
   const [view, setView] = useState('dome')   // 'dome' = 돔 씬, 'graph' = 데이터 그래프
   useEffect(() => {
@@ -369,6 +482,9 @@ export default function App() {
 
             <Ground />
             <DomeRibs />
+            <Pillars />
+            <DefAxiomRoom />
+            <Walkway />
             <ClimbShaft />
             <Apex />
             <RibStair />
@@ -407,7 +523,7 @@ export default function App() {
           ) : (
             <>
               <b>W A S D</b> 걷기 · <b>드래그</b> 둘러보기 · 나선으로 테라스까지<br />
-              가장자리 자동 멈춤 · 끼면 <b>Q / E</b> 비행 · <b>G</b> 데이터 그래프 보기.
+              임시: 벽 통과(자유 이동) · 상하 <b>Q / E</b> · <b>G</b> 데이터 그래프 보기.
             </>
           )}
         </div>
