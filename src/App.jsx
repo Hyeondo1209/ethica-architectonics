@@ -73,8 +73,8 @@ const FLIGHT_WIDTH = 3.5
 const ROOM_CX      = R_BASE * 0.2     // 방 위치 = 리브까지 거리의 비율(0=중앙, 1=리브)
 // 방 b버전(깊게 판 돔): footprint 유지, 바닥을 아래로 파 층고 확보, 천장은 낮게(리브와 안 부딪힘)
 const ROOM_FLOOR_R = 22 * SCALE          // 바닥 반지름 = footprint
-const ROOM_CEIL_Y  = 5 * SCALE           // 천장 apex(지표 위로 솟는 높이) = 통로 접합 높이
-const ROOM_HEIGHT  = 24 * SCALE          // 층고(아래로 팜). ↑면 방이 깊고 높아짐
+const ROOM_CEIL_Y  = 14 * SCALE           // 천장 apex(지표 위로 솟는 높이) = 통로 접합 높이
+const ROOM_HEIGHT  = 36 * SCALE          // 층고(아래로 팜). ↑면 방이 깊고 높아짐
 const ROOM_FLOOR_Y = ROOM_CEIL_Y - ROOM_HEIGHT
 const DEF_RING_R   = 7 * SCALE
 const AXIOM_RING_R = 12 * SCALE
@@ -86,14 +86,27 @@ const MARKER_R     = 0.9 * SCALE
 const COR_Y0       = ROOM_CEIL_Y         // 복도 바닥 높이 = 방 천장 꼭대기
 const COR_X0       = ROOM_CX             // 안쪽 끝(방 천장 꼭대기, 접합점)
 const COR_X1       = R_BASE              // 바깥 끝(탐험경선 #0)
-const COR_FLOOR_HW = 7                   // 바닥 반폭(좁게 → #0만 닿음; 이웃 z≈18 > 안 닿음)
+const COR_FLOOR_HW = 4.5                   // 바닥 반폭(좁게 → #0만 닿음; 이웃 z≈18 > 안 닿음)
 const COR_WALL_H   = 60                  // 벽/천장 높이. 액자로 #0이 보이는 양 + '무한'이 드러나는 상승 높이
 const COR_WALL_TOP = COR_Y0 + COR_WALL_H // 천장(=벽 위) 절대 높이. 날개벽은 이 높이~지면(0)까지 한 장
 const COR_FLARE_X  = COR_X0 + (COR_X1 - COR_X0) * 0.2  // 날개 시작 x(통로 시작쪽으로 당김; ↓일수록 더 일찍·완만히 벌어짐)
-const COR_MOUTH_HW = 45                  // 개구부 반폭(이웃 ±2=36.5 보임, ±3=54.4 가림)
+const COR_MOUTH_HW = 42                  // 개구부 반폭(이웃 ±2=36.5 보임, ±3=54.4 가림)
 const COR_THICK    = 0.6                 // 바닥/벽/천장 두께
 const COR_FLARE_LEN = Math.hypot(COR_X1 - COR_FLARE_X, COR_MOUTH_HW - COR_FLOOR_HW)
 const COR_FLARE_ANG = Math.atan2(COR_MOUTH_HW - COR_FLOOR_HW, COR_X1 - COR_FLARE_X)
+// 부채(fan) 모드: 날개가 통로 시작(COR_X0)부터 끝까지 한 번에 벌어짐(=연속 깔때기)
+const FAN_LEN      = Math.hypot(COR_X1 - COR_X0, COR_MOUTH_HW - COR_FLOOR_HW)
+const FAN_ANG      = Math.atan2(COR_MOUTH_HW - COR_FLOOR_HW, COR_X1 - COR_X0)
+
+// ── 길(path): 다리 → 원형 플랫폼(기둥 받침) → 다리 ──  (막힌 깔때기는 그대로, 길만 이 형태)
+const PLAT_X       = (COR_X0 + COR_X1) / 2  // 플랫폼 x = 통로 중간(=126; 방 footprint 끝 x≈119 밖 → 기둥이 지면까지)
+const PLAT_R       = 11                      // 원형 플랫폼 반지름(중간 깔때기 반폭 ±23 안)
+const PILLAR_R     = 4                       // 받침 기둥 반지름
+const COR_RISE     = 0.43                     // 계단 한 칸 높이(=두께). 작을수록 얇음
+const COR_CLIMB    = 5                        // 다리 한 칸의 총 상승. 작을수록 완만(앞 시야 트임)
+const COR_STEPS    = Math.max(2, Math.round(COR_CLIMB / COR_RISE))  // 칸 수 = 총상승÷칸높이(자동)
+const PLAT_Y       = COR_Y0                   // 플랫폼 높이 = 방 천장 높이(다리1은 평면, 상승 없음)
+const RIB_Y        = PLAT_Y + COR_CLIMB       // 리브 접합 높이(다리2=계단만 상승)
 
 // ── ① 1인칭 컨트롤 ──
 function FirstPersonControls() {
@@ -381,56 +394,130 @@ function DefAxiomRoom() {
 }
 
 // ════════ 탐험 통로(복도) — 바닥(#0 전용) + 양벽 + 천장 ════════
-function Corridor() {
+// 완만한 오름 계단: (x0,y0)→(x1,y1), 폭 ±hw, steps칸. 각 칸=속찬 블록이 서로 붙어 빈틈 없음.
+// 칸 수(steps)가 많을수록 한 칸 높이(rise)가 작아져 '얇은' 계단이 된다.
+function Stairs({ x0, x1, y0, y1, hw, steps }) {
+  const run = (x1 - x0) / steps
+  const rise = (y1 - y0) / steps
+  const items = []
+  for (let i = 0; i < steps; i++) {
+    const cx = x0 + run * (i + 0.5)
+    const topY = y0 + rise * (i + 1)
+    items.push(
+      <mesh key={i} position={[cx, topY - rise / 2, 0]} userData={{ walkable: true }}>
+        <boxGeometry args={[run + 0.05, rise, hw * 2]} />
+        <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.DoubleSide} />
+      </mesh>
+    )
+  }
+  return <group>{items}</group>
+}
+
+function Corridor({ mode = 'flare' }) {
   const wallMat = '#b89a6a'
+
+  // 부채(fan) 천장: ±COR_FLOOR_HW(방 쪽) → ±COR_MOUTH_HW(리브 쪽) 사다리꼴 한 장(연속 확장 덮개)
+  const fanRoofGeo = useMemo(() => {
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.Float32BufferAttribute([
+      COR_X0, COR_WALL_TOP, -COR_FLOOR_HW,
+      COR_X0, COR_WALL_TOP,  COR_FLOOR_HW,
+      COR_X1, COR_WALL_TOP,  COR_MOUTH_HW,
+      COR_X1, COR_WALL_TOP, -COR_MOUTH_HW,
+    ], 3))
+    g.setIndex([0, 1, 2, 0, 2, 3])
+    g.computeVertexNormals()
+    return g
+  }, [])
+
   return (
     <group>
-      {/* 바닥(브리지): 방 천장 꼭대기 → #0, 좁게(=#0에만 닿음) */}
-      <mesh position={[(COR_X0 + COR_X1) / 2, COR_Y0, 0]} userData={{ walkable: true }}>
-        <boxGeometry args={[COR_X1 - COR_X0, COR_THICK, COR_FLOOR_HW * 2]} />
+      {/* === 길(path) — 두 모드 공통: 평면 다리 → 원형 플랫폼(기둥 받침) → 완만한 계단(리브까지) === */}
+      {/* 다리 1: 방 천장 꼭대기 → 플랫폼, 평면(상승 없음 → 앞 시야 트임) */}
+      <mesh position={[(COR_X0 + (PLAT_X - PLAT_R)) / 2, COR_Y0, 0]} userData={{ walkable: true }}>
+        <boxGeometry args={[(PLAT_X - PLAT_R) - COR_X0, COR_THICK, COR_FLOOR_HW * 2]} />
         <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.DoubleSide} />
       </mesh>
 
-      {/* 좁은 구간 양벽 (방 쪽 → 개구부 시작) */}
-      {[1, -1].map((sgn) => (
-        <mesh key={'nw' + sgn} position={[(COR_X0 + COR_FLARE_X) / 2, COR_Y0 + COR_WALL_H / 2, sgn * COR_FLOOR_HW]}>
-          <boxGeometry args={[COR_FLARE_X - COR_X0, COR_WALL_H, COR_THICK]} />
-          <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
-        </mesh>
-      ))}
-
-      {/* 좁은 구간 천장 (위 가림) */}
-      <mesh position={[(COR_X0 + COR_FLARE_X) / 2, COR_Y0 + COR_WALL_H, 0]}>
-        <boxGeometry args={[COR_FLARE_X - COR_X0, COR_THICK, COR_FLOOR_HW * 2]} />
-        <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
+      {/* 원형 플랫폼(정리 자리) — 올라서는 얇은 원판, 평면 높이(다리1 끝) */}
+      <mesh position={[PLAT_X, PLAT_Y, 0]} userData={{ walkable: true }}>
+        <cylinderGeometry args={[PLAT_R, PLAT_R, COR_THICK, 48]} />
+        <meshStandardMaterial color="#cdb074" roughness={0.85} side={THREE.DoubleSide} />
       </mesh>
 
-      {/* 날개벽 — 지면(y=0)~천장까지 한 장으로 내려 옆·아래 시야 차단(±2만 보이고 먼 리브 가림). 벽이라 '길' 아님 */}
-      {[1, -1].map((sgn) => (
-        <mesh
-          key={'fw' + sgn}
-          position={[(COR_FLARE_X + COR_X1) / 2, COR_WALL_TOP / 2, sgn * (COR_FLOOR_HW + COR_MOUTH_HW) / 2]}
-          rotation={[0, -sgn * COR_FLARE_ANG, 0]}
-        >
-          <boxGeometry args={[COR_FLARE_LEN, COR_WALL_TOP, COR_THICK]} />
-          <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
-        </mesh>
-      ))}
-
-      {/* 개구부 천장(덮개): 위로 새던 먼 리브를 막음 — 정면(+x)만 액자처럼 열림 */}
-      <mesh position={[(COR_FLARE_X + COR_X1) / 2, COR_Y0 + COR_WALL_H, 0]}>
-        <boxGeometry args={[COR_X1 - COR_FLARE_X, COR_THICK, COR_MOUTH_HW * 2]} />
-        <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
+      {/* 받침 기둥 — 플랫폼 아래 → 지면(0) */}
+      <mesh position={[PLAT_X, (PLAT_Y - COR_THICK / 2) / 2, 0]}>
+        <cylinderGeometry args={[PILLAR_R, PILLAR_R, PLAT_Y - COR_THICK / 2, 24]} />
+        <meshStandardMaterial color="#a98f5e" roughness={0.95} side={THREE.DoubleSide} />
       </mesh>
+
+      {/* 다리 2: 플랫폼 → 리브, 완만한 오름 계단(여기서만 상승) */}
+      <Stairs x0={PLAT_X + PLAT_R} x1={COR_X1} y0={PLAT_Y} y1={RIB_Y} hw={COR_FLOOR_HW} steps={COR_STEPS} />
+
+      {mode === 'fan' ? (
+        <>
+          {/* 부채 양벽 — 통로 시작(±7)부터 리브(±45)까지 한 장으로 연속 확장, 지면(0)까지 */}
+          {[1, -1].map((sgn) => (
+            <mesh
+              key={'fanw' + sgn}
+              position={[(COR_X0 + COR_X1) / 2, COR_WALL_TOP / 2, sgn * (COR_FLOOR_HW + COR_MOUTH_HW) / 2]}
+              rotation={[0, -sgn * FAN_ANG, 0]}
+            >
+              <boxGeometry args={[FAN_LEN, COR_WALL_TOP, COR_THICK]} />
+              <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
+            </mesh>
+          ))}
+          {/* 부채 천장(사다리꼴 덮개) */}
+          <mesh geometry={fanRoofGeo}>
+            <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
+          </mesh>
+        </>
+      ) : (
+        <>
+          {/* 좁은 구간 양벽 (방 쪽 → 개구부 시작) */}
+          {[1, -1].map((sgn) => (
+            <mesh key={'nw' + sgn} position={[(COR_X0 + COR_FLARE_X) / 2, COR_Y0 + COR_WALL_H / 2, sgn * COR_FLOOR_HW]}>
+              <boxGeometry args={[COR_FLARE_X - COR_X0, COR_WALL_H, COR_THICK]} />
+              <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
+            </mesh>
+          ))}
+
+          {/* 좁은 구간 천장 (위 가림) */}
+          <mesh position={[(COR_X0 + COR_FLARE_X) / 2, COR_Y0 + COR_WALL_H, 0]}>
+            <boxGeometry args={[COR_FLARE_X - COR_X0, COR_THICK, COR_FLOOR_HW * 2]} />
+            <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
+          </mesh>
+
+          {/* 날개벽 — 지면(y=0)~천장까지 한 장으로 내려 옆·아래 시야 차단. 벽이라 '길' 아님 */}
+          {[1, -1].map((sgn) => (
+            <mesh
+              key={'fw' + sgn}
+              position={[(COR_FLARE_X + COR_X1) / 2, COR_WALL_TOP / 2, sgn * (COR_FLOOR_HW + COR_MOUTH_HW) / 2]}
+              rotation={[0, -sgn * COR_FLARE_ANG, 0]}
+            >
+              <boxGeometry args={[COR_FLARE_LEN, COR_WALL_TOP, COR_THICK]} />
+              <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
+            </mesh>
+          ))}
+
+          {/* 개구부 천장(덮개): 위로 새던 먼 리브를 막음 — 정면(+x)만 액자처럼 열림 */}
+          <mesh position={[(COR_FLARE_X + COR_X1) / 2, COR_Y0 + COR_WALL_H, 0]}>
+            <boxGeometry args={[COR_X1 - COR_FLARE_X, COR_THICK, COR_MOUTH_HW * 2]} />
+            <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
+          </mesh>
+        </>
+      )}
     </group>
   )
 }
 
 export default function App() {
   const [view, setView] = useState('dome')
+  const [cor, setCor] = useState('flare')   // 'flare'(2단) | 'fan'(부채)
   useEffect(() => {
     const onKey = (e) => {
       if (e.code === 'KeyG') setView(v => (v === 'dome' ? 'graph' : 'dome'))
+      if (e.code === 'KeyC') setCor(c => (c === 'flare' ? 'fan' : 'flare'))
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -451,7 +538,7 @@ export default function App() {
             <Ground />
             <DomeRibs />
             <DefAxiomRoom />
-            <Corridor />
+            <Corridor mode={cor} />
             <Apex />
             <RibStair />
             <LandingPad />
@@ -488,6 +575,7 @@ export default function App() {
           ) : (
             <>
               <b>W A S D</b> 걷기 · <b>드래그</b> 둘러보기 · 나선으로 테라스까지<br />
+              <b>C</b> 통로 모양: <b>{cor === 'fan' ? '부채(연속 깔때기)' : '2단(상자+벌어짐)'}</b><br />
               임시: 벽 통과(자유 이동) · 상하 <b>Q / E</b> · <b>G</b> 데이터 그래프 보기.
             </>
           )}
