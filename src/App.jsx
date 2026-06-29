@@ -4,49 +4,29 @@ import * as THREE from 'three'
 import GraphScaffold from './GraphScaffold'
 
 // ============================================================
-//  Ethica Architectonics — 1부 (1~15) · 셸 B · 수직축
-//  ★ 깨끗한 복구본: 립 온전(72개 전부) + 단순 나선 계단(꺾임/직각 직선계단 없음)
-//    다음 단계에서 '나선 → 정사각 계단참 → 직선 오르막'(방식 a)을 여기에 얹는다.
+//  Ethica Architectonics — 1부 (1~15) · 돔 씬
+//  ★ 전환본: "두꺼운 기둥 → 얇은 경선 리브 = 단일 속성 실체" + 비율유지 스케일업
+//    - Pillars(두꺼운 원기둥) 삭제 · 별도 ClimbShaft 삭제
+//    - 단일 속성 실체 = DomeRibs(얇은 리브) 그 자체. 72개 전부 '균일'(특별한 리브 없음).
+//    - 탐험 = φ=0 리브 '안'의 나선(리브 중심선 ribCenter를 따라 오름).
+//    - SCALE 배수를 모든 '건축 치수'에만 곱함. 사람 치수(EYE/SPEED/계단)는 고정.
 // ============================================================
 
-const R_BASE = 60, R_TOP = 35, H = 200, KNEE = 0.25, WIDTH = 0.02
-const MERIDIANS = 72
-const SHELL_RIB_R = 1.1
+// ── 공간 전체 배수 (건축 치수 전용; 사람 치수 제외) ──────────────
+//   비율 유지: 가로(반지름)·높이(H)·리브 굵기에 같은 배수 →
+//   '빽빽한 72개' 룩은 그대로, 사람만 상대적으로 작아져 리브 '안'에 들어갈 수 있게 된다.
+//   ※ 등반이 길게 느껴지면 이 값만 낮추면 된다(룩 동일, 돔만 작아짐).
+//     높이만 따로 줄여 '낮고 넓은' 돔으로 가고 싶으면 다음 단계에서 높이 전용 배수를 분리.
+const SCALE = 3.5
 
-const RIB_PHI = 0
-const SHAFT_R = 5        // 등반 기둥 반지름 (= PILLAR_R, 다른 기둥과 동일 굵기)
-const SHAFT_TOP_U = 0.235
-
-// ── 나선 계단 (테라스보다 살짝 아래 Y_LAND에서 끝남) ──
-const STAIR_STEPS = 150
-const STAIR_TURNS = 4.5             // 도착이 안쪽(θ=π, '12시' 방향)
-const STAIR_R     = 2.8
-const Y_LAND      = 47              // 나선 도착 = 계단참 높이 (테라스 y50보다 3 아래)
-const U_LAND      = Y_LAND / H
-const TREAD_DEPTH = 2.0             // 디딤판 깊이(부채형 완화: 2.8→2.0)
-const TREAD_WIDTH = 1.0
-const TREAD_THICK = 0.22
-const POLE_R      = 0.4
-
-// ── 정사각 계단참(landing) — 나선↔직선 전환을 받아주는 평평한 판 ──
-const PAD_CX   = 40.2               // 중심 x (나선 도착 44.7을 확실히 받도록 키우고 안쪽으로)
-const PAD_SIZE = 7.0
-
-// ── 작은 계단참 — 나선 도착점 −z 옆에 (나선 진행방향을 받는 발판) ──
-const SMALL_PAD_CX   = 44.2         // 나선 도착 x(≈44.7) 근처
-const SMALL_PAD_CZ   = -2.0         // 도착점에서 −z 옆 (나선 진행방향)
-const SMALL_PAD_SIZE = 3.0
-
-// ── 직선 오르막 계단 (계단참 → 테라스), 안쪽(-x)으로 곧게 ──
-const FLIGHT_STEPS = 8
-const FLIGHT_WIDTH = 4.0
-const FLIGHT_X0    = PAD_CX - PAD_SIZE / 2   // 계단참 안쪽 끝에서 시작
-
-// ── 테라스 (직선 계단 착지 ≈35 를 받도록 안쪽으로) ──
-const TERRACE_Y    = H * KNEE
-const TERRACE_RIN  = 27
-const TERRACE_ROUT = 33
-const TERRACE_ARC  = 2.4
+// ── 돔/리브 (×SCALE) ──
+const R_BASE = 60 * SCALE          // 지표 반지름
+const R_TOP  = 35 * SCALE          // 천장 개구부 반지름
+const H      = 200 * SCALE         // 전체 높이
+const KNEE = 0.25, WIDTH = 0.02    // 무릎 위치/날카로움 — u(0~1)공간이라 스케일 무관(고정)
+const MERIDIANS = 72               // 리브 수(밀도 유지)
+const SHELL_RIB_R = 1.1 * SCALE    // 리브 굵기 — 같이 커져 사람이 들어갈 만큼(룩은 동일 비율)
+const RIB_PHI = 0                  // 탐험에 쓰는 리브의 각도(+x). 단, 모든 리브는 동일함.
 
 const DOWN = new THREE.Vector3(0, -1, 0)
 
@@ -54,12 +34,56 @@ function rOf(u) {
   const f = 0.5 * (1 - Math.tanh((u - KNEE) / WIDTH))
   return R_TOP + (R_BASE - R_TOP) * f
 }
-const ARRIVAL_R = rOf(KNEE)        // = 47.5
 
-// 계단/샤프트 중심축 — 수직 고정
-function axisPoint(u) {
-  return new THREE.Vector3(ARRIVAL_R * Math.cos(RIB_PHI), H * u, ARRIVAL_R * Math.sin(RIB_PHI))
+// 리브(=단일 속성 실체) 중심선 위의 점. 탐험 나선은 이 선을 따라 '리브 안'을 오른다.
+function ribCenter(u) {
+  const r = rOf(u)
+  return new THREE.Vector3(r * Math.cos(RIB_PHI), H * u, r * Math.sin(RIB_PHI))
 }
+
+// ── 나선 계단 (리브 안, 사람 스케일) ──────────────────────────
+const U_LAND   = 0.22                         // 나선 끝 높이(무릎 0.25 살짝 아래) — u공간(고정)
+const Y_LAND   = H * U_LAND                    // 그 절대 높이(스케일 따라감)
+const STEP_RISE   = 0.32                        // 한 칸 높이(사람 스케일, 고정)
+const STAIR_STEPS = Math.max(40, Math.round(Y_LAND / STEP_RISE))   // 칸 수 자동(높이÷보폭)
+const STEPS_PER_TURN = 30                       // 한 바퀴 칸 수(나선 촘촘함)
+const STAIR_TURNS = STAIR_STEPS / STEPS_PER_TURN
+const STAIR_R     = SHELL_RIB_R * 0.55          // 헬릭스 반지름 — 리브 내부에 들도록 굵기에 비례
+const TREAD_DEPTH = 1.5                          // 디딤판(사람 스케일, 고정)
+const TREAD_WIDTH = 1.0
+const TREAD_THICK = 0.20
+const POLE_R      = 0.35
+
+// ── 테라스(중앙, 도착) (×SCALE) ──
+const TERRACE_Y    = H * KNEE
+const TERRACE_RIN  = 27 * SCALE
+const TERRACE_ROUT = 33 * SCALE
+const TERRACE_ARC  = 2.4
+
+// ── 계단참 + 직선 다리: 나선 top ↔ 테라스를 '구성으로' 잇는다(좌표 자동) ──
+const CLIMB_TOP    = ribCenter(U_LAND)          // 나선이 끝나는 지점(리브 위)
+const TERRACE_EDGE = new THREE.Vector3(         // 테라스 바깥 가장자리(+x쪽)
+  TERRACE_ROUT * Math.cos(RIB_PHI), TERRACE_Y, TERRACE_ROUT * Math.sin(RIB_PHI))
+const PAD_SIZE     = 6.0
+const FLIGHT_LEN   = Math.hypot(TERRACE_EDGE.x - CLIMB_TOP.x, TERRACE_EDGE.y - CLIMB_TOP.y)
+const FLIGHT_STEPS = Math.max(6, Math.round(FLIGHT_LEN / TREAD_DEPTH))   // 다리 칸 수 자동
+const FLIGHT_WIDTH = 3.5
+
+// 지하 방 (×SCALE) ──
+const ROOM_CX      = R_BASE * 0.75     // 방 위치 = 리브까지 거리의 비율(0=중앙, 1=리브). 통로 길이↓
+const ROOM_CY      = -18 * SCALE
+const ROOM_R       = 22 * SCALE
+const ROOM_FLOOR_Y = -14 * SCALE
+const ROOM_FLOOR_R = Math.sqrt(Math.max(0, ROOM_R * ROOM_R - (ROOM_FLOOR_Y - ROOM_CY) ** 2))
+const DEF_RING_R   = 7 * SCALE
+const AXIOM_RING_R = 12 * SCALE
+const MARKER_R     = 0.9 * SCALE
+
+// 공중 통로 — 방(ROOM_CX) ↔ 리브(R_BASE)를 잇는다(좌표 자동) ──
+const WALK_Y   = 5 * SCALE
+const WALK_RZ  = 9 * SCALE              // 통로 폭(짧아진 길이에 맞춰 줄임)
+const WALK_CX  = (ROOM_CX + R_BASE) / 2
+const WALK_RX  = (R_BASE - ROOM_CX) / 2
 
 // ── ① 1인칭 컨트롤 ──
 function FirstPersonControls() {
@@ -68,12 +92,12 @@ function FirstPersonControls() {
   const drag = useRef({ active: false, lastX: 0, lastY: 0 })
   const look = useRef({ yaw: Math.PI, pitch: 0 })
   const ray  = useRef(new THREE.Raycaster())
-  const walkables = useRef([])          // 걸을 수 있는 면만 모아두는 통(매 프레임 갱신)
+  const walkables = useRef([])
 
   useEffect(() => {
     camera.rotation.order = 'YXZ'
-    const start = axisPoint(0)
-    camera.position.set(start.x + STAIR_R, 1.6, start.z)
+    const start = ribCenter(0)                       // 탐험 리브 발치(나선 시작점)
+    camera.position.set(start.x, 1.6, start.z + STAIR_R + 1.5)
     look.current.yaw = Math.PI
     look.current.pitch = 0
     const down = (e) => (keys.current[e.code] = true)
@@ -103,14 +127,14 @@ function FirstPersonControls() {
     }
   }, [camera, gl])
 
-  const SPEED    = 4.5
-  const EYE      = 1.6      // 눈높이(발에서 머리까지)
-  const STEP_UP  = 0.8      // 한 번에 오를 수 있는 턱 높이
-  const STEP_DOWN = 2.2     // 한 번에 내려설 수 있는 낙차(이 이상은 '낭떠러지')
-  const FALL     = 5        // 디딜 곳 없을 때 떨어지는 속도
-  const FREE_WALK = true    // ★ 임시: 벽/가장자리 충돌 끔(자유 이동). 원래대로면 false.
+  const WALK_SPEED = 3.5 * SCALE   // 보행 속도(공간 비례). 답답하면 계수(3.5)↑
+  const FLY_SPEED  = 6   * SCALE   // 비행(Q/E) 속도 — 살펴보기용, 더 빠름
+  const EYE       = 1.6
+  const STEP_UP   = 0.8
+  const STEP_DOWN = 2.2
+  const FALL      = 5
+  const FREE_WALK = true    // ★ 임시: 벽/가장자리/낙하 충돌 끔(공중에서 살펴보기). 편집 끝나면 false.
 
-  // (x,z) 발밑에 '걸을 수 있는 면'이 STEP 범위 안에 있으면 그 높이를, 없으면 null
   const probe = (x, z) => {
     const feet = camera.position.y - EYE
     ray.current.set(new THREE.Vector3(x, feet + STEP_UP, z), DOWN)
@@ -125,7 +149,6 @@ function FirstPersonControls() {
     camera.rotation.y = yaw
     camera.rotation.x = pitch
 
-    // 매 프레임 'walkable' 면만 추려둔다 (무거운 립/셸은 검사 제외 → 성능)
     const arr = []
     scene.traverse(o => { if (o.userData && o.userData.walkable) arr.push(o) })
     walkables.current = arr
@@ -140,56 +163,38 @@ function FirstPersonControls() {
     if (k['KeyA'] || k['ArrowLeft'])  move.sub(right)
 
     const flying = k['KeyQ'] || k['KeyE']
-
     if (flying) {
-      // 미리보기 비행: 충돌·바닥 무시하고 자유 이동 (끼었을 때 탈출용)
-      if (move.lengthSq() > 0) { move.normalize().multiplyScalar(SPEED * d); camera.position.add(move) }
+      if (move.lengthSq() > 0) { move.normalize().multiplyScalar(FLY_SPEED * d); camera.position.add(move) }
       let dy = 0
       if (k['KeyE']) dy += 1
       if (k['KeyQ']) dy -= 1
-      camera.position.y += dy * SPEED * d
+      camera.position.y += dy * FLY_SPEED * d
       camera.position.y = Math.max(EYE, Math.min(H - 4, camera.position.y))
       return
     }
 
-    // ── 걷기: 가장자리에서 멈추고(edge-stop), 막히면 벽 따라 미끄러진다(slide) ──
     if (move.lengthSq() > 0) {
-      move.normalize().multiplyScalar(SPEED * d)
+      move.normalize().multiplyScalar(WALK_SPEED * d)
       const px = camera.position.x, pz = camera.position.z
       const nx = px + move.x, nz = pz + move.z
-      if (FREE_WALK) {                          // ★ 자유 이동: 벽/가장자리 무시하고 그대로 이동
+      if (FREE_WALK) {
         camera.position.x = nx; camera.position.z = nz
-      } else if (probe(nx, nz) !== null) {     // 목적지에 디딜 면 있음 → 그대로 이동
+      } else if (probe(nx, nz) !== null) {
         camera.position.x = nx; camera.position.z = nz
-      } else if (probe(nx, pz) !== null) {     // x쪽만 가능 → 벽 따라 미끄러짐
+      } else if (probe(nx, pz) !== null) {
         camera.position.x = nx
-      } else if (probe(px, nz) !== null) {     // z쪽만 가능
+      } else if (probe(px, nz) !== null) {
         camera.position.z = nz
-      }                                        // 셋 다 없으면 제자리 (낭떠러지 차단)
-    }
-
-    // ── 시작~등반 구간: 샤프트 벽 밖으로 못 나가게 (반경 제약) ──
-    //   낮은 높이에선 원통 안에 가둬 벽 통과를 막고, 테라스 높이(Y_LAND) 근처에서 풀어
-    //   참·테라스로 나갈 수 있게 한다.
-    if (!FREE_WALK && camera.position.y < Y_LAND - 1) {
-      const ax = axisPoint(0)                 // 샤프트 중심축 (47.5, *, 0)
-      const dx = camera.position.x - ax.x, dz = camera.position.z - ax.z
-      const dist = Math.hypot(dx, dz)
-      const R_WALL = SHAFT_R - 0.2
-      if (dist > R_WALL) {
-        camera.position.x = ax.x + (dx / dist) * R_WALL
-        camera.position.z = ax.z + (dz / dist) * R_WALL
       }
     }
 
-    // 발밑 높이에 맞춰 부드럽게 오르내림 / 디딜 곳 없으면 낙하
     const groundY = probe(camera.position.x, camera.position.z)
     if (groundY !== null) {
       const targetY = groundY + EYE
       camera.position.y += (targetY - camera.position.y) * Math.min(1, d * 14)
     } else if (!FREE_WALK) {
       camera.position.y = Math.max(EYE, camera.position.y - FALL * d)
-    }                                          // ★ FREE_WALK: 디딜 곳 없으면 낙하 없이 그 자리 높이 유지
+    }
   })
   return null
 }
@@ -197,13 +202,13 @@ function FirstPersonControls() {
 function Ground() {
   return (
     <mesh rotation-x={-Math.PI / 2} userData={{ walkable: true }}>
-      <planeGeometry args={[800, 800]} />
+      <planeGeometry args={[4000, 4000]} />
       <meshStandardMaterial color="#6f5e44" roughness={1} />
     </mesh>
   )
 }
 
-// ── 셸 B: 얇은 립 72개 (전부 온전) ──
+// ── 셸: 얇은 경선 리브 72개 (= 단일 속성 실체, 전부 균일) ──
 function DomeRibs() {
   const ribRef = useRef()
   const curve = useMemo(() => {
@@ -222,24 +227,9 @@ function DomeRibs() {
   }, [curve])
   return (
     <instancedMesh ref={ribRef} args={[undefined, undefined, MERIDIANS]}>
-      <tubeGeometry args={[curve, 200, SHELL_RIB_R, 6, false]} />
+      <tubeGeometry args={[curve, 200, SHELL_RIB_R, 10, false]} />
       <meshStandardMaterial color="#bb8a4e" roughness={0.7} metalness={0} side={THREE.DoubleSide} />
     </instancedMesh>
-  )
-}
-
-// ── 등반 샤프트 (수직 튜브) ──
-function ClimbShaft() {
-  const curve = useMemo(() => {
-    const pts = []
-    for (let i = 0; i <= 80; i++) pts.push(axisPoint((i / 80) * SHAFT_TOP_U))
-    return new THREE.CatmullRomCurve3(pts)
-  }, [])
-  return (
-    <mesh>
-      <tubeGeometry args={[curve, 160, SHAFT_R, 24, false]} />
-      <meshStandardMaterial color="#cda368" roughness={0.8} metalness={0} side={THREE.DoubleSide} transparent opacity={0.5} />
-    </mesh>
   )
 }
 
@@ -248,14 +238,14 @@ function Apex() {
     <group position={[0, H, 0]}>
       <pointLight color="#ffe3b0" intensity={2.2} distance={0} decay={0} />
       <mesh>
-        <sphereGeometry args={[5, 28, 28]} />
+        <sphereGeometry args={[5 * SCALE, 28, 28]} />
         <meshBasicMaterial color="#fff1d4" />
       </mesh>
     </group>
   )
 }
 
-// ── 나선 계단 (단순 나선, Y_LAND에서 끝남) + 중앙 폴 ──
+// ── 나선 계단: φ=0 리브 '안'을 따라 오름 (리브 중심선 ribCenter 기준) + 중앙 폴 ──
 function RibStair() {
   const treadRef = useRef()
   useLayoutEffect(() => {
@@ -263,7 +253,7 @@ function RibStair() {
     for (let i = 0; i < STAIR_STEPS; i++) {
       const t = i / (STAIR_STEPS - 1)
       const u = t * U_LAND
-      const c = axisPoint(u)
+      const c = ribCenter(u)                          // 높이별 리브 중심
       const th = t * STAIR_TURNS * Math.PI * 2
       dum.position.set(c.x + STAIR_R * Math.cos(th), c.y, c.z + STAIR_R * Math.sin(th))
       dum.rotation.set(0, -th, 0)
@@ -275,7 +265,7 @@ function RibStair() {
 
   const poleCurve = useMemo(() => {
     const pts = []
-    for (let i = 0; i <= 48; i++) pts.push(axisPoint((i / 48) * U_LAND))
+    for (let i = 0; i <= 80; i++) pts.push(ribCenter((i / 80) * U_LAND))
     return new THREE.CatmullRomCurve3(pts)
   }, [])
 
@@ -286,45 +276,36 @@ function RibStair() {
         <meshStandardMaterial color="#d6ab68" roughness={0.8} />
       </instancedMesh>
       <mesh>
-        <tubeGeometry args={[poleCurve, 80, POLE_R, 12, false]} />
+        <tubeGeometry args={[poleCurve, 100, POLE_R, 12, false]} />
         <meshStandardMaterial color="#8f6c3e" roughness={0.85} />
       </mesh>
     </>
   )
 }
 
-// ── 작은 계단참 — 나선 도착 발판 (나선 → 작은 참 → 큰 참) ──
-function SmallLandingPad() {
-  return (
-    <mesh position={[SMALL_PAD_CX, Y_LAND, SMALL_PAD_CZ]} userData={{ walkable: true }}>
-      <boxGeometry args={[SMALL_PAD_SIZE, TREAD_THICK, SMALL_PAD_SIZE]} />
-      <meshStandardMaterial color="#d2aa68" roughness={0.82} />
-    </mesh>
-  )
-}
-
-// ── 정사각 계단참 — 나선 도착점의 평평한 판(방향 전환을 받아줌) ──
+// ── 계단참 — 나선 도착 발판(리브 위) ──
 function LandingPad() {
   return (
-    <mesh position={[PAD_CX, Y_LAND, 0]} userData={{ walkable: true }}>
+    <mesh position={[CLIMB_TOP.x, CLIMB_TOP.y, CLIMB_TOP.z]} userData={{ walkable: true }}>
       <boxGeometry args={[PAD_SIZE, TREAD_THICK, PAD_SIZE]} />
       <meshStandardMaterial color="#cfa765" roughness={0.82} />
     </mesh>
   )
 }
 
-// ── 직선 오르막 계단 — 계단참 안쪽 끝에서 -x로 곧게 + 위로, 테라스에 착지 ──
+// ── 직선 다리 — 나선 top → 중앙 테라스. z=0 평면에서 보간(완만한 직선계단) ──
 function StraightFlight() {
   const ref = useRef()
   useLayoutEffect(() => {
     const dum = new THREE.Object3D()
-    const RISER = (H * KNEE - Y_LAND) / FLIGHT_STEPS
-    const RUN   = RISER / Math.tan(Math.PI / 6)            // 30° 경사
+    const dx = TERRACE_EDGE.x - CLIMB_TOP.x
+    const dy = TERRACE_EDGE.y - CLIMB_TOP.y
+    const rotZ = Math.atan2(dy, dx)
     for (let k = 0; k < FLIGHT_STEPS; k++) {
-      // 첫 단(k=0)을 큰 참 위에 겹쳐 시작 → 참↔계단 사이 틈 제거. 마지막 단이 테라스(y=H*KNEE)에 닿음.
-      dum.position.set(FLIGHT_X0 - k * RUN, Y_LAND + (k + 1) * RISER, 0)
-      dum.rotation.set(0, 0, 0)                            // 회전 없음 = 곧은 계단
-      dum.scale.set(0.5, 1, FLIGHT_WIDTH / TREAD_WIDTH)    // 깊이 살짝 줄이고 가로폭 넓힘
+      const t = (k + 0.5) / FLIGHT_STEPS
+      dum.position.set(CLIMB_TOP.x + dx * t, CLIMB_TOP.y + dy * t, 0)
+      dum.rotation.set(0, 0, rotZ)
+      dum.scale.set(1, 1, FLIGHT_WIDTH / TREAD_WIDTH)
       dum.updateMatrix()
       ref.current.setMatrixAt(k, dum.matrix)
     }
@@ -348,65 +329,19 @@ function Terrace() {
   )
 }
 
-// ════════ 단일속성 기둥 (무한 반복 암시) — 덩어리 ① ════════
-// 스케치의 '단일 속성 실체' = 기둥. 손그림의 셋은 축약, 실제론 링을 따라 여럿.
-// 스케치 반지름 50 → 기존 돔의 지표 둘레 R_BASE(60)에 매핑(약 ×1.2).
-// (돔은 지표 r=60 → 무릎 y=50에서 r=35로 좁아져 천장이 열림 ⇒ 기둥은 무릎 아래까지만.)
-const PILLAR_RING_R = ARRIVAL_R      // 기둥 링 반지름 = 등반축 반지름(47.5) → 등반 기둥도 같은 링 위에
-const PILLAR_COUNT  = 24             // 링을 도는 기둥 수 (많을수록 '무한' 느낌 ↑)
-const PILLAR_R      = 5              // 기둥 굵기(반지름)
-const PILLAR_H      = TERRACE_Y - 2  // 기둥 높이: 무릎/테라스(50) 살짝 아래 = 48 (드럼 벽 안에 머무름)
-
-function Pillars() {
-  const ref = useRef()
-  useLayoutEffect(() => {
-    const dummy = new THREE.Object3D()
-    for (let i = 0; i < PILLAR_COUNT; i++) {
-      const a = (i / PILLAR_COUNT) * Math.PI * 2          // 링을 한 바퀴 균등 분할
-      dummy.position.set(
-        PILLAR_RING_R * Math.cos(a),
-        PILLAR_H / 2,                                      // 원기둥 중심 = 높이의 절반(바닥~PILLAR_H)
-        PILLAR_RING_R * Math.sin(a)
-      )
-      dummy.scale.setScalar(i === 0 ? 0 : 1)              // +x(i=0) 자리는 등반 기둥(ClimbShaft)이 대신 → 비움
-      dummy.updateMatrix()
-      ref.current.setMatrixAt(i, dummy.matrix)
-    }
-    ref.current.instanceMatrix.needsUpdate = true
-  }, [])
-  return (
-    <instancedMesh ref={ref} args={[undefined, undefined, PILLAR_COUNT]}>
-      <cylinderGeometry args={[PILLAR_R, PILLAR_R, PILLAR_H, 24]} />
-      <meshStandardMaterial color="#cda368" roughness={0.8} metalness={0} />
-    </instancedMesh>
-  )
-}
-
-// ════════ 지하 정의·공리 방 — 덩어리 ② ════════
-// 뒤집힌 깔때기(열린 돔) 한가운데, 지표 아래에 묻힌 돔 = 정의·공리 방.
-// 스케치: 구 중심 (0,0,-8)·지표단면 r=10 → 돔 스케일(×1.2)로 매핑.
-// 안쪽 링 = 정의 8(1d1~8), 바깥 링 = 공리 7(1a1~7), 가운데가 출발점.
-// (지표 입구·하강 동선·번호 라벨은 다음 단계. 지금은 FREE_WALK로 Q눌러 내려가 확인.)
-const ROOM_CY      = -18     // 방 돔 중심 깊이(지표 아래) — 더 깊고 크게
-const ROOM_R       = 22      // 방 돔 반지름 (키움: 15 → 22)
-const ROOM_FLOOR_Y = -14     // 마커가 놓이는 바닥 높이
-const ROOM_FLOOR_R = Math.sqrt(Math.max(0, ROOM_R * ROOM_R - (ROOM_FLOOR_Y - ROOM_CY) ** 2))  // 그 높이의 바닥 원판 반지름
-const DEF_RING_R   = 7       // 정의(안쪽) 링 반지름 — 마커 8
-const AXIOM_RING_R = 12      // 공리(바깥) 링 반지름 — 마커 7
-const MARKER_R     = 0.9     // 마커 구 반지름
-
+// ════════ 지하 정의·공리 방 ════════
 function DefAxiomRoom() {
   const defRef = useRef()
   const axRef  = useRef()
   useLayoutEffect(() => {
     const dum = new THREE.Object3D()
-    for (let i = 0; i < 8; i++) {                       // 정의 8 — 안쪽 링
+    for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2
       dum.position.set(DEF_RING_R * Math.cos(a), ROOM_FLOOR_Y, DEF_RING_R * Math.sin(a))
       dum.updateMatrix(); defRef.current.setMatrixAt(i, dum.matrix)
     }
     defRef.current.instanceMatrix.needsUpdate = true
-    for (let i = 0; i < 7; i++) {                       // 공리 7 — 바깥 링
+    for (let i = 0; i < 7; i++) {
       const a = (i / 7) * Math.PI * 2
       dum.position.set(AXIOM_RING_R * Math.cos(a), ROOM_FLOOR_Y, AXIOM_RING_R * Math.sin(a))
       dum.updateMatrix(); axRef.current.setMatrixAt(i, dum.matrix)
@@ -414,23 +349,19 @@ function DefAxiomRoom() {
     axRef.current.instanceMatrix.needsUpdate = true
   }, [])
   return (
-    <group>
-      {/* 방 돔 껍질 (반투명 — 안팎으로 보이게) */}
+    <group position={[ROOM_CX, 0, 0]}>
       <mesh position={[0, ROOM_CY, 0]}>
         <sphereGeometry args={[ROOM_R, 40, 32]} />
         <meshStandardMaterial color="#6f5a3c" roughness={0.95} side={THREE.DoubleSide} transparent opacity={0.45} />
       </mesh>
-      {/* 바닥 원판 */}
       <mesh position={[0, ROOM_FLOOR_Y, 0]} rotation-x={-Math.PI / 2} userData={{ walkable: true }}>
         <circleGeometry args={[ROOM_FLOOR_R, 48]} />
         <meshStandardMaterial color="#7d674a" roughness={0.95} side={THREE.DoubleSide} />
       </mesh>
-      {/* 정의 마커 8 (안쪽, 따뜻한 색) */}
       <instancedMesh ref={defRef} args={[undefined, undefined, 8]}>
         <sphereGeometry args={[MARKER_R, 16, 16]} />
         <meshStandardMaterial color="#e6c98a" roughness={0.6} emissive="#3a2e14" />
       </instancedMesh>
-      {/* 공리 마커 7 (바깥, 차가운 색) */}
       <instancedMesh ref={axRef} args={[undefined, undefined, 7]}>
         <sphereGeometry args={[MARKER_R, 16, 16]} />
         <meshStandardMaterial color="#b9c6dd" roughness={0.6} emissive="#16202e" />
@@ -439,17 +370,8 @@ function DefAxiomRoom() {
   )
 }
 
-// ════════ 수평 통로 + 정리 1~4 — 덩어리 ③ ════════
-// 지하 방(중앙) → 가장자리 경선기둥으로 이어지는 공중 통로(타원 platform).
-// 스케치: z=4 평면, 타원 중심 (-25.4,0)·반축 30.4×12.1 → 돔 스케일(×1.2).
-// 1p1(방 쪽)~1p4(기둥 쪽)을 통로 중심선에 임시 균등 배치(정확 위치·번호 라벨은 추후).
-const WALK_Y   = 5                    // 통로 높이(지표보다 살짝 위)
-const WALK_CX  = 25                   // 통로 타원 중심 x (방 0 ↔ 등반기둥 +47.5 쪽)
-const WALK_RX  = 30                   // 타원 반축(긴쪽, x) — 중심에서 등반기둥까지
-const WALK_RZ  = 14.5                 // 타원 반축(짧은쪽, z)
-
+// ════════ 수평 통로 (정리 1~4 자리) ════════
 function Walkway() {
-  // 통로 바닥(타원 platform)만. 정리 1~4 마커(주황 구)는 임시 제거 — 추후 번호 라벨로 대체.
   return (
     <mesh position={[WALK_CX, WALK_Y, 0]} rotation-x={-Math.PI / 2} scale={[WALK_RX, WALK_RZ, 1]} userData={{ walkable: true }}>
       <circleGeometry args={[1, 64]} />
@@ -459,7 +381,7 @@ function Walkway() {
 }
 
 export default function App() {
-  const [view, setView] = useState('dome')   // 'dome' = 돔 씬, 'graph' = 데이터 그래프
+  const [view, setView] = useState('dome')
   useEffect(() => {
     const onKey = (e) => {
       if (e.code === 'KeyG') setView(v => (v === 'dome' ? 'graph' : 'dome'))
@@ -470,25 +392,22 @@ export default function App() {
 
   return (
     <>
-      <Canvas camera={{ fov: 70, near: 0.1, far: 600, position: [0, 1.6, 0] }}>
+      <Canvas camera={{ fov: 70, near: 0.1, far: 3000, position: [0, 1.6, 0] }}>
         {view === 'dome' && (
           <>
             <color attach="background" args={['#e7d6ad']} />
-            <fog attach="fog" args={['#e7d6ad', 30, 150]} />
+            <fog attach="fog" args={['#e7d6ad', 30 * SCALE, 150 * SCALE]} />
 
             <hemisphereLight args={['#ffeccb', '#2e2618', 0.85]} />
             <ambientLight intensity={0.25} />
-            <directionalLight position={[30, 120, 20]} intensity={0.3} color="#ffe6bf" />
+            <directionalLight position={[30 * SCALE, 120 * SCALE, 20 * SCALE]} intensity={0.3} color="#ffe6bf" />
 
             <Ground />
             <DomeRibs />
-            <Pillars />
             <DefAxiomRoom />
             <Walkway />
-            <ClimbShaft />
             <Apex />
             <RibStair />
-            <SmallLandingPad />
             <LandingPad />
             <StraightFlight />
             <Terrace />
@@ -512,7 +431,7 @@ export default function App() {
         textShadow: view === 'graph' ? '0 1px 3px rgba(0,0,0,0.5)' : '0 1px 2px rgba(255,255,255,0.4)'
       }}>
         <div style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: view === 'graph' ? '#b9a36f' : '#7a6a48', marginBottom: 8 }}>
-          {view === 'graph' ? 'Ethica · 데이터 그래프 (1p1~1p8 의존)' : 'Ethica · 수직축 · 나선→계단참→직선(방식 a)'}
+          {view === 'graph' ? 'Ethica · 데이터 그래프 (1p1~1p8 의존)' : 'Ethica · 리브 안 나선 · 비율유지 스케일업'}
         </div>
         <div style={{ fontSize: 13, lineHeight: 1.7 }}>
           {view === 'graph' ? (
