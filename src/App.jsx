@@ -86,7 +86,7 @@ const MARKER_R     = 0.9 * SCALE
 const COR_Y0       = ROOM_CEIL_Y         // 복도 바닥 높이 = 방 천장 꼭대기
 const COR_X0       = ROOM_CX             // 안쪽 끝(방 천장 꼭대기, 접합점)
 const COR_X1       = R_BASE              // 바깥 끝(탐험경선 #0)
-const COR_FLOOR_HW = 4.5                   // 바닥 반폭(좁게 → #0만 닿음; 이웃 z≈18 > 안 닿음)
+const COR_FLOOR_HW = 2.5                   // 다리·계단 반폭(길 폭의 절반). ↓일수록 길이 좁아짐
 // 외피: 빗면으로 자른 원기둥 + 방쪽 직육면체 박스
 //  원통 벽이 먼 리브 밭을 가림(스포 방지). 천장은 솔리드 빗면(방쪽 낮고 리브쪽 높음)으로 솟아 공간감.
 //  +x 벽의 창으로 리브 #0·±1·±2만 액자처럼 보임(정리 2·3·4), ±3+는 벽이 가림.
@@ -114,7 +114,7 @@ const PLAT_X       = (COR_X0 + COR_X1) / 2  // 플랫폼 x = 통로 중간(=126;
 const PLAT_R       = 11                      // 원형 플랫폼 반지름(중간 깔때기 반폭 ±23 안)
 const PILLAR_R     = 4                       // 받침 기둥 반지름
 const COR_RISE     = 0.43                     // 계단 한 칸 높이(=두께). 작을수록 얇음
-const COR_CLIMB    = 5                        // 다리 한 칸의 총 상승. 작을수록 완만(앞 시야 트임)
+const COR_CLIMB    = 25                       // 계단(다리2) 총 상승. ↑일수록 가파름(현재 run 73 → ≈9.3°)
 const COR_STEPS    = Math.max(2, Math.round(COR_CLIMB / COR_RISE))  // 칸 수 = 총상승÷칸높이(자동)
 const PLAT_Y       = COR_Y0                   // 플랫폼 높이 = 방 천장 높이(다리1은 평면, 상승 없음)
 const RIB_Y        = PLAT_Y + COR_CLIMB       // 리브 접합 높이(다리2=계단만 상승)
