@@ -399,8 +399,9 @@ function Terrace() {
 }
 
 // ════════ 지하 정의·공리 방 ════════
-function DefAxiomRoom() {
+function DefAxiomRoom({ stairKind }) {
   const treadRef = useRef()
+  const helixRef = useRef()
 
   // 나선 치수 — 꼭대기 칸 윗면 = 디스크 고리 윗면(49.3). 낱장 디딤판이 중심 반지름 RIN(=14, 고리 6~18 위)에 내려서고, 거기서 고리를 밟아 슬롯으로 나감.
   const TOP_SURFACE = COR_Y0 + COR_THICK / 2                       // 맨 윗 칸 윗면 = 착지 디스크 고리 윗면(49.3)
@@ -456,6 +457,38 @@ function DefAxiomRoom() {
     treadRef.current.instanceMatrix.needsUpdate = true
   }, [insts])
 
+  // ── 비교용: 원형(매끈한) 나선 계단 — 같은 파라미터, 경로만 연속 원 ──────
+  //  8각형 대신 연속 원. 같은 반지름·높이·회전·낱장 디딤판 → 형태(각짐 vs 매끈)만 비교(T키).
+  const helixInsts = useMemo(() => {
+    const nStep = Math.max(1, Math.round(CLIMB / ROOM_STAIR_RISE))
+    const rise  = CLIMB / nStep
+    const pt = (yy) => {                                        // 높이 yy에서의 원형 나선 점(각 연속)
+      const f = ROOM_STAIR_BIAS === 1 ? yy / CLIMB : Math.pow(yy / CLIMB, 1 / ROOM_STAIR_BIAS)
+      const ang = ROOM_STAIR_PHASE + f * TOTAL_ANG
+      const r = ROOM_STAIR_ROUT + (ROOM_STAIR_RIN - ROOM_STAIR_ROUT) * f
+      return { x: r * Math.cos(ang), z: r * Math.sin(ang) }
+    }
+    const arr = []
+    for (let m = 0; m < nStep; m++) {
+      const yTop = (m + 1) * rise
+      const cur = pt(yTop), prev = pt(Math.max(1e-4, yTop - rise * 0.5))   // 접선용 아래쪽 이웃
+      const yRot = Math.PI / 2 - Math.atan2(cur.z - prev.z, cur.x - prev.x)
+      arr.push({ p: [cur.x, ROOM_FLOOR_Y + yTop - ROOM_STAIR_SLAB / 2, cur.z], ry: yRot })
+    }
+    return arr
+  }, [])
+
+  useLayoutEffect(() => {
+    const dum = new THREE.Object3D()
+    helixInsts.forEach((it, i) => {
+      dum.position.set(it.p[0], it.p[1], it.p[2])
+      dum.rotation.set(0, it.ry, 0)
+      dum.updateMatrix()
+      helixRef.current.setMatrixAt(i, dum.matrix)
+    })
+    helixRef.current.instanceMatrix.needsUpdate = true
+  }, [helixInsts])
+
   // 빛우물 원뿔대 벽(빗면) — +x(통로)쪽에 출입문(디스크 바닥~문높이만 트임). 디스크 아래·문 위 벽은 남겨 가짜 구멍 방지 + 리브 시야 차단(스포).
   // === 원뿔대(빛우물) 벽: 박스 통로 구멍 + 돔(구)과 겹친 부분을 CSG로 정확히 빼기 (three-bvh-csg) ===
   const wellCut = useMemo(() => {
@@ -496,8 +529,12 @@ function DefAxiomRoom() {
       </mesh>
       {/* 내부 빛(불투명 돔이라) */}
       <pointLight position={[0, ROOM_FLOOR_Y + ROOM_HEIGHT * 0.45, 0]} intensity={1.05} distance={ROOM_R * 4} decay={1.4} color="#ffe2b0" />
-      {/* 8각형 안쪽 나선 계단 — 공중에 뜬 얇은 낱장 디딤판을 PITCH 간격으로 배치(전부 걷는 면). ※ 정의·공리 마커는 나중에. */}
-      <instancedMesh ref={treadRef} args={[undefined, undefined, INST_COUNT]} userData={{ walkable: true }}>
+      {/* 계단 — T키로 8각형(각짐) ↔ 원형(매끈) 전환 비교. 둘 다 같은 파라미터·낱장 디딤판. */}
+      <instancedMesh ref={treadRef} args={[undefined, undefined, INST_COUNT]} visible={stairKind === 'octagon'} userData={{ walkable: stairKind === 'octagon' }}>
+        <boxGeometry args={[ROOM_STAIR_WIDTH, ROOM_STAIR_SLAB, ROOM_STAIR_TREAD]} />
+        <meshStandardMaterial color="#d6ab68" roughness={0.8} />
+      </instancedMesh>
+      <instancedMesh ref={helixRef} args={[undefined, undefined, helixInsts.length]} visible={stairKind === 'circle'} userData={{ walkable: stairKind === 'circle' }}>
         <boxGeometry args={[ROOM_STAIR_WIDTH, ROOM_STAIR_SLAB, ROOM_STAIR_TREAD]} />
         <meshStandardMaterial color="#d6ab68" roughness={0.8} />
       </instancedMesh>
@@ -666,9 +703,11 @@ function Corridor() {
 
 export default function App() {
   const [view, setView] = useState('dome')
+  const [stair, setStair] = useState('circle')       // 원형 확정(기본). T키로 옥타곤 A/B 비교
   useEffect(() => {
     const onKey = (e) => {
       if (e.code === 'KeyG') setView(v => (v === 'dome' ? 'graph' : 'dome'))
+      if (e.code === 'KeyT') setStair(s => (s === 'octagon' ? 'circle' : 'octagon'))
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -688,7 +727,7 @@ export default function App() {
 
             <Ground />
             <DomeRibs />
-            <DefAxiomRoom />
+            <DefAxiomRoom stairKind={stair} />
             <Corridor />
             <Apex />
             <RibStair />
@@ -725,8 +764,8 @@ export default function App() {
             </>
           ) : (
             <>
-              <b>W A S D</b> 걷기 · <b>드래그</b> 둘러보기 · 나선으로 테라스까지<br />
-              임시: 벽 통과(자유 이동) · 상하 <b>Q / E</b> · <b>G</b> 데이터 그래프 보기.
+              <b>W A S D</b> 걷기 · <b>드래그</b> 둘러보기 · 상하 <b>Q / E</b><br />
+              <b>T</b> 계단 {stair === 'octagon' ? '8각형' : '원형'} 전환 · <b>G</b> 그래프 · 임시: 벽 통과.
             </>
           )}
         </div>
