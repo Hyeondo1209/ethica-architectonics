@@ -72,11 +72,16 @@
 | ~~`ClimbShaft`·`Pillars`·`Walkway`·`SmallLandingPad`~~ | ❌ **이미 제거됨**(코드에 없음) |
 
 ## 5. 다음 세션의 핵심 작업 (NEXT SESSION)
-**진입 시퀀스를 '실제로 걸어서 통과 가능'하게 + 빛우물을 원뿔대로 교체.** (구조는 확정됐으나 *덩어리들이 닫힌 솔리드라 통과 불가*.) 묶음 하나:
-1. **경로 관통:** 방 돔·박스 연결부·거대 원기둥이 전부 막힌 솔리드 → 동선이 지나는 부분에 개구부를 뚫고(또는 충돌/걷기 설정 정리) 실제로 방→나선→연결부→원기둥→리브로 걸어갈 수 있게. (`FREE_WALK` 끄고 검증.)
-2. **방 나선 → 빛우물 오름 고치기:** 현재 나선 꼭대기에서 위로 오르는 부분이 어색·실질적으로 못 올라감. 디스크/연결부 접합 + 마지막 칸 높이를 실제 등반 가능하게.
-3. **빛우물 실린더 → 원뿔대(위 뚫린 frustum):** 아래 넓고(헤드룸↑) 위 좁은(스포↑). `cylinderGeometry`의 위/아래 반지름만 다르게(예 아래8·위2.5) — 거의 한 줄. **2번을 풀어줄 수 있음**.
-- 그 다음(이후 세션): 정리 텍스트 표시 메커니즘 + 1p1을 플랫폼에 얹기(현재 씬에 텍스트 장치 없음).
+> ⚠️ **DESIGN.md 본문(특히 §3)은 여러 세션 뒤처져 있음. 코드 = 정본.** 다음 세션 시작 시 §3 파라미터를 실제 코드로 리드백하며 갱신 권장. (문서 미반영 완료분: 빛우물 실린더→**원뿔대**(`ROOM_WELL_RT=2.5`, `ROOM_CYL_TOP=110`), 나선 `TOPR=12`·오큘러스·착지 디스크/진입 슬롯·헤드룸.)
+
+**최근 완료 (이번 세션):**
+- **박스 통로 ↔ 원뿔대 ↔ 돔 겹침을 CSG(`three-bvh-csg`)로 정공법 해결.** 면별 클립 근사(격자 컷아웃 등)는 교선이 어긋나 폐기. `HOLLOW_SUBTRACTION`(A 표면 중 B 내부만 제거)으로: 박스 껍질−원뿔대(파고듦 제거)·원뿔대 통벽−박스(통로 구멍)·원뿔대−돔 타원체(구 겹침). **CSG는 렌더 컴포넌트별로 분리해야 함**(변수 스코프): 원뿔대 `wellCut`=`DefAxiomRoom`, 박스 `boxWallCut`/`boxCeilCut`=`Corridor`.
+- **방 나선 원기둥 → 아래로 퍼지는 나팔.** ⚠️ 주의: 여기서 '방 나선'은 **`DefAxiomRoom`의 `helixPt`**(디스크 아래). **`RibStair`(큰 돔 리브 안 나선)는 `ribCenter` 기반이라 무관** — 헷갈리지 말 것. 반지름 = `ROOM_STAIR_TOPR + max(0, wallR(y)−wallR(TOP_Y)) × ROOM_STAIR_FLARE`. 꼭대기(y=TOP_Y=48.56) 불변, 아래로만 퍼짐(바닥 ≈2배). **두 노브 독립 분리:** `ROOM_STAIR_FLARE=0.15`(곡선 퍼짐 전용, 신설) / `ROOM_STAIR_INSET=0.10`(트레드=블록 크기용, `baseArc` 계산). (이전엔 `r=max(TOPR, wallR×INSET)`라 INSET이 max에 먹혀 반지름 불변=원기둥이었고, INSET은 사실상 블록 크기만 조절했음.)
+
+**다음 작업:**
+1. **안 쓰는 상수 정리:** `WELL_DOOR_HALF`·`WELL_DOOR_TOP`(CSG가 문 로직 대체)·`COR_CLIMB` 옛 코멘트(≈9.3°→실제 18.9°).
+2. **정리 텍스트(1p/1d/1a) 표시 메커니즘** — 1p1을 원형 플랫폼(`PLAT_X`)에 얹기부터. 현재 씬에 텍스트 장치 없음.
+3. **별자리 시스템**(Tab 오버레이: 증명 텍스트 + 의존선 + 노드 클릭 순간이동) — 프로젝트 동기의 핵심.
 
 ## 6. 열린 / 미룬 결정
 - ~~막힌 깔때기 외피~~·~~테이퍼 통로~~ → **완료: 거대 원기둥 + 박스 연결부(`COR_CYL_X0`로 분리), 구조 확정.** 단 경로 관통·진입 동선·원뿔대 교체는 **다음 세션(§5)**.
@@ -95,4 +100,4 @@
   - raw(curl로 읽기): `https://raw.githubusercontent.com/Hyeondo1209/ethica-architectonics/main/src/App.jsx` (그 외 `src/GraphScaffold.jsx`, `src/ethica1.js`)
 - **이 정본:** `https://raw.githubusercontent.com/Hyeondo1209/ethica-architectonics/main/DESIGN.md` (저장소 루트)
 - **연대기:** 노션 'Ethica Architectonics 프로젝트 일지' DB.
-- **로컬:** VS Code · `C:\Users\김현도\ethica-architectonics` · `npm run dev` → http://localhost:5173. 코드/문서 변경 후 GitHub Desktop **Commit→Push**가 유일한 수동 단계. (**이번 세션: App.jsx(방 원점·빛우물=박스폭·거대 원기둥+박스 연결부) + DESIGN.md 함께 push.**)
+- **로컬:** VS Code · `C:\Users\김현도\ethica-architectonics` · `npm run dev` → http://localhost:5173. 코드/문서 변경 후 GitHub Desktop **Commit→Push**가 유일한 수동 단계. (**이번 세션 push 대상: `src/App.jsx`(CSG 3종 + 방 나선 flare) + `package.json`(새 의존성 **`three-bvh-csg`**, `npm install` 완료) + `DESIGN.md`.**)

@@ -1,6 +1,7 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { useRef, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import * as THREE from 'three'
+import { Brush, Evaluator, HOLLOW_SUBTRACTION } from 'three-bvh-csg'
 import GraphScaffold from './GraphScaffold'
 
 // ============================================================
@@ -94,7 +95,8 @@ const AXIOM_RING_R = 12 * SCALE
 const MARKER_R     = 0.9 * SCALE
 // 내벽 나선계단(사람 스케일 고정 + 회전수만 튜닝)
 const ROOM_STAIR_RISE  = 0.42                                  // 한 칸 높이(고정)
-const ROOM_STAIR_INSET = 0.10                              // ★나선 반지름 = 벽반지름 × 이 비율. 튜닝 노브
+const ROOM_STAIR_INSET = 0.0005                              // ★트레드(계단 블럭) 크기용(baseArc 계산). 튜닝 노브: 블럭 길이
+const ROOM_STAIR_FLARE = 0.2                              // ★나선 '곡선' 퍼짐 세기: 반지름 = TOPR + (wallR(y)−wallR(TOP_Y))×이값 (0=원기둥, ↑=아래로 퍼짐)
 const ROOM_STAIR_TURNS = 2.5                                   // 총 회전수(스케치 느낌; 핵심 튜닝 노브)
 const ROOM_STAIR_WIDTH = 2.4                                   // 디딤판 폭(반지름 방향 = 걷는 길 폭)
 const ROOM_STAIR_TOPR  = 12                                    // ★꼭대기 코일 반지름 — 디스크(6~18)에 닿게(↑=더 바깥서 착지). 연결 노브
@@ -406,7 +408,7 @@ function DefAxiomRoom() {
   // 나선 한 점(t: 0=바닥, 1=꼭대기). 반지름 = 벽 반지름 × INSET(위로 갈수록 좁아짐, 최소 코일).
   const helixPt = (t) => {
     const y = ROOM_FLOOR_Y + t * CLIMB
-    const r = Math.max(ROOM_STAIR_TOPR, wallR(y) * ROOM_STAIR_INSET)
+    const r = ROOM_STAIR_TOPR + Math.max(0, wallR(y) - wallR(TOP_Y)) * ROOM_STAIR_FLARE   // 꼭대기(y=TOP_Y)=TOPR 고정 · 아래로만 퍼짐(FLARE)
     const ang = ROOM_STAIR_PHASE + t * ROOM_STAIR_TURNS * Math.PI * 2   // t=1 → ang=0(+x, 다리 쪽)
     return { x: r * Math.cos(ang), y, z: r * Math.sin(ang), r, ang }
   }
@@ -442,42 +444,29 @@ function DefAxiomRoom() {
   }, [])
 
   // 빛우물 원뿔대 벽(빗면) — +x(통로)쪽에 출입문(디스크 바닥~문높이만 트임). 디스크 아래·문 위 벽은 남겨 가짜 구멍 방지 + 리브 시야 차단(스포).
-  const wellGeo = useMemo(() => {
+  // === 원뿔대(빛우물) 벽: 박스 통로 구멍 + 돔(구)과 겹친 부분을 CSG로 정확히 빼기 (three-bvh-csg) ===
+  const wellCut = useMemo(() => {
+    const ev = new Evaluator()
+    ev.attributes = ['position', 'normal']
     const rBot = ROOM_LAND_R, rTop = ROOM_WELL_RT
     const yBot = ROOM_CEIL_Y - 3, yTop = ROOM_CYL_TOP
-    const doorBot = COR_Y0 + COR_THICK / 2          // 문 아래턱 = 디스크 윗면(걷는 바닥). 그 아래는 벽이 남음(디스크에 가려 안 보임)
-    const rAt = (y) => rBot + (rTop - rBot) * ((y - yBot) / (yTop - yBot))
-    const SEG = 48, pos = [], idx = []
-    const quad = (ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz) => {
-      const n = pos.length / 3
-      pos.push(ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz)
-      idx.push(n, n + 1, n + 2, n, n + 2, n + 3)
-    }
-    const strip = (a0, a1, ylo, yhi) => {           // 한 각도 구간의 벽 띠(ylo~yhi)
-      const rl = rAt(ylo), rh = rAt(yhi)
-      quad(
-        rl * Math.cos(a0), ylo, rl * Math.sin(a0),
-        rl * Math.cos(a1), ylo, rl * Math.sin(a1),
-        rh * Math.cos(a1), yhi, rh * Math.sin(a1),
-        rh * Math.cos(a0), yhi, rh * Math.sin(a0)
-      )
-    }
-    for (let i = 0; i < SEG; i++) {
-      const a0 = -Math.PI + (i / SEG) * Math.PI * 2
-      const a1 = -Math.PI + ((i + 1) / SEG) * Math.PI * 2
-      const am = (a0 + a1) / 2
-      if (Math.abs(am) <= WELL_DOOR_HALF) {          // +x 문 구간: 디스크 아래 스커트 + 문 위 벽(가운데 doorBot~문높이만 트임)
-        strip(a0, a1, yBot, doorBot)
-        strip(a0, a1, WELL_DOOR_TOP, yTop)
-      } else {
-        strip(a0, a1, yBot, yTop)                    // 그 외: 통벽
-      }
-    }
-    const g = new THREE.BufferGeometry()
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
-    g.setIndex(idx)
-    g.computeVertexNormals()
-    return g
+    // 자르개 1: 박스 solid — 원뿔대에서 빼 통로가 지나는 구멍을 낸다
+    const boxLo = COR_Y0 - 5
+    const boxSolid = new THREE.BoxGeometry(BOX_X1 - BOX_X0, BOX_TOP - boxLo, BOX_HW * 2)
+    boxSolid.translate((BOX_X0 + BOX_X1) / 2, (BOX_TOP + boxLo) / 2, 0)
+    const boxBrush = new Brush(boxSolid); boxBrush.updateMatrixWorld()
+    // 자르개 2: 돔 solid(타원체=실제 돔 메시와 동일: 단위구 scale) — 원뿔대가 구를 파고든 부분만 제거
+    const domeSolid = new THREE.SphereGeometry(1, 64, 40)
+    domeSolid.scale(ROOM_R, ROOM_HEIGHT, ROOM_R)
+    domeSolid.translate(ROOM_CX, ROOM_FLOOR_Y, 0)
+    const domeBrush = new Brush(domeSolid); domeBrush.updateMatrixWorld()
+    // 원뿔대 통벽 껍질
+    const coneWall = new THREE.CylinderGeometry(rTop, rBot, yTop - yBot, 96, 40, true)
+    coneWall.translate(0, (yBot + yTop) / 2, 0)
+    const coneWallBrush = new Brush(coneWall); coneWallBrush.updateMatrixWorld()
+    // 원뿔대 − 박스 − 돔 (겹친 부분만 잘라냄)
+    const cutBox = ev.evaluate(coneWallBrush, boxBrush, HOLLOW_SUBTRACTION); cutBox.updateMatrixWorld()
+    return ev.evaluate(cutBox, domeBrush, HOLLOW_SUBTRACTION).geometry
   }, [])
 
   return (
@@ -506,7 +495,7 @@ function DefAxiomRoom() {
       </mesh>
       {/* 솟은 원뿔대(빛 우물) — 위는 막혀 리브 가림(스포), +x(통로)쪽 아래는 출입문으로 트여 통로로 나감.
           올려다보면 좁은 꼭대기로 빛만 보이고, 정면(통로쪽)으론 걸어 나갈 문이 있음. */}
-      <mesh geometry={wellGeo}>
+      <mesh geometry={wellCut}>
         <meshStandardMaterial color="#97784e" roughness={0.92} side={THREE.DoubleSide} />
       </mesh>
       <pointLight position={[0, ROOM_CYL_TOP - 8, 0]} intensity={2.4} distance={ROOM_CYL_TOP * 1.6} decay={1.1} color="#fff1d2" />
@@ -586,27 +575,43 @@ function Corridor() {
   }, [])
 
   // 박스 연결부 측벽(2장): 방(원점) ↔ 원기둥 문. 아래를 돔 표면까지 잘라 교집합 제거.
-  const boxWallGeo = useMemo(() => {
-    const pos = [], idx = []
-    const quad = (ax,ay,az, bx,by,bz, cx,cy,cz, dx,dy,dz) => {
-      const n = pos.length / 3
-      pos.push(ax,ay,az, bx,by,bz, cx,cy,cz, dx,dy,dz)
-      idx.push(n, n+1, n+2, n, n+2, n+3)
+  // === 박스(직육면체 통로) 벽·천장: 원뿔대(빛우물)와 겹친 부분을 CSG로 정확히 빼기 (three-bvh-csg) ===
+  const { boxWallCut, boxCeilCut } = useMemo(() => {
+    const ev = new Evaluator()
+    ev.attributes = ['position', 'normal']
+    const rBot = ROOM_LAND_R, rTop = ROOM_WELL_RT
+    const yBot = ROOM_CEIL_Y - 3, yTop = ROOM_CYL_TOP
+    // 자르개: 원뿔대 solid(닫힌 실린더)
+    const coneSolid = new THREE.CylinderGeometry(rTop, rBot, yTop - yBot, 96, 1, false)
+    coneSolid.translate(0, (yBot + yTop) / 2, 0)
+    const coneBrush = new Brush(coneSolid); coneBrush.updateMatrixWorld()
+    // 박스 측벽 껍질(아래 모서리는 돔 표면까지) → 원뿔대로 자름
+    const wp = [], wi = []
+    const wq = (ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz) => {
+      const n = wp.length / 3
+      wp.push(ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz)
+      wi.push(n, n + 1, n + 2, n, n + 2, n + 3)
     }
-    const SEG = 20
+    const WSEG = 24
     for (const sgn of [1, -1]) {
       const z = sgn * BOX_HW
-      for (let i = 0; i < SEG; i++) {
-        const xx0 = BOX_X0 + (BOX_X1 - BOX_X0) * (i / SEG)
-        const xx1 = BOX_X0 + (BOX_X1 - BOX_X0) * ((i + 1) / SEG)
-        quad(xx0, domeClipY(xx0, z), z, xx1, domeClipY(xx1, z), z, xx1, BOX_TOP, z, xx0, BOX_TOP, z)
+      for (let i = 0; i < WSEG; i++) {
+        const xx0 = BOX_X0 + (BOX_X1 - BOX_X0) * (i / WSEG)
+        const xx1 = BOX_X0 + (BOX_X1 - BOX_X0) * ((i + 1) / WSEG)
+        wq(xx0, domeClipY(xx0, z), z, xx1, domeClipY(xx1, z), z, xx1, BOX_TOP, z, xx0, BOX_TOP, z)
       }
     }
-    const g = new THREE.BufferGeometry()
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
-    g.setIndex(idx)
-    g.computeVertexNormals()
-    return g
+    const wallG = new THREE.BufferGeometry()
+    wallG.setAttribute('position', new THREE.Float32BufferAttribute(wp, 3))
+    wallG.setIndex(wi); wallG.computeVertexNormals()
+    const wallBrush = new Brush(wallG); wallBrush.updateMatrixWorld()
+    const boxWallCut = ev.evaluate(wallBrush, coneBrush, HOLLOW_SUBTRACTION).geometry
+    // 박스 천장(평판) → 원뿔대로 자름
+    const ceilG = new THREE.BoxGeometry(BOX_X1 - BOX_X0, COR_THICK, BOX_HW * 2)
+    ceilG.translate((BOX_X0 + BOX_X1) / 2, BOX_TOP, 0)
+    const ceilBrush = new Brush(ceilG); ceilBrush.updateMatrixWorld()
+    const boxCeilCut = ev.evaluate(ceilBrush, coneBrush, HOLLOW_SUBTRACTION).geometry
+    return { boxWallCut, boxCeilCut }
   }, [])
 
 
@@ -636,11 +641,10 @@ function Corridor() {
       </mesh>
 
       {/* === 박스 연결부(방 ↔ 원기둥): 측벽(돔 표면까지 클립) + 천장, 양끝 트임 === */}
-      <mesh geometry={boxWallGeo}>
+      <mesh geometry={boxWallCut}>
         <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
       </mesh>
-      <mesh position={[(BOX_X0 + BOX_X1) / 2, BOX_TOP, 0]}>
-        <boxGeometry args={[BOX_X1 - BOX_X0, COR_THICK, BOX_HW * 2]} />
+      <mesh geometry={boxCeilCut}>
         <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
       </mesh>
     </group>
