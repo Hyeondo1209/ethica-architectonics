@@ -93,13 +93,16 @@ const domeClipY = (x, z) => {
 const DEF_RING_R   = 7 * SCALE
 const AXIOM_RING_R = 12 * SCALE
 const MARKER_R     = 0.9 * SCALE
-// 내벽 나선계단(사람 스케일 고정 + 회전수만 튜닝)
-const ROOM_STAIR_RISE  = 0.42                                  // 한 칸 높이(고정)
-const ROOM_STAIR_INSET = 0.0005                              // ★트레드(계단 블럭) 크기용(baseArc 계산). 튜닝 노브: 블럭 길이
-const ROOM_STAIR_FLARE = 0.2                              // ★나선 '곡선' 퍼짐 세기: 반지름 = TOPR + (wallR(y)−wallR(TOP_Y))×이값 (0=원기둥, ↑=아래로 퍼짐)
-const ROOM_STAIR_TURNS = 2.5                                   // 총 회전수(스케치 느낌; 핵심 튜닝 노브)
-const ROOM_STAIR_WIDTH = 2.4                                   // 디딤판 폭(반지름 방향 = 걷는 길 폭)
-const ROOM_STAIR_TOPR  = 12                                    // ★꼭대기 코일 반지름 — 디스크(6~18)에 닿게(↑=더 바깥서 착지). 연결 노브
+// 8각형 안쪽 나선 계단 · 공중에 뜬 낱장 디딤판(간격 PITCH · 두께 SLAB · 깊이 TREAD)
+const ROOM_STAIR_SIDES = 8                    // ★변 수(8=8각형). 스케치=8등분. 한 변=직선 계단 한 조각
+const ROOM_STAIR_TURNS = 2                  // ★총 회전수(스케치=약 2.5~3바퀴). ↓일수록 경사↑·단높이↑
+const ROOM_STAIR_WIDTH = 2.4                  // 디딤판 좌우 폭(걷는 방향에 수직 = 밟고 서는 너비)
+const ROOM_STAIR_TREAD = 4.0                  // ★디딜판 앞뒷 깊이(발 딛는 길이). 간격보다 작으면 사이가 뜼(가파른 안쪽은 초초해 붙기도)
+const ROOM_STAIR_RISE  = 0.35                 // ★한 칸 높이(균일). ↓=칸 많아짐·더 오르기 쉬움. 간격은 경사 따라 자동(가파른 데=초초)
+const ROOM_STAIR_BIAS  = 1.0                  // ★후반(안쪽) 가파름. 1=조각마다 등높이, ↑=안쪽일수록 급경사(돔 천장 안 닿게·헤드룸↑)
+const ROOM_STAIR_SLAB  = 0.35                 // ★디딤판 두께(얇은 부양 판)
+const ROOM_STAIR_ROUT  = 45                   // ★시작(바닥·바깥) 반지름 — 벽(ROOM_R=91) 안쪽. ↑=벽에 붙음. ↓일수록 경사↑
+const ROOM_STAIR_RIN   = 14                   // ★도착(꼭대기·중심) 반지름 — 디스크 고리(6~18)에 내려섬. 오큘러스(≈17.5)보다 작아야 관통
 const ROOM_LAND_R      = 18                              // 착지d디스크 = 빛우물(원뿔대) 바닥 반지름. (사용자 튜닝 18 — 박스 반폭과의 일치는 더는 강제 안 함)
 const ROOM_DISC_SLOT_START = 67 * Math.PI / 180         // ★디스크 슬롯 시작각(비는 부채꼴=나선 진입쪽). 방향 노브(스샷서 반대면 조정)
 const ROOM_DISC_SLOT_LEN   = 301 * Math.PI / 180        // ★슬롯 외 그리는 길이; 비는 52°(↑=슬롯 좁음)
@@ -109,7 +112,6 @@ const ROOM_WELL_RT     = 2.5                           // 빛우물 '꼭대기' 
 const WELL_DOOR_HALF   = 0.5                           // 빛우물 +x(통로)쪽 출입문 반각(rad). ↑=문 넓음. 박스 폭(±6)을 덮게(현재 ≈±8)
 const WELL_DOOR_TOP    = 70                            // 출입문 윗변 높이(=통로 낮은 천장 70). 이 아래만 트이고 위 벽은 남아 리브 시야 차단(스포)
 const ROOM_CLIMB_H     = ROOM_CEIL_Y - ROOM_FLOOR_Y            // 총 상승(=ROOM_HEIGHT)
-const ROOM_STAIR_STEPS = Math.max(60, Math.round(ROOM_CLIMB_H / ROOM_STAIR_RISE))
 const ROOM_STAIR_PHASE = -ROOM_STAIR_TURNS * Math.PI * 2       // 꼭대기가 +x(박스)를 향하도록 위상
 
 // ════════ 탐험 통로(복도) — 방 천장 꼭대기 ↔ 탐험경선 #0 ════════
@@ -400,48 +402,59 @@ function Terrace() {
 function DefAxiomRoom() {
   const treadRef = useRef()
 
-  // 나선 치수 — 꼭대기 디딤판 윗면 = 디스크(고리) 윗면(49.3)과 같은 높이. 나선은 고리 가운데 구멍으로 올라와, 그 면에서 고리로 평평히 걸어 나감(구멍 덕에 코일 관통 없음).
-  const TREAD_VERT = ROOM_STAIR_RISE * 3.5                         // 수직 두께(아래 칸과 겹쳐 '속찬' 계단)
-  const TOP_Y      = COR_Y0 + COR_THICK / 2 - TREAD_VERT / 2       // 맨 윗 디딤판 윗면 = 디스크 고리 윗면(COR_Y0+두께/2=49.3). 가운데 구멍이라 코일과 안 겹침
-  const CLIMB      = TOP_Y - ROOM_FLOOR_Y
+  // 나선 치수 — 꼭대기 칸 윗면 = 디스크 고리 윗면(49.3). 낱장 디딤판이 중심 반지름 RIN(=14, 고리 6~18 위)에 내려서고, 거기서 고리를 밟아 슬롯으로 나감.
+  const TOP_SURFACE = COR_Y0 + COR_THICK / 2                       // 맨 윗 칸 윗면 = 착지 디스크 고리 윗면(49.3)
+  const CLIMB       = TOP_SURFACE - ROOM_FLOOR_Y                   // 바닥 → 디스크 총 상승
 
-  // 나선 한 점(t: 0=바닥, 1=꼭대기). 반지름 = 벽 반지름 × INSET(위로 갈수록 좁아짐, 최소 코일).
-  const helixPt = (t) => {
-    const y = ROOM_FLOOR_Y + t * CLIMB
-    const r = ROOM_STAIR_TOPR + Math.max(0, wallR(y) - wallR(TOP_Y)) * ROOM_STAIR_FLARE   // 꼭대기(y=TOP_Y)=TOPR 고정 · 아래로만 퍼짐(FLARE)
-    const ang = ROOM_STAIR_PHASE + t * ROOM_STAIR_TURNS * Math.PI * 2   // t=1 → ang=0(+x, 다리 쪽)
-    return { x: r * Math.cos(ang), y, z: r * Math.sin(ang), r, ang }
+  // ── 8각형 안쪽 나선 계단(공중에 뜬 낱장 디딤판) ────────────────────
+  //  8등분 원을 따라 45°씩 꺾이며 중심으로 감기는 경로 위에, 얇은 디딤판을 PITCH
+  //  간격으로 띄엄띄엄 얹는다. 깊이<간격이라 사이가 뜬다. 바깥(ROUT)=바닥 · 중심(RIN)=꼭대기.
+  const N_SEG     = Math.max(3, Math.round(ROOM_STAIR_TURNS * ROOM_STAIR_SIDES))  // 조각(변) 수 = 회전수×변수
+  const SEG_ANG   = (Math.PI * 2) / ROOM_STAIR_SIDES                              // 한 조각이 도는 각(45°)
+  const TOTAL_ANG = N_SEG * SEG_ANG                                               // 누적 회전각(= TURNS×2π)
+  // 코너 k(0=바닥·바깥 … N_SEG=꼭대기·중심): 반지름은 k에 선형, 각은 45°씩.
+  const corner = (k) => {
+    const f   = k / N_SEG
+    const ang = ROOM_STAIR_PHASE + f * TOTAL_ANG                 // f=1 → ang=0(+x, 디스크/통로 쪽)
+    const r   = ROOM_STAIR_ROUT + (ROOM_STAIR_RIN - ROOM_STAIR_ROUT) * f
+    return { x: r * Math.cos(ang), z: r * Math.sin(ang) }
   }
 
-  const baseArc    = (ROOM_R * ROOM_STAIR_INSET) * (ROOM_STAIR_TURNS * Math.PI * 2) / ROOM_STAIR_STEPS
-  const TREAD_TAN  = Math.max(0.8, baseArc * 1.8)                  // 접선 길이(이웃과 겹쳐 빈틈 없게)
+  // 높이 기준 배치 — 칸마다 같은 높이(RISE)만 오른다. 경사(BIAS) 따라 간격이 자동:
+  // 가파른 안쪽=촘촘(단수↑, 오르기 쉬움) · 완만한 바깥=성김. 위치는 그 높이의 8각형 경로점.
+  const insts = useMemo(() => {
+    const cs = []
+    for (let k = 0; k <= N_SEG; k++) cs.push(corner(k))
+    const cy = []                                              // 코너 누적 높이 — 안쪽일수록 가파르게(BIAS>1: 후반 급경사 → 돔 천장 회피)
+    for (let k = 0; k <= N_SEG; k++) cy.push(CLIMB * Math.pow(k / N_SEG, ROOM_STAIR_BIAS))
+    const nStep = Math.max(1, Math.round(CLIMB / ROOM_STAIR_RISE))  // 칸 수 = 총상승 ÷ 칸높이
+    const rise  = CLIMB / nStep                               // 실제 칸높이(총상승에 딱 맞게 보정)
+    const arr = []
+    let seg = 0
+    for (let m = 0; m < nStep; m++) {
+      const yTop = (m + 1) * rise                             // 이 칸 윗면 높이(균일 상승)
+      while (seg < N_SEG - 1 && yTop > cy[seg + 1]) seg++     // 이 높이에 해당하는 조각
+      const span = cy[seg + 1] - cy[seg]
+      const t = span > 1e-6 ? (yTop - cy[seg]) / span : 0     // 조각 내 위치(높이=위치, 둘 다 t에 선형)
+      const a = cs[seg], b = cs[seg + 1]
+      const x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t
+      const yRot = Math.PI / 2 - Math.atan2(b.z - a.z, b.x - a.x)  // 깊이축(z)을 진행방향에
+      arr.push({ p: [x, ROOM_FLOOR_Y + yTop - ROOM_STAIR_SLAB / 2, z], ry: yRot })  // 윗면 = yTop
+    }
+    return arr
+  }, [])
+  const INST_COUNT = insts.length
 
-  // 트레드 인스턴스
   useLayoutEffect(() => {
     const dum = new THREE.Object3D()
-    for (let i = 0; i < ROOM_STAIR_STEPS; i++) {
-      const t = i / (ROOM_STAIR_STEPS - 1)
-      const p = helixPt(t)
-      const localArc = p.r * (ROOM_STAIR_TURNS * Math.PI * 2) / ROOM_STAIR_STEPS   // 그 높이의 호 간격
-      const sz = Math.max(0.25, (localArc * 1.8) / TREAD_TAN)                      // 위로 갈수록 접선 길이 축소
-      dum.position.set(p.x, p.y, p.z)
-      dum.rotation.set(0, -p.ang, 0)            // 로컬 x=반지름 방향, z=접선 방향
-      dum.scale.set(1, 1, sz)
+    insts.forEach((it, i) => {
+      dum.position.set(it.p[0], it.p[1], it.p[2])
+      dum.rotation.set(0, it.ry, 0)
       dum.updateMatrix()
       treadRef.current.setMatrixAt(i, dum.matrix)
-    }
+    })
     treadRef.current.instanceMatrix.needsUpdate = true
-  }, [])
-
-  // 나선 밑 스트링거(연속 튜브) — 남는 빈틈 메우고 가장자리 선을 줌
-  const stringer = useMemo(() => {
-    const pts = []
-    for (let j = 0; j <= 240; j++) {
-      const p = helixPt(j / 240)
-      pts.push(new THREE.Vector3(p.x, p.y - 0.3, p.z))
-    }
-    return new THREE.CatmullRomCurve3(pts)
-  }, [])
+  }, [insts])
 
   // 빛우물 원뿔대 벽(빗면) — +x(통로)쪽에 출입문(디스크 바닥~문높이만 트임). 디스크 아래·문 위 벽은 남겨 가짜 구멍 방지 + 리브 시야 차단(스포).
   // === 원뿔대(빛우물) 벽: 박스 통로 구멍 + 돔(구)과 겹친 부분을 CSG로 정확히 빼기 (three-bvh-csg) ===
@@ -483,9 +496,9 @@ function DefAxiomRoom() {
       </mesh>
       {/* 내부 빛(불투명 돔이라) */}
       <pointLight position={[0, ROOM_FLOOR_Y + ROOM_HEIGHT * 0.45, 0]} intensity={1.05} distance={ROOM_R * 4} decay={1.4} color="#ffe2b0" />
-      {/* 내벽 나선계단 — 트레드(속찬·겹침) + 스트링거. ※ 정의·공리 마커는 나중에(현재 미표시). */}
-      <instancedMesh ref={treadRef} args={[undefined, undefined, ROOM_STAIR_STEPS]} userData={{ walkable: true }}>
-        <boxGeometry args={[ROOM_STAIR_WIDTH, TREAD_VERT, TREAD_TAN]} />
+      {/* 8각형 안쪽 나선 계단 — 공중에 뜬 얇은 낱장 디딤판을 PITCH 간격으로 배치(전부 걷는 면). ※ 정의·공리 마커는 나중에. */}
+      <instancedMesh ref={treadRef} args={[undefined, undefined, INST_COUNT]} userData={{ walkable: true }}>
+        <boxGeometry args={[ROOM_STAIR_WIDTH, ROOM_STAIR_SLAB, ROOM_STAIR_TREAD]} />
         <meshStandardMaterial color="#d6ab68" roughness={0.8} />
       </instancedMesh>
       {/* 꼭대기 착지 디스크(고리) — 가운데를 뚫어(천장 개방) 나선이 그 구멍으로 올라오고 빛우물이 위로 트임. 바깥 고리(6~18)는 걷는 발판, 윗면 49.3(다리와 동일). */}
