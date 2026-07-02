@@ -3,6 +3,7 @@ import { useRef, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import * as THREE from 'three'
 import { Brush, Evaluator, HOLLOW_SUBTRACTION } from 'three-bvh-csg'
 import GraphScaffold from './GraphScaffold'
+import { NODE_BY_ID } from './ethica1'
 
 // ============================================================
 //  Ethica Architectonics — 1부 (1~15) · 돔 씬
@@ -573,6 +574,101 @@ function Stairs({ x0, x1, y0, y1, hw, steps }) {
   return <group>{items}</group>
 }
 
+// ── 정리 비석(stele): 석재 슬랩(늘 보임) + 앞면 각인 텍스트(거리별 페이드) ──
+//  · 본문은 ethica1.js에서 그대로 읽는다(텍스트=데이터, 여기선 '표시'만 담당).
+//  · 비석 자체는 늘 보이고, 글자만 다가갈수록 선명해진다(디자인 C-2 거리별 가시성).
+//  · 지금은 원형 플랫폼 중앙의 비석 하나(1p1). 나중에 플랫폼 사슬(1p1~1p4)로 확장.
+const LABEL_FONT = '"Helvetica Neue", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif'
+
+// 비석 치수(튜닝 노브) — 사람 스케일(×SCALE 아님)
+const STELE_W         = 4.4     // 비석 가로(z폭)
+const STELE_H         = 5.0     // 비석 세로(플랫폼 위 높이)
+const STELE_THICK     = 0.5     // 두께(x)
+const STELE_BASE_H    = 0.5     // 받침(plinth) 높이
+const STELE_BASE_OVER = 0.45    // 받침이 슬랩보다 사방으로 튀어나온 양
+const STELE_TEXT_MARGIN = 0.82  // 글자 패널이 슬랩 면에서 차지하는 비율(테두리 여백)
+
+// 세로형 캔버스에 머리표+본문을 새겨 텍스처로. 슬랩 면 비율에 맞춤(왜곡 방지). 글자는 밝게(어두운 슬랩 위 각인).
+function makeSteleTexture(tag, text, aspectWH) {
+  const ch = 1024
+  const cw = Math.max(64, Math.round(ch * aspectWH))
+  const canvas = document.createElement('canvas')
+  canvas.width = cw; canvas.height = ch
+  const ctx = canvas.getContext('2d')
+  ctx.textAlign = 'center'
+  ctx.shadowColor = 'rgba(0,0,0,0.32)'; ctx.shadowBlur = 6; ctx.shadowOffsetY = 2   // 살짝 새김 느낌
+  // 머리표(정리 번호)
+  ctx.fillStyle = '#ece0c6'; ctx.font = `700 ${Math.round(cw * 0.11)}px ${LABEL_FONT}`
+  ctx.fillText(tag, cw / 2, ch * 0.15)
+  // 구분선(짧은 중앙선)
+  ctx.shadowBlur = 0; ctx.shadowOffsetY = 0
+  ctx.strokeStyle = 'rgba(236,224,198,0.5)'; ctx.lineWidth = 3
+  ctx.beginPath(); ctx.moveTo(cw * 0.28, ch * 0.20); ctx.lineTo(cw * 0.72, ch * 0.20); ctx.stroke()
+  // 본문(단어 줄바꿈 → 구분선 아래 영역에 세로 중앙정렬)
+  ctx.shadowColor = 'rgba(0,0,0,0.32)'; ctx.shadowBlur = 6; ctx.shadowOffsetY = 2
+  ctx.fillStyle = '#f4ecd9'
+  const bodyPx = Math.round(cw * 0.10)
+  ctx.font = `600 ${bodyPx}px ${LABEL_FONT}`
+  const maxW = cw * 0.82, lineH = bodyPx * 1.42
+  const lines = []
+  let line = ''
+  for (const word of text.split(' ')) {
+    const test = line ? line + ' ' + word : word
+    if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = word }
+    else line = test
+  }
+  if (line) lines.push(line)
+  const regionTop = ch * 0.26, regionBot = ch * 0.94
+  const blockH = lines.length * lineH
+  let y = regionTop + Math.max(0, (regionBot - regionTop - blockH) / 2) + bodyPx * 0.85
+  for (const ln of lines) { ctx.fillText(ln, cw / 2, y); y += lineH }
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.minFilter = THREE.LinearFilter; tex.anisotropy = 8; tex.colorSpace = THREE.SRGBColorSpace
+  return tex
+}
+
+// 비석 하나 = 한 정리. x/z/near/far 튜닝 노브. 비석 앞면은 −x(접근 방향)을 향함.
+function PropStele({ id, x = PLAT_X, z = 0, faceY = PLAT_Y + COR_THICK / 2, near = 8, far = 55 }) {
+  const node = NODE_BY_ID[id] || { text: id }
+  const matRef   = useRef()
+  const panelRef = useRef()
+  const aspectWH = STELE_W / STELE_H
+  const tex = useMemo(() => makeSteleTexture(id, node.text, aspectWH), [id, node.text, aspectWH])
+  const slabCY = faceY + STELE_BASE_H + STELE_H / 2       // 슬랩 중앙 높이(받침 위)
+  const baseCY = faceY + STELE_BASE_H / 2                 // 받침 중앙 높이
+  const textW  = STELE_W * STELE_TEXT_MARGIN
+  const textH  = STELE_H * STELE_TEXT_MARGIN
+  const panelX = x - STELE_THICK / 2 - 0.03               // 슬랩 앞면(−x) 바로 앞(z-파이팅 방지)
+  useFrame(({ camera }) => {
+    const p = panelRef.current; if (!p) return
+    const d = camera.position.distanceTo(p.position)
+    let o = (far - d) / (far - near)
+    o = Math.max(0, Math.min(1, o)); o = o * o * (3 - 2 * o)     // smoothstep
+    if (matRef.current) matRef.current.opacity = o
+    p.visible = o > 0.001
+  })
+  return (
+    <group>
+      {/* 받침(plinth) — 늘 보임 */}
+      <mesh position={[x, baseCY, z]}>
+        <boxGeometry args={[STELE_THICK + STELE_BASE_OVER * 2, STELE_BASE_H, STELE_W + STELE_BASE_OVER * 2]} />
+        <meshStandardMaterial color="#5b5344" roughness={0.96} />
+      </mesh>
+      {/* 비석 슬랩 — 늘 보임 */}
+      <mesh position={[x, slabCY, z]}>
+        <boxGeometry args={[STELE_THICK, STELE_H, STELE_W]} />
+        <meshStandardMaterial color="#6a6152" roughness={0.9} />
+      </mesh>
+      {/* 앞면 각인 텍스트(−x 향함) — 비석은 늘 보이고, 이 글자만 거리별로 선명해짐 */}
+      <mesh ref={panelRef} position={[panelX, slabCY, z]} rotation-y={-Math.PI / 2}>
+        <planeGeometry args={[textW, textH]} />
+        <meshBasicMaterial ref={matRef} map={tex} transparent depthWrite={false}
+          side={THREE.DoubleSide} alphaTest={0.02} />
+      </mesh>
+    </group>
+  )
+}
+
 function Corridor() {
   const wallMat = '#b89a6a'
 
@@ -729,6 +825,7 @@ export default function App() {
             <DomeRibs />
             <DefAxiomRoom stairKind={stair} />
             <Corridor />
+            <PropStele id="1p1" x={PLAT_X} z={0} near={8} far={55} />
             <Apex />
             <RibStair />
             <LandingPad />
