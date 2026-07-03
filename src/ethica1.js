@@ -39,8 +39,10 @@ export const TIER = {
 //     note  : 데이터에 남길 주석 (선택)
 //     provisional: true 이면 text가 '표준 요약'이며 네 번역으로 교체 가능
 
-// --- 정의 (1~8이 인용하는 D1~D5만) ---------------------------
+// --- 정의 D1~D8 (전체) -----------------------------------------
 //   ⚠ 아래 text는 표준 요약(provisional). 네 번역·독해로 바꿔도 그래프는 안 깨짐.
+//   D6~D8은 1~8 구간 미인용(D6은 9~15 데이터 입력 시 연결, D7·D8은 1~15 미인용).
+//   그래도 전부 싣는다 — 방의 '정의 옥타곤' 8기가 완전성을 요구(쓰임은 별자리가 밝힘).
 export const DEFINITIONS = [
   { id: 'D1', kind: KIND.DEF, tier: TIER.GROUND, anchor: null, provisional: true,
     text: '자기원인: 그 본질이 존재를 포함하는 것(존재한다고만 파악될 수 있는 것).', deps: [] },
@@ -52,18 +54,34 @@ export const DEFINITIONS = [
     text: '속성: 지성이 실체의 본질을 구성하는 것으로 지각하는 것.', deps: [] },
   { id: 'D5', kind: KIND.DEF, tier: TIER.GROUND, anchor: null, provisional: true,
     text: '양태: 실체의 변용. 다른 것 안에 있고 다른 것을 통해 파악되는 것.', deps: [] },
+  { id: 'D6', kind: KIND.DEF, tier: TIER.GROUND, anchor: null, provisional: true,
+    text: '신: 절대적으로 무한한 존재, 즉 각각이 영원하고 무한한 본질을 표현하는 무한한 속성들로 이루어진 실체.', deps: [],
+    note: '1p1~8에는 부재 — 신은 전제가 아니라 구성된다(발생적 방법). 9~15 의존 데이터 입력 시 연결.' },
+  { id: 'D7', kind: KIND.DEF, tier: TIER.GROUND, anchor: null, provisional: true,
+    text: '자유로운 것: 자기 본성의 필연성만으로 존재하고 자기에 의해서만 행동이 결정되는 것. 강제된 것: 다른 것에 의해 정해진 방식으로 존재·작용하도록 결정되는 것.', deps: [],
+    note: '1부 1~15 미인용 — 옥타곤 완전성을 위해 전시.' },
+  { id: 'D8', kind: KIND.DEF, tier: TIER.GROUND, anchor: null, provisional: true,
+    text: '영원성: 영원한 것의 정의만으로부터 필연적으로 따라 나온다고 파악되는 존재 그 자체.', deps: [],
+    note: '1부 1~15 미인용 — 옥타곤 완전성을 위해 전시.' },
 ]
 
-// --- 공리 (1~8이 인용하는 A1·A4·A5·A6만) ----------------------
+// --- 공리 A1~A7 (전체) ------------------------------------------
+//   A2·A3·A7은 1~8 구간 미인용 — 방의 '공리 스테이션' 7기가 완전성을 요구.
 export const AXIOMS = [
   { id: 'A1', kind: KIND.AX, tier: TIER.GROUND, anchor: null, provisional: true,
     text: '존재하는 모든 것은 자기 안에 있거나 다른 것 안에 있다.', deps: [] },
+  { id: 'A2', kind: KIND.AX, tier: TIER.GROUND, anchor: null, provisional: true,
+    text: '다른 것을 통해 파악될 수 없는 것은 자기를 통해 파악되어야 한다.', deps: [] },
+  { id: 'A3', kind: KIND.AX, tier: TIER.GROUND, anchor: null, provisional: true,
+    text: '주어진 일정한 원인에서 필연적으로 결과가 따른다. 반대로 일정한 원인이 없으면 결과가 따르는 것은 불가능하다.', deps: [] },
   { id: 'A4', kind: KIND.AX, tier: TIER.GROUND, anchor: null, provisional: true,
     text: '결과의 인식은 원인의 인식에 의존하며 그것을 포함한다.', deps: [] },
   { id: 'A5', kind: KIND.AX, tier: TIER.GROUND, anchor: null, provisional: true,
     text: '공통점이 없는 것들은 서로를 통해 파악될 수 없다.', deps: [] },
   { id: 'A6', kind: KIND.AX, tier: TIER.GROUND, anchor: null, provisional: true,
     text: '참된 관념은 그 대상과 일치해야 한다.', deps: [] },
+  { id: 'A7', kind: KIND.AX, tier: TIER.GROUND, anchor: null, provisional: true,
+    text: '존재하지 않는 것으로 파악될 수 있는 모든 것의 본질은 존재를 포함하지 않는다.', deps: [] },
 ]
 
 // --- 정리 1~8 (text·deps는 DD-01 그대로) ----------------------
