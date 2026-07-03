@@ -46,8 +46,11 @@ export function FirstPersonControls() {
     }
   }, [camera, gl])
 
-  const WALK_SPEED = 3.5 * SCALE   // 보행 속도(공간 비례). 답답하면 계수(3.5)↑
-  const FLY_SPEED  = 6   * SCALE   // 비행(Q/E) 속도 — 살펴보기용, 더 빠름
+  // ★리그 임시(2026.07.04): 걷기 = '사람 고정'(스케일 무관) + Shift 달리기 — 판정의 전제.
+  //   구판 3.5×SCALE은 프리셋을 키울수록 같이 빨라져 스케일 체감을 상쇄(판정 무효화).
+  //   최종 보행속도(사람 고정 vs ×SCALE)는 열린 결정(§7) — 리그 판정 후.
+  const WALK_SPEED = 6         // 사람 걷기(고정). 느리면 이 값만 ↑
+  const RUN_MULT   = 3         // Shift 달리기 배수(6 → 18)
   const EYE       = 1.6
   const STEP_UP   = 0.8
   const STEP_DOWN = 2.2
@@ -81,6 +84,7 @@ export function FirstPersonControls() {
     if (k['KeyD'] || k['ArrowRight']) move.add(right)
     if (k['KeyA'] || k['ArrowLeft'])  move.sub(right)
 
+    const FLY_SPEED = 6 * SCALE   // 비행(Q/E) — 살펴보기용, 공간 비례 유지. 프리셋 라이브 반영 위해 매 프레임 계산
     const flying = k['KeyQ'] || k['KeyE']
     if (flying) {
       if (move.lengthSq() > 0) { move.normalize().multiplyScalar(FLY_SPEED * d); camera.position.add(move) }
@@ -93,7 +97,8 @@ export function FirstPersonControls() {
     }
 
     if (move.lengthSq() > 0) {
-      move.normalize().multiplyScalar(WALK_SPEED * d)
+      const spd = (k['ShiftLeft'] || k['ShiftRight']) ? WALK_SPEED * RUN_MULT : WALK_SPEED
+      move.normalize().multiplyScalar(spd * d)
       const px = camera.position.x, pz = camera.position.z
       const nx = px + move.x, nz = pz + move.z
       if (FREE_WALK) {
