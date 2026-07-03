@@ -1,12 +1,13 @@
 // ============================================================
-//  에티카 1부 — 정리 1~8 의존 그래프 데이터  (src/ethica1.js)
+//  에티카 1부 — 정리 1~15 의존 그래프 데이터  (src/ethica1.js)
 //
 //  이 파일은 '데이터'만 담는다. 3D 모양·배치·색·립 개수 같은
 //  어떤 미적/건축 결정도 여기서 정하지 않는다.
 //  → 네 1~4 스케치가 A-1이든 A-2든(DD-03), 립이 둘이든 무한이든(DD-05),
 //    그 위에 무엇이든 올릴 수 있는 '바닥'.
 //
-//  출처: Design Log DD-01 (상태: 확정) 의 의존표를 그대로 전사.
+//  출처: 1~8 = Design Log DD-01(확정) 의존표 그대로 전사.
+//        9~15 = 증명문의 명시 인용 실측(2026.07.03 데이터 세션; 1p11은 세 증명의 합집합 — 결정 (가)).
 //  원칙: 에티카 본문에 '명시적으로 인용된 노드'만 간선으로 넣는다.
 //        숨은 인용(점선)·보충(corollary) 별도 노드는 만들지 않는다.
 // ============================================================
@@ -22,10 +23,16 @@ export const KIND = {
 //   ground     : 정의·공리 (토대 아래 바탕)
 //   foundation : 1~4  평행한 네 토대 (서로 미인용, 정의·공리에서 직접)
 //   braid      : 5~8  수렴 땋임 (가닥이 위로 모임)
+//   transition : 9~10 이행 (단일 속성 실체 → 무한 속성 실체)
+//   culmination: 11   구성의 완료 (신의 필연적 존재 — 발생적 방법의 정점)
+//   consequence: 12~15 귀결 (완성된 신으로부터: 불가분 12·13 / 유일 14 / 내재 15)
 export const TIER = {
   GROUND: 'ground',
   FOUNDATION: 'foundation',
   BRAID: 'braid',
+  TRANSITION: 'transition',
+  CULMINATION: 'culmination',
+  CONSEQUENCE: 'consequence',
 }
 
 // 각 노드의 공통 형태:
@@ -41,7 +48,7 @@ export const TIER = {
 
 // --- 정의 D1~D8 (전체) -----------------------------------------
 //   ⚠ 아래 text는 표준 요약(provisional). 네 번역·독해로 바꿔도 그래프는 안 깨짐.
-//   D6~D8은 1~8 구간 미인용(D6은 9~15 데이터 입력 시 연결, D7·D8은 1~15 미인용).
+//   D6는 1p11(제3증명)·1p14가 인용 — 최초 연결 = 1p11. D7·D8은 1~15 전체 미인용.
 //   그래도 전부 싣는다 — 방의 '정의 옥타곤' 8기가 완전성을 요구(쓰임은 별자리가 밝힘).
 export const DEFINITIONS = [
   { id: 'D1', kind: KIND.DEF, tier: TIER.GROUND, anchor: null, provisional: true,
@@ -56,7 +63,7 @@ export const DEFINITIONS = [
     text: '양태: 실체의 변용. 다른 것 안에 있고 다른 것을 통해 파악되는 것.', deps: [] },
   { id: 'D6', kind: KIND.DEF, tier: TIER.GROUND, anchor: null, provisional: true,
     text: '신: 절대적으로 무한한 존재, 즉 각각이 영원하고 무한한 본질을 표현하는 무한한 속성들로 이루어진 실체.', deps: [],
-    note: '1p1~8에는 부재 — 신은 전제가 아니라 구성된다(발생적 방법). 9~15 의존 데이터 입력 시 연결.' },
+    note: '1p1~10에는 부재 — 신은 전제가 아니라 구성된다(발생적 방법). 1p11(제3증명 per Defin.6)에서 처음 인용되어 그물에 연결(2026.07.03).' },
   { id: 'D7', kind: KIND.DEF, tier: TIER.GROUND, anchor: null, provisional: true,
     text: '자유로운 것: 자기 본성의 필연성만으로 존재하고 자기에 의해서만 행동이 결정되는 것. 강제된 것: 다른 것에 의해 정해진 방식으로 존재·작용하도록 결정되는 것.', deps: [],
     note: '1부 1~15 미인용 — 옥타곤 완전성을 위해 전시.' },
@@ -66,7 +73,7 @@ export const DEFINITIONS = [
 ]
 
 // --- 공리 A1~A7 (전체) ------------------------------------------
-//   A2·A3·A7은 1~8 구간 미인용 — 방의 '공리 스테이션' 7기가 완전성을 요구.
+//   A2·A3은 1~15 전체 미인용(A7은 1p11 제1증명이 인용) — 스테이션 7기는 완전성 요구로 전시.
 export const AXIOMS = [
   { id: 'A1', kind: KIND.AX, tier: TIER.GROUND, anchor: null, provisional: true,
     text: '존재하는 모든 것은 자기 안에 있거나 다른 것 안에 있다.', deps: [] },
@@ -84,7 +91,7 @@ export const AXIOMS = [
     text: '존재하지 않는 것으로 파악될 수 있는 모든 것의 본질은 존재를 포함하지 않는다.', deps: [] },
 ]
 
-// --- 정리 1~8 (text·deps는 DD-01 그대로) ----------------------
+// --- 정리 1~15 (1~8: text·deps는 DD-01 그대로 / 9~15: 증명문 실측 2026.07.03) ---
 export const PROPOSITIONS = [
   { id: '1p1', kind: KIND.PROP, tier: TIER.FOUNDATION, anchor: null,
     text: '실체는 본성상 자신의 변용에 앞선다.',
@@ -123,6 +130,44 @@ export const PROPOSITIONS = [
     // 1p8의 '무한'은 자기 유 안에서 무한(infinite in suo genere)이지
     // D6의 절대적 무한이 아니다. → 1~8 구간엔 신(D6) 부재 (DD-02).
     note: "여기서 '무한'은 자기 유 안에서 무한. D6(절대적 무한)이 아님." },
+
+  // ── 9~15 (2026.07.03 데이터 세션: 증명문의 명시적 인용만 간선으로 — 기존 원칙 유지) ──
+
+  { id: '1p9', kind: KIND.PROP, tier: TIER.TRANSITION, anchor: null,
+    text: '더 많은 실재성·유를 가질수록 더 많은 속성이 귀속된다.',
+    deps: ['D4'],
+    note: "증명은 한 줄 — '정의 4로부터 명백하다(patet ex Def. 4)'." },
+
+  { id: '1p10', kind: KIND.PROP, tier: TIER.TRANSITION, anchor: null,
+    text: '실체의 각 속성은 그 자체를 통해 파악되어야 한다.',
+    deps: ['D4', 'D3'] },
+
+  { id: '1p11', kind: KIND.PROP, tier: TIER.CULMINATION, anchor: null,
+    text: '신, 즉 무한한 속성으로 이루어진 실체는 필연적으로 존재한다.',
+    deps: ['1p7', 'A7', '1p2', 'A1', 'D6'],
+    // 증명이 셋 — deps는 세 증명의 명시 인용 '합집합' (2026.07.03 결정 (가)):
+    //   제1증명: A7·1p7 / 제2증명: 1p2·1p7("vide Prop.7") / 제3증명: A1·1p7·D6("per Defin.6").
+    //   ※ 1p7은 세 증명 전부에 등장 — 폴 절단 device(1p7)의 하중이 별자리에서 가시화된다.
+    //   ※ D6(신)는 여기서 처음 그물에 연결 — 신은 전제가 아니라 구성된다.
+    note: '세 증명의 합집합. 1p7이 셋 모두에 등장. D6 최초 연결 지점.' },
+
+  { id: '1p12', kind: KIND.PROP, tier: TIER.CONSEQUENCE, anchor: null,
+    text: '속성에서 실체가 분할된다는 결론이 나오면, 어떤 속성도 참되게 파악될 수 없다.',
+    deps: ['1p8', '1p6', '1p5', '1p2', 'D4', '1p10', '1p7'],
+    note: '인용 최다(7) — 불가분성이 1~10 그물을 통째로 회수. deps 순서 = 증명문 등장 순서.' },
+
+  { id: '1p13', kind: KIND.PROP, tier: TIER.CONSEQUENCE, anchor: null,
+    text: '절대적으로 무한한 실체는 분할되지 않는다.',
+    deps: ['1p5', '1p11'],
+    note: "증명 중 '위에서처럼(ut supra)' = 1p12 논변 재사용 — 번호 인용이 아니므로 간선 제외, 기록만." },
+
+  { id: '1p14', kind: KIND.PROP, tier: TIER.CONSEQUENCE, anchor: null,
+    text: '신 이외에는 어떤 실체도 존재·파악될 수 없다.',
+    deps: ['D6', '1p11', '1p5'] },
+
+  { id: '1p15', kind: KIND.PROP, tier: TIER.CONSEQUENCE, anchor: null,
+    text: '존재하는 모든 것은 신 안에 있으며, 신 없이는 아무것도 존재·파악될 수 없다.',
+    deps: ['1p14', 'D3', 'D5', 'A1'] },
 ]
 
 // --- 전체 노드를 한 배열로 / id로 빠르게 찾기 ------------------
