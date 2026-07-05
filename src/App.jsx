@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import GraphScaffold from './GraphScaffold'
 import { SCALE, PLAT_X } from './constants'
 import { FirstPersonControls } from './FirstPersonControls'
-import { Ground, DomeRibs, ExplorationRib, Apex, RibStair, LandingPad, StraightFlight, Terrace } from './Dome'
+import { Ground, DomeRibs, ExplorationRib, Apex, RibStair, KneeWalk, RibJunction, Lookout, RevealPassage, Terrace } from './Dome'
 import { DefAxiomRoom } from './Room'
 import { Corridor } from './Corridor'
 import { PropStele } from './Steles'
@@ -48,8 +48,10 @@ export default function App() {
               <PropStele id="1p1" x={PLAT_X} z={0} near={8} far={55} />
               <Apex />
               <RibStair />
-              <LandingPad />
-              <StraightFlight />
+              <KneeWalk />
+              <RibJunction />
+              <Lookout />
+              <RevealPassage />
               <Terrace />
             </group>
             <FirstPersonControls />

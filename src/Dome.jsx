@@ -1,14 +1,22 @@
-// Dome.jsx — 돔·리브 세계: Ground / DomeRibs(리브 71 — #0 제외) / ExplorationRib(탐험 리브 = CSG 문) /
-//            Apex / RibStair(문→무릎길 나선 + 절단 폴) / LandingPad·StraightFlight(⚠️폐기 예정 ③B) / Terrace
-//  ★1-③A(2026.07.04): 탐험 리브 분리(72→71+1) + −x면 CSG 문 + 나선 재정의(문 시작·위상 π·f축) + 폴 절단(1p7)
+// Dome.jsx — 돔·리브 세계: Ground / DomeRibs(71) / ExplorationRib(CSG 문+아치) / Apex /
+//            RibStair(문→무릎길 나선 + 절단 폴) / KneeWalk / RibJunction / Lookout(1p8) /
+//            RevealPassage(연결 통로 — 끝 문 = 1p11 공개) / Terrace
+//  ★1-③B(2026.07.05): 상부 구간 구현 — 관내 잔류(§1) 완성. LandingPad·StraightFlight 폐기 제거.
+//  ★1-③A(2026.07.04): 탐험 리브 분리(72→71+1) + −x면 CSG 문 + 나선 재정의 + 폴 절단(1p7)
 import { useRef, useMemo, useLayoutEffect } from 'react'
 import * as THREE from 'three'
 import { Brush, Evaluator, HOLLOW_SUBTRACTION } from 'three-bvh-csg'
 import {
   rOf, spiralPoint, SCALE, H, R_BASE, MERIDIANS, SHELL_RIB_R, RIB_RADIAL_SEG,
-  STAIR_STEPS, TREAD_DEPTH, TREAD_WIDTH, TREAD_THICK, POLE_R, Y_POLE_CUT, U_DOOR,
+  STAIR_STEPS, STEP_RISE, TREAD_DEPTH, TREAD_WIDTH, TREAD_THICK, POLE_R, Y_POLE_CUT, U_DOOR,
   DOOR_W, DOOR_H, DOOR_SILL_Y,
-  CLIMB_TOP, PAD_SIZE, TERRACE_EDGE, FLIGHT_STEPS, FLIGHT_WIDTH,
+  U_SPIRAL_END, U_KNEE_END, KW_STEPS, KW_TREAD_W, LAND_R, LAND_T,
+  JCT_UP_Z, JCT_DN_Z, U_LOOKOUT_END, LK_STEPS, LK_PLAT_R,
+  DESC_SLOPE, DESC_STEPS, X_DESC0, X_DESC_END, PASS_FLOOR_Y,
+  PASS_HW, PASS_T, PASS_ROOF_H, PASS_X_DEEP, PASS_X_CHEEK, CHEEK_TOP_NZ, CHEEK_TOP_PZ, PASS_X_END,
+  LINTEL_X, LINTEL_Y0, LINTEL_Y1,
+  ARCH_X0, ARCH_X1, ARCH_Y0, ARCH_Y1, ARCH_Z0, ARCH_Z1,
+  PASS_DOOR_W, PASS_DOOR_H,
   TERRACE_Y, TERRACE_RIN, TERRACE_ROUT, TERRACE_ARC,
 } from './constants'
 
@@ -29,6 +37,10 @@ function makeRibCurve() {
   return new THREE.CatmullRomCurve3(pts)
 }
 const RIB_MAT = { color: '#bb8a4e', roughness: 0.7, metalness: 0 }   // 두 컴포넌트 공유(재질 동일 LOCKED)
+// 디딤판·판(부양 요소) / 통로 외피 — Corridor 어휘 공유
+const TREAD_MAT = { color: '#d6ab68', roughness: 0.8 }
+const SHELL_MAT = { color: '#c2a062', roughness: 0.9 }
+const FLOOR_MAT = { color: '#a98f5e', roughness: 0.95 }
 
 // ── 셸: 경선 리브 71개 (= 단일 속성 실체, 전부 균일) — 탐험 리브(#0)는 ExplorationRib가 담당 ──
 export function DomeRibs() {
@@ -51,21 +63,29 @@ export function DomeRibs() {
   )
 }
 
-// ── 탐험 리브(#0, φ=0): 형태·재질은 나머지와 완전 동일(LOCKED) — 유일한 차이 = −x면(통로쪽) CSG 문 ──
-//  문은 '합의된 기능'이지 형태 차별화가 아니다(§1). +x(바깥)면은 그대로 → 리브 불투명 = 스포 3중 차단의 ①.
+// ── 탐험 리브(#0, φ=0): 형태·재질은 나머지와 완전 동일(LOCKED) — 유일한 차이 = CSG 개구 2곳 ──
+//  ① 문(−x면, 1-③A): 통로쪽만 관통, +x(바깥) 불투명 보존 = 스포 3중 차단의 ①.
+//  ② 아치(하부 벽, 1-③B): 갈림 하강로가 관 하부 벽을 지나는 대각 띠. ★입은 '외부'가 아니라
+//     보어와 통로 내부를 잇는다 — 뚫린 면의 바깥은 RevealPassage 외피가 전부 봉함(누출 검증 = 스크립트).
+//  둘 다 HOLLOW_SUBTRACTION(열린 껍질 — 겹치는 면만 제거, 뚜껑 없음) 체이닝.
 export function ExplorationRib() {
   const geo = useMemo(() => {
     const tube = new THREE.TubeGeometry(makeRibCurve(), 200, SHELL_RIB_R, RIB_RADIAL_SEG, false)
-    // 자르개: 세로 슬롯 상자 — x중심을 −x벽(rOf(U_DOOR)−SHELL_RIB_R ≈ 282)에, 깊이 = SHELL_RIB_R(6)
-    //  → x∈[벽−3, 벽+3]=[279,285]: −x면(≈282)만 관통, 중심(288)·+x벽(294)에는 못 미침(바깥 불투명 보존).
-    //  관은 열린 껍질(두께 0)이므로 HOLLOW_SUBTRACTION — 겹치는 면만 제거, 뚜껑 안 생김(Corridor 박스벽 전례).
-    const wallX = rOf(U_DOOR) - SHELL_RIB_R
-    const cutter = new THREE.BoxGeometry(SHELL_RIB_R, DOOR_H, DOOR_W)
-    cutter.translate(wallX, DOOR_SILL_Y + DOOR_H / 2, 0)
     const ev = new Evaluator(); ev.attributes = ['position', 'normal']
+    // ① 문 자르개: 세로 슬롯 상자 — x중심을 −x벽(rOf(U_DOOR)−SHELL_RIB_R ≈ 282)에, 깊이 = SHELL_RIB_R(6)
+    //   → x∈[279,285]: −x면(≈282)만 관통, 중심(288)·+x벽(294)에는 못 미침.
+    const wallX = rOf(U_DOOR) - SHELL_RIB_R
+    const doorCut = new THREE.BoxGeometry(SHELL_RIB_R, DOOR_H, DOOR_W)
+    doorCut.translate(wallX, DOOR_SILL_Y + DOOR_H / 2, 0)
+    // ② 아치 자르개: 축정렬 상자(constants ARCH_*) — 하강 보행자 발–머리 대각 띠를 덮는 최소 창.
+    //   y 상한(갈림+0.2)을 넘기면 남은 벽이 줄어 '지붕 위 시선' 누출 — 린텔(LINTEL_Y1)과 짝(검증 21·22항).
+    const archCut = new THREE.BoxGeometry(ARCH_X1 - ARCH_X0, ARCH_Y1 - ARCH_Y0, ARCH_Z1 - ARCH_Z0)
+    archCut.translate((ARCH_X0 + ARCH_X1) / 2, (ARCH_Y0 + ARCH_Y1) / 2, (ARCH_Z0 + ARCH_Z1) / 2)
     const ribBrush = new Brush(tube); ribBrush.updateMatrixWorld()
-    const cutBrush = new Brush(cutter); cutBrush.updateMatrixWorld()
-    return ev.evaluate(ribBrush, cutBrush, HOLLOW_SUBTRACTION).geometry
+    const b1 = new Brush(doorCut); b1.updateMatrixWorld()
+    const step1 = ev.evaluate(ribBrush, b1, HOLLOW_SUBTRACTION)
+    const b2 = new Brush(archCut); b2.updateMatrixWorld()
+    return ev.evaluate(step1, b2, HOLLOW_SUBTRACTION).geometry
   }, [])
   return (
     <mesh geometry={geo}>
@@ -86,12 +106,8 @@ export function Apex() {
   )
 }
 
-// ── 나선 계단(★1-③A 재정의): 문(RIB_Y) → 무릎길 진입. f축(constants.spiralPoint) 위에 디딤판 배치 ──
-//  · 시작 위상 π(SPIRAL_PHASE) = 첫 디딤판이 문 안쪽 −x → 통로 계단 정상(y74·x→288)에서 바로 밟힘
-//    (f=(i+0.5)/N 반 칸 오프셋: 첫 판이 계단 윗면 위 ≈0.08 부양 — 교차 없이 인접)
-//  · 폴(1p7 device): 외부 지지의 '가설' — 지면(y=0) 뿌리에서 올라 1p6 지점(Y_POLE_CUT)에서 종단,
-//    평면 캡(뭉툭·기본형). 이후 디딤판 무지지 = 실체의 자기원인(1p7 deps=[1p6,D1] 전사).
-//    절단점이 무릎 아래 수직 구간이므로 폴 = 닫힌 수직 원기둥(x=R_BASE)이 정확(가드 = constants).
+// ── 나선 계단(1-③A): 문(RIB_Y) → 무릎길 진입. f축(constants.spiralPoint) 위에 디딤판 배치 ──
+//  · 폴(1p7 device): 외부 지지의 '가설' — 지면(y=0)에서 올라 1p6 지점(Y_POLE_CUT)에서 종단·평면 캡.
 export function RibStair() {
   const treadRef = useRef()
   useLayoutEffect(() => {
@@ -110,7 +126,7 @@ export function RibStair() {
     <>
       <instancedMesh ref={treadRef} args={[undefined, undefined, STAIR_STEPS]} userData={{ walkable: true }}>
         <boxGeometry args={[TREAD_DEPTH, TREAD_THICK, TREAD_WIDTH]} />
-        <meshStandardMaterial color="#d6ab68" roughness={0.8} />
+        <meshStandardMaterial {...TREAD_MAT} />
       </instancedMesh>
       <mesh position={[R_BASE, Y_POLE_CUT / 2, 0]}>
         <cylinderGeometry args={[POLE_R, POLE_R, Y_POLE_CUT, 12]} />
@@ -120,43 +136,158 @@ export function RibStair() {
   )
 }
 
-// ── 계단참 — ⚠️폐기 예정(1-③B: KneeWalk로 대체). 임시 착지(새 나선 끝 CLIMB_TOP) ──
-export function LandingPad() {
+// ── 착지 디스크(공용 부품): 나선끝·갈림 — 부양 판(방 디딤판 어휘). r=4 > 헬릭스 3.3 → 각도 무관 수용 ──
+function LandingDisc({ u, topLift = 0.1, r = LAND_R }) {
+  const cx = rOf(u), topY = u * H + topLift
   return (
-    <mesh position={[CLIMB_TOP.x, CLIMB_TOP.y, CLIMB_TOP.z]} userData={{ walkable: true }}>
-      <boxGeometry args={[PAD_SIZE, TREAD_THICK, PAD_SIZE]} />
-      <meshStandardMaterial color="#cfa765" roughness={0.82} />
+    <mesh position={[cx, topY - LAND_T / 2, 0]} userData={{ walkable: true }}>
+      <cylinderGeometry args={[r, r, LAND_T, 40]} />
+      <meshStandardMaterial {...TREAD_MAT} />
     </mesh>
   )
 }
 
-// ── 직선 다리 — ⚠️폐기 예정(1-③B: 무릎길·연결 통로로 대체). 관외 노출 = 옛 세계의 잔재 ──
-export function StraightFlight() {
+// ── 무릎길(KneeWalk, ★1-③B): 나선끝 디스크 → 갈림 디스크. 관 무릎(수평화) 구간의 관내 보행 ──
+//  디딤판 = 중심선 높이 '부양'(1p7 이후 — 뜸은 증명되었다). 등간격 y(RISE 균일), x = rOf(y/H), z = 0.
+//  경사 0.6→0.32→0.6 가변은 디딤판 간격이 흡수(가파른 양끝 = 촘촘, 무릎 정점 = 성김).
+export function KneeWalk() {
   const ref = useRef()
   useLayoutEffect(() => {
     const dum = new THREE.Object3D()
-    const dx = TERRACE_EDGE.x - CLIMB_TOP.x
-    const dy = TERRACE_EDGE.y - CLIMB_TOP.y
-    const rotZ = Math.atan2(dy, dx)
-    for (let k = 0; k < FLIGHT_STEPS; k++) {
-      const t = (k + 0.5) / FLIGHT_STEPS
-      dum.position.set(CLIMB_TOP.x + dx * t, CLIMB_TOP.y + dy * t, 0)
-      dum.rotation.set(0, 0, rotZ)
-      dum.scale.set(1, 1, FLIGHT_WIDTH / TREAD_WIDTH)
+    const y0 = U_SPIRAL_END * H
+    for (let i = 0; i < KW_STEPS; i++) {
+      const y = y0 + (i + 1) * STEP_RISE           // (i+1): 디스크 상면(u·H+0.1)과 관통 없이 첫 단차 0.25
+      dum.position.set(rOf(y / H), y, 0)
       dum.updateMatrix()
-      ref.current.setMatrixAt(k, dum.matrix)
+      ref.current.setMatrixAt(i, dum.matrix)
     }
     ref.current.instanceMatrix.needsUpdate = true
   }, [])
   return (
-    <instancedMesh ref={ref} args={[undefined, undefined, FLIGHT_STEPS]} userData={{ walkable: true }}>
-      <boxGeometry args={[TREAD_DEPTH, TREAD_THICK, TREAD_WIDTH]} />
-      <meshStandardMaterial color="#d6ab68" roughness={0.8} />
-    </instancedMesh>
+    <>
+      <LandingDisc u={U_SPIRAL_END} />
+      <instancedMesh ref={ref} args={[undefined, undefined, KW_STEPS]} userData={{ walkable: true }}>
+        <boxGeometry args={[TREAD_DEPTH, TREAD_THICK, KW_TREAD_W]} />
+        <meshStandardMaterial {...TREAD_MAT} />
+      </instancedMesh>
+    </>
   )
 }
 
-// ── 테라스 ──
+// ── 갈림(RibJunction, ★1-③B): 무릎길 끝 디스크 + 하강 갈래(아치로) ──
+//  ★갈림 = 논증(§3): 위로 계속 올라도(Lookout·1p8) 막다름 — 되돌아 내려가(이 하강) 이행(1p9·10)을
+//  거쳐야 1p11(공개)에 이른다. 하강 = z=JCT_DN_Z, 경사 DESC_SLOPE, 디스크 가장자리(X_DESC0)에서 −x로.
+export function RibJunction() {
+  const ref = useRef()
+  useLayoutEffect(() => {
+    const dum = new THREE.Object3D()
+    const yTop = U_KNEE_END * H
+    for (let i = 0; i < DESC_STEPS; i++) {
+      const y = yTop - (i + 0.5) * STEP_RISE
+      dum.position.set(X_DESC0 - (yTop - y) / DESC_SLOPE, y, JCT_DN_Z)
+      dum.updateMatrix()
+      ref.current.setMatrixAt(i, dum.matrix)
+    }
+    ref.current.instanceMatrix.needsUpdate = true
+  }, [])
+  return (
+    <>
+      <LandingDisc u={U_KNEE_END} />
+      <instancedMesh ref={ref} args={[undefined, undefined, DESC_STEPS]} userData={{ walkable: true }}>
+        <boxGeometry args={[TREAD_DEPTH, TREAD_THICK, TREAD_WIDTH * 2]} />
+        <meshStandardMaterial {...TREAD_MAT} />
+      </instancedMesh>
+    </>
+  )
+}
+
+// ── 1p8 전망(Lookout, ★1-③B): 갈림에서 관축 상행(z=JCT_UP_Z) → 경사 1.2 한계에서 플랫폼(막다름) ──
+//  플랫폼에서 보어(관 내부 수직 통 ≈695 = 눈높이 435배)를 올려다봄 = suo genere 무한(이 속성 '하나'의 끝없음).
+//  1p8 비석 = Phase 2(이 플랫폼 위). 정점 미광(암흑 vs 빛 점) = Phase 3-⑧.
+export function Lookout() {
+  const ref = useRef()
+  useLayoutEffect(() => {
+    const dum = new THREE.Object3D()
+    const y0 = U_KNEE_END * H
+    for (let i = 0; i < LK_STEPS; i++) {
+      const y = y0 + (i + 1) * STEP_RISE           // (i+1): 갈림 디스크 상면과 관통 방지
+      dum.position.set(rOf(y / H), y, JCT_UP_Z)
+      dum.updateMatrix()
+      ref.current.setMatrixAt(i, dum.matrix)
+    }
+    ref.current.instanceMatrix.needsUpdate = true
+  }, [])
+  return (
+    <>
+      <instancedMesh ref={ref} args={[undefined, undefined, LK_STEPS]} userData={{ walkable: true }}>
+        <boxGeometry args={[TREAD_DEPTH, TREAD_THICK, TREAD_WIDTH * 2]} />
+        <meshStandardMaterial {...TREAD_MAT} />
+      </instancedMesh>
+      <LandingDisc u={U_LOOKOUT_END} r={LK_PLAT_R} />
+    </>
+  )
+}
+
+// ── 연결 통로(RevealPassage, ★1-③B): 아치 밑 하강 → 린텔 → 낮은 전실(1p9·10) → 끝벽 문 = 1p11 공개 ──
+//  z중심 = JCT_DN_Z. 밀폐(스포 3중 차단의 ③): 바닥 슬랩 + 볼벽(웨지 구간은 높게 = 아치 뺨) + 전실 지붕 +
+//  린텔 패널(웨지↔전실 상인방 — 입 상단 너머 시선 봉쇄 + '압축의 문턱') + 끝벽(문 개구 = 4박스 조립).
+//  2절 압축: 높은 웨지(아치) → 린텔 밑 → 내부고 5.5 전실 → 문 → 공개(해방). TERRACE_Y = 바닥(파생) = 무단차.
+export function RevealPassage() {
+  const zc = JCT_DN_Z
+  const zw = PASS_HW + PASS_T / 2                       // 볼벽 중심 z 오프셋
+  const roofY = PASS_FLOOR_Y + PASS_ROOF_H              // 전실 지붕 밑면 ③≈253.5
+  const lenB = LINTEL_X - PASS_X_END                    // 전실 길이 ③≈17.1
+  const doorHW = PASS_DOOR_W / 2
+  const sideW = PASS_HW - doorHW                        // 끝벽 좌우 패널 폭 ③=0.7
+  return (
+    <group>
+      {/* 바닥 슬랩 — 리브 하부면 물림점(PASS_X_DEEP)까지 연장 = 갈림 디스크 아래 봉인(스포 차단, 검증 ㉙) */}
+      <mesh position={[(PASS_X_END + PASS_X_DEEP) / 2, PASS_FLOOR_Y - PASS_T / 2, zc]} userData={{ walkable: true }}>
+        <boxGeometry args={[PASS_X_DEEP - PASS_X_END, PASS_T, 2 * PASS_HW + 2 * PASS_T]} />
+        <meshStandardMaterial {...FLOOR_MAT} side={THREE.DoubleSide} />
+      </mesh>
+      {/* 볼벽 — 전실 구간(바닥→지붕) */}
+      {[-zw, zw].map((dz, k) => (
+        <mesh key={'wb' + k} position={[(PASS_X_END + LINTEL_X) / 2, (PASS_FLOOR_Y + roofY + PASS_T) / 2, zc + dz]}>
+          <boxGeometry args={[lenB, roofY + PASS_T - PASS_FLOOR_Y, PASS_T]} />
+          <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+        </mesh>
+      ))}
+      {/* 볼벽 — 웨지 구간(아치 뺨·비대칭): −z(상행 쪽)는 디스크 하면 아래(255.4)·볼끝 184.7로 짧게,
+          +z(바깥 쪽)는 디스크 비교차(r4 < z4.35)라 257.5 높이 + 슬랩 물림점(189.5)까지 연장 —
+          디스크 아래 포켓의 +z 측면 시선 봉쇄(검증 ㉛ 실측) + 디스크의 아치 쪽 난간(파라펫) 겸용 */}
+      {[[-zw, CHEEK_TOP_NZ, PASS_X_CHEEK], [zw, CHEEK_TOP_PZ, PASS_X_DEEP]].map(([dz, top, xEnd], k) => (
+        <mesh key={'ww' + k} position={[(LINTEL_X + xEnd) / 2, (PASS_FLOOR_Y + top) / 2, zc + dz]}>
+          <boxGeometry args={[xEnd - LINTEL_X, top - PASS_FLOOR_Y, PASS_T]} />
+          <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+        </mesh>
+      ))}
+      {/* 전실 지붕(윗면 ≈254.1 — 리브 하부면 아래로 깔림, 검증 스크립트) */}
+      <mesh position={[(PASS_X_END + LINTEL_X + PASS_T) / 2, roofY + PASS_T / 2, zc]}>
+        <boxGeometry args={[lenB + PASS_T, PASS_T, 2 * PASS_HW + 2 * PASS_T]} />
+        <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+      </mesh>
+      {/* 린텔 패널(상인방): 개구 y∈[바닥, LINTEL_Y0] — 위(LINTEL_Y0→Y1)를 막아 지붕 위 시선 봉쇄 */}
+      <mesh position={[LINTEL_X + PASS_T / 2, (LINTEL_Y0 + LINTEL_Y1) / 2, zc]}>
+        <boxGeometry args={[PASS_T, LINTEL_Y1 - LINTEL_Y0, 2 * PASS_HW + 2 * PASS_T]} />
+        <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+      </mesh>
+      {/* 끝벽(문 = 1p11 공개의 물리 지점): 좌우 패널 + 상인방 — CSG 없이 조립 */}
+      {[-1, 1].map((s) => (
+        <mesh key={'dj' + s} position={[PASS_X_END, (PASS_FLOOR_Y + roofY + PASS_T) / 2, zc + s * (doorHW + sideW / 2)]}>
+          <boxGeometry args={[PASS_T, roofY + PASS_T - PASS_FLOOR_Y, sideW]} />
+          <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+        </mesh>
+      ))}
+      <mesh position={[PASS_X_END, (PASS_FLOOR_Y + PASS_DOOR_H + roofY + PASS_T) / 2, zc]}>
+        <boxGeometry args={[PASS_T, roofY + PASS_T - PASS_FLOOR_Y - PASS_DOOR_H, PASS_DOOR_W]} />
+        <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+      </mesh>
+    </group>
+  )
+}
+
+// ── 테라스(1p12~15의 집 · 문 밖 = 1p11 공개) — y는 통로 바닥 파생(constants), 무단차 도착 ──
 export function Terrace() {
   return (
     <mesh position={[0, TERRACE_Y, 0]} rotation-x={-Math.PI / 2} userData={{ walkable: true }}>
