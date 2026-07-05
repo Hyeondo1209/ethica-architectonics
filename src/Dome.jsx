@@ -7,10 +7,10 @@ import { useRef, useMemo, useLayoutEffect } from 'react'
 import * as THREE from 'three'
 import { Brush, Evaluator, HOLLOW_SUBTRACTION } from 'three-bvh-csg'
 import {
-  rOf, spiralPoint, SCALE, H, R_BASE, MERIDIANS, SHELL_RIB_R, RIB_RADIAL_SEG,
+  rOf, uOfX, spiralPoint, SCALE, H, R_BASE, MERIDIANS, SHELL_RIB_R, RIB_RADIAL_SEG,
   STAIR_STEPS, STEP_RISE, TREAD_DEPTH, TREAD_WIDTH, TREAD_THICK, POLE_R, Y_POLE_CUT, U_DOOR,
   DOOR_W, DOOR_H, DOOR_SILL_Y,
-  U_SPIRAL_END, U_KNEE_END, KW_STEPS, KW_TREAD_W, LAND_R, LAND_T,
+  U_SPIRAL_END, U_KNEE_END, KW_STEPS, KW_GO, KW_TREAD_D, KW_TREAD_W, KW_FLATTEN, PANEL_DX, PANEL_Z0, PANEL_Z1, LAND_R, LAND_T,
   JCT_UP_Z, JCT_DN_Z, U_LOOKOUT_END, LK_STEPS, LK_PLAT_R,
   DESC_SLOPE, DESC_STEPS, X_DESC0, X_DESC_END, PASS_FLOOR_Y,
   PASS_HW, PASS_T, PASS_ROOF_H, PASS_X_DEEP, PASS_X_CHEEK, CHEEK_TOP_NZ, CHEEK_TOP_PZ, PASS_X_END,
@@ -147,17 +147,37 @@ function LandingDisc({ u, topLift = 0.1, r = LAND_R }) {
   )
 }
 
-// ── 무릎길(KneeWalk, ★1-③B): 나선끝 디스크 → 갈림 디스크. 관 무릎(수평화) 구간의 관내 보행 ──
-//  디딤판 = 중심선 높이 '부양'(1p7 이후 — 뜸은 증명되었다). 등간격 y(RISE 균일), x = rOf(y/H), z = 0.
-//  경사 0.6→0.32→0.6 가변은 디딤판 간격이 흡수(가파른 양끝 = 촘촘, 무릎 정점 = 성김).
+// ── 착지 판넬(LandingPanel, ★1-③G): 나선 옆끝(z=+STAIR_R)에서 무릎길 중앙(z=0)으로 가로지르는 솔리드 착지판 ──
+//  나선 도착 → 판넬 건너 중앙 → 중앙 계단. 무릎길 z 드리프트 폐기(비스듬함 소멸) + 계단 옆쏠림 없어져 관 이탈도 해소.
+//  상면 = 계단 상면보다 살짝 아래(−TREAD_THICK/2−0.03) → 계단이 판넬 위에 떠(z파이팅 없음), 착지판은 얕게 파인 랜딩.
+function LandingPanel() {
+  const xC = rOf(U_SPIRAL_END)                                     // 나선 도착 x
+  const yTop = H * U_SPIRAL_END - TREAD_THICK / 2 - 0.03           // 판넬 상면(계단 밑면보다 살짝 아래)
+  const zC = (PANEL_Z0 + PANEL_Z1) / 2
+  return (
+    <mesh position={[xC, yTop - LAND_T / 2, zC]} userData={{ walkable: true }}>
+      <boxGeometry args={[PANEL_DX, LAND_T, PANEL_Z1 - PANEL_Z0]} />
+      <meshStandardMaterial {...TREAD_MAT} />
+    </mesh>
+  )
+}
+
+// ── 무릎길(KneeWalk, ★1-③B · 재작성 ★1-③E · 경사완화 ★1-③F · 중앙정렬 ★1-③G): 나선 나감 → 갈림 디스크 ──
+//  ★1-③E (가): 나선이 −x로 나가므로 무릎길이 그대로 이어짐(평면 급반전 131°→9° 소멸) — 다리 폐기.
+//  ★1-③F (ㄱ): 높이 = 리브 중심선과 곧은 현 KW_FLATTEN 블렌드 → 시작 62°→35°(관 안). 수평 균일(Δx=KW_GO) → 무더기·틈 없음(1-③D).
+//  ★1-③G: z=0 중앙 정렬(드리프트 폐기) → 비스듬함 소멸. 나선 옆끝(z+STAIR_R)↔중앙(z=0)은 판넬(LandingPanel)이 이음.
 export function KneeWalk() {
   const ref = useRef()
   useLayoutEffect(() => {
     const dum = new THREE.Object3D()
-    const y0 = U_SPIRAL_END * H
+    const xA = rOf(U_SPIRAL_END), xB = rOf(U_KNEE_END)                    // 나선 끝 x → 정션 x (안쪽 −x)
+    const yA = H * U_SPIRAL_END, yB = H * U_KNEE_END                      // 현(chord) 양끝 높이 (나선끝·정션)
     for (let i = 0; i < KW_STEPS; i++) {
-      const y = y0 + (i + 1) * STEP_RISE           // (i+1): 디스크 상면(u·H+0.1)과 관통 없이 첫 단차 0.25
-      dum.position.set(rOf(y / H), y, 0)
+      const x = xA - (i + 0.5) * (xA - xB) / KW_STEPS                     // 수평 균일 간격
+      const yCen = H * uOfX(x)                                            // 리브 중심선 높이(가파름)
+      const yChord = yA + (yB - yA) * (xA - x) / (xA - xB)                // 곧은 현 높이(완만 ~25°)
+      const y = (1 - KW_FLATTEN) * yCen + KW_FLATTEN * yChord             // 블렌드 → 완만화(중심축서 아래로 뜸)
+      dum.position.set(x, y, 0)                                           // z=0 중앙 (드리프트 폐기, 1-③G)
       dum.updateMatrix()
       ref.current.setMatrixAt(i, dum.matrix)
     }
@@ -165,9 +185,9 @@ export function KneeWalk() {
   }, [])
   return (
     <>
-      <LandingDisc u={U_SPIRAL_END} />
+      <LandingPanel />
       <instancedMesh ref={ref} args={[undefined, undefined, KW_STEPS]} userData={{ walkable: true }}>
-        <boxGeometry args={[TREAD_DEPTH, TREAD_THICK, KW_TREAD_W]} />
+        <boxGeometry args={[KW_TREAD_D, TREAD_THICK, KW_TREAD_W]} />
         <meshStandardMaterial {...TREAD_MAT} />
       </instancedMesh>
     </>
