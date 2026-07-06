@@ -243,6 +243,12 @@ export const PANEL_Z1 = STAIR_R + 0.7       // z 끝(나선 옆끝 너머)
 //    '뚜껑' 문제 → 나선끝은 아래 '부양 다리'로 교체(캡 없음). 정션 디스크도 같은 구조라 다음 조각 대상. ──
 export const LAND_R = 4.0
 export const LAND_T = ROOM_STAIR_SLAB      // 디스크 두께 = 방 디딤판(부양 판 어휘 공유)
+// ★②-착지장(2026.07.06 재설계 v3, 스케치 확정): 사각 판. 세 계단이 판 가장자리에서 시작(관통 없음):
+//  무릎길은 +x 변에 도착, 전망·하강은 −x 변에서 밖으로(−x) 나감(전망 위·하강 아래, 각자 제 z 그대로).
+//  전망은 리브곡면 대신 '곧은 램프'로 바꿔 판 위로 가로지르지 않음. z 안 뒤집음 — 전망 −2.4·하강 +1.75·통로 그대로.
+export const X_LAND_LO = rOf(U_KNEE_END) - LAND_R + 1.0     // 판 −x 가장자리 = 전망·하강 램프 시작 x (= X_DESC0 ≈184.2)
+export const X_LAND_HI = rOf(U_KNEE_END)                    // 판 +x 가장자리 = 무릎길 도착 xB ≈187
+export const Z_LAND    = 4.5                                // 판 z 반폭 — 전망(−2.4)·하강(+1.75) 둘 다 판 위에 담게
 
 // ── 부양 다리(1-③C): 나선 마지막 칸 → 무릎길 첫 칸을 잇는 떠 있는 디딤판 몇 개(캡 디스크 대체).
 //    나선 자리에 솔리드 판을 두지 않아 '뚜껑' 소멸 + 1p7 '증명된 뜸' 어휘 일관(전부 부양 디딤판).
@@ -262,6 +268,11 @@ export const LOOKOUT_MAX_SLOPE = 1.2
 export const U_LOOKOUT_END = KNEE + WIDTH * Math.acosh(Math.sqrt(LOOKOUT_MAX_SLOPE / SLOPE_KNEE_MIN))
 export const LK_STEPS  = Math.max(6, Math.round((U_LOOKOUT_END - U_KNEE_END) * H / STEP_RISE))
 export const LK_PLAT_R = 3.2               // 전망 플랫폼 반지름(중심선 위) — 1p8 비석 자리(Phase 2)
+// ★②(2026.07.06) 전망 디스크 뚜껑 해소(A 방향): 디스크를 살짝 띄워 밑면이 '끝 전망 스텝' 위를 지나게 →
+//  스텝(z=−2.4)이 디스크(z=0, r3.2) 밑으로 들어가 24칸 중 6칸이 판 밑에 깔리고 끝 스텝이 판을 뚫던 겹침 소멸.
+//  판 z=0 유지(보어 올려다보기 = 중심에서 위 보기). 올라서기 = 끝스텝 top → 판 top ≈0.40 (STEP_UP 0.8 안).
+export const LK_TOPSTEP_TOP = U_KNEE_END * H + LK_STEPS * STEP_RISE + TREAD_THICK / 2   // 끝 전망 스텝 윗면 ③≈264.5
+export const LK_DISC_LIFT   = Math.max(0.1, LK_TOPSTEP_TOP + 0.05 + LAND_T - U_LOOKOUT_END * H)  // 디스크 밑면 = 끝스텝+0.05 ③≈0.36
 
 // ── 하강 + 연결 통로(공개 전실): 디스크 가장자리(x=rOf(U_KNEE_END)−LAND_R)에서 −x로 경사 1.15, 8.0 하강.
 //    ★아치 입은 '외부'가 아니라 보어를 향한다(하부 벽 관통) → 후드 불필요, 상자 외피가 바깥을 봉함.

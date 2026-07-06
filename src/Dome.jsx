@@ -10,8 +10,8 @@ import {
   rOf, uOfX, spiralPoint, SCALE, H, R_BASE, MERIDIANS, SHELL_RIB_R, RIB_RADIAL_SEG,
   STAIR_STEPS, STEP_RISE, TREAD_DEPTH, TREAD_WIDTH, TREAD_THICK, POLE_R, Y_POLE_CUT, U_DOOR,
   DOOR_W, DOOR_H, DOOR_SILL_Y,
-  U_SPIRAL_END, U_KNEE_END, KW_STEPS, KW_GO, KW_TREAD_D, KW_TREAD_W, KW_FLATTEN, PANEL_DX, PANEL_Z0, PANEL_Z1, LAND_R, LAND_T,
-  JCT_UP_Z, JCT_DN_Z, U_LOOKOUT_END, LK_STEPS, LK_PLAT_R,
+  U_SPIRAL_END, U_KNEE_END, KW_STEPS, KW_GO, KW_TREAD_D, KW_TREAD_W, KW_FLATTEN, PANEL_DX, PANEL_Z0, PANEL_Z1, LAND_R, LAND_T, X_LAND_LO, X_LAND_HI, Z_LAND,
+  JCT_UP_Z, JCT_DN_Z, LOOKOUT_MAX_SLOPE, U_LOOKOUT_END, LK_STEPS, LK_PLAT_R, LK_DISC_LIFT,
   DESC_SLOPE, DESC_STEPS, X_DESC0, X_DESC_END, PASS_FLOOR_Y,
   PASS_HW, PASS_T, PASS_ROOF_H, PASS_X_DEEP, PASS_X_CHEEK, CHEEK_TOP_NZ, CHEEK_TOP_PZ, PASS_X_END,
   LINTEL_X, LINTEL_Y0, LINTEL_Y1,
@@ -136,12 +136,26 @@ export function RibStair() {
   )
 }
 
-// ── 착지 디스크(공용 부품): 나선끝·갈림 — 부양 판(방 디딤판 어휘). r=4 > 헬릭스 3.3 → 각도 무관 수용 ──
+// ── 착지 디스크(전망 플랫폼): 부양 판(방 디딤판 어휘). 온전한 원판, topLift로 높이 조정 ──
+//  (갈림 디스크는 무릎길 슬롯이 필요해 아래 JunctionDisc가 따로 담당.)
 function LandingDisc({ u, topLift = 0.1, r = LAND_R }) {
   const cx = rOf(u), topY = u * H + topLift
   return (
     <mesh position={[cx, topY - LAND_T / 2, 0]} userData={{ walkable: true }}>
       <cylinderGeometry args={[r, r, LAND_T, 40]} />
+      <meshStandardMaterial {...TREAD_MAT} />
+    </mesh>
+  )
+}
+
+// ── 갈림 착지장(JunctionLanding, ★②-재설계 v3 2026.07.06): 사각 판. 세 계단이 판 가장자리에서 시작(관통 없음).
+//  무릎길은 +x 변(X_LAND_HI=xB)에 도착 · 전망(z−2.4)·하강(z+1.75)은 −x 변(X_LAND_LO)에서 밖으로 나감(위/아래).
+//  전망을 '곧은 램프'로 바꾼 것과 짝(리브곡면 따라 판 위로 가로지르던 문제 소멸). 단순 박스.
+function JunctionLanding() {
+  const w = X_LAND_HI - X_LAND_LO
+  return (
+    <mesh position={[(X_LAND_LO + X_LAND_HI) / 2, U_KNEE_END * H + 0.1 - LAND_T / 2, 0]} userData={{ walkable: true }}>
+      <boxGeometry args={[w, LAND_T, 2 * Z_LAND]} />
       <meshStandardMaterial {...TREAD_MAT} />
     </mesh>
   )
@@ -212,7 +226,8 @@ export function RibJunction() {
   }, [])
   return (
     <>
-      <LandingDisc u={U_KNEE_END} />
+      {/* ★②-재설계: 타원 착지장(JunctionLanding). 무릎길이 +x끝에 닿음(도랑 폐기) + 전망·하강은 판 위/가장자리서 갈라짐. */}
+      <JunctionLanding />
       <instancedMesh ref={ref} args={[undefined, undefined, DESC_STEPS]} userData={{ walkable: true }}>
         <boxGeometry args={[TREAD_DEPTH, TREAD_THICK, TREAD_WIDTH * 2]} />
         <meshStandardMaterial {...TREAD_MAT} />
@@ -221,17 +236,18 @@ export function RibJunction() {
   )
 }
 
-// ── 1p8 전망(Lookout, ★1-③B): 갈림에서 관축 상행(z=JCT_UP_Z) → 경사 1.2 한계에서 플랫폼(막다름) ──
-//  플랫폼에서 보어(관 내부 수직 통 ≈695 = 눈높이 435배)를 올려다봄 = suo genere 무한(이 속성 '하나'의 끝없음).
-//  1p8 비석 = Phase 2(이 플랫폼 위). 정점 미광(암흑 vs 빛 점) = Phase 3-⑧.
+// ── 1p8 전망(Lookout, ★1-③B · ②-재설계 v3): 갈림 착지장 −x 변에서 '곧은 램프'로 상행(z=JCT_UP_Z) → 플랫폼(막다름).
+//  ★②v3: 리브곡면 따라(x=rOf) 상행하던 걸 곧은 램프(X_LAND_LO서 −x·경사 LOOKOUT_MAX_SLOPE)로 교체 —
+//  곡면 상행은 첫 칸이 리브 중심선(x≈186)서 시작해 사각 판 위로 가로질렀음. 곧은 램프는 판 −x 가장자리서
+//  밖으로 곧게 올라가 판을 안 지남. 플랫폼(z=0 보어 올려다보기)·높이·칸수는 그대로.
 export function Lookout() {
   const ref = useRef()
   useLayoutEffect(() => {
     const dum = new THREE.Object3D()
     const y0 = U_KNEE_END * H
     for (let i = 0; i < LK_STEPS; i++) {
-      const y = y0 + (i + 1) * STEP_RISE           // (i+1): 갈림 디스크 상면과 관통 방지
-      dum.position.set(rOf(y / H), y, JCT_UP_Z)
+      const y = y0 + (i + 1) * STEP_RISE           // (i+1): 착지장 상면과 관통 방지
+      dum.position.set(X_LAND_LO - (i + 1) * STEP_RISE / LOOKOUT_MAX_SLOPE, y, JCT_UP_Z)  // 곧은 램프: −x 변서 −x·위로
       dum.updateMatrix()
       ref.current.setMatrixAt(i, dum.matrix)
     }
@@ -243,7 +259,8 @@ export function Lookout() {
         <boxGeometry args={[TREAD_DEPTH, TREAD_THICK, TREAD_WIDTH * 2]} />
         <meshStandardMaterial {...TREAD_MAT} />
       </instancedMesh>
-      <LandingDisc u={U_LOOKOUT_END} r={LK_PLAT_R} />
+      {/* ★②: 디스크를 LK_DISC_LIFT만큼 띄워 밑면이 끝 스텝 위로 → 끝 스텝이 판을 뚫던 겹침 소멸. 올라서기 ≈0.40. */}
+      <LandingDisc u={U_LOOKOUT_END} r={LK_PLAT_R} topLift={LK_DISC_LIFT} />
     </>
   )
 }
