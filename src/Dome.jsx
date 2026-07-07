@@ -184,7 +184,8 @@ export function KneeWalk() {
   const ref = useRef()
   useLayoutEffect(() => {
     const dum = new THREE.Object3D()
-    const xA = rOf(U_SPIRAL_END), xB = rOf(U_KNEE_END)                    // 나선 끝 x → 정션 x (안쪽 −x)
+    const xA = rOf(U_SPIRAL_END), xB = X_LAND_HI                          // ★도착 x = 판 +x변(X_LAND_HI, 커플링 2026.07.07). 기본 = rOf(U_KNEE_END). 나선 끝 x → 판 +x변
+    //  ⚠칸수(KW_STEPS)는 나선끝 기준이라, X_LAND_HI를 크게 넓히면 디딤판이 살짝 촘촘해짐(틈은 안 생김). 넓히는 방향이라 무해 — 필요 시 칸수도 커플링.
     const yA = H * U_SPIRAL_END, yB = H * U_KNEE_END                      // 현(chord) 양끝 높이 (나선끝·정션)
     for (let i = 0; i < KW_STEPS; i++) {
       const x = xA - (i + 0.5) * (xA - xB) / KW_STEPS                     // 수평 균일 간격

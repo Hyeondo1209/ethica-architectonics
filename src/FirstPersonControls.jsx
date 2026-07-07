@@ -2,7 +2,7 @@
 import { useThree, useFrame } from '@react-three/fiber'
 import { useRef, useEffect } from 'react'
 import * as THREE from 'three'
-import { SCALE, H, ROOM_CX, ROOM_FLOOR_Y, DAIS_H, DOWN } from './constants'
+import { SCALE, H, ROOM_CX, ROOM_FLOOR_Y, DAIS_H, DOWN, X_LAND_LO, X_LAND_HI, U_KNEE_END } from './constants'
 
 // ── ① 1인칭 컨트롤 ──
 export function FirstPersonControls() {
@@ -16,8 +16,15 @@ export function FirstPersonControls() {
   useEffect(() => {
     camera.rotation.order = 'YXZ'
     // 시작 = 방 바닥(스케치 동선의 출발점). 나선을 올라 꼭대기 박스 → 통로 → 리브.
-    camera.position.set(ROOM_CX, ROOM_FLOOR_Y + DAIS_H + 1.6, 0)   // 시작 눈높이 = 기단 위(v2)
-    look.current.yaw = Math.PI / 2                    // -x(나선 바닥) 방향
+    // ★임시(개발용, 2026.07.07): 무릎길/판 위 스폰 — 정션 작업 중 매번 방부터 안 걸어오게. 원래대로면 SPAWN_KNEE = false.
+    const SPAWN_KNEE = true
+    if (SPAWN_KNEE) {
+      camera.position.set((X_LAND_LO + X_LAND_HI) / 2, U_KNEE_END * H + 0.1 + 1.6, 0)  // 판 중심 위(눈높이) ③≈(185.5, 257.7, 0)
+      look.current.yaw = -Math.PI / 2                 // +x(무릎길·나선 쪽) 향해
+    } else {
+      camera.position.set(ROOM_CX, ROOM_FLOOR_Y + DAIS_H + 1.6, 0)   // 원래: 방 기단 위(v2)
+      look.current.yaw = Math.PI / 2                  // -x(나선 바닥) 방향
+    }
     look.current.pitch = 0
     const down = (e) => (keys.current[e.code] = true)
     const up   = (e) => (keys.current[e.code] = false)
