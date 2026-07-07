@@ -12,6 +12,7 @@ import {
   DOOR_W, DOOR_H, DOOR_SILL_Y,
   U_SPIRAL_END, U_KNEE_END, KW_STEPS, KW_GO, KW_TREAD_D, KW_TREAD_W, KW_FLATTEN, PANEL_DX, PANEL_Z0, PANEL_Z1, LAND_R, LAND_T, X_LAND_LO, X_LAND_HI, Z_LAND,
   JCT_UP_Z, JCT_DN_Z, LOOKOUT_MAX_SLOPE, U_LOOKOUT_END, LK_STEPS, LK_PLAT_R, LK_DISC_LIFT,
+  LK_DISC_HALF, LK_DISC_DX, LK_DISC_DY, LK_DISC_DZ, LK_DISC_ROT,
   DESC_SLOPE, DESC_STEPS, X_DESC0, X_DESC_END, PASS_FLOOR_Y,
   PASS_HW, PASS_T, PASS_ROOF_H, PASS_X_DEEP, PASS_X_CHEEK, CHEEK_TOP_NZ, CHEEK_TOP_PZ, PASS_X_END,
   LINTEL_X, LINTEL_Y0, LINTEL_Y1,
@@ -138,11 +139,12 @@ export function RibStair() {
 
 // ── 착지 디스크(전망 플랫폼): 부양 판(방 디딤판 어휘). 온전한 원판, topLift로 높이 조정 ──
 //  (갈림 디스크는 무릎길 슬롯이 필요해 아래 JunctionDisc가 따로 담당.)
-function LandingDisc({ u, topLift = 0.1, r = LAND_R }) {
-  const cx = rOf(u), topY = u * H + topLift
+function LandingDisc({ u, topLift = 0.1, r = LAND_R, dx = 0, dz = 0, half = false, rotY = 0 }) {
+  const cx = rOf(u) + dx, topY = u * H + topLift
+  const geoArgs = half ? [r, r, LAND_T, 40, 1, false, Math.PI, Math.PI] : [r, r, LAND_T, 40]  // 반원 = thetaLength π · thetaStart π → 평평한 면(지름변)이 +x 향(램프 쪽), 곡면은 −x(돔 중심)쪽
   return (
-    <mesh position={[cx, topY - LAND_T / 2, 0]} userData={{ walkable: true }}>
-      <cylinderGeometry args={[r, r, LAND_T, 40]} />
+    <mesh position={[cx, topY - LAND_T / 2, dz]} rotation-y={rotY} userData={{ walkable: true }}>
+      <cylinderGeometry args={geoArgs} />
       <meshStandardMaterial {...TREAD_MAT} />
     </mesh>
   )
@@ -243,25 +245,35 @@ export function RibJunction() {
 //  밖으로 곧게 올라가 판을 안 지남. 플랫폼(z=0 보어 올려다보기)·높이·칸수는 그대로.
 export function Lookout() {
   const ref = useRef()
+  // 디스크 위치(노브 반영). discY = 디스크 윗면
+  const discX = rOf(U_LOOKOUT_END) + LK_DISC_DX
+  const discY = U_LOOKOUT_END * H + LK_DISC_LIFT + LK_DISC_DY
+  const discZ = LK_DISC_DZ
+  // 램프 도착 = 디스크 '중심' = 반원 지름변의 중점. 지름변은 반원 회전(LK_DISC_ROT)과 무관하게 항상 중심을 지나므로,
+  //  어떤 튜닝값(위치·회전)이든 램프가 항상 지름변에 닿는다(불변식 — 튜닝값 무관하게 일정).
+  const endX = discX, endZ = discZ
+  const endY = discY - TREAD_THICK / 2                            // 램프 끝 윗면 ≈ 디스크 윗면(나란히 올라섬)
+  const startX = X_LAND_LO, startY = U_KNEE_END * H, startZ = JCT_UP_Z
+  const nSteps = Math.max(6, Math.round((endY - startY) / STEP_RISE))
   useLayoutEffect(() => {
     const dum = new THREE.Object3D()
-    const y0 = U_KNEE_END * H
-    for (let i = 0; i < LK_STEPS; i++) {
-      const y = y0 + (i + 1) * STEP_RISE           // (i+1): 착지장 상면과 관통 방지
-      dum.position.set(X_LAND_LO - (i + 1) * STEP_RISE / LOOKOUT_MAX_SLOPE, y, JCT_UP_Z)  // 곧은 램프: −x 변서 −x·위로
+    for (let i = 0; i < nSteps; i++) {
+      const t = (i + 1) / nSteps                                  // 판(시작) → 디스크 지름변(도착) 3D 직선 계단
+      dum.position.set(startX + (endX - startX) * t, startY + (endY - startY) * t, startZ + (endZ - startZ) * t)
       dum.updateMatrix()
       ref.current.setMatrixAt(i, dum.matrix)
     }
     ref.current.instanceMatrix.needsUpdate = true
-  }, [])
+  }, [nSteps, endX, endY, endZ])
   return (
     <>
-      <instancedMesh ref={ref} args={[undefined, undefined, LK_STEPS]} userData={{ walkable: true }}>
+      <instancedMesh ref={ref} args={[undefined, undefined, nSteps]} userData={{ walkable: true }}>
         <boxGeometry args={[TREAD_DEPTH, TREAD_THICK, TREAD_WIDTH * 2]} />
         <meshStandardMaterial {...TREAD_MAT} />
       </instancedMesh>
-      {/* ★②: 디스크를 LK_DISC_LIFT만큼 띄워 밑면이 끝 스텝 위로 → 끝 스텝이 판을 뚫던 겹침 소멸. 올라서기 ≈0.40. */}
-      <LandingDisc u={U_LOOKOUT_END} r={LK_PLAT_R} topLift={LK_DISC_LIFT} />
+      {/* ★반원 디스크 + 노브(2026.07.07): 램프가 지름변에 맞닿게 LK_DISC_ROT로 평평한 변을 램프 쪽으로 돌려 맞춤. */}
+      <LandingDisc u={U_LOOKOUT_END} r={LK_PLAT_R} topLift={LK_DISC_LIFT + LK_DISC_DY}
+        dx={LK_DISC_DX} dz={LK_DISC_DZ} half={LK_DISC_HALF} rotY={LK_DISC_ROT} />
     </>
   )
 }
