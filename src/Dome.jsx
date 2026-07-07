@@ -14,10 +14,11 @@ import {
   JCT_UP_Z, JCT_DN_Z, LOOKOUT_MAX_SLOPE, U_LOOKOUT_END, LK_STEPS, LK_PLAT_R, LK_DISC_LIFT,
   LK_DISC_HALF, LK_DISC_DX, LK_DISC_DY, LK_DISC_DZ, LK_DISC_ROT,
   DESC_SLOPE, DESC_STEPS, X_DESC0, X_DESC_END, PASS_FLOOR_Y,
-  PASS_HW, PASS_T, PASS_ROOF_H, PASS_X_DEEP, PASS_X_CHEEK, CHEEK_TOP_NZ, CHEEK_TOP_PZ, PASS_X_END,
-  LINTEL_X, LINTEL_Y0, LINTEL_Y1,
+  PASS_HW, PASS_T, PASS_ROOF_H, PASS_X_DEEP, PASS_X_END,
   ARCH_X0, ARCH_X1, ARCH_Y0, ARCH_Y1, ARCH_Z0, ARCH_Z1,
   PASS_DOOR_W, PASS_DOOR_H,
+  P9_STEPS, P9_HW0, P9_HW1, P9_ROOF0, P9_ROOF1, P9_X0, P9_X1,
+  P10_HW, P10_ROOF, P10_X1, NICHE_D, NICHE_H, NICHES, PC_STEPS,
   TERRACE_Y, TERRACE_RIN, TERRACE_ROUT, TERRACE_ARC,
 } from './constants'
 
@@ -278,61 +279,101 @@ export function Lookout() {
   )
 }
 
-// ── 연결 통로(RevealPassage, ★1-③B): 아치 밑 하강 → 린텔 → 낮은 전실(1p9·10) → 끝벽 문 = 1p11 공개 ──
-//  z중심 = JCT_DN_Z. 밀폐(스포 3중 차단의 ③): 바닥 슬랩 + 볼벽(웨지 구간은 높게 = 아치 뺨) + 전실 지붕 +
-//  린텔 패널(웨지↔전실 상인방 — 입 상단 너머 시선 봉쇄 + '압축의 문턱') + 끝벽(문 개구 = 4박스 조립).
-//  2절 압축: 높은 웨지(아치) → 린텔 밑 → 내부고 5.5 전실 → 문 → 공개(해방). TERRACE_Y = 바닥(파생) = 무단차.
+// ── 연결 통로(RevealPassage, ★재구성 2026.07.07): 아치 밑 하강 후, 리브 밖 통로 본체를 3구간으로 ──
+//  '하나에서 여럿으로'(게루 9·10 이행): 1p9 = 폭·천장 계단식으로 '더해짐'(실재성↑→속성↑) →
+//  1p10 = 넓은 방 + 흩어진 독립 벽감(각 속성은 자기 통해 파악) → 문 압축(폭·천장 수축) → 문 = 1p11 공개.
+//  z중심 = JCT_DN_Z. 밀폐(스포 3중 ③): 바닥·볼벽·지붕이 폭 따라 넓어져 유지 + 디스크 밑 봉인 슬랩(PASS_X_DEEP).
+//  ⚠수직 립 배열 금지(리브 전용 서명 §2-C). 통로 본체는 리브 밖이라 폭·천장 자유(검증 = 리브/이웃 무충돌).
 export function RevealPassage() {
   const zc = JCT_DN_Z
-  const zw = PASS_HW + PASS_T / 2                       // 볼벽 중심 z 오프셋
-  const roofY = PASS_FLOOR_Y + PASS_ROOF_H              // 전실 지붕 밑면 ③≈253.5
-  const lenB = LINTEL_X - PASS_X_END                    // 전실 길이 ③≈17.1
+  const t = PASS_T
+  const floor = PASS_FLOOR_Y
   const doorHW = PASS_DOOR_W / 2
-  const sideW = PASS_HW - doorHW                        // 끝벽 좌우 패널 폭 ③=0.7
+  const maxHW = P10_HW + NICHE_D                       // 바닥·1p10 지붕이 벽감 깊이까지 덮음(밀폐)
+  const zWall = (hw) => hw + t / 2                     // 볼벽 중심 z 오프셋
+
+  // ── 세그먼트: 1p9 증가 단(폭·천장↑) → 1p10 방(벽감) → 압축 단(폭·천장↓ → 문목=문) ──
+  const segs = []
+  for (let i = 0; i < P9_STEPS; i++) {                                   // 1p9: 이산 계단(첫 단=시작값 → '더해짐')
+    const a = i / P9_STEPS, b = (i + 1) / P9_STEPS, f = P9_STEPS > 1 ? i / (P9_STEPS - 1) : 1
+    segs.push({ xHi: P9_X0 - a * (P9_X0 - P9_X1), xLo: P9_X0 - b * (P9_X0 - P9_X1),
+      hw: P9_HW0 + (P9_HW1 - P9_HW0) * f, roof: P9_ROOF0 + (P9_ROOF1 - P9_ROOF0) * f, niche: false })
+  }
+  segs.push({ xHi: P9_X1, xLo: P10_X1, hw: P10_HW, roof: P10_ROOF, niche: true })   // 1p10 독립 방
+  for (let i = 0; i < PC_STEPS; i++) {
+    const a = i / PC_STEPS, b = (i + 1) / PC_STEPS
+    segs.push({ xHi: P10_X1 - a * (P10_X1 - PASS_X_END), xLo: P10_X1 - b * (P10_X1 - PASS_X_END),
+      hw: P10_HW + (doorHW - P10_HW) * b, roof: P10_ROOF + (PASS_DOOR_H - P10_ROOF) * b, niche: false })
+  }
+
   return (
     <group>
-      {/* 바닥 슬랩 — 리브 하부면 물림점(PASS_X_DEEP)까지 연장 = 갈림 디스크 아래 봉인(스포 차단, 검증 ㉙) */}
-      <mesh position={[(PASS_X_END + PASS_X_DEEP) / 2, PASS_FLOOR_Y - PASS_T / 2, zc]} userData={{ walkable: true }}>
-        <boxGeometry args={[PASS_X_DEEP - PASS_X_END, PASS_T, 2 * PASS_HW + 2 * PASS_T]} />
+      {/* 디스크 밑 봉인 슬랩 — 리브 하부면 물림점(PASS_X_DEEP)까지(갈림 디스크 아래 스포 봉인, 유지) */}
+      <mesh position={[(P9_X0 + PASS_X_DEEP) / 2, floor - t / 2, zc]} userData={{ walkable: true }}>
+        <boxGeometry args={[PASS_X_DEEP - P9_X0, t, 2 * PASS_HW + 2 * t]} />
         <meshStandardMaterial {...FLOOR_MAT} side={THREE.DoubleSide} />
       </mesh>
-      {/* 볼벽 — 전실 구간(바닥→지붕) */}
-      {[-zw, zw].map((dz, k) => (
-        <mesh key={'wb' + k} position={[(PASS_X_END + LINTEL_X) / 2, (PASS_FLOOR_Y + roofY + PASS_T) / 2, zc + dz]}>
-          <boxGeometry args={[lenB, roofY + PASS_T - PASS_FLOOR_Y, PASS_T]} />
-          <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
-        </mesh>
-      ))}
-      {/* 볼벽 — 웨지 구간(아치 뺨·비대칭): −z(상행 쪽)는 디스크 하면 아래(255.4)·볼끝 184.7로 짧게,
-          +z(바깥 쪽)는 디스크 비교차(r4 < z4.35)라 257.5 높이 + 슬랩 물림점(189.5)까지 연장 —
-          디스크 아래 포켓의 +z 측면 시선 봉쇄(검증 ㉛ 실측) + 디스크의 아치 쪽 난간(파라펫) 겸용 */}
-      {[[-zw, CHEEK_TOP_NZ, PASS_X_CHEEK], [zw, CHEEK_TOP_PZ, PASS_X_DEEP]].map(([dz, top, xEnd], k) => (
-        <mesh key={'ww' + k} position={[(LINTEL_X + xEnd) / 2, (PASS_FLOOR_Y + top) / 2, zc + dz]}>
-          <boxGeometry args={[xEnd - LINTEL_X, top - PASS_FLOOR_Y, PASS_T]} />
-          <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
-        </mesh>
-      ))}
-      {/* 전실 지붕(윗면 ≈254.1 — 리브 하부면 아래로 깔림, 검증 스크립트) */}
-      <mesh position={[(PASS_X_END + LINTEL_X + PASS_T) / 2, roofY + PASS_T / 2, zc]}>
-        <boxGeometry args={[lenB + PASS_T, PASS_T, 2 * PASS_HW + 2 * PASS_T]} />
-        <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
-      </mesh>
-      {/* 린텔 패널(상인방): 개구 y∈[바닥, LINTEL_Y0] — 위(LINTEL_Y0→Y1)를 막아 지붕 위 시선 봉쇄 */}
-      <mesh position={[LINTEL_X + PASS_T / 2, (LINTEL_Y0 + LINTEL_Y1) / 2, zc]}>
-        <boxGeometry args={[PASS_T, LINTEL_Y1 - LINTEL_Y0, 2 * PASS_HW + 2 * PASS_T]} />
-        <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
-      </mesh>
-      {/* 끝벽(문 = 1p11 공개의 물리 지점): 좌우 패널 + 상인방 — CSG 없이 조립 */}
-      {[-1, 1].map((s) => (
-        <mesh key={'dj' + s} position={[PASS_X_END, (PASS_FLOOR_Y + roofY + PASS_T) / 2, zc + s * (doorHW + sideW / 2)]}>
-          <boxGeometry args={[PASS_T, roofY + PASS_T - PASS_FLOOR_Y, sideW]} />
-          <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
-        </mesh>
-      ))}
-      <mesh position={[PASS_X_END, (PASS_FLOOR_Y + PASS_DOOR_H + roofY + PASS_T) / 2, zc]}>
-        <boxGeometry args={[PASS_T, roofY + PASS_T - PASS_FLOOR_Y - PASS_DOOR_H, PASS_DOOR_W]} />
-        <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
-      </mesh>
+
+      {/* 각 세그먼트: 바닥(walkable) + 볼벽(니치 세그 제외 — 아래 벽감 로직이 담당) + 지붕 */}
+      {segs.map((s, k) => {
+        const len = s.xHi - s.xLo, xc = (s.xHi + s.xLo) / 2
+        const wallH = s.roof + t
+        const zw = s.niche ? maxHW : s.hw
+        return (
+          <group key={'sg' + k}>
+            <mesh position={[xc, floor - t / 2, zc]} userData={{ walkable: true }}>
+              <boxGeometry args={[len, t, 2 * zw + 2 * t]} />
+              <meshStandardMaterial {...FLOOR_MAT} side={THREE.DoubleSide} />
+            </mesh>
+            {!s.niche && [-1, 1].map((sd) => (
+              <mesh key={'w' + sd} position={[xc, floor + wallH / 2, zc + sd * zWall(s.hw)]}>
+                <boxGeometry args={[len, wallH, t]} />
+                <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+              </mesh>
+            ))}
+            <mesh position={[xc, floor + s.roof + t / 2, zc]}>
+              <boxGeometry args={[len, t, 2 * zw + 2 * t]} />
+              <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+            </mesh>
+          </group>
+        )
+      })}
+
+      {/* 천장 라이저 — 세그 경계 천장 높이차를 수직으로 막음(위 틈·누출 방지) */}
+      {segs.slice(0, -1).map((s, k) => {
+        const n = segs[k + 1]
+        const lo = Math.min(s.roof, n.roof), hi = Math.max(s.roof, n.roof)
+        if (hi - lo < 0.05) return null
+        const zw = (s.niche || n.niche) ? maxHW : Math.max(s.hw, n.hw)
+        return (
+          <mesh key={'rz' + k} position={[s.xLo, floor + (lo + hi) / 2 + t / 2, zc]}>
+            <boxGeometry args={[t, hi - lo, 2 * zw + 2 * t]} />
+            <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+          </mesh>
+        )
+      })}
+
+      {/* 1p10 독립 벽감(니치) — 볼벽 오목: side별 볼벽을 니치 x구간 빼고 조각 + 오목 뒷벽·어깨·상단·위 인방 */}
+      {[-1, 1].map((side) => {
+        const ns = NICHES.filter((nn) => nn[1] === side).map((nn) => ({ xc: nn[0], w: nn[2] })).sort((a, b) => b.xc - a.xc)
+        const zBase = side * zWall(P10_HW)
+        const zBack = side * (P10_HW + NICHE_D + t / 2)
+        const zMid = side * (P10_HW + NICHE_D / 2 + t / 2)
+        const wallH = P10_ROOF + t
+        const P = []
+        let xCur = P9_X1
+        ns.forEach((nn, i) => {
+          const nHi = nn.xc + nn.w / 2, nLo = nn.xc - nn.w / 2
+          if (xCur - nHi > 0.02) P.push(<mesh key={`p${side}_${i}a`} position={[(xCur + nHi) / 2, floor + wallH / 2, zc + zBase]}><boxGeometry args={[xCur - nHi, wallH, t]} /><meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} /></mesh>)
+          P.push(<mesh key={`p${side}_${i}b`} position={[nn.xc, floor + NICHE_H / 2, zc + zBack]}><boxGeometry args={[nn.w, NICHE_H, t]} /><meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} /></mesh>)
+          ;[nHi, nLo].forEach((xe, j) => P.push(<mesh key={`p${side}_${i}c${j}`} position={[xe, floor + NICHE_H / 2, zc + zMid]}><boxGeometry args={[t, NICHE_H, NICHE_D]} /><meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} /></mesh>))
+          P.push(<mesh key={`p${side}_${i}d`} position={[nn.xc, floor + NICHE_H + t / 2, zc + zMid]}><boxGeometry args={[nn.w, t, NICHE_D]} /><meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} /></mesh>)
+          P.push(<mesh key={`p${side}_${i}e`} position={[nn.xc, floor + (NICHE_H + P10_ROOF + t) / 2, zc + zBase]}><boxGeometry args={[nn.w, P10_ROOF + t - NICHE_H, t]} /><meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} /></mesh>)
+          xCur = nLo
+        })
+        if (xCur - P10_X1 > 0.02) P.push(<mesh key={`p${side}_last`} position={[(xCur + P10_X1) / 2, floor + wallH / 2, zc + zBase]}><boxGeometry args={[xCur - P10_X1, wallH, t]} /><meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} /></mesh>)
+        return <group key={'nw' + side}>{P}</group>
+      })}
     </group>
   )
 }
