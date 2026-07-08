@@ -301,16 +301,22 @@ export function RevealPassage() {
   wall((RM_X1 + PASS_X_DEEP) / 2, (floor + CHEEK_TOP_PZ) / 2, zc + zw, PASS_X_DEEP - RM_X1, CHEEK_TOP_PZ - floor, t)
 
   // B. 방: 바닥 + 4벽 + 지붕. +x벽 입(하강 — 구 린텔 개구 치수 2zw×5.2) · +z벽 입(회랑 폭×CL_ROOF)
-  slab((RM_X0 + RM_X1) / 2, floor - t / 2, (RM_Z0 + RM_Z1) / 2, RM_X1 - RM_X0, t, RM_Z1 - RM_Z0)
+  //  ★바닥은 +z로 0.6 더 뻗어 회랑 바닥 링 시작(z≈5.2~5.4, φ0 방사변)에 겹침 — 직육면체↔원호 이음매 바닥 틈(줄무늬) 봉인.
+  //   회랑 바닥이 0.02 아래라 z파이팅 없이 방 바닥이 위에 덮임. 걸을 때 0.02 단차(무시).
+  slab((RM_X0 + RM_X1) / 2, floor - t / 2, (RM_Z0 + RM_Z1 + 0.6) / 2, RM_X1 - RM_X0, t, RM_Z1 - RM_Z0 + 0.6)
   wall(RM_X0 - t / 2, floor + RM_ROOF / 2, (RM_Z0 + RM_Z1) / 2, t, RM_ROOF + 2 * t, RM_Z1 - RM_Z0 + 2 * t)
   wall((RM_X0 + RM_X1) / 2, floor + RM_ROOF / 2, RM_Z0 - t / 2, RM_X1 - RM_X0 + 2 * t, RM_ROOF + 2 * t, t)
   wall(RM_X1 + t / 2, floor + RM_ROOF / 2, (RM_Z0 - t + zc - zw) / 2, t, RM_ROOF + 2 * t, (zc - zw) - (RM_Z0 - t))
   wall(RM_X1 + t / 2, floor + RM_ROOF / 2, (zc + zw + RM_Z1 + t) / 2, t, RM_ROOF + 2 * t, (RM_Z1 + t) - (zc + zw))
   wall(RM_X1 + t / 2, (2 * floor + RM_MOUTH_H + RM_ROOF + t) / 2, zc, t, RM_ROOF + t - RM_MOUTH_H, 2 * zw)
-  const mX0 = CL_R - CL_HW - 0.4, mX1 = CL_R + CL_HW + 0.4      // 회랑 입 x 경계(원호 단면 발자국 + 여유)
+  // ★입(mouth) x경계 = 회랑 단면보다 0.3 안쪽(rIn+0.3 ~ rOut−0.3) — 방 벽(좌우 조각)이 회랑 벽 시작(rIn/rOut, φ0)을
+  //  0.3씩 덮어 직육면체↔원호 옆 이음매 봉인. 구 −0.4(입이 더 넓음)는 벽 너머 빈 공간 노출 → 반전. 통행폭 4.6(회랑 5.2보다 좁은 문틀).
+  const mX0 = CL_R - CL_HW + 0.3, mX1 = CL_R + CL_HW - 0.3
   wall((RM_X0 - t + mX0) / 2, floor + RM_ROOF / 2, RM_Z1 + t / 2, mX0 - (RM_X0 - t), RM_ROOF + 2 * t, t)
   wall((mX1 + RM_X1 + t) / 2, floor + RM_ROOF / 2, RM_Z1 + t / 2, (RM_X1 + t) - mX1, RM_ROOF + 2 * t, t)
-  wall((mX0 + mX1) / 2, (2 * floor + CL_ROOF + RM_ROOF + t) / 2, RM_Z1 + t / 2, mX1 - mX0, RM_ROOF + t - CL_ROOF, t)
+  // 회랑 입 위 트랜섬/소핏: 방 천장(RM_ROOF)↔회랑 천장(CL_ROOF) 단차를 막음. ★CL_ROOF>RM_ROOF면 상승 소핏,
+  //  반대면 구 헤더 — Math.abs로 양쪽 안전(음수 붕괴 방지). 낮은 천장서 시작해 높은 천장 위로 +t 물림(틈 봉인).
+  wall((mX0 + mX1) / 2, floor + (RM_ROOF + CL_ROOF + t) / 2, RM_Z1 + t / 2, mX1 - mX0, Math.abs(CL_ROOF - RM_ROOF) + t, t)
   wall((RM_X0 + RM_X1) / 2, floor + RM_ROOF + t / 2, (RM_Z0 + RM_Z1) / 2, RM_X1 - RM_X0 + 2 * t, t, RM_Z1 - RM_Z0 + 2 * t)
 
   // C. 회랑(원호, ★스캔·레이캐스트 판정 — constants 주석): 바닥·지붕 = 링 섹터 / 벽 = 실린더 섹터 / 끝캡·스텁 = 회전 박스.
