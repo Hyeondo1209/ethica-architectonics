@@ -2,7 +2,7 @@
 import { useThree, useFrame } from '@react-three/fiber'
 import { useRef, useEffect } from 'react'
 import * as THREE from 'three'
-import { SCALE, H, ROOM_CX, ROOM_FLOOR_Y, DAIS_H, DOWN, X_LAND_LO, X_LAND_HI, U_KNEE_END } from './constants'
+import { SCALE, H, ROOM_CX, ROOM_FLOOR_Y, DAIS_H, DOWN, RM_X0, RM_X1, PASS_FLOOR_Y } from './constants'
 
 // ── ① 1인칭 컨트롤 ──
 export function FirstPersonControls() {
@@ -16,11 +16,11 @@ export function FirstPersonControls() {
   useEffect(() => {
     camera.rotation.order = 'YXZ'
     // 시작 = 방 바닥(스케치 동선의 출발점). 나선을 올라 꼭대기 박스 → 통로 → 리브.
-    // ★임시(개발용, 2026.07.07): 무릎길/판 위 스폰 — 정션 작업 중 매번 방부터 안 걸어오게. 원래대로면 SPAWN_KNEE = false.
-    const SPAWN_KNEE = true
-    if (SPAWN_KNEE) {
-      camera.position.set((X_LAND_LO + X_LAND_HI) / 2, U_KNEE_END * H + 0.1 + 1.6, 0)  // 판 중심 위(눈높이) ③≈(185.5, 257.7, 0)
-      look.current.yaw = -Math.PI / 2                 // +x(무릎길·나선 쪽) 향해
+    // ★임시(개발용, 2026.07.07 회랑판): 회랑 방 스폰 — 회랑 작업 중 매번 지상부터 안 걸어오게. 원래대로면 false.
+    const SPAWN_CLOISTER = true
+    if (SPAWN_CLOISTER) {
+      camera.position.set((RM_X0 + RM_X1) / 2, PASS_FLOOR_Y + 1.6, 1)  // 방 중앙(눈높이) ③≈(168.1, 249.6, 1)
+      look.current.yaw = Math.PI                      // +z(회랑 쪽) 향해
     } else {
       camera.position.set(ROOM_CX, ROOM_FLOOR_Y + DAIS_H + 1.6, 0)   // 원래: 방 기단 위(v2)
       look.current.yaw = Math.PI / 2                  // -x(나선 바닥) 방향
