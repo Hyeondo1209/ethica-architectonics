@@ -332,11 +332,11 @@ export const PASS_DOOR_H = 4.6
 //   원호(중심선 r=CL_R)는 거리 ≈17.4 '일정'(안전권 중앙) + 리브 무릎(r≤174 잠입은 y≥265, 지붕 위 10+)과
 //   전 구간 무충돌 — 유일해. 좌표: φ = atan2(z,x) (+x=0, +z로 증가). 실린더 θ = π/2 − φ 변환.
 export const CL_R     = 170.0                // ★회랑 중심선 반경 — 껍질 r≈187.4와 거리 ≈17.4 일정
-export const CL_HW    = 2.6                  // 회랑 내부 반폭(반경 방향, 폭 5.2)
+export const CL_HW    = 4.5                  // 회랑 내부 반폭(반경 방향, 폭 5.2)
 export const CL_Z_START = 5.0                // 방 +z벽 z(= RM_Z1) — 원호는 이 벽 두께 안에서 시작
 export const CL_PHI0  = Math.asin((CL_Z_START + 0.3) / CL_R)   // 시작 φ ≈1.79°(벽 중앙에 캡 물림)
 export const CL_PHI1  = 23.6 * Math.PI / 180   // ★끝 φ=22° → 끝점 z≈63.7·정면 리브 #4(20°) 도달. 23.6°(z68)는 #5 진입 — 노브
-export const CL_ROOF  = 9.0                  // 회랑 내부고
+export const CL_ROOF  = 10.0                  // 회랑 내부고
 export const CL_SILL  = 1.6                  // 개구 아래턱(파라펫) — 지면 시선 차단(레이캐스트) + 추락 방지
 export const CL_HEAD  = 7.0                  // 개구 위턱 높이
 export const CL_OP_P0 = CL_PHI0 + 0.030      // 개구 φ 시작(시작 캡 직후 — #0이 초반에 보이게). 레이캐스트 far=0 튜닝 노브
