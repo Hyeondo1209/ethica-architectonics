@@ -2,11 +2,10 @@
 //   Stairs = 범용 완만 계단(현재 통로 전용, 리브 입구 작업에서 재사용 후보라 export)
 import { useMemo } from 'react'
 import * as THREE from 'three'
-import { Brush, Evaluator, HOLLOW_SUBTRACTION } from 'three-bvh-csg'
 import {
   COR_WALL_SEG, DOOR_HALF, COR_CX, COR_R, ceilY, domeClipY,
   WIN_HALF, WIN_SILL_Y, WIN_TOP_Y,
-  ROOM_LAND_R, ROOM_WELL_RT, ROOM_CEIL_Y, ROOM_CYL_TOP,
+  RAD_JX, RAD_JDOOR_HW, RAD_DOOR_H,
   BOX_X0, BOX_X1, BOX_HW, BOX_TOP,
   COR_Y0, COR_THICK, COR_FLOOR_HW, COR_X1, COR_STEPS,
   PLAT_X, PLAT_R, PLAT_Y, PILLAR_R, RIB_Y,
@@ -83,52 +82,57 @@ export function Corridor() {
     return g
   }, [])
 
-  // 박스 연결부 측벽(2장): 방(원점) ↔ 원기둥 문. 아래를 돔 표면까지 잘라 교집합 제거.
-  // === 박스(직육면체 통로) 벽·천장: 원뿔대(빛우물)와 겹친 부분을 CSG로 정확히 빼기 (three-bvh-csg) ===
-  const { boxWallCut, boxCeilCut } = useMemo(() => {
-    const ev = new Evaluator()
-    ev.attributes = ['position', 'normal']
-    const rBot = ROOM_LAND_R, rTop = ROOM_WELL_RT
-    const yBot = ROOM_CEIL_Y - 3, yTop = ROOM_CYL_TOP
-    // 자르개: 원뿔대 solid(닫힌 실린더)
-    const coneSolid = new THREE.CylinderGeometry(rTop, rBot, yTop - yBot, 96, 1, false)
-    coneSolid.translate(0, (yBot + yTop) / 2, 0)
-    const coneBrush = new Brush(coneSolid); coneBrush.updateMatrixWorld()
-    // 박스 측벽 껍질(아래 모서리는 돔 표면까지) → 원뿔대로 자름
+  // === 박스(직육면체 통로) — ★방사 개편(2026.07.09): 서쪽 단축(BOX_X0=54, 원뿔대에 안 닿음 → CSG 불요)
+  //  + 옆벽 접합문 2(고리가 z=±6에서 진입, x=RAD_JX±RAD_JDOOR_HW · 문 위 헤더/아래 스커트 유지) + 서쪽 캡(막힘). ===
+  const { boxWallCut, boxCeilCut, boxCap } = useMemo(() => {
     const wp = [], wi = []
     const wq = (ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz) => {
       const n = wp.length / 3
       wp.push(ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz)
       wi.push(n, n + 1, n + 2, n, n + 2, n + 3)
     }
-    const WSEG = 24
+    const D0 = RAD_JX - RAD_JDOOR_HW, D1 = RAD_JX + RAD_JDOOR_HW
+    const DSILL = COR_Y0, DTOP = COR_Y0 + COR_THICK / 2 + RAD_DOOR_H
+    // 벽 런(xa→xb, 바닥 스커트=돔 표면): full=전체 높이 / 아니면 문 구간(스커트+헤더만)
+    const run = (z, xa, xb, full) => {
+      const n = Math.max(2, Math.ceil((xb - xa) / 5))
+      for (let i = 0; i < n; i++) {
+        const x0 = xa + (xb - xa) * (i / n), x1 = xa + (xb - xa) * ((i + 1) / n)
+        if (full) {
+          wq(x0, domeClipY(x0, z), z, x1, domeClipY(x1, z), z, x1, BOX_TOP, z, x0, BOX_TOP, z)
+        } else {
+          wq(x0, domeClipY(x0, z), z, x1, domeClipY(x1, z), z, x1, DSILL, z, x0, DSILL, z)
+          wq(x0, DTOP, z, x1, DTOP, z, x1, BOX_TOP, z, x0, BOX_TOP, z)
+        }
+      }
+    }
     for (const sgn of [1, -1]) {
       const z = sgn * BOX_HW
-      for (let i = 0; i < WSEG; i++) {
-        const xx0 = BOX_X0 + (BOX_X1 - BOX_X0) * (i / WSEG)
-        const xx1 = BOX_X0 + (BOX_X1 - BOX_X0) * ((i + 1) / WSEG)
-        wq(xx0, domeClipY(xx0, z), z, xx1, domeClipY(xx1, z), z, xx1, BOX_TOP, z, xx0, BOX_TOP, z)
-      }
+      run(z, BOX_X0, D0, true)
+      run(z, D0, D1, false)          // 접합문(고리 진입)
+      run(z, D1, BOX_X1, true)
     }
     const wallG = new THREE.BufferGeometry()
     wallG.setAttribute('position', new THREE.Float32BufferAttribute(wp, 3))
     wallG.setIndex(wi); wallG.computeVertexNormals()
-    const wallBrush = new Brush(wallG); wallBrush.updateMatrixWorld()
-    const boxWallCut = ev.evaluate(wallBrush, coneBrush, HOLLOW_SUBTRACTION).geometry
-    // 박스 천장(평판) → 원뿔대로 자름
+    // 천장(평판) — CSG 불요(원뿔대 밖)
     const ceilG = new THREE.BoxGeometry(BOX_X1 - BOX_X0, COR_THICK, BOX_HW * 2)
     ceilG.translate((BOX_X0 + BOX_X1) / 2, BOX_TOP, 0)
-    const ceilBrush = new Brush(ceilG); ceilBrush.updateMatrixWorld()
-    const boxCeilCut = ev.evaluate(ceilBrush, coneBrush, HOLLOW_SUBTRACTION).geometry
-    return { boxWallCut, boxCeilCut }
+    // 서쪽 캡(막힌 끝벽): 바닥선은 돔이 위로 덮으므로 평평하게 낮춰 잡아도 봉합됨
+    const capLo = Math.min(domeClipY(BOX_X0, -BOX_HW), domeClipY(BOX_X0, BOX_HW)) - 0.5
+    const cp = [BOX_X0, capLo, -BOX_HW, BOX_X0, capLo, BOX_HW, BOX_X0, BOX_TOP, BOX_HW, BOX_X0, BOX_TOP, -BOX_HW]
+    const capG = new THREE.BufferGeometry()
+    capG.setAttribute('position', new THREE.Float32BufferAttribute(cp, 3))
+    capG.setIndex([0, 1, 2, 0, 2, 3]); capG.computeVertexNormals()
+    return { boxWallCut: wallG, boxCeilCut: ceilG, boxCap: capG }
   }, [])
 
 
   return (
     <group>
-      {/* === 길(path): 평면 다리 → 원형 플랫폼(기둥 받침) → 완만한 계단(리브까지) === */}
-      <mesh position={[(ROOM_LAND_R + (PLAT_X - PLAT_R)) / 2, COR_Y0, 0]} userData={{ walkable: true }}>
-        <boxGeometry args={[(PLAT_X - PLAT_R) - ROOM_LAND_R, COR_THICK, COR_FLOOR_HW * 2]} />
+      {/* === 길(path): 다리(★방사 개편: 시작 = 박스 서쪽 캡 54 — 랜딩 직행은 폐지, 진입은 고리 접합문) === */}
+      <mesh position={[(BOX_X0 + (PLAT_X - PLAT_R)) / 2, COR_Y0, 0]} userData={{ walkable: true }}>
+        <boxGeometry args={[(PLAT_X - PLAT_R) - BOX_X0, COR_THICK, COR_FLOOR_HW * 2]} />
         <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.DoubleSide} />
       </mesh>
       <mesh position={[PLAT_X, PLAT_Y, 0]} userData={{ walkable: true }}>
@@ -154,6 +158,9 @@ export function Corridor() {
         <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
       </mesh>
       <mesh geometry={boxCeilCut}>
+        <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
+      </mesh>
+      <mesh geometry={boxCap}>
         <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
       </mesh>
     </group>

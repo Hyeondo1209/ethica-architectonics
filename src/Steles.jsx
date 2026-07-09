@@ -22,6 +22,7 @@ const STELE_THICK     = 0.5     // 두께(x)
 const STELE_BASE_H    = 0.5     // 받침(plinth) 높이
 const STELE_BASE_OVER = 0.45    // 받침이 슬랩보다 사방으로 튀어나온 양
 const STELE_TEXT_MARGIN = 0.82  // 글자 패널이 슬랩 면에서 차지하는 비율(테두리 여백)
+const STELE_TMP = new THREE.Vector3()   // useFrame 월드좌표 스크래치(선돌 MONO_TMP와 같은 안전 근거)
 
 // 세로형 캔버스에 머리표+본문을 새겨 텍스처로. 슬랩 면 비율에 맞춤(왜곡 방지). 글자는 밝게(어두운 슬랩 위 각인).
 export function makeSteleTexture(tag, text, aspectWH) {
@@ -76,7 +77,8 @@ export function PropStele({ id, x = PLAT_X, z = 0, faceY = PLAT_Y + COR_THICK / 
   const panelX = x - STELE_THICK / 2 - 0.03               // 슬랩 앞면(−x) 바로 앞(z-파이팅 방지)
   useFrame(({ camera }) => {
     const p = panelRef.current; if (!p) return
-    const d = camera.position.distanceTo(p.position)
+    p.getWorldPosition(STELE_TMP)                 // ★월드좌표(FND 리그: 회전 그룹 안 배치 지원 — 선돌과 동일 패턴)
+    const d = camera.position.distanceTo(STELE_TMP)
     let o = (far - d) / (far - near)
     o = Math.max(0, Math.min(1, o)); o = o * o * (3 - 2 * o)     // smoothstep
     if (matRef.current) matRef.current.opacity = o

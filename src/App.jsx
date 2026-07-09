@@ -6,6 +6,7 @@ import { FirstPersonControls } from './FirstPersonControls'
 import { Ground, DomeRibs, ExplorationRib, Apex, RibStair, KneeWalk, RibJunction, Lookout, RevealPassage, Terrace } from './Dome'
 import { DefAxiomRoom } from './Room'
 import { Corridor } from './Corridor'
+import { RadialRooms } from './Radial'
 import { PropStele } from './Steles'
 
 // ============================================================
@@ -45,6 +46,7 @@ export default function App() {
               <ExplorationRib />
               <DefAxiomRoom stairKind={stair} />
               <Corridor />
+              <RadialRooms />
               <PropStele id="1p1" x={PLAT_X} z={0} near={8} far={55} />
               <Apex />
               <RibStair />

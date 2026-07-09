@@ -10,6 +10,7 @@ import {
   ROOM_STAIR_SIDES, ROOM_STAIR_TURNS, ROOM_STAIR_WIDTH, ROOM_STAIR_TREAD, ROOM_STAIR_RISE,
   ROOM_STAIR_BIAS, ROOM_STAIR_SLAB, ROOM_STAIR_ROUT, ROOM_STAIR_RIN, ROOM_STAIR_PHASE, ROOM_STAIR_TOTAL_ANG,
   COR_Y0, COR_THICK, BOX_X0, BOX_X1, BOX_HW, BOX_TOP,
+  RAD_ANG0, RAD_T_IN, RAD_T_HW, RAD_TOP,
   DAIS_R, DAIS_STEP_H, DAIS_STEP_IN, DAIS_STEPS, DAIS_H, POOL_R, SHAFT_TOP_Y, SHAFT_TOP_R, SPOT_I,
   DEF_OCT_R, DEF_OCT_PHASE, AX_F0, AX_F1, AX_OFFSET, AX_PLAT_R, AX_MONO_SCALE,
 } from './constants'
@@ -105,18 +106,25 @@ export function DefAxiomRoom({ stairKind }) {
     helixRef.current.instanceMatrix.needsUpdate = true
   }, [helixInsts])
 
-  // 빛우물 원뿔대 벽(빗면) — +x(통로)쪽에 출입문(디스크 바닥~문높이만 트임). 디스크 아래·문 위 벽은 남겨 가짜 구멍 방지 + 리브 시야 차단(스포).
-  // === 원뿔대(빛우물) 벽: 박스 통로 구멍 + 돔(구)과 겹친 부분을 CSG로 정확히 빼기 (three-bvh-csg) ===
+  // 빛우물 원뿔대 벽(빗면) — ★방사 개편(2026.07.09): 동쪽 박스 문 → 대각 터널 문 4개(45°+90°k).
+  //  BOX_X0=54로 단축돼 박스는 더는 원뿔대에 안 닿음(동쪽 자동 봉인). 디스크 아래·문 위 벽은 남겨 가짜 구멍 방지 + 리브 시야 차단(스포).
+  // === 원뿔대(빛우물) 벽: 대각 터널 구멍 4 + 돔(구)과 겹친 부분을 CSG로 정확히 빼기 (three-bvh-csg) ===
   const wellCut = useMemo(() => {
     const ev = new Evaluator()
     ev.attributes = ['position', 'normal']
     const rBot = ROOM_LAND_R, rTop = ROOM_WELL_RT
     const yBot = ROOM_CEIL_Y - 3, yTop = ROOM_CYL_TOP
-    // 자르개 1: 박스 solid — 원뿔대에서 빼 통로가 지나는 구멍을 낸다
-    const boxLo = COR_Y0 - 5
-    const boxSolid = new THREE.BoxGeometry(BOX_X1 - BOX_X0, BOX_TOP - boxLo, BOX_HW * 2)
-    boxSolid.translate((BOX_X0 + BOX_X1) / 2, (BOX_TOP + boxLo) / 2, 0)
-    const boxBrush = new Brush(boxSolid); boxBrush.updateMatrixWorld()
+    // 자르개 1: 대각 터널 solid ×4 — 원뿔대 벽(r18@y46)을 관통(RAD_T_IN=12 → r26)해 문을 낸다
+    const doorLo = COR_Y0 - 3
+    const cutters = []
+    for (let k = 0; k < 4; k++) {
+      const ang = RAD_ANG0 + k * Math.PI / 2
+      const g = new THREE.BoxGeometry(26 - RAD_T_IN, RAD_TOP - doorLo, RAD_T_HW * 2)
+      g.translate((RAD_T_IN + 26) / 2, (RAD_TOP + doorLo) / 2, 0)
+      g.rotateY(-ang)                                     // 로컬 +x → (cos ang, 0, sin ang) 방사 방향
+      const b = new Brush(g); b.updateMatrixWorld()
+      cutters.push(b)
+    }
     // 자르개 2: 돔 solid(타원체=실제 돔 메시와 동일: 단위구 scale) — 원뿔대가 구를 파고든 부분만 제거
     const domeSolid = new THREE.SphereGeometry(1, 64, 40)
     domeSolid.scale(ROOM_R, ROOM_HEIGHT, ROOM_R)
@@ -126,9 +134,10 @@ export function DefAxiomRoom({ stairKind }) {
     const coneWall = new THREE.CylinderGeometry(rTop, rBot, yTop - yBot, 96, 40, true)
     coneWall.translate(0, (yBot + yTop) / 2, 0)
     const coneWallBrush = new Brush(coneWall); coneWallBrush.updateMatrixWorld()
-    // 원뿔대 − 박스 − 돔 (겹친 부분만 잘라냄)
-    const cutBox = ev.evaluate(coneWallBrush, boxBrush, HOLLOW_SUBTRACTION); cutBox.updateMatrixWorld()
-    return ev.evaluate(cutBox, domeBrush, HOLLOW_SUBTRACTION).geometry
+    // 원뿔대 − 터널×4 − 돔 (겹친 부분만 잘라냄)
+    let acc = coneWallBrush
+    for (const b of cutters) { acc = ev.evaluate(acc, b, HOLLOW_SUBTRACTION); acc.updateMatrixWorld() }
+    return ev.evaluate(acc, domeBrush, HOLLOW_SUBTRACTION).geometry
   }, [])
 
   // 빛 샤프트 재질(가짜 볼륨) — 표준 트릭: 시선이 기둥 중심을 관통하면(법선∥시선) 진하게, 실루엣(법선⊥시선)으로 갈수록 투명.
