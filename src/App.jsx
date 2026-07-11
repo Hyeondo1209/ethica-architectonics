@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import GraphScaffold from './GraphScaffold'
 import { SCALE, PLAT_X } from './constants'
 import { FirstPersonControls } from './FirstPersonControls'
-import { Ground, DomeRibs, ExplorationRib, Apex, RibStair, KneeWalk, RibJunction, Lookout, RevealPassage, Terrace } from './Dome'
+import { Ground, DomeRibs, ExplorationRib, Apex, RibStair, KneeWalk, RibJunction, Lookout, RevealPassage, CloisterLamps, Terrace } from './Dome'
 import { DefAxiomRoom } from './Room'
 import { Corridor } from './Corridor'
 import { RadialRooms } from './Radial'
@@ -54,6 +54,7 @@ export default function App() {
               <RibJunction />
               <Lookout />
               <RevealPassage />
+              <CloisterLamps />
               <Terrace />
             </group>
             <FirstPersonControls />

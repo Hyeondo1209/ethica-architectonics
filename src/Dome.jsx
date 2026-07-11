@@ -20,6 +20,7 @@ import {
   PASS_X_END, CL_R, CL_HW, CL_PHI0, CL_PHI1, CL_ROOF, CL_SILL, CL_HEAD, CL_OP_P0, CL_OP_P1,
   RM_X0, RM_X1, RM_Z0, RM_Z1, RM_ROOF, RM_MOUTH_H,
   ST_PHI, ST_HW, ST_ROOF,
+  LAMP_RIBS, LAMP_R, LAMP_TUBE_R, LAMP_TOP_Y, LAMP_MOUTH_Y, LAMP_FUNNEL_H, LAMP_MOUTH_R, LAMP_POOL_R,
   TERRACE_Y, TERRACE_RIN, TERRACE_ROUT, TERRACE_ARC,
 } from './constants'
 
@@ -387,6 +388,53 @@ export function RevealPassage() {
           <boxGeometry args={b.s} />
           <meshStandardMaterial {...(b.walk ? FLOOR_MAT : SHELL_MAT)} side={THREE.DoubleSide} />
         </mesh>
+      ))}
+    </group>
+  )
+}
+
+// ── 등불(1p10, ★신규 기하 2026.07.11): 회랑 위 리브(#1~#4)마다 — 얇은 관이 리브 몸통·회랑 지붕을
+//  수직 관통(지붕 링은 면 기하 — CSG 불요, 관이 그냥 지나감), 회랑 안 깔때기 갓으로 종단.
+//  관 상단 캡 = 리브 보어 내부(LAMP_TOP_Y, 불가시) · 지붕 위 노출 ≈6.4 = 테라스에서 보이는 부분.
+//  각 등불 = 발광 관 + 깔때기 갓 + 갓 입 발광면 + 바닥 웅덩이 2겹 + 하향 점광(무그림자).
+//  ⚠광량·색은 Phase 3 전면 재조정 전제(전부 노브). 1p10 정리 텍스트(비석/각인)는 별도 세션.
+export function CloisterLamps() {
+  const floor = PASS_FLOOR_Y
+  const mouthY = floor + LAMP_MOUTH_Y                 // 갓 입(아래끝)
+  const neckY = mouthY + LAMP_FUNNEL_H                // 갓 목 = 관 시작
+  return (
+    <group>
+      {LAMP_RIBS.map((k) => (
+        <group key={k} rotation-y={-(k / MERIDIANS) * Math.PI * 2}>
+          <group position={[LAMP_R, 0, 0]}>
+            {/* 관: 갓 목 → 보어 내 상단 캡 — 리브의 빛을 따오는 도관(발광) */}
+            <mesh position={[0, (neckY + LAMP_TOP_Y) / 2, 0]}>
+              <cylinderGeometry args={[LAMP_TUBE_R, LAMP_TUBE_R, LAMP_TOP_Y - neckY, 12]} />
+              <meshStandardMaterial color="#caa161" roughness={0.6} emissive="#ff9d3c" emissiveIntensity={0.35} />
+            </mesh>
+            {/* 갓: 뒤집힌 깔때기(위 좁음 → 아래 벌어짐), 열린 원뿔대 */}
+            <mesh position={[0, (mouthY + neckY) / 2, 0]}>
+              <cylinderGeometry args={[LAMP_TUBE_R, LAMP_MOUTH_R, LAMP_FUNNEL_H, 24, 1, true]} />
+              <meshStandardMaterial color="#caa161" roughness={0.6} emissive="#ffb45c" emissiveIntensity={0.55} side={THREE.DoubleSide} />
+            </mesh>
+            {/* 갓 입 발광면 — 광원으로 읽히는 면 */}
+            <mesh position={[0, mouthY + 0.02, 0]} rotation-x={-Math.PI / 2}>
+              <circleGeometry args={[LAMP_MOUTH_R * 0.82, 24]} />
+              <meshBasicMaterial color="#fff1d4" side={THREE.DoubleSide} />
+            </mesh>
+            {/* 바닥 웅덩이(코어+헤일로) — 바닥 링(floor−0.02) 위 0.015 부양(z파이팅 회피 전례) */}
+            <mesh position={[0, floor - 0.005, 0]} rotation-x={-Math.PI / 2}>
+              <circleGeometry args={[LAMP_POOL_R * 0.55, 32]} />
+              <meshBasicMaterial color="#ffdc9a" transparent opacity={0.5} />
+            </mesh>
+            <mesh position={[0, floor - 0.004, 0]} rotation-x={-Math.PI / 2}>
+              <circleGeometry args={[LAMP_POOL_R, 32]} />
+              <meshBasicMaterial color="#ffce7d" transparent opacity={0.22} />
+            </mesh>
+            {/* 하향 점광 — 무그림자(성능). 강도·거리 = 로컬 튜닝 노브 */}
+            <pointLight position={[0, mouthY - 0.25, 0]} color="#ffce8a" intensity={14} distance={11} decay={2} />
+          </group>
+        </group>
       ))}
     </group>
   )
