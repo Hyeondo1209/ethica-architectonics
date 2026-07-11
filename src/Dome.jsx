@@ -20,7 +20,7 @@ import {
   PASS_X_END, CL_R, CL_HW, CL_PHI0, CL_PHI1, CL_ROOF, CL_SILL, CL_HEAD, CL_OP_P0, CL_OP_P1,
   RM_X0, RM_X1, RM_Z0, RM_Z1, RM_ROOF, RM_MOUTH_H,
   ST_PHI, ST_HW, ST_ROOF,
-  LAMP_RIBS, LAMP_R, LAMP_TUBE_R, LAMP_TOP_Y, LAMP_MOUTH_Y, LAMP_FUNNEL_H, LAMP_MOUTH_R, LAMP_POOL_R,
+  LAMP_RIBS, LAMP_R, LAMP_TUBE_R, LAMP_TOP_Y, LAMP_MOUTH_Y0, LAMP_MOUTH_Y1, LAMP_FUNNEL_H, LAMP_MOUTH_R, LAMP_POOL_R,
   TERRACE_Y, TERRACE_RIN, TERRACE_ROUT, TERRACE_ARC,
 } from './constants'
 
@@ -393,18 +393,23 @@ export function RevealPassage() {
   )
 }
 
-// ── 등불(1p10, ★신규 기하 2026.07.11): 회랑 위 리브(#1~#4)마다 — 얇은 관이 리브 몸통·회랑 지붕을
-//  수직 관통(지붕 링은 면 기하 — CSG 불요, 관이 그냥 지나감), 회랑 안 깔때기 갓으로 종단.
-//  관 상단 캡 = 리브 보어 내부(LAMP_TOP_Y, 불가시) · 지붕 위 노출 ≈6.4 = 테라스에서 보이는 부분.
+// ── 등불(1p10, ★신규 기하 2026.07.11): 회랑 위 리브(#1~#4)마다 — 관이 실내로 내려온 리브 밑면에
+//  수직으로 꽂혀(진입 y263.4 = 바닥 위 15.4, CL_ROOF 20 관입 체제) 회랑 안 깔때기 갓으로 종단.
+//  관 상단 캡 = 리브 보어 내부(LAMP_TOP_Y, 불가시). 리브(빛의 관로)의 빛을 제 관으로 따옴.
+//  ★하강 램프(2026.07.11): 갓 높이 Y0(#1)→Y1(#4) 선형 하강 — 걸을수록 등불이 내려와 마지막에서
+//   몸 가까이. 올려다보면 관 = 리브까지의 시선 안내선(1p10 체감점 · 비석 자리 후보 · 1p11 문 직전).
 //  각 등불 = 발광 관 + 깔때기 갓 + 갓 입 발광면 + 바닥 웅덩이 2겹 + 하향 점광(무그림자).
 //  ⚠광량·색은 Phase 3 전면 재조정 전제(전부 노브). 1p10 정리 텍스트(비석/각인)는 별도 세션.
 export function CloisterLamps() {
   const floor = PASS_FLOOR_Y
-  const mouthY = floor + LAMP_MOUTH_Y                 // 갓 입(아래끝)
-  const neckY = mouthY + LAMP_FUNNEL_H                // 갓 목 = 관 시작
+  const n = LAMP_RIBS.length
   return (
     <group>
-      {LAMP_RIBS.map((k) => (
+      {LAMP_RIBS.map((k, i) => {
+        const fr = n > 1 ? i / (n - 1) : 0                                  // 진행률(걷는 방향 = 배열 순)
+        const mouthY = floor + LAMP_MOUTH_Y0 + (LAMP_MOUTH_Y1 - LAMP_MOUTH_Y0) * fr  // 갓 입(아래끝) — 하강 램프
+        const neckY = mouthY + LAMP_FUNNEL_H                                // 갓 목 = 관 시작
+        return (
         <group key={k} rotation-y={-(k / MERIDIANS) * Math.PI * 2}>
           <group position={[LAMP_R, 0, 0]}>
             {/* 관: 갓 목 → 보어 내 상단 캡 — 리브의 빛을 따오는 도관(발광) */}
@@ -435,7 +440,8 @@ export function CloisterLamps() {
             <pointLight position={[0, mouthY - 0.25, 0]} color="#ffce8a" intensity={14} distance={11} decay={2} />
           </group>
         </group>
-      ))}
+        )
+      })}
     </group>
   )
 }
