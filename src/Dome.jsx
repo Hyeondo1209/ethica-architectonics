@@ -20,7 +20,7 @@ import {
   PASS_X_END, CL_R, CL_HW, CL_PHI0, CL_PHI1, CL_ROOF, CL_SILL, CL_HEAD, CL_OP_P0, CL_OP_P1,
   RM_X0, RM_X1, RM_Z0, RM_Z1, RM_ROOF, RM_MOUTH_H,
   ST_PHI, ST_HW, ST_ROOF,
-  LAMP_RIBS, LAMP_R, LAMP_TUBE_R, LAMP_TOP_Y, LAMP_MOUTH_Y0, LAMP_MOUTH_Y1, LAMP_FUNNEL_H, LAMP_MOUTH_R, LAMP_POOL_R,
+  LAMP_RIBS, LAMP_R, LAMP_TUBE_R, LAMP_ENTRY_Y, LAMP_TOP_Y, LAMP_MOUTH_Y0, LAMP_MOUTH_Y1, LAMP_FUNNEL_H, LAMP_MOUTH_R, LAMP_POOL_R,
   TERRACE_Y, TERRACE_RIN, TERRACE_ROUT, TERRACE_ARC,
 } from './constants'
 
@@ -400,6 +400,31 @@ export function RevealPassage() {
 //   몸 가까이. 올려다보면 관 = 리브까지의 시선 안내선(1p10 체감점 · 비석 자리 후보 · 1p11 문 직전).
 //  각 등불 = 발광 관 + 깔때기 갓 + 갓 입 발광면 + 바닥 웅덩이 2겹 + 하향 점광(무그림자).
 //  ⚠광량·색은 Phase 3 전면 재조정 전제(전부 노브). 1p10 정리 텍스트(비석/각인)는 별도 세션.
+// 등불 봉: 정점 색 세로 기울기(진입고에서 목까지 밝음→어둠 보간, 진입고 위 = 상단색 고정) — 튜닝 노브 = 아래 두 색
+function LampRod({ y0, y1 }) {
+  const geo = useMemo(() => {
+    const g = new THREE.CylinderGeometry(LAMP_TUBE_R, LAMP_TUBE_R, y1 - y0, 12, 24)
+    const pos = g.attributes.position
+    const colors = new Float32Array(pos.count * 3)
+    const cTop = new THREE.Color('#ffedc4')   // 진입고(리브 쪽) — 밝음
+    const cBot = new THREE.Color('#c08a48')   // 목(아래끝) — 어두움
+    const mid = (y0 + y1) / 2, c = new THREE.Color()
+    for (let i = 0; i < pos.count; i++) {
+      const wy = pos.getY(i) + mid                                   // 월드 y
+      const t = Math.min(1, Math.max(0, (LAMP_ENTRY_Y - wy) / (LAMP_ENTRY_Y - y0)))
+      c.copy(cTop).lerp(cBot, t)
+      colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    return g
+  }, [y0, y1])
+  return (
+    <mesh geometry={geo} position={[0, (y0 + y1) / 2, 0]}>
+      <meshBasicMaterial vertexColors />
+    </mesh>
+  )
+}
+
 export function CloisterLamps() {
   const floor = PASS_FLOOR_Y
   const n = LAMP_RIBS.length
@@ -412,11 +437,15 @@ export function CloisterLamps() {
         return (
         <group key={k} rotation-y={-(k / MERIDIANS) * Math.PI * 2}>
           <group position={[LAMP_R, 0, 0]}>
-            {/* 관: 갓 목 → 보어 내 상단 캡 — 리브의 빛을 따오는 도관(발광) */}
-            <mesh position={[0, (neckY + LAMP_TOP_Y) / 2, 0]}>
-              <cylinderGeometry args={[LAMP_TUBE_R, LAMP_TUBE_R, LAMP_TOP_Y - neckY, 12]} />
-              <meshStandardMaterial color="#caa161" roughness={0.6} emissive="#ff9d3c" emissiveIntensity={0.35} />
-            </mesh>
+            {/* 관: 갓 목 → 보어 내 상단 캡 — 리브의 빛을 따오는 도관.
+                ★연속 발광 기울기(2026.07.11 v2): 원통 하나 + 정점 색 보간(위=리브 쪽 밝음 → 아래 어두움).
+                구 3분절 스택은 발광값이 분절 상수라 경계 띠가 노출 — 정점 색은 정점 간 보간 = 이음매 없음.
+                unlit(meshBasicMaterial) = 조명 안 받는 자체 발광체로 읽힘. 색 2값 = LampRod 안 노브 */}
+            <LampRod y0={neckY} y1={LAMP_TOP_Y} />
+            {/* ★접합부 점광(2026.07.11): 관이 리브 밑면에 꽂히는 자리를 밝힘 — 리브 밑면·상부 벽에
+                후광이 생겨 광원이 '리브'로 읽히게(현행 하향 점광만으로는 봉 끝이 광원으로 오독).
+                강도·거리 = 튜닝 노브 */}
+            <pointLight position={[0, LAMP_ENTRY_Y - 1.2, 0]} color="#ffc27a" intensity={22} distance={15} decay={2} />
             {/* 갓: 뒤집힌 깔때기(위 좁음 → 아래 벌어짐), 열린 원뿔대 */}
             <mesh position={[0, (mouthY + neckY) / 2, 0]}>
               <cylinderGeometry args={[LAMP_TUBE_R, LAMP_MOUTH_R, LAMP_FUNNEL_H, 24, 1, true]} />

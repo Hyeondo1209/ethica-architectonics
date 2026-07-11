@@ -104,8 +104,11 @@ ok(LAMP_MOUTH_Y1 >= 2.1, `마지막 갓 입 ${LAMP_MOUTH_Y1} ≥ 2.1 (머리 위
 // [13] 첫 등불(가장 높음)의 갓 목이 천장 아래 + 관 구간이 남아 있음(목 < 진입고)
 ok(floor + LAMP_MOUTH_Y0 + LAMP_FUNNEL_H < roofTop - 0.5, `첫 갓 목(${(LAMP_MOUTH_Y0 + LAMP_FUNNEL_H).toFixed(1)}) < 천장 ${CL_ROOF}−0.5`)
 ok(floor + LAMP_MOUTH_Y0 + LAMP_FUNNEL_H < LAMP_ENTRY_Y - 2, `첫 갓 목 < 진입고−2 (관이 잘려 보이지 않게)`)
-// [15] 갓/관 비례: 깔때기로 읽히는 최소 비례
-ok(LAMP_MOUTH_R >= 2.1 * LAMP_TUBE_R, `갓/관 비례 ${(LAMP_MOUTH_R / LAMP_TUBE_R).toFixed(2)} ≥ 2.1 (깔때기 성립)`)
+// [15] 갓 두 모드(★2026.07.11 갓 유무 = 열린 결정): 봉 모드(MOUTH_R≈TUBE_R, 갓 없음 — 원통 퇴화)
+//      또는 깔때기 모드(비례 ≥2.1). 그 사이(1.05~2.1배) = 어정쩡한 플랜지 — 실패
+const ratio = LAMP_MOUTH_R / LAMP_TUBE_R
+ok(ratio <= 1.05 || ratio >= 2.1,
+  `갓 모드 = ${ratio <= 1.05 ? '봉(갓 없음)' : '깔때기'} — 비례 ${ratio.toFixed(2)} (1.05~2.1 사이 금지)`)
 // [16] 갓 지름이 통로에서 통행 시각 여유(≥0.8) 확보
 ok(2 * LAMP_MOUTH_R <= 2 * CL_HW - 0.8, `갓 지름 ${(2 * LAMP_MOUTH_R).toFixed(2)} ≤ 통로 폭−0.8 (${(2 * CL_HW - 0.8).toFixed(1)})`)
 // [17] 웅덩이가 통로 폭 안
