@@ -2,7 +2,7 @@
 import { useThree, useFrame } from '@react-three/fiber'
 import { useRef, useEffect } from 'react'
 import * as THREE from 'three'
-import { SCALE, H, ROOM_CX, ROOM_FLOOR_Y, DAIS_H, DOWN, RM_X0, RM_X1, PASS_FLOOR_Y } from './constants'
+import { SCALE, H, ROOM_CX, ROOM_FLOOR_Y, DAIS_H, DOWN, RM_X0, RM_X1, PASS_FLOOR_Y, RAD_ANG0, RAD_R, COR_Y0, COR_THICK } from './constants'
 
 // ── ① 1인칭 컨트롤 ──
 export function FirstPersonControls() {
@@ -16,9 +16,13 @@ export function FirstPersonControls() {
   useEffect(() => {
     camera.rotation.order = 'YXZ'
     // 시작 = 방 바닥(스케치 동선의 출발점). 나선을 올라 꼭대기 박스 → 통로 → 리브.
-    // ★임시(개발용, 2026.07.07 회랑판): 회랑 방 스폰 — 회랑 작업 중 매번 지상부터 안 걸어오게. 원래대로면 false.
-    const SPAWN_CLOISTER = true
-    if (SPAWN_CLOISTER) {
+    // ★임시(개발용) 스폰 선택: 'radial'(NE 꽃잎 방 — 2026.07.11 방사부 검수) / 'cloister'(회랑, 2026.07.07) / 'room'(원래 지상 방)
+    const SPAWN = 'radial'
+    if (SPAWN === 'radial') {
+      const px = RAD_R * Math.cos(RAD_ANG0), pz = RAD_R * Math.sin(RAD_ANG0)
+      camera.position.set(px, COR_Y0 + COR_THICK / 2 + 1.6, pz)      // NE 꽃잎 방 중앙 눈높이 ≈(43.8, 50.9, 43.8)
+      look.current.yaw = Math.PI / 4                  // 허브(방사 문) 방향
+    } else if (SPAWN === 'cloister') {
       camera.position.set((RM_X0 + RM_X1) / 2, PASS_FLOOR_Y + 1.6, 1)  // 방 중앙(눈높이) ③≈(168.1, 249.6, 1)
       look.current.yaw = Math.PI                      // +z(회랑 쪽) 향해
     } else {

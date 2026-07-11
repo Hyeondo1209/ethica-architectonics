@@ -10,7 +10,7 @@ import {
   ROOM_STAIR_SIDES, ROOM_STAIR_TURNS, ROOM_STAIR_WIDTH, ROOM_STAIR_TREAD, ROOM_STAIR_RISE,
   ROOM_STAIR_BIAS, ROOM_STAIR_SLAB, ROOM_STAIR_ROUT, ROOM_STAIR_RIN, ROOM_STAIR_PHASE, ROOM_STAIR_TOTAL_ANG,
   COR_Y0, COR_THICK, BOX_X0, BOX_X1, BOX_HW, BOX_TOP,
-  RAD_ANG0, RAD_T_IN, RAD_T_HW, RAD_TOP,
+  RAD_ANG0, RAD_T_IN, RAD_T_HW, RAD_TOP, RAD_DOOR_HW,
   DAIS_R, DAIS_STEP_H, DAIS_STEP_IN, DAIS_STEPS, DAIS_H, POOL_R, SHAFT_TOP_Y, SHAFT_TOP_R, SPOT_I,
   DEF_OCT_R, DEF_OCT_PHASE, AX_F0, AX_F1, AX_OFFSET, AX_PLAT_R, AX_MONO_SCALE,
 } from './constants'
@@ -33,7 +33,7 @@ export function DefAxiomRoom({ stairKind }) {
   // 코너 k(0=바닥·바깥 … N_SEG=꼭대기·중심): 반지름은 k에 선형, 각은 45°씩.
   const corner = (k) => {
     const f   = k / N_SEG
-    const ang = ROOM_STAIR_PHASE + f * TOTAL_ANG                 // f=1 → ang=0(+x, 디스크/통로 쪽)
+    const ang = ROOM_STAIR_PHASE + f * TOTAL_ANG                 // f=1 → ang=ROOM_TOP_AZ(37.5° — 터널 문 사이 도착)
     const r   = ROOM_STAIR_ROUT + (ROOM_STAIR_RIN - ROOM_STAIR_ROUT) * f
     return { x: r * Math.cos(ang), z: r * Math.sin(ang) }
   }
@@ -109,17 +109,25 @@ export function DefAxiomRoom({ stairKind }) {
   // 빛우물 원뿔대 벽(빗면) — ★방사 개편(2026.07.09): 동쪽 박스 문 → 대각 터널 문 4개(45°+90°k).
   //  BOX_X0=54로 단축돼 박스는 더는 원뿔대에 안 닿음(동쪽 자동 봉인). 디스크 아래·문 위 벽은 남겨 가짜 구멍 방지 + 리브 시야 차단(스포).
   // === 원뿔대(빛우물) 벽: 대각 터널 구멍 4 + 돔(구)과 겹친 부분을 CSG로 정확히 빼기 (three-bvh-csg) ===
+  // ★착지 디스크 슬랩 지오(2026.07.11): 링 부채꼴(슬롯 유지)을 ROOM_STAIR_SLAB 두께로 압출. Shape θ = ring θ와 동일 규약(월드 = −θ)
+  const discGeo = useMemo(() => {
+    const t0 = ROOM_DISC_SLOT_START, t1 = ROOM_DISC_SLOT_START + ROOM_DISC_SLOT_LEN
+    const sh = new THREE.Shape()
+    sh.absarc(0, 0, ROOM_LAND_R, t0, t1, false)
+    sh.absarc(0, 0, ROOM_DISC_HOLE, t1, t0, true)
+    return new THREE.ExtrudeGeometry(sh, { depth: ROOM_STAIR_SLAB, bevelEnabled: false, curveSegments: 64 })
+  }, [])
   const wellCut = useMemo(() => {
     const ev = new Evaluator()
     ev.attributes = ['position', 'normal']
     const rBot = ROOM_LAND_R, rTop = ROOM_WELL_RT
     const yBot = ROOM_CEIL_Y - 3, yTop = ROOM_CYL_TOP
     // 자르개 1: 대각 터널 solid ×4 — 원뿔대 벽(r18@y46)을 관통(RAD_T_IN=12 → r26)해 문을 낸다
-    const doorLo = COR_Y0 - 3
+    const doorLo = COR_Y0        // ★컷 바닥 49(구 46): 바닥판(48.68~49.28) 안 — 판 밑 원뿔벽 구멍 4곳 봉합(2026.07.11, 셸 CUT_BOT과 동일 근거)
     const cutters = []
     for (let k = 0; k < 4; k++) {
       const ang = RAD_ANG0 + k * Math.PI / 2
-      const g = new THREE.BoxGeometry(26 - RAD_T_IN, RAD_TOP - doorLo, RAD_T_HW * 2)
+      const g = new THREE.BoxGeometry(26 - RAD_T_IN, RAD_TOP - doorLo, RAD_DOOR_HW * 2)  // ★폭 4.6(구 4.4): 컷 림(±2.3)이 허브 문틀 잼(2.2~2.7) 안에 삼켜짐(셸 문과 동일)
       g.translate((RAD_T_IN + 26) / 2, (RAD_TOP + doorLo) / 2, 0)
       g.rotateY(-ang)                                     // 로컬 +x → (cos ang, 0, sin ang) 방사 방향
       const b = new Brush(g); b.updateMatrixWorld()
@@ -206,9 +214,10 @@ export function DefAxiomRoom({ stairKind }) {
       <DefPrecinct />
       <DefOctagon />
       <AxiomStations />
-      {/* 꼭대기 착지 디스크(고리) — 가운데를 뚫어(천장 개방) 나선이 그 구멍으로 올라오고 빛우물이 위로 트임. 바깥 고리(6~18)는 걷는 발판, 윗면 49.3(다리와 동일). */}
-      <mesh position={[0, COR_Y0 + COR_THICK / 2, 0]} rotation-x={-Math.PI / 2} userData={{ walkable: true }}>
-        <ringGeometry args={[ROOM_DISC_HOLE, ROOM_LAND_R, 48, 1, ROOM_DISC_SLOT_START, ROOM_DISC_SLOT_LEN]} />
+      {/* 꼭대기 착지 디스크(고리) — 가운데를 뚫어(천장 개방) 나선이 그 구멍으로 올라오고 빛우물이 위로 트임. 바깥 고리(6~18)는 걷는 발판.
+          ★두께 슬랩화(2026.07.11): 두께 0 ring 판이 슬롯 가장자리에서 종잇장으로 보임 → 부양 판 어휘(ROOM_STAIR_SLAB=0.35)로 압출.
+          윗면 49.32(디딤판 꼭대기 49.3보다 +0.02 — 병합 구간 코플레이너 z파이팅 방지, 보행 단차 무감), 밑면 48.97 */}
+      <mesh geometry={discGeo} position={[0, COR_Y0 + COR_THICK / 2 + 0.02 - ROOM_STAIR_SLAB, 0]} rotation-x={-Math.PI / 2} userData={{ walkable: true }}>
         <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.DoubleSide} />
       </mesh>
       {/* 솟은 원뿔대(빛 우물) — 위는 막혀 리브 가림(스포), +x(통로)쪽 아래는 출입문으로 트여 통로로 나감.
