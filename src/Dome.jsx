@@ -22,6 +22,7 @@ import {
   ST_PHI, ST_HW, ST_ROOF,
   LAMP_RIBS, LAMP_R, LAMP_TUBE_R, LAMP_ENTRY_Y, LAMP_TOP_Y, LAMP_MOUTH_Y0, LAMP_MOUTH_Y1, LAMP_FUNNEL_H, LAMP_MOUTH_R, LAMP_POOL_R,
   TERRACE_Y, TERRACE_RIN, TERRACE_ROUT, TERRACE_ARC,
+  RIB_TINT_COL, RIB_TINT_AMT, RIB_TINT_EMIS, RIB_TINT_Y0, RIB_TINT_Y1,
 } from './constants'
 
 export function Ground() {
@@ -41,6 +42,36 @@ function makeRibCurve() {
   return new THREE.CatmullRomCurve3(pts)
 }
 const RIB_MAT = { color: '#bb8a4e', roughness: 0.7, metalness: 0 }   // 두 컴포넌트 공유(재질 동일 LOCKED)
+// ★리브 굴절 그라데이션(2026.07.12 — 정점 렌즈와 한 몸. 수치 정본 = constants.js LENS 블록):
+//  세계 y로 알베도 워시 + 미발광 — '위(렌즈)에서 내려온 굴절광이 무릎으로 잦아듦'.
+//  셰이더 패치라 기하·CSG 무접촉 → 탐험 리브 #0(CSG 2컷)과 나머지 71(인스턴스)이 자동 동일(형태·재질 LOCKED 안전).
+//  두 재질 인스턴스에 같은 함수를 걸어 시각 동일 보장. 끄기 = constants에서 AMT·EMIS 0.
+const ribTintOBC = (RIB_TINT_AMT > 0 || RIB_TINT_EMIS > 0) ? (shader) => {
+  shader.uniforms.uEthTintCol = { value: new THREE.Color(RIB_TINT_COL) }
+  shader.uniforms.uEthTintY0  = { value: RIB_TINT_Y0 }
+  shader.uniforms.uEthTintY1  = { value: RIB_TINT_Y1 }
+  shader.uniforms.uEthTintAmt = { value: RIB_TINT_AMT }
+  shader.uniforms.uEthTintEms = { value: RIB_TINT_EMIS }
+  shader.vertexShader = 'varying float vEthWY;\n' + shader.vertexShader.replace(
+    '#include <begin_vertex>',
+    `#include <begin_vertex>
+    { vec3 ethP = transformed;
+      #ifdef USE_INSTANCING
+        ethP = (instanceMatrix * vec4(ethP, 1.0)).xyz;
+      #endif
+      vEthWY = (modelMatrix * vec4(ethP, 1.0)).y; }`
+  )
+  shader.fragmentShader = ('varying float vEthWY;\n' +
+    'uniform vec3 uEthTintCol; uniform float uEthTintY0; uniform float uEthTintY1; uniform float uEthTintAmt; uniform float uEthTintEms;\n' +
+    shader.fragmentShader
+      .replace('#include <color_fragment>',
+        `#include <color_fragment>
+        float ethG = smoothstep(uEthTintY0, uEthTintY1, vEthWY);
+        diffuseColor.rgb = mix(diffuseColor.rgb, uEthTintCol, ethG * uEthTintAmt);`)
+      .replace('#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>
+        totalEmissiveRadiance += uEthTintCol * ethG * uEthTintEms;`))
+} : undefined
 // 디딤판·판(부양 요소) / 통로 외피 — Corridor 어휘 공유
 const TREAD_MAT = { color: '#d6ab68', roughness: 0.8 }
 const SHELL_MAT = { color: '#c2a062', roughness: 0.9 }
@@ -62,7 +93,7 @@ export function DomeRibs() {
   return (
     <instancedMesh ref={ribRef} args={[undefined, undefined, MERIDIANS - 1]}>
       <tubeGeometry args={[curve, 200, SHELL_RIB_R, RIB_RADIAL_SEG, false]} />
-      <meshStandardMaterial {...RIB_MAT} side={THREE.DoubleSide} />
+      <meshStandardMaterial {...RIB_MAT} side={THREE.DoubleSide} onBeforeCompile={ribTintOBC} />
     </instancedMesh>
   )
 }
@@ -93,7 +124,7 @@ export function ExplorationRib() {
   }, [])
   return (
     <mesh geometry={geo}>
-      <meshStandardMaterial {...RIB_MAT} side={THREE.DoubleSide} />
+      <meshStandardMaterial {...RIB_MAT} side={THREE.DoubleSide} onBeforeCompile={ribTintOBC} />
     </mesh>
   )
 }

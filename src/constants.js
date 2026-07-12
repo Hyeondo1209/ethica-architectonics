@@ -419,3 +419,44 @@ export const RAD_JDOOR_HW = 2.0               // 접합문 반폭
 export const RAD_CAP_X   = 54                 // ★박스 서쪽 캡 x — BOX_X0가 이 값으로 단축(아래) → 원뿔대 동쪽 문 자동 봉인
 export const RAD_T_IN    = 12                 // 터널 안쪽 끝 반경(원뿔벽 r18@y46 관통, 디스크 r6~18에 물림)
 export const RAD_FLOOR_Y = COR_Y0 - 0.02      // 터널·고리·접합 패드 바닥 중심 y(다리 49와 0.02 립 — z파이팅 방지 전례)
+
+// ════════════════════════════════════════════════════════════════════
+// ── ★정점 렌즈(LENS — '세공 중인 렌즈' 2026.07.12) ──
+//  존재론(현도 확정): Apex(신·무한의 빛)의 '구체화' — 외부 추가물이 아니라 정점 그 자체.
+//  하나의 빛이 렌즈(패싯=속성별 굴절면)를 거쳐 72 리브에 굴절 = 표현(expression)의 장치.
+//  §2-C 무충돌: 세로 아님·얇음/S자/배열 아님 — 리브=실체 잠금과 경쟁하지 않는 새 어휘(부양 원반).
+//  ⚠스포 판정(계산 근거):
+//   · 물리 비침투: LENS_R + 여유 < R_TOP − SHELL_RIB_R(=162) → 리브 관과 교차 없음.
+//   · 보어(1p8) 불가시: LENS_Y ≤ H면 렌즈가 샤프트 '안'이라 불투명 관벽이 가림(자동).
+//     LENS_Y > H로 올리면 관 시야콘(반각 ≈ atan(2·SHELL_RIB_R/보어길이) ≈1.0°) 재검 필요 — check_lens가 두 체제 자동 판정.
+//   · 테라스 완전 노출: 테라스 외연(158.4) < 개구 내경(162) → 시선이 관벽 반경에 안 듦.
+//   · fog(App: near 144·far 720): 테라스(y≈248)→렌즈 거리 < far 필수. y=960이면 710(≈전소멸) —
+//     기본 LENS_Y 640(거리 ≈390, 시직경 ≈34°)이 그 귀결. LENS_FOG=false면 안개 면제(암실화 shaftMat 전례).
+export const LENS_R      = 90                // 렌즈 반경 — 상한: R_TOP−SHELL_RIB_R−여유(162−4). 개구와의 틈 = 하늘 고리
+export const LENS_Y      = 330                // 렌즈 중심 높이 — 노브(테라스 웅장함 ↔ 답답함, 현도 로컬 판정). ≤H(960)이면 보어 자동 안전
+export const LENS_T      = 24                 // 중심 반두께(양볼록 정점)
+export const LENS_MID_T  = 15                 // 중간 링 반두께
+export const LENS_MID_F  = 0.55               // 중간 링 반경 비율(×LENS_R)
+export const LENS_FACETS = MERIDIANS          // ★패싯 수 = 리브 1:1(현도 확정) — 패싯 k 중심각 = 리브 k 방위각
+export const LENS_IRREG  = 0.65               // ★0=정규(대칭 세공) ↔ 1=원석(비대칭). 하나의 노브로 연속 조절(현도: 원석 지향)
+export const LENS_SEED   = 7                  // 결정론 시드 — 같은 값이면 항상 같은 원석
+export const LENS_FOG    = false              // 렌즈 재질 fog 면제(안개 속 유일하게 또렷한 보석). true면 거리 워시
+export const LENS_COL    = '#efe3c6'          // 몸체(옅은 세공석) — 진짜 색·빛 연출은 Phase 3에서 논의(현도)
+export const LENS_EMIS_C = '#ffd98f'          // 발광색(웜 플레이스홀더)
+export const LENS_EMIS   = 0.35               // 발광 강도
+// ── 리브 굴절 그라데이션(렌즈와 한 몸 — 위에서 내려오는 굴절광이 무릎으로 잦아듦) ──
+//  구현 = 셰이더 패치(Dome.jsx ribTintOBC): 기하·CSG 무접촉 → #0과 71개 자동 동일(LOCKED 안전). 끄기 = AMT·EMIS 0.
+export const RIB_TINT_COL  = '#f3ddb0'        // 워시 색(웜 플레이스홀더 — 팔레트는 Phase 3)
+export const RIB_TINT_AMT  = 0.15             // 알베도 혼합 최대치(정점에서)
+export const RIB_TINT_EMIS = 0             // 발광 성분(안개 관통 보조)
+export const RIB_TINT_Y0   = 320              // 그라데이션 시작(무릎 위 — 여기 아래는 순수 석재)
+export const RIB_TINT_Y1   = LENS_Y           // 그라데이션 만개(렌즈 높이에서 최대 — LENS_Y 노브에 자동 연동)
+// ── 렌즈 투명도(2026.07.12 로컬 1차 — 불투명은 돌 천장으로 읽힘·시야 차단) ──
+//  glass = meshPhysicalMaterial transmission: 뒤 장면이 '굴절되어' 비침(진짜 렌즈) — ⚠렌즈 가시 시 장면 1회 추가 렌더(성능).
+//  alpha = 단순 반투명(가벼움·유리감 덜함·DoubleSide 정렬 아티팩트 가능성). solid = 구판.
+export const LENS_MODE     = 'alpha'          // 'glass' | 'alpha' | 'solid' — FPS 떨어지면 alpha로
+export const LENS_TRANSMIT = 0.85             // glass 투과율(0~1)
+export const LENS_IOR      = 1.5              // 굴절률(유리 1.5·수정 1.55)
+export const LENS_ROUGH_G  = 0.18             // glass 표면 거칠기(패싯 하이라이트 — 낮을수록 유리)
+export const LENS_THICK    = 30               // glass 굴절 두께감(왜곡 강도)
+export const LENS_OPACITY  = 0.55             // alpha 모드 불투명도
