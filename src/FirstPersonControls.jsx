@@ -2,7 +2,7 @@
 import { useThree, useFrame } from '@react-three/fiber'
 import { useRef, useEffect } from 'react'
 import * as THREE from 'three'
-import { SCALE, H, ROOM_CX, ROOM_FLOOR_Y, DAIS_H, DOWN, RM_X0, RM_X1, PASS_FLOOR_Y, RAD_ANG0, RAD_R, COR_Y0, COR_THICK } from './constants'
+import { SCALE, H, ROOM_CX, ROOM_FLOOR_Y, DAIS_H, DOWN, RM_X0, RM_X1, PASS_FLOOR_Y, RAD_ANG0, RAD_R, COR_Y0, COR_THICK, TERRACE_RIN, TERRACE_ROUT, TERRACE_Y } from './constants'
 
 // ── ① 1인칭 컨트롤 ──
 export function FirstPersonControls() {
@@ -16,9 +16,12 @@ export function FirstPersonControls() {
   useEffect(() => {
     camera.rotation.order = 'YXZ'
     // 시작 = 방 바닥(스케치 동선의 출발점). 나선을 올라 꼭대기 박스 → 통로 → 리브.
-    // ★임시(개발용) 스폰 선택: 'radial'(NE 꽃잎 방 — 2026.07.11 방사부 검수) / 'cloister'(회랑, 2026.07.07) / 'room'(원래 지상 방)
-    const SPAWN = 'radial'
-    if (SPAWN === 'radial') {
+    // ★임시(개발용) 스폰 선택: 'terrace'(테라스 — 2026.07.12 렌즈 검수) / 'radial'(NE 꽃잎 방) / 'cloister'(회랑) / 'room'(원래 지상 방)
+    const SPAWN = 'terrace'
+    if (SPAWN === 'terrace') {
+      camera.position.set((TERRACE_RIN + TERRACE_ROUT) / 2, TERRACE_Y + 1.6, 0)  // 호 중앙(φ=0, 탐험 리브 쪽) ③≈(144, 249.6, 0)
+      look.current.yaw = Math.PI / 2                  // −x(돔 중심) 향해 — 올려보면 렌즈
+    } else if (SPAWN === 'radial') {
       const px = RAD_R * Math.cos(RAD_ANG0), pz = RAD_R * Math.sin(RAD_ANG0)
       camera.position.set(px, COR_Y0 + COR_THICK / 2 + 1.6, pz)      // NE 꽃잎 방 중앙 눈높이 ≈(43.8, 50.9, 43.8)
       look.current.yaw = Math.PI / 4                  // 허브(방사 문) 방향
