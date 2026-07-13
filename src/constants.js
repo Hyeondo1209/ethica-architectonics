@@ -453,8 +453,8 @@ export const LENS_EMIS   = 0.35               // 발광 강도
 // ── 리브 굴절 그라데이션(렌즈와 한 몸 — 위에서 내려오는 굴절광이 무릎으로 잦아듦) ──
 //  구현 = 셰이더 패치(Dome.jsx ribTintOBC): 기하·CSG 무접촉 → #0과 71개 자동 동일(LOCKED 안전). 끄기 = AMT·EMIS 0.
 export const RIB_TINT_COL  = '#f3ddb0'        // 워시 색(웜 플레이스홀더 — 팔레트는 Phase 3)
-export const RIB_TINT_AMT  = 0             // 알베도 혼합 최대치(정점에서)
-export const RIB_TINT_EMIS = 0            // 발광 성분(안개 관통 보조)
+export const RIB_TINT_AMT  = 0.15             // 알베도 혼합 최대치(정점에서)
+export const RIB_TINT_EMIS = 0.10            // 발광 성분(안개 관통 보조)
 export const RIB_TINT_Y0   = 320              // 그라데이션 시작(무릎 위 — 여기 아래는 순수 석재)
 export const RIB_TINT_Y1   = LENS_Y           // 그라데이션 만개(렌즈 높이에서 최대 — LENS_Y 노브에 자동 연동)
 // ── 렌즈 투명도(2026.07.12 로컬 1차 — 불투명은 돌 천장으로 읽힘·시야 차단) ──
