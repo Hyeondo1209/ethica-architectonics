@@ -12,11 +12,13 @@ import {
   P2_SHEAR_Z, P2_EDGE_A, P2_EDGE_B, P2_RIM_A, P2_RIM_B,
   P3_GRAZE_GAP, P3_TIP_CLEAR, P3_REACH_MAX,
   P4_TILT_MAX, P4_PATH_HW, P4_SCALE, P_ST_X, P_ST_NEAR, P_ST_FAR, P_SPAWN_LX,
+  RAD_ANG0, RAD_R,
 } from './constants.js'
 import {
   buildP2Shear, buildP3Pulls,
   buildP4A, buildP1Swells, p1HeightAt,
 } from './radialEventsGeometry.js'
+import { wpById } from './waypoints.js'   // ★2026.07.13: 스폰 정본이 웨이포인트 표로 이동
 
 let n = 0, fail = 0
 const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
@@ -248,11 +250,19 @@ console.log('── 방사 비석 4기 ──')
 }
 
 console.log('── 검수 스폰(NE) ──')
+//  ★2026.07.13: 스폰이 FirstPersonControls의 SPAWN 문자열 → waypoints.js 표로 옮겨감.
+//   소스 정규식 대신 '실제 웨이포인트 값'을 직접 검사한다(번들 아닌 그 모듈을 import — 더 강한 보증).
 {
-  const src = readFileSync(new URL('./FirstPersonControls.jsx', import.meta.url), 'utf8')
-  ok(/const SPAWN = 'radial'/.test(src), "SPAWN = 'radial' (NE 방 — 이번 산출물 검수)")
-  ok(/p1HeightAt\(P_SPAWN_LX, 0\)/.test(src), '스폰 y가 p1HeightAt(x,z)으로 바닥 사건 보정 — P1_MODE·노브에 자동 추종(★㉝ 모드 인지)')
+  const p1 = wpById('p1')
+  ok(!!p1, 'NE(1p1) 방 웨이포인트 존재 — Tab 패널·[ ] 키로 즉시 검수 가능')
+  const ang = RAD_ANG0
+  const lx = p1.x * Math.cos(ang) + p1.z * Math.sin(ang) - RAD_R      // 월드 → 방 로컬
+  const lz = -p1.x * Math.sin(ang) + p1.z * Math.cos(ang)
+  ok(Math.abs(lx - P_SPAWN_LX) < 1e-9 && Math.abs(lz) < 1e-9,
+    `웨이포인트 로컬 (${lx.toFixed(2)}, ${lz.toFixed(2)}) = (P_SPAWN_LX, 0) — 허브 계단 발치 앞`)
   const lift = p1HeightAt(P_SPAWN_LX, 0)
+  ok(Math.abs(p1.y - (P_FLOOR_TOP + lift)) < 1e-9,
+    '웨이포인트 y = 평바닥 + p1HeightAt(x,z) — 바닥 사건 보정이 P1_MODE·노브에 자동 추종(★㉝ 모드 인지)')
   //  ★㉝: B 극화(RISE 2.7)에선 스폰 융기가 STEP_UP(0.8)을 넘으므로 '보정 누락 자기복구'는 더 이상 성립 안 함 —
   //  대신 보정 배선 자체(위 소스 검사)가 보험. 여기선 보정값의 유한·비음수만 확인.
   ok(Number.isFinite(lift) && lift >= 0, `스폰 보정값 유효(${lift.toFixed(3)}) — 모드 ${'A' /* 라벨용 */}·B 공통`)

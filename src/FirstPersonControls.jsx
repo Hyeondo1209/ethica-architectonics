@@ -1,9 +1,11 @@
 // FirstPersonControls.jsx — 1인칭 컨트롤(걷기·비행 Q/E·시선 드래그). FREE_WALK 임시 노브는 함수 안.
+//  ★2026.07.13: 스폰 하드코딩(SPAWN 문자열 4갈래) 폐기 → 웨이포인트 표(waypoints.js) 단일 소스.
+//   스폰 = SPAWN_ID · 텔레포트 = App 패널/[ ] 키가 쏘는 CustomEvent('ethica:teleport'). 좌표 정본은 waypoints.js.
 import { useThree, useFrame } from '@react-three/fiber'
 import { useRef, useEffect } from 'react'
 import * as THREE from 'three'
-import { SCALE, H, ROOM_CX, ROOM_FLOOR_Y, DAIS_H, DOWN, RM_X0, RM_X1, PASS_FLOOR_Y, RAD_ANG0, RAD_R, TERRACE_RIN, TERRACE_ROUT, TERRACE_Y, P_FLOOR_TOP, P_SPAWN_LX, P1_ON } from './constants'
-import { p1HeightAt } from './radialEventsGeometry'   // ★스폰 y의 바닥 사건 보정(P1_MODE·노브에 자동 추종)
+import { SCALE, H, DOWN } from './constants'
+import { WAYPOINTS, wpById, SPAWN_ID, EYE } from './waypoints'
 
 // ── ① 1인칭 컨트롤 ──
 export function FirstPersonControls() {
@@ -16,28 +18,31 @@ export function FirstPersonControls() {
 
   useEffect(() => {
     camera.rotation.order = 'YXZ'
-    // 시작 = 방 바닥(스케치 동선의 출발점). 나선을 올라 꼭대기 박스 → 통로 → 리브.
-    // ★임시(개발용) 스폰 선택: 'radial'(NE 꽃잎 방 — 2026.07.12 방별 사건 검수) / 'terrace'(테라스 — 렌즈 검수) / 'cloister'(회랑) / 'room'(원래 지상 방)
-    const SPAWN = 'radial'
-    if (SPAWN === 'terrace') {
-      camera.position.set((TERRACE_RIN + TERRACE_ROUT) / 2, TERRACE_Y + 1.6, 0)  // 호 중앙(φ=0, 탐험 리브 쪽) ③≈(144, 249.6, 0)
-      look.current.yaw = Math.PI / 2                  // −x(돔 중심) 향해 — 올려보면 렌즈
-    } else if (SPAWN === 'radial') {
-      //  NE(1p1) 방 — 허브 계단 발치 앞(로컬 x=P_SPAWN_LX, z=0)에서 방 안쪽(+x = 비석 벽)을 향해 선다.
-      //  = 실제 관람 동선(허브→계단 하강→방)의 착지 직후 프레임. 비석까지 18.9 → 글자가 어렴풋이 뜨기 시작(far 26).
-      //  ★y = 그 지점 볼록 바닥(P1) 높이 + 눈높이. 보정을 빼면 바닥에 파묻힌 채 걷는다(위 주석·constants P_SPAWN_LX).
-      const ang = RAD_ANG0, r = RAD_R + P_SPAWN_LX    // 로컬 z=0이라 월드 = 반경 r의 같은 방위
-      const lift = P1_ON ? p1HeightAt(P_SPAWN_LX, 0) : 0
-      camera.position.set(r * Math.cos(ang), P_FLOOR_TOP + lift + 1.6, r * Math.sin(ang))
-      look.current.yaw = Math.atan2(-Math.cos(ang), -Math.sin(ang))   // 로컬 +x(방사 바깥·비석) 정면 — 뒤돌면 허브 문
-    } else if (SPAWN === 'cloister') {
-      camera.position.set((RM_X0 + RM_X1) / 2, PASS_FLOOR_Y + 1.6, 1)  // 방 중앙(눈높이) ③≈(168.1, 249.6, 1)
-      look.current.yaw = Math.PI                      // +z(회랑 쪽) 향해
-    } else {
-      camera.position.set(ROOM_CX, ROOM_FLOOR_Y + DAIS_H + 1.6, 0)   // 원래: 방 기단 위(v2)
-      look.current.yaw = Math.PI / 2                  // -x(나선 바닥) 방향
+
+    // ── 착지(스폰·텔레포트 공용) ──
+    //  웨이포인트 y = '발 딛는 면'(walkable 윗면) → 눈높이 EYE를 여기서 더한다.
+    //  ★스냅: 착지 직전 '위에서 아래로' 레이를 한 번 쏴 실제 walkable 윗면에 맞춘다. 계산치는 파생이라
+    //   정확하지만, 방 사건(1p1 융기 등)·노브 드리프트를 흡수한다.
+    //   ⚠'위에서' 쏘는 것이 핵심 — 매 프레임 probe()는 발+STEP_UP(0.8)에서 쏘므로, 융기(최대 1.5) 위에
+    //    평바닥 y로 떨어뜨리면 레이 시작점이 이미 융기 안이라 원판을 맞고 '파묻힌 채 걷는다'(07-12 실측 버그).
+    const SNAP_UP = 2.5, SNAP_DOWN = 6
+    const goTo = (w) => {
+      if (!w) return
+      let y = w.y
+      if (walkables.current.length) {            // 첫 프레임 전(=스폰)엔 아직 비어 있음 → 계산치 그대로
+        ray.current.set(new THREE.Vector3(w.x, w.y + SNAP_UP, w.z), DOWN)
+        ray.current.far = SNAP_UP + SNAP_DOWN
+        const hits = ray.current.intersectObjects(walkables.current, false)
+        if (hits.length) y = hits[0].point.y
+      }
+      camera.position.set(w.x, y + EYE, w.z)
+      look.current.yaw = w.yaw
+      look.current.pitch = w.pitch
     }
-    look.current.pitch = 0
+    goTo(wpById(SPAWN_ID) || WAYPOINTS[0])
+    const onTeleport = (e) => goTo(wpById(e.detail))
+    window.addEventListener('ethica:teleport', onTeleport)
+
     const down = (e) => (keys.current[e.code] = true)
     const up   = (e) => (keys.current[e.code] = false)
     window.addEventListener('keydown', down)
@@ -57,6 +62,7 @@ export function FirstPersonControls() {
     window.addEventListener('mouseup', onUp)
     window.addEventListener('mousemove', onMove)
     return () => {
+      window.removeEventListener('ethica:teleport', onTeleport)
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
       el.removeEventListener('mousedown', onDown)
@@ -70,8 +76,7 @@ export function FirstPersonControls() {
   //   최종 보행속도(사람 고정 vs ×SCALE)는 열린 결정(§7) — 리그 판정 후.
   const WALK_SPEED = 6         // 사람 걷기(고정). 느리면 이 값만 ↑
   const RUN_MULT   = 3         // Shift 달리기 배수(6 → 18)
-  const EYE       = 1.6
-  const STEP_UP   = 0.8
+  const STEP_UP   = 0.8        // ※눈높이 EYE는 waypoints.js가 정본(웨이포인트 y와 어긋나면 안 됨)
   const STEP_DOWN = 2.2
   const FALL      = 5
   const FREE_WALK = true    // 편집 중: 자유부양(벽 통과)으로 구멍 확인. 걷기 검증할 땐 false(바닥 있는 칸으로만 이동, Q/E는 항상 비행).
