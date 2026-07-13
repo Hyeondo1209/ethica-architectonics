@@ -1,10 +1,11 @@
-// Corridor.jsx — 탐험 통로: 거대 원기둥(벽+빗면 천장+창±2) + 박스 연결부 CSG + 길(다리·플랫폼·계단)
+// Corridor.jsx — 탐험 통로(1p5의 방): 거대 원기둥(벽+빗면 천장+슬릿 창) + 압축 박스 연결부 + 길(다리·플랫폼·계단)
+//   ★1p5 재설계(2026.07.13): 창 = '하나의 프레임'(슬릿+리빌 잼, 리브 #0만) · 박스 = ㄷ′ 압축(내부고 7, 진입 수직 해방)
 //   Stairs = 범용 완만 계단(현재 통로 전용, 리브 입구 작업에서 재사용 후보라 export)
 import { useMemo } from 'react'
 import * as THREE from 'three'
 import {
   COR_WALL_SEG, DOOR_HALF, COR_CX, COR_R, ceilY, domeClipY,
-  WIN_HALF, WIN_SILL_Y, WIN_TOP_Y,
+  SLIT_HALF, SLIT_SILL_Y, SLIT_TOP_Y, SLIT_JAMB_D, corWallR,
   RAD_JX, RAD_JDOOR_HW, RAD_DOOR_H,
   BOX_X0, BOX_X1, BOX_HW, BOX_TOP,
   COR_Y0, COR_THICK, COR_FLOOR_HW, COR_X1, COR_STEPS,
@@ -46,16 +47,34 @@ export function Corridor() {
       const t0 = (i / COR_WALL_SEG) * Math.PI * 2
       const t1 = ((i + 1) / COR_WALL_SEG) * Math.PI * 2
       const tm = (t0 + t1) / 2
-      if (Math.abs(tm - Math.PI) <= DOOR_HALF) continue            // 방쪽 문(트임)
-      const xa = COR_CX + COR_R * Math.cos(t0), za = COR_R * Math.sin(t0)
-      const xb = COR_CX + COR_R * Math.cos(t1), zb = COR_R * Math.sin(t1)
+      const ra = corWallR(t0), rb = corWallR(t1)                    // 슬릿 양옆 피어(스웰) — 이웃 리브 ±1을 벽 뒤로(constants 주석)
+      const xa = COR_CX + ra * Math.cos(t0), za = ra * Math.sin(t0)
+      const xb = COR_CX + rb * Math.cos(t1), zb = rb * Math.sin(t1)
       const ya = ceilY(xa), yb = ceilY(xb)
+      if (Math.abs(tm - Math.PI) <= DOOR_HALF) {                    // 방쪽 문(박스 접속): BOX_TOP 아래만 트고
+        quad(xa,BOX_TOP,za, xb,BOX_TOP,zb, xb,yb,zb, xa,ya,za)      //  위는 헤더 봉인(ㄷ′ 압축 후 스포 구멍 방지 — check_corridor B)
+        continue
+      }
       const dZero = Math.min(tm, Math.PI * 2 - tm)
-      if (dZero <= WIN_HALF) {                                      // +x 창: 가운데(SILL~TOP) 비움
-        quad(xa,0,za, xb,0,zb, xb,WIN_SILL_Y,zb, xa,WIN_SILL_Y,za)
-        quad(xa,WIN_TOP_Y,za, xb,WIN_TOP_Y,zb, xb,yb,zb, xa,ya,za)
+      if (dZero <= SLIT_HALF) {                                     // +x 슬릿(1p5 '하나의 프레임'): SILL~TOP 비움
+        quad(xa,0,za, xb,0,zb, xb,SLIT_SILL_Y,zb, xa,SLIT_SILL_Y,za)
+        if (Math.min(ya, yb) > SLIT_TOP_Y + 0.05)                   //  천장이 위턱보다 낮으면 개구가 천장까지(잉여 슬리버 방지)
+          quad(xa,SLIT_TOP_Y,za, xb,SLIT_TOP_Y,zb, xb,yb,zb, xa,ya,za)
       } else {
         quad(xa, domeClipY(xa,za), za, xb, domeClipY(xb,zb), zb, xb,yb,zb, xa,ya,za)
+      }
+    }
+    // 슬릿 측벽(리빌 잼) — 개구 모서리(격자 스냅선)에서 +x 바깥으로 SLIT_JAMB_D. 화살창 원리:
+    //  개구 폭은 그대로 두고 '스침각'만 잘라 계단 상부에서 이웃 리브 ±1이 새는 시선을 밀폐(check_corridor C).
+    //  부수 효과: 벽이 두께를 얻어 슬릿이 '뚫린 종이'가 아니라 '파낸 개구'로 읽힘.
+    {
+      const segW = Math.PI * 2 / COR_WALL_SEG
+      const tEdge = Math.floor(SLIT_HALF / segW + 0.5) * segW       // 개구 실모서리(격자 스냅 — 검증식과 동일)
+      const zE = COR_R * Math.sin(tEdge), xE = COR_CX + COR_R * Math.cos(tEdge)
+      for (const s of [1, -1]) {
+        const z = s * zE
+        quad(xE, SLIT_SILL_Y, z, xE + SLIT_JAMB_D, SLIT_SILL_Y, z,
+             xE + SLIT_JAMB_D, SLIT_TOP_Y, z, xE, SLIT_TOP_Y, z)
       }
     }
     const g = new THREE.BufferGeometry()

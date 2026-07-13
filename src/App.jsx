@@ -1,7 +1,7 @@
 import { Canvas } from '@react-three/fiber'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import GraphScaffold from './GraphScaffold'
-import { SCALE, PLAT_X } from './constants'
+import { SCALE } from './constants'
 import { FirstPersonControls } from './FirstPersonControls'
 import { WAYPOINTS, WP_GROUPS, SPAWN_ID, DEV_TELEPORT, wpIndexOf } from './waypoints'
 import { Ground, DomeRibs, ExplorationRib, RibStair, KneeWalk, RibJunction, Lookout, RevealPassage, CloisterLamps, Terrace } from './Dome'
@@ -10,7 +10,6 @@ import { DefAxiomRoom } from './Room'
 import { Corridor } from './Corridor'
 import { RadialRooms } from './Radial'
 import { RadialEvents } from './RadialEvents'
-import { PropStele } from './Steles'
 
 // ============================================================
 //  App.jsx — 조립만 담당 (파일 분할 2026.07.03 · 스케일 리그 철거 2026.07.04 — ③ 고정)
@@ -70,7 +69,6 @@ export default function App() {
               <Corridor />
               <RadialRooms />
               <RadialEvents />
-              <PropStele id="1p1" x={PLAT_X} z={0} near={8} far={55} />
               <ApexLens />
               <RibStair />
               <KneeWalk />
