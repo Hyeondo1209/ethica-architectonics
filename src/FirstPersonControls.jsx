@@ -2,7 +2,8 @@
 import { useThree, useFrame } from '@react-three/fiber'
 import { useRef, useEffect } from 'react'
 import * as THREE from 'three'
-import { SCALE, H, ROOM_CX, ROOM_FLOOR_Y, DAIS_H, DOWN, RM_X0, RM_X1, PASS_FLOOR_Y, RAD_ANG0, RAD_R, COR_Y0, COR_THICK, TERRACE_RIN, TERRACE_ROUT, TERRACE_Y } from './constants'
+import { SCALE, H, ROOM_CX, ROOM_FLOOR_Y, DAIS_H, DOWN, RM_X0, RM_X1, PASS_FLOOR_Y, RAD_ANG0, RAD_R, TERRACE_RIN, TERRACE_ROUT, TERRACE_Y, P_FLOOR_TOP, P_SPAWN_LX, P1_ON } from './constants'
+import { p1HeightAt } from './radialEventsGeometry'   // ★스폰 y의 바닥 사건 보정(P1_MODE·노브에 자동 추종)
 
 // ── ① 1인칭 컨트롤 ──
 export function FirstPersonControls() {
@@ -16,15 +17,19 @@ export function FirstPersonControls() {
   useEffect(() => {
     camera.rotation.order = 'YXZ'
     // 시작 = 방 바닥(스케치 동선의 출발점). 나선을 올라 꼭대기 박스 → 통로 → 리브.
-    // ★임시(개발용) 스폰 선택: 'terrace'(테라스 — 2026.07.12 렌즈 검수) / 'radial'(NE 꽃잎 방) / 'cloister'(회랑) / 'room'(원래 지상 방)
-    const SPAWN = 'terrace'
+    // ★임시(개발용) 스폰 선택: 'radial'(NE 꽃잎 방 — 2026.07.12 방별 사건 검수) / 'terrace'(테라스 — 렌즈 검수) / 'cloister'(회랑) / 'room'(원래 지상 방)
+    const SPAWN = 'radial'
     if (SPAWN === 'terrace') {
       camera.position.set((TERRACE_RIN + TERRACE_ROUT) / 2, TERRACE_Y + 1.6, 0)  // 호 중앙(φ=0, 탐험 리브 쪽) ③≈(144, 249.6, 0)
       look.current.yaw = Math.PI / 2                  // −x(돔 중심) 향해 — 올려보면 렌즈
     } else if (SPAWN === 'radial') {
-      const px = RAD_R * Math.cos(RAD_ANG0), pz = RAD_R * Math.sin(RAD_ANG0)
-      camera.position.set(px, COR_Y0 + COR_THICK / 2 + 1.6, pz)      // NE 꽃잎 방 중앙 눈높이 ≈(43.8, 50.9, 43.8)
-      look.current.yaw = Math.PI / 4                  // 허브(방사 문) 방향
+      //  NE(1p1) 방 — 허브 계단 발치 앞(로컬 x=P_SPAWN_LX, z=0)에서 방 안쪽(+x = 비석 벽)을 향해 선다.
+      //  = 실제 관람 동선(허브→계단 하강→방)의 착지 직후 프레임. 비석까지 18.9 → 글자가 어렴풋이 뜨기 시작(far 26).
+      //  ★y = 그 지점 볼록 바닥(P1) 높이 + 눈높이. 보정을 빼면 바닥에 파묻힌 채 걷는다(위 주석·constants P_SPAWN_LX).
+      const ang = RAD_ANG0, r = RAD_R + P_SPAWN_LX    // 로컬 z=0이라 월드 = 반경 r의 같은 방위
+      const lift = P1_ON ? p1HeightAt(P_SPAWN_LX, 0) : 0
+      camera.position.set(r * Math.cos(ang), P_FLOOR_TOP + lift + 1.6, r * Math.sin(ang))
+      look.current.yaw = Math.atan2(-Math.cos(ang), -Math.sin(ang))   // 로컬 +x(방사 바깥·비석) 정면 — 뒤돌면 허브 문
     } else if (SPAWN === 'cloister') {
       camera.position.set((RM_X0 + RM_X1) / 2, PASS_FLOOR_Y + 1.6, 1)  // 방 중앙(눈높이) ③≈(168.1, 249.6, 1)
       look.current.yaw = Math.PI                      // +z(회랑 쪽) 향해

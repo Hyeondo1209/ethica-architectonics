@@ -8,6 +8,7 @@ import { ApexLens } from './Lens'
 import { DefAxiomRoom } from './Room'
 import { Corridor } from './Corridor'
 import { RadialRooms } from './Radial'
+import { RadialEvents } from './RadialEvents'
 import { PropStele } from './Steles'
 
 // ============================================================
@@ -48,6 +49,7 @@ export default function App() {
               <DefAxiomRoom stairKind={stair} />
               <Corridor />
               <RadialRooms />
+              <RadialEvents />
               <PropStele id="1p1" x={PLAT_X} z={0} near={8} far={55} />
               <ApexLens />
               <RibStair />

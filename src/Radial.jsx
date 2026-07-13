@@ -7,13 +7,14 @@
 //  방 내부 표현은 전부 미정(빈 셸) — 이 모듈은 덩어리·동선·밀폐만 책임진다. 수치 정본 = constants.js RAD 블록.
 import { useMemo } from 'react'
 import * as THREE from 'three'
-import { Brush, Evaluator, HOLLOW_SUBTRACTION } from 'three-bvh-csg'
+import { Brush, Evaluator, HOLLOW_SUBTRACTION, INTERSECTION } from 'three-bvh-csg'
 import {
   domeClipY, COR_Y0, COR_THICK, BOX_HW,
   ROOM_LAND_R, ROOM_WELL_RT, ROOM_CEIL_Y, ROOM_CYL_TOP,
   RAD_ANG0, RAD_R, RAD_PRX, RAD_PRY, RAD_PCY,
   RAD_T_HW, RAD_TOP, RAD_DOOR_H, RAD_DOOR_HW, RAD_ARC_IN,
   RAD_JPHI, RAD_JX, RAD_FLOOR_Y, RAD_T_IN,
+  RAD_DROP, RAD_ST_N, RAD_ST_T, RAD_ST_LAND, RAD_ST_W,
 } from './constants'
 
 const MAT_WALL  = '#b89a6a'   // 터널·고리(통로 외피와 같은 가족)
@@ -21,19 +22,27 @@ const MAT_SHELL = '#c3ae7f'   // 꽃잎 셸(살짝 밝게 — 매싱 구분용, 
 const MAT_FLOOR = '#c2a062'   // 바닥(길 연속)
 const CUT_BOT = COR_Y0                            // ★문 컷 바닥 49.0(2026.07.11 ②c) — 바닥판(48.68~49.28) 안 = 판 밑 노출 슬리버 0. 문턱도 없음(판 윗면이 문지방)
 const DTOP  = COR_Y0 + COR_THICK / 2 + RAD_DOOR_H // 문 상단 53.3(터널 천장 54 아래 헤더 0.7) — ⚠아래 문틀 상수(JAMB_H 등)가 참조: 선언 순서 유지
-// 꽃잎 바닥 원판 반경(파생) — 판의 가장 낮은 모서리(밑면 y=COR_Y0−THICK/2)가 셸 안에 머무는 최대 반경 − 0.1
-const FLOOR_R = RAD_PRX * Math.sqrt(Math.max(0, 1 - ((RAD_PCY - (COR_Y0 - COR_THICK / 2)) / RAD_PRY) ** 2)) - 0.1
 // ★문틀 마감(2026.07.11, 현도 지정): 곡면 셸×직선 통로 접합부는 어떻게 깎아도 어중간 → 직사각 문틀이 이음선을 통째로 삼킨다.
 //  구도 1(균일 관입 2.5): 방 안 스터브 2.35 / 구도 2(높이별 정합 밴드): 계단 실루엣 — 둘 다 기각.
 const sR = (y) => RAD_PRX * Math.sqrt(Math.max(0, 1 - ((y - RAD_PCY) / RAD_PRY) ** 2))  // 셸 수평 반경(높이 y)
-const Y_FTOP = RAD_FLOOR_Y + COR_THICK / 2  // 바닥판 윗면 49.28 — 이 아래(스커트·바닥판·캡)는 안 보여 깊은 관입 유지
+const Y_FTOP = RAD_FLOOR_Y + COR_THICK / 2  // 문지방(터널·고리 바닥판 윗면) 49.28 — ★계란화 후에도 불변(방 바닥만 강하)
+const Y_RFTOP = Y_FTOP - RAD_DROP           // ★방 바닥판 윗면 46.08(2026.07.12 계란화 — constants P_FLOOR_TOP과 동일 정의)
+// ★꽃잎 바닥(계란화): 강하 레벨의 원뿔대 판 — 벽이 기울어(적도 아래) 원기둥이면 윗단은 틈(0.5 고리)·밑단은 돌출.
+//  위/아래 반경을 각 높이 셸내면−0.05로 따로 파생 = 판 옆면이 벽 기울기를 따라감. ⚠sR 선언 뒤(TDZ — §15 스모크 검증)
+const FLOOR_RT = sR(Y_FTOP - RAD_DROP) - 0.05           // 판 윗면 반경 ≈12.59
+const FLOOR_RB = sR(Y_FTOP - RAD_DROP - COR_THICK) - 0.05  // 판 밑면 반경 ≈12.13
 const FR_T    = 0.5                          // 문틀 두께(잼·상인방 공통) — 노브
 const FR_OUT  = RAD_T_HW + FR_T              // 잼 바깥 반폭 2.7 — 셸 구멍 가장자리(RAD_DOOR_HW 2.3)를 삼킴
 const LIN_TOP = RAD_TOP + 0.6                // 상인방 상단 54.6(튜브 지붕 54.4 위 0.2)
-const FR_BACK  = Math.sqrt(Math.max(0.25, sR(LIN_TOP) ** 2 - FR_OUT ** 2)) - 0.25  // 뒷면(방쪽) 중심거리 ≈14.79 — 최심 요구 코너보다 0.25 깊게
-const FR_FRONT = sR(RAD_PCY) + 0.25          // 앞면(바깥) ≈16.25 — 최대 팽출(y=중심고)보다 0.25 앞
-const FR_D    = FR_FRONT - FR_BACK           // 문틀 깊이(통로축) ≈1.46 — 셸 표면이 이 안을 통과
-const FR_C    = (FR_FRONT + FR_BACK) / 2     // 문틀 중심의 꽃잎 중심거리 ≈15.52
+// ★문틀 걸침 일반화(2026.07.12 계란화): 구판은 "최심 코너 = 상인방 상단"을 가정(중심고가 문 스팬 안) —
+//  중심고 56.5가 스팬(49.28~54.6) 위로 빠지며 벽이 단조 기울기가 되어 최심 코너가 '문지방'으로 반전.
+//  잼 옆선(x=FR_OUT)에서의 셸 통과 반경을 스팬 양끝(+팽출점이 스팬 안이면 그것도)에서 재고 min/max로 걸친다.
+const frRW = (y) => Math.sqrt(Math.max(0.25, sR(y) ** 2 - FR_OUT ** 2))
+const FR_YS = [Y_FTOP, LIN_TOP, ...(RAD_PCY > Y_FTOP && RAD_PCY < LIN_TOP ? [RAD_PCY] : [])]
+const FR_BACK  = Math.min(...FR_YS.map(frRW)) - 0.25  // 뒷면(방쪽) ≈13.99 — 최심 통과보다 0.25 깊게
+const FR_FRONT = Math.max(...FR_YS.map(frRW)) + 0.25  // 앞면(바깥) ≈15.92 — 최전방 통과보다 0.25 앞
+const FR_D    = FR_FRONT - FR_BACK           // 문틀 깊이(통로축) ≈1.93 — 기운 벽 전체가 이 안을 통과
+const FR_C    = (FR_FRONT + FR_BACK) / 2     // 문틀 중심의 꽃잎 중심거리 ≈14.96
 const TUBE_END = FR_BACK + 0.2               // 바닥 위 벽·지붕의 끝(중심거리) — 문틀 몸통 안에서 평면 종료
 const JAMB_H  = DTOP - Y_FTOP                // 잼 높이(바닥판 윗면 → 문 상단)
 const S_WALL0 = 15.5                         // 터널 벽·천장 시작(원뿔벽 관통) — 허브 문틀 파생이 참조
@@ -93,6 +102,46 @@ function buildPetalShell() {
     }
   }
   return acc.geometry
+}
+
+// ── ★진입 계단(2026.07.12 계란화 — 스케치 3항): 문지방(49.28) → 방 바닥(46.08), 문 3곳 전부 ──
+//  프로파일(문틀 로컬, +z = 방 안쪽): 뒤 z=−1.6(셸 밖 여유) → 착지장(윗면 = 문지방 −0.02 립,
+//  통로 바닥판 혀끝〔중심거리 ≈13.5〕을 관입으로 삼킴 — 혀끝·스커트가 착지장 몸통에 묻힘) → 단 N → 발치(바닥판에 0.23 매몰).
+//  ★셸 정합 = CSG '교집합'(−0.05 축소 셸): 기운 벽(문지방 높이 14.4 ↔ 바닥 높이 12.6)에 수직 등짝을 대면
+//  아래는 돌출·위는 틈 — 교집합이 등짝·밑면을 셸 내면 그대로 깎아 둘 다 소거(사발면 정합).
+function buildStairGeo(rotY, tx, tz, ev, shellBrush) {
+  const yTop = Y_FTOP - 0.02, yBot = Y_RFTOP - 0.23
+  const RISE = (yTop - Y_RFTOP) / RAD_ST_N            // 단높이 ≈0.318
+  const sh = new THREE.Shape()
+  sh.moveTo(-1.6, yBot); sh.lineTo(-1.6, yTop); sh.lineTo(RAD_ST_LAND, yTop)
+  for (let k = 1; k <= RAD_ST_N; k++) {
+    const z0 = RAD_ST_LAND + (k - 1) * RAD_ST_T
+    sh.lineTo(z0, yTop - k * RISE); sh.lineTo(z0 + RAD_ST_T, yTop - k * RISE)
+  }
+  sh.lineTo(RAD_ST_LAND + RAD_ST_N * RAD_ST_T, yBot); sh.closePath()
+  const g = new THREE.ExtrudeGeometry(sh, { depth: RAD_ST_W, bevelEnabled: false })
+  g.translate(0, 0, -RAD_ST_W / 2)
+  g.rotateY(-Math.PI / 2)                             // (프로파일, y, 폭) → (폭, y, 프로파일): +z = 방 안쪽
+  g.rotateY(rotY); g.translate(tx, 0, tz)             // 문틀과 같은 배치(꽃잎 로컬)
+  let b = new Brush(g); b.updateMatrixWorld()
+  b = ev.evaluate(b, shellBrush, INTERSECTION)
+  return b.geometry
+}
+
+export function buildStairs() {  // export = check_radial §15가 번들 임포트로 실제 CSG 실행 검증
+  const ev = new Evaluator(); ev.attributes = ['position', 'normal']
+  const sg = new THREE.SphereGeometry(1, 48, 32)
+  sg.scale(RAD_PRX - 0.05, RAD_PRY - 0.05, RAD_PRX - 0.05)
+  sg.translate(0, RAD_PCY, 0)
+  const shellB = new Brush(sg); shellB.updateMatrixWorld()
+  const dc = 2 * Math.asin(FR_C / (2 * RAD_R))
+  const fx = RAD_R * (Math.cos(dc) - 1), fz = RAD_R * Math.sin(dc)
+  //  방향 주의: 문틀 로컬 +z가 '방 안쪽'인 배치 — 허브(π/2)·−z 고리(+dc)는 그대로, +z 고리는 π 뒤집음
+  return [
+    buildStairGeo(Math.PI / 2, -FR_C, 0, ev, shellB),
+    buildStairGeo(-dc + Math.PI, fx, fz, ev, shellB),
+    buildStairGeo(dc, fx, -fz, ev, shellB),
+  ]
 }
 
 // ── 대각 터널(월드 좌표: 각 ang): 바닥판 + 스커트 벽 2 + 천장판 — 셸 끝은 문틀 몸통 안 평면 종료 ──
@@ -243,6 +292,7 @@ function DoorFrame({ position, rotY, depth = FR_D }) {
 
 export function RadialRooms() {
   const petalGeo = useMemo(buildPetalShell, [])
+  const stairGeos = useMemo(buildStairs, [])
   const angs = [0, 1, 2, 3].map(k => RAD_ANG0 + k * Math.PI / 2)
   // 고리: 온호 3(꽃잎 사이) + 동측 반호 2(박스 옆벽 z=±6에서 종단 — 접합문)
   const A = RAD_ARC_IN
@@ -261,11 +311,17 @@ export function RadialRooms() {
           <mesh geometry={petalGeo}>
             <meshStandardMaterial color={MAT_SHELL} roughness={0.88} side={THREE.DoubleSide} />
           </mesh>
-          {/* 내부 바닥 원판 — ★반경 파생(2026.07.11): 판 밑면 높이(48.68)의 셸 수평반경 − 0.1 = 판이 셸 밖으로 안 삐져나오는 최대(구 PRX−0.2는 확장 후 0.15 돌출) */}
-          <mesh position={[0, COR_Y0, 0]} userData={{ walkable: true }}>
-            <cylinderGeometry args={[FLOOR_R, FLOOR_R, COR_THICK, 48]} />
+          {/* ★내부 바닥(2026.07.12 계란화): 강하 레벨 원뿔대 판 — 위/아래 반경을 각 높이 셸내면−0.05로 파생(기운 벽 정합, 틈·돌출 동시 소거) */}
+          <mesh position={[0, Y_RFTOP - COR_THICK / 2, 0]} userData={{ walkable: true }}>
+            <cylinderGeometry args={[FLOOR_RT, FLOOR_RB, COR_THICK, 48]} />
             <meshStandardMaterial color={MAT_FLOOR} roughness={0.9} side={THREE.DoubleSide} />
           </mesh>
+          {/* ★진입 계단 3(계란화): 문지방→방 바닥, 셸 교집합 정합 — 등형(4방 동일 기하) */}
+          {stairGeos.map((g, i) => (
+            <mesh key={'st' + i} geometry={g} userData={{ walkable: true }}>
+              <meshStandardMaterial color={MAT_FLOOR} roughness={0.9} />
+            </mesh>
+          ))}
           {/* ★문틀 3(방사 1 + 접선 2) — 접선은 고리 중심선 위(FR_C 지점)·접선 방향 회전 */}
           <DoorFrame position={[-FR_C, 0, 0]} rotY={Math.PI / 2} />
           {(() => {
