@@ -33,10 +33,11 @@ import {
   P_FLOOR_TOP, P_SPAWN_LX, P1_ON,
 } from './constants.js'
 import { p1HeightAt } from './radialEventsGeometry.js'   // 1p1 볼록 바닥 보정(모드·노브 자동 추종)
+import { buildHallStairs } from './corridorStairsGeometry.js'   // ★㊳ 계단 끝 4곳(못 닿음 판정 지점) — 빌더 파생(자동 추종)
 
 // ── 스위치 ──
 export const DEV_TELEPORT = true      // ⚠배포 전 false — 패널·[·]·Tab 전부 비활성(스폰만 남음)
-export const SPAWN_ID     = 'p1'      // 시작 위치 = 이 웨이포인트. 배포 최종은 'room'
+export const SPAWN_ID     = 'corridor' // ★㊳ 판정 세션용(1p5 홀). 직전 'p1'. 배포 최종은 'room'
 
 // 사람 눈높이(동결 — §3 '사람 치수 고정'). 웨이포인트 y(발 딛는 면)를 눈높이로 올리는 유일한 상수.
 //  FirstPersonControls가 이 값을 import해 쓴다(중복 정의 금지 — 어긋나면 텔레포트만 눈높이가 달라짐).
@@ -52,7 +53,7 @@ const FACE_PZ = yawTo(0, 1)     // +z 향
 
 // ── 구간별 바닥 레벨(메시 구성 규약에서 파생) ──
 const HUB_TOP   = COR_Y0 + COR_THICK / 2 + 0.02   // Room.jsx 착지 디스크 윗면(압출 슬랩) ≈49.32
-const PATH_TOP  = COR_Y0 + COR_THICK / 2          // Corridor.jsx 다리·플랫폼 = 박스 중심 COR_Y0 + 두께/2 ≈49.3
+const PLAT_TOP  = PLAT_Y + COR_THICK / 2          // ★㊴ 낮은 플랫폼 상면 ≈45.8 — corridor 웨이포인트 기준(다리 49.3과 분리)
 const JOINT_TOP = RAD_FLOOR_Y + COR_THICK / 2     // Radial.jsx 접합 패드 = 박스 중심 RAD_FLOOR_Y + 두께/2 ≈49.28
 const CL_FLOOR  = PASS_FLOOR_Y - 0.02             // Dome.jsx 회랑 바닥 = ring 평면(floor − 0.02)
 const ST_FLOOR  = PASS_FLOOR_Y - 0.05             // Dome.jsx 스텁 바닥 = 박스 윗면(floor − 0.05)
@@ -131,7 +132,14 @@ export const WAYPOINTS = [
   { id: 'joint', group: '통로 (1p5)', label: '접합문 (고리 → 박스)', prop: '—',
     x: RAD_JX, y: JOINT_TOP, z: 0, yaw: FACE_PX, pitch: 0 },
   { id: 'corridor', group: '통로 (1p5)', label: '통로 플랫폼 (거대 원기둥 안)', prop: '1p5',
-    x: PLAT_X, y: PATH_TOP, z: 0, yaw: FACE_PX, pitch: 0 },
+    x: PLAT_X, y: PLAT_TOP, z: 0, yaw: FACE_PX, pitch: 0 },
+  // ★㊳ 못 닿는 계단 끝 4곳 — "도달하지 못하는 그 감정"의 판정 지점(끝 판 위, 시선 = 문 정면).
+  //  좌표 = 빌더 파생(STAIR5·STAIR_GAP 튜닝 자동 추종). #0은 닿으므로 제외(ribdoor가 그 다음 지점).
+  ...buildHallStairs().stairs.filter(s => !s.reach).map(s => ({
+    id: `st${s.k < 0 ? 'm' : 'p'}${Math.abs(s.k)}`, group: '통로 (1p5)',
+    label: `계단 끝 #${s.k > 0 ? '+' : ''}${s.k} — 못 닿는 문 앞`, prop: '1p5',
+    x: s.end.x, y: s.end.y, z: s.end.z, yaw: s.yawToDoor, pitch: 0,
+  })),
 
   { id: 'ribdoor', group: '리브 (계단 구역)', label: '리브 문 — 나선 첫 칸', prop: '—',
     x: D0.x, y: D0.y, z: D0.z, yaw: FACE_PX, pitch: 0 },                 // +x = 관 안(폴 쪽)

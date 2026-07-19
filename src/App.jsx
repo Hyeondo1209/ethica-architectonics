@@ -4,7 +4,7 @@ import GraphScaffold from './GraphScaffold'
 import { SCALE } from './constants'
 import { FirstPersonControls } from './FirstPersonControls'
 import { WAYPOINTS, WP_GROUPS, SPAWN_ID, DEV_TELEPORT, wpIndexOf } from './waypoints'
-import { Ground, DomeRibs, ExplorationRib, RibStair, KneeWalk, RibJunction, Lookout, RevealPassage, CloisterLamps, Terrace } from './Dome'
+import { Ground, DomeRibs, ExplorationRib, HallDoorRibs, RibStair, KneeWalk, RibJunction, Lookout, RevealPassage, CloisterLamps, Terrace } from './Dome'
 import { ApexLens } from './Lens'
 import { DefAxiomRoom } from './Room'
 import { Corridor } from './Corridor'
@@ -65,6 +65,7 @@ export default function App() {
               <Ground />
               <DomeRibs />
               <ExplorationRib />
+              <HallDoorRibs />
               <DefAxiomRoom stairKind={stair} />
               <Corridor />
               <RadialRooms />

@@ -14,7 +14,7 @@ import {
   X_LAND_LO, X_LAND_HI, LK_PLAT_R, LK_DISC_DX, LK_DISC_DY, LK_DISC_DZ, LK_DISC_LIFT,
   CL_R, CL_HW, CL_PHI0, CL_PHI1, ST_PHI, PASS_FLOOR_Y, PASS_X_END, RM_X0, RM_X1,
   TERRACE_RIN, TERRACE_ROUT, TERRACE_Y,
-  COR_Y0, COR_THICK, PLAT_X, PLAT_R, BOX_HW, RAD_FLOOR_Y,
+  COR_Y0, COR_THICK, PLAT_X, PLAT_R, PLAT_Y, BOX_HW, RAD_FLOOR_Y,
   ROOM_DISC_HOLE, ROOM_LAND_R, ROOM_DISC_SLOT_LEN,
   RAD_ANG0, RAD_R, RAD_JX,
   P_FLOOR_TOP, P_FLOOR_R, P_ST_X, petalR,
@@ -98,7 +98,7 @@ console.log('\n— C. 통로(1p5) —')
   ok(Math.abs(j.x - RAD_JX) < 1e-9 && Math.abs(j.z) <= BOX_HW, `접합 패드 x=${j.x.toFixed(1)} · |z|=0 ≤ 박스 반폭 ${BOX_HW}`)
   ok(Math.abs(j.y - (RAD_FLOOR_Y + COR_THICK / 2)) < 1e-9, `접합 패드 y=${j.y.toFixed(2)} = 패드 윗면`)
   ok(Math.hypot(c.x - PLAT_X, c.z) < PLAT_R - 1, `플랫폼 중심에서 ${Math.hypot(c.x - PLAT_X, c.z).toFixed(1)} < 반경 ${PLAT_R}`)
-  ok(Math.abs(c.y - (COR_Y0 + COR_THICK / 2)) < 1e-9, `플랫폼 y=${c.y.toFixed(2)} = 판 윗면`)
+  ok(Math.abs(c.y - (PLAT_Y + COR_THICK / 2)) < 1e-9, `플랫폼 y=${c.y.toFixed(2)} = 낮은 플랫폼 판 윗면(★㊴ PLAT_DROP)`)
   ok(dot2(fwd(c.yaw), [1, 0]) > 0.99, '플랫폼 시선 = +x(리브 문 쪽)')
 }
 

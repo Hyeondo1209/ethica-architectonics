@@ -24,6 +24,7 @@ import {
   TERRACE_Y, TERRACE_RIN, TERRACE_ROUT, TERRACE_ARC,
   RIB_TINT_COL, RIB_TINT_AMT, RIB_TINT_EMIS, RIB_TINT_Y0, RIB_TINT_Y1,
 } from './constants'
+import { hallDoors } from './corridorStairsGeometry'
 
 export function Ground() {
   return (
@@ -77,21 +78,27 @@ const TREAD_MAT = { color: '#d6ab68', roughness: 0.8 }
 const SHELL_MAT = { color: '#c2a062', roughness: 0.9 }
 const FLOOR_MAT = { color: '#a98f5e', roughness: 0.95 }
 
-// ── 셸: 경선 리브 71개 (= 단일 속성 실체, 전부 균일) — 탐험 리브(#0)는 ExplorationRib가 담당 ──
+// ── 셸: 경선 리브 67개 (= 단일 속성 실체, 전부 균일) — 문 뚫린 다섯(#0·#±1·#±2)은 별도 컴포넌트 담당 ──
+//  ★㊳(2026.07.14): 인스턴스는 회전 복제라 개별 CSG 불가 → 문 리브 4기(#±1·#±2)를 HallDoorRibs로 분리
+//  (탐험 리브 #0 분리의 전례 확장). ⚠좌표 규약: rotation.set(0, a, 0)은 관을 방위각 −a에 놓는다
+//  (rotateY: z' = −x·sin a) → '방위각 +k·5°의 리브' = 인스턴스 i ≡ −k (mod 72). 제외 = i ∈ {1, 2, 70, 71}.
+const HALL_SKIP = new Set([1, 2, MERIDIANS - 2, MERIDIANS - 1])   // 방위각 −5°·−10°·+10°·+5°
 export function DomeRibs() {
   const ribRef = useRef()
   const curve = useMemo(() => makeRibCurve(), [])
   useLayoutEffect(() => {
     const dummy = new THREE.Object3D()
-    for (let i = 1; i < MERIDIANS; i++) {            // i=0(φ=0) 제외 → 인스턴스 71개, 각도 체계는 불변
+    let n = 0
+    for (let i = 1; i < MERIDIANS; i++) {            // i=0(φ=0, 탐험 리브) + HALL_SKIP 제외 → 67개, 각도 체계 불변
+      if (HALL_SKIP.has(i)) continue
       dummy.rotation.set(0, (i / MERIDIANS) * Math.PI * 2, 0)
       dummy.updateMatrix()
-      ribRef.current.setMatrixAt(i - 1, dummy.matrix)
+      ribRef.current.setMatrixAt(n++, dummy.matrix)
     }
     ribRef.current.instanceMatrix.needsUpdate = true
   }, [curve])
   return (
-    <instancedMesh ref={ribRef} args={[undefined, undefined, MERIDIANS - 1]}>
+    <instancedMesh ref={ribRef} args={[undefined, undefined, MERIDIANS - 1 - HALL_SKIP.size]}>
       <tubeGeometry args={[curve, 200, SHELL_RIB_R, RIB_RADIAL_SEG, false]} />
       <meshStandardMaterial {...RIB_MAT} side={THREE.DoubleSide} onBeforeCompile={ribTintOBC} />
     </instancedMesh>
@@ -120,12 +127,41 @@ export function ExplorationRib() {
     const b1 = new Brush(doorCut); b1.updateMatrixWorld()
     const step1 = ev.evaluate(ribBrush, b1, HOLLOW_SUBTRACTION)
     const b2 = new Brush(archCut); b2.updateMatrixWorld()
-    return ev.evaluate(step1, b2, HOLLOW_SUBTRACTION).geometry
+    return ev.evaluate(step1, b2, HOLLOW_SUBTRACTION).geometry   // ⚠㊴: 구 entablature 클립 제거(프리즈가 가림 — 리브 무절단 복귀)
   }, [])
   return (
     <mesh geometry={geo}>
       <meshStandardMaterial {...RIB_MAT} side={THREE.DoubleSide} onBeforeCompile={ribTintOBC} />
     </mesh>
+  )
+}
+
+// ── ★홀 문 리브 4기(#±1·#±2, ㊳ 2026.07.14): 형태·재질 = 나머지와 완전 동일(같은 곡선·같은 관 파라미터) ──
+//  유일한 차이 = CSG 문 1개(제각각 높이 — 수치 정본 = constants.HALL_DOORS). LOCKED §1의 첫 공식 예외:
+//  문 = 형태가 아니라 '접근 지점'. 문 법선 = 플랫폼(계단이 오는 방향). 근처 벽만 관통(깊이 SHELL_RIB_R,
+//  중심·반대벽 무접촉 — ExplorationRib 문과 같은 수법). 예외 조건(다른 시점 불가시) = check_corridor K절.
+export function HallDoorRibs() {
+  const geos = useMemo(() => {
+    const ev = new Evaluator(); ev.attributes = ['position', 'normal']
+    return hallDoors().filter(d => d.k !== 0).map(d => {
+      const tube = new THREE.TubeGeometry(makeRibCurve(), 200, SHELL_RIB_R, RIB_RADIAL_SEG, false)
+      tube.rotateY(-d.phi)                             // rotateY(a) → 방위각 −a. 방위각 +φ에 놓으려면 −φ
+      const cut = new THREE.BoxGeometry(SHELL_RIB_R, DOOR_H, DOOR_W)
+      cut.rotateY(Math.atan2(-d.dhat[1], d.dhat[0]))   // 로컬 +x(깊이축)를 문 법선 d̂에 정렬
+      cut.translate(d.cx + d.dhat[0] * SHELL_RIB_R, d.sill + DOOR_H / 2, d.cz + d.dhat[1] * SHELL_RIB_R)
+      const rb = new Brush(tube); rb.updateMatrixWorld()
+      const cb = new Brush(cut); cb.updateMatrixWorld()
+      return ev.evaluate(rb, cb, HOLLOW_SUBTRACTION).geometry   // ⚠㊴: entablature 클립 제거(LOCKED 위반 장치 소멸 — 프리즈가 가림)
+    })
+  }, [])
+  return (
+    <group>
+      {geos.map((g, i) => (
+        <mesh key={i} geometry={g}>
+          <meshStandardMaterial {...RIB_MAT} side={THREE.DoubleSide} onBeforeCompile={ribTintOBC} />
+        </mesh>
+      ))}
+    </group>
   )
 }
 
