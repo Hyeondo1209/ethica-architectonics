@@ -8,7 +8,7 @@
 // ════════════════════════════════════════════════════════════════════
 import * as THREE from 'three'
 import {
-  petalR, P_FLOOR_TOP, P_FLOOR_R, P_DOOR_TOP,
+  petalR, P_FLOOR_TOP, P_FLOOR_R, P_DOOR_TOP, LIFT_Y,
 
   P2_SHEAR_Z, P2_EDGE_A, P2_EDGE_B,
   P2_RIM_A, P2_RIM_B, P2_BULGE_A, P2_BULGE_B, P2_PEAK_A, P2_PEAK_B,
@@ -155,9 +155,9 @@ const yCeilIn = (r) => RAD_PCY + RAD_PRY * Math.sqrt(Math.max(0, 1 - (r / RAD_PR
 //  ── 인발 스펙(뿌리·목·정체 단면·경로) — 개별 수치의 정본. 좌표 = 사건 로컬(P3_AZ로 통째 회전) ──
 const P3S = {
   spiral: { r0: 1.6, az0: 15, RR: 1.00, rTop: 0.42,
-    turns: 2.3, hr: [0.7, 1.6], tube: [0.30, 0.15], driftAz: 50, driftMag: 5.0, tipY: 48.5 },   // tipY = 머리 스침(현도 ③)
+    turns: 2.3, hr: [0.7, 1.6], tube: [0.30, 0.15], driftAz: 50, driftMag: 5.0, tipY: LIFT_Y + 48.5 },   // tipY = 머리 스침(현도 ③ · ★㊵ 부양 동반 +Δ)
   cuboid: { r0: 2.8, az0: 150, RR: 1.15, rTop: 0.62,
-    sec: { w: 0.42, h: 0.32, e: 5 }, path: [[-2.9, 66.3, 2.1], [-4.8, 61.0, 3.9], [-7.1, 56.0, 4.7]] },
+    sec: { w: 0.42, h: 0.32, e: 5 }, path: [[-2.9, LIFT_Y + 66.3, 2.1], [-4.8, LIFT_Y + 61.0, 3.9], [-7.1, LIFT_Y + 56.0, 4.7]] },   // ★㊵ +Δ
   tiles:  { r0: 2.1, az0: 255, RR: 1.05, rTop: 0.72,
     n: 15, side: 0.86, th: 0.15, stepH: 0.40, stepY: 1.18, azCurl: 3.2 },
   ribbon: { r0: 3.2, az0: 325, RR: 1.10, rTop: 0.65,

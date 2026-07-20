@@ -27,7 +27,8 @@ import {
   CL_R, CL_PHI0, CL_PHI1, ST_PHI,
   LAMP_RIBS, LAMP_R,
   TERRACE_RIN, TERRACE_ROUT, TERRACE_Y,
-  COR_Y0, COR_THICK, PLAT_X, PLAT_Y,
+  COR_Y0, COR_THICK, PLAT_X, PLAT_Y, PLAT_R, DESC_X0, DESC_X1, PLAT_DROP,
+  HALL_ENTRY, ASC_X0, ASC_X1, ASC_RISE, ORB_CX, ORB_FLOOR_Y,
   ROOM_CX, ROOM_FLOOR_Y, DAIS_H, ROOM_DISC_HOLE, ROOM_LAND_R,
   RAD_ANG0, RAD_R, RAD_JX, RAD_FLOOR_Y,
   P_FLOOR_TOP, P_SPAWN_LX, P1_ON,
@@ -131,11 +132,23 @@ export const WAYPOINTS = [
 
   { id: 'joint', group: '통로 (1p5)', label: '접합문 (고리 → 박스)', prop: '—',
     x: RAD_JX, y: JOINT_TOP, z: 0, yaw: FACE_PX, pitch: 0 },
-  { id: 'corridor', group: '통로 (1p5)', label: '통로 플랫폼 (거대 원기둥 안)', prop: '1p5',
-    x: PLAT_X, y: PLAT_TOP, z: 0, yaw: FACE_PX, pitch: 0 },
+  // ★㊵-5 스위치 분기: asc-sphere(신 진입) / descent(구 ㊴-5 보존계)
+  ...(HALL_ENTRY === 'asc-sphere' ? [
+    { id: 'slope', group: '통로 (1p5)', label: '상승 계단 — 중간 (㊵-5)', prop: '—',
+      x: (ASC_X0 + ASC_X1) / 2, y: COR_Y0 + COR_THICK / 2 + ASC_RISE * 0.5, z: 0,
+      yaw: FACE_PX, pitch: 0.1 },
+    { id: 'corridor', group: '통로 (1p5)', label: '소구 안 (부양 막다른 방 · ㊵-5)', prop: '1p5',
+      x: ORB_CX, y: ORB_FLOOR_Y, z: 0, yaw: FACE_PX, pitch: 0 },
+  ] : [
+    { id: 'slope', group: '통로 (1p5)', label: '하강 계단 — 중간 (제단 조망)', prop: '—',
+      x: (DESC_X0 + DESC_X1) / 2, y: COR_Y0 + COR_THICK / 2 - PLAT_DROP * 0.5, z: 0,
+      yaw: FACE_PX, pitch: -0.15 },
+    { id: 'corridor', group: '통로 (1p5)', label: '제단 (드럼 안 결절 · ㊵-4)', prop: '1p5',
+      x: PLAT_X, y: PLAT_TOP, z: 0, yaw: FACE_PX, pitch: 0 },
+  ]),
   // ★㊳ 못 닿는 계단 끝 4곳 — "도달하지 못하는 그 감정"의 판정 지점(끝 판 위, 시선 = 문 정면).
   //  좌표 = 빌더 파생(STAIR5·STAIR_GAP 튜닝 자동 추종). #0은 닿으므로 제외(ribdoor가 그 다음 지점).
-  ...buildHallStairs().stairs.filter(s => !s.reach).map(s => ({
+  ...(HALL_ENTRY === 'descent' ? buildHallStairs().stairs.filter(s => !s.reach) : []).map(s => ({
     id: `st${s.k < 0 ? 'm' : 'p'}${Math.abs(s.k)}`, group: '통로 (1p5)',
     label: `계단 끝 #${s.k > 0 ? '+' : ''}${s.k} — 못 닿는 문 앞`, prop: '1p5',
     x: s.end.x, y: s.end.y, z: s.end.z, yaw: s.yawToDoor, pitch: 0,

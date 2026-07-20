@@ -9,6 +9,7 @@
 //  ★못 잡는 것: 그 (x,z)에 진짜 walkable 메시가 깔려 있는가(씬이 필요).
 //    → 런타임 스냅(FirstPersonControls) + 로컬 워크스루가 담당.
 import {
+  HALL_ENTRY, ORB_CX, ORB_FLOOR_R, ORB_FLOOR_Y,
   H, R_BASE, SHELL_RIB_R, STAIR_R, RIB_Y,
   rOf, U_SPIRAL_END, U_KNEE_END, U_LOOKOUT_END,
   X_LAND_LO, X_LAND_HI, LK_PLAT_R, LK_DISC_DX, LK_DISC_DY, LK_DISC_DZ, LK_DISC_LIFT,
@@ -97,9 +98,15 @@ console.log('\n— C. 통로(1p5) —')
   const j = W('joint'), c = W('corridor')
   ok(Math.abs(j.x - RAD_JX) < 1e-9 && Math.abs(j.z) <= BOX_HW, `접합 패드 x=${j.x.toFixed(1)} · |z|=0 ≤ 박스 반폭 ${BOX_HW}`)
   ok(Math.abs(j.y - (RAD_FLOOR_Y + COR_THICK / 2)) < 1e-9, `접합 패드 y=${j.y.toFixed(2)} = 패드 윗면`)
-  ok(Math.hypot(c.x - PLAT_X, c.z) < PLAT_R - 1, `플랫폼 중심에서 ${Math.hypot(c.x - PLAT_X, c.z).toFixed(1)} < 반경 ${PLAT_R}`)
-  ok(Math.abs(c.y - (PLAT_Y + COR_THICK / 2)) < 1e-9, `플랫폼 y=${c.y.toFixed(2)} = 낮은 플랫폼 판 윗면(★㊴ PLAT_DROP)`)
-  ok(dot2(fwd(c.yaw), [1, 0]) > 0.99, '플랫폼 시선 = +x(리브 문 쪽)')
+  // ★㊵-5 스위치 분기: 'corridor' wp의 표적이 진입 체제를 따라간다
+  if (HALL_ENTRY === 'asc-sphere') {
+    ok(Math.hypot(c.x - ORB_CX, c.z) < ORB_FLOOR_R - 1, `소구 중심에서 ${Math.hypot(c.x - ORB_CX, c.z).toFixed(1)} < 바닥 원반 ${ORB_FLOOR_R.toFixed(1)}`)
+    ok(Math.abs(c.y - ORB_FLOOR_Y) < 1e-9, `소구 바닥 y=${c.y.toFixed(2)} = 문턱=착지 등고(㊵-5)`)
+  } else {
+    ok(Math.hypot(c.x - PLAT_X, c.z) < PLAT_R - 1, `플랫폼 중심에서 ${Math.hypot(c.x - PLAT_X, c.z).toFixed(1)} < 반경 ${PLAT_R}`)
+    ok(Math.abs(c.y - (PLAT_Y + COR_THICK / 2)) < 1e-9, `플랫폼 y=${c.y.toFixed(2)} = 낮은 플랫폼 판 윗면(★㊴ PLAT_DROP)`)
+  }
+  ok(dot2(fwd(c.yaw), [1, 0]) > 0.99, '시선 = +x(리브 문 쪽)')
 }
 
 console.log('\n— D. 리브 계단 구역(전부 관 안인가) —')

@@ -5,9 +5,10 @@
 //   계단 기하의 정본 = corridorStairsGeometry.js(순수 빌더 — 판·참·간극 전부 저기서 파생).
 import { useMemo } from 'react'
 import * as THREE from 'three'
-import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg'
+import { Brush, Evaluator, SUBTRACTION, INTERSECTION } from 'three-bvh-csg'
 import {
   COR_WALL_SEG, DOOR_HALF, COR_CX, COR_R, ceilY, domeClipY,
+  neckBottomY, SKIRT_X0, SKIRT_X1,
   WIN_HALF, WIN_SILL_Y, WIN_TOP_Y,
   RAD_JX, RAD_JDOOR_HW, RAD_DOOR_H,
   BOX_X0, BOX_X1, BOX_HW, BOX_TOP,
@@ -19,13 +20,43 @@ import {
   SHELL_RIB_R,
 } from './constants'
 import { buildHallStairs, hallDoors } from './corridorStairsGeometry'
+import {
+  HALL_ENTRY, ASC_RISE, ASC_X0, ASC_X1, ASC_SLOPE, BOX_IN_H,
+  COR_CYL_X0,
+  ORB_R, ORB_CX, ORB_CY, ORB_T, ORB_FLOOR_Y, ORB_FLOOR_R, ORB_WEST_X, ORB_DOOR_W, ORB_DOOR_H,
+  ORB_GLASS, ORB_GLASS_X, ORB_RING_R, ORB_RING_T, ASC_TUN_T, ASC_TUN_UNDER,
+} from './constants'
 
 // ════════ ★진입 시퀀스(㊴): 수평 다리 → 하강 계단 → 낮은 플랫폼 ════════
+
+// ── ★㊵-4 목 스커트(㊵ (4) 유지·동단 재앵커): 부양된 구 ↔ 지상 드럼 사이 목 밑 앞치마(위로 볼록) ──
+export function NeckSkirt() {
+  const geo = useMemo(() => {
+    const N = 36, pos = [], idx = []
+    for (let i = 0; i <= N; i++) {
+      const x = SKIRT_X0 + (SKIRT_X1 - SKIRT_X0) * (i / N)
+      const y = neckBottomY(x, BOX_HW)
+      pos.push(x, y, -BOX_HW, x, y, BOX_HW)
+      if (i < N) { const n = i * 2; idx.push(n, n + 1, n + 3, n, n + 3, n + 2) }
+    }
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+    g.setIndex(idx); g.computeVertexNormals()
+    return g
+  }, [])
+  return (
+    <mesh geometry={geo}>
+      <meshStandardMaterial color="#b89a6a" roughness={0.92} side={THREE.DoubleSide} />
+    </mesh>
+  )
+}
+
 //  ★㊴-5: 짧은 다리(입구 직후 끝) → **긴 하강 계단** → 깊은 결절 착지(DESC_X0/X1 정본은 constants).
 export function Bridge() {
+  const xEnd = HALL_ENTRY === 'asc-sphere' ? ASC_X0 + 0.5 : DESC_X0   // ★㊵-5f: 다리는 상승 시작에서 끝(덕트 배 속 잔여 슬랩 제거)
   return (
-    <mesh position={[(BOX_X0 + DESC_X0) / 2, COR_Y0, 0]} userData={{ walkable: true }}>
-      <boxGeometry args={[DESC_X0 - BOX_X0, COR_THICK, COR_FLOOR_HW * 2]} />
+    <mesh position={[(BOX_X0 + xEnd) / 2, COR_Y0, 0]} userData={{ walkable: true }}>
+      <boxGeometry args={[xEnd - BOX_X0, COR_THICK, COR_FLOOR_HW * 2]} />
       <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.DoubleSide} />
     </mesh>
   )
@@ -49,6 +80,125 @@ export function DescentStairs() {
           <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.DoubleSide} />
         </mesh>
       ))}
+    </group>
+  )
+}
+
+// ══ ★★㊵-5 진입 개편: 상승 계단 + 착지 + 부양 소구(막다른 방) — 구 하강계는 HALL_ENTRY 스위치로 잠금 ══
+export function AscentStairs() {
+  const steps = useMemo(() => {
+    const N = Math.max(2, Math.ceil(ASC_RISE / COR_RISE))            // ≈24단(단높이 ≈0.42 — 하강 어휘 공유)
+    const dw = (ASC_X1 - ASC_X0) / N, rise = ASC_RISE / N
+    const arr = []   // ★㊵-5d: 디딤 = 통로 전폭(BOX_HW×2) — 밀폐 통로 바닥 틈 봉합
+    for (let i = 0; i < N; i++) {
+      arr.push({ x: ASC_X0 + (i + 0.5) * dw, yTop: COR_Y0 + COR_THICK / 2 + (i + 1) * rise, w: dw })
+    }
+    return arr
+  }, [])
+  return (
+    <group>
+      {steps.map((st, i) => (
+        <mesh key={i} position={[st.x, st.yTop - COR_THICK / 2, 0]} userData={{ walkable: true }}>
+          <boxGeometry args={[st.w + 0.06, COR_THICK, BOX_HW * 2 - 0.2]}  />
+          <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.DoubleSide} />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+//  소구(★㊵-5b): 셸 = (외구 − 내구 − 서쪽 아치 문) 을 컷 평면(x=ORB_GLASS_X)으로 이분 —
+//  서쪽 = 불투명 셸 · 동쪽(리브 방향) = 유리 캐노피(조종석). 경계 = 원형 테(토러스, 축 x) 하나가 프레임.
+//  창살 배제 의도: 곡면 세로 살 = 리브 어휘 혼동 위험(§ LOCKED). CSG 정공법. 바닥 = 중심 아래 현 원반.
+//  ★★㊵-5f 상승 덕트 → ★㊵-5g 뿌리 연장(현도 "아직 틈"): 한 덩어리 기울어진 각관, 서단을 드럼 벽에 박음.
+//  진단: 덕트가 123.5에서 시작해 벽(120.2)까지 안 닿아 — 그 사이는 박스 얇은 판뿐이라 다리 옆 띠(z 2.5~6)·
+//  입 아래 슬롯으로 밑이 노출. 해법 = 서단을 벽면 −0.5 물림까지 연장: 벽 트임([101,108.6]×±5.49)이 덕트
+//  입(±6.1×[보행−0.55,+7.05])보다 '작아서' 벽이 입 사방을 액자처럼 덮는다. 박스 동단·다리·계단 시작은 관 속.
+//  보이드 단면은 박스(±6·내부고 7)보다 0.1 크게 — 박스 판이 관 속 라이너가 되어 z-파이팅 없음.
+export function AscentTunnel() {
+  const geo = useMemo(() => {
+    const ev = new Evaluator(); ev.attributes = ['position', 'normal']
+    const ang = Math.atan(ASC_SLOPE)
+    const x0 = COR_CYL_X0 - 0.5, x1 = ORB_CX          // ★㊵-5g 서단 = 드럼 벽 −0.5 물림(소켓)
+    const midX = (x0 + x1) / 2
+    const midW = COR_Y0 + COR_THICK / 2 + (midX - ASC_X0) * ASC_SLOPE   // 경사선상 보행고(중점 — ASC_X0 서쪽은 연장선)
+    const box = (len, h, w, yOff) => {
+      const g = new THREE.BoxGeometry(len, h, w)
+      g.rotateZ(ang)
+      g.translate(midX, midW + yOff, 0)
+      const b = new Brush(g); b.updateMatrixWorld(); return b
+    }
+    const L = (x1 - x0) / Math.cos(ang)
+    const IN_EPS = 0.1, IN_UP = BOX_IN_H + 0.05       // 라이너 여유(폭 +0.1 · 천장 +0.05)
+    const hOut = ASC_TUN_UNDER + IN_UP + ASC_TUN_T
+    const hIn = IN_UP + 0.55                          // 보이드 밑 = 보행선 −0.55(디딤 하부 0.05 매몰 = 융착)
+    let acc = box(L, hOut, (BOX_HW + IN_EPS + ASC_TUN_T) * 2, (IN_UP + ASC_TUN_T - ASC_TUN_UNDER) / 2)
+    acc = ev.evaluate(acc, box(L + 8, hIn, (BOX_HW + IN_EPS) * 2, (IN_UP - 0.55) / 2), SUBTRACTION)   // 양끝 관통
+    const orb = new Brush(new THREE.SphereGeometry(ORB_R - 0.05, 48, 32).translate(ORB_CX, ORB_CY, 0))
+    orb.updateMatrixWorld()
+    acc = ev.evaluate(acc, orb, SUBTRACTION)
+    return acc.geometry
+  }, [])
+  return (
+    <mesh geometry={geo}>
+      <meshStandardMaterial color="#b89a6a" roughness={0.92} side={THREE.DoubleSide} />
+    </mesh>
+  )
+}
+
+export function OrbRoom() {
+  const { shellGeo, glassGeo, ringGeo, floorGeo } = useMemo(() => {
+    const ev = new Evaluator(); ev.attributes = ['position', 'normal']
+    const mk = (g, x, y, z) => { g.translate(x, y, z); const b = new Brush(g); b.updateMatrixWorld(); return b }
+    const hollow = () => {
+      let a = mk(new THREE.SphereGeometry(ORB_R, 48, 32), ORB_CX, ORB_CY, 0)
+      return ev.evaluate(a, mk(new THREE.SphereGeometry(ORB_R - ORB_T, 48, 32), ORB_CX, ORB_CY, 0), SUBTRACTION)
+    }
+    const BIG = ORB_R * 2 + 4
+    //  서쪽 불투명 셸: 중공구 − 아치 − (동쪽 반공간)
+    let west = hollow()
+    const rectH = ORB_DOOR_H - ORB_DOOR_W / 2
+    const box = new THREE.BoxGeometry(8, rectH, ORB_DOOR_W)
+    west = ev.evaluate(west, mk(box, ORB_WEST_X, ORB_FLOOR_Y + rectH / 2, 0), SUBTRACTION)
+    const cylv = new THREE.CylinderGeometry(ORB_DOOR_W / 2, ORB_DOOR_W / 2, 8, 24)
+    cylv.rotateZ(Math.PI / 2)
+    west = ev.evaluate(west, mk(cylv, ORB_WEST_X, ORB_FLOOR_Y + rectH, 0), SUBTRACTION)
+    west = ev.evaluate(west, mk(new THREE.BoxGeometry(BIG, BIG, BIG), ORB_GLASS_X + BIG / 2, ORB_CY, 0), SUBTRACTION)
+    const shellGeo = west.geometry
+    //  동쪽 유리 캐노피: 중공구 ∩ (동쪽 반공간) — 두께 있는 유리 캡
+    let east = hollow()
+    east = ev.evaluate(east, mk(new THREE.BoxGeometry(BIG, BIG, BIG), ORB_GLASS_X + BIG / 2, ORB_CY, 0), INTERSECTION)
+    const glassGeo = east.geometry
+    //  경계 테: 토러스(축 x — rotateY로 눕힘), 컷 원둘레에 물림
+    const ringGeo = new THREE.TorusGeometry(ORB_RING_R, ORB_RING_T, 12, 64)
+    ringGeo.rotateY(Math.PI / 2)
+    ringGeo.translate(ORB_GLASS_X, ORB_CY, 0)
+    //  바닥 원반: 셸 중간살까지 물림(r = √((R−T/2)² − DROP²))
+    const fr = Math.sqrt((ORB_R - ORB_T / 2) ** 2 - (ORB_CY - ORB_FLOOR_Y) ** 2)
+    const floorGeo = new THREE.CylinderGeometry(fr, fr, COR_THICK, 48)
+    floorGeo.translate(ORB_CX, ORB_FLOOR_Y - COR_THICK / 2, 0)
+    return { shellGeo, glassGeo, ringGeo, floorGeo }
+  }, [])
+  return (
+    <group>
+      <mesh geometry={shellGeo}>
+        <meshStandardMaterial color="#cdb074" roughness={0.85} side={THREE.DoubleSide} />
+      </mesh>
+      {ORB_GLASS ? (<>
+        <mesh geometry={glassGeo}>
+          <meshStandardMaterial color="#d8e8e4" roughness={0.08} metalness={0}
+            transparent opacity={0.22} depthWrite={false} side={THREE.DoubleSide} />
+        </mesh>
+        <mesh geometry={ringGeo}>
+          <meshStandardMaterial color="#a98f5e" roughness={0.7} side={THREE.DoubleSide} />
+        </mesh>
+      </>) : (
+        <mesh geometry={glassGeo}>
+          <meshStandardMaterial color="#cdb074" roughness={0.85} side={THREE.DoubleSide} />
+        </mesh>
+      )}
+      <mesh geometry={floorGeo} userData={{ walkable: true }}>
+        <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.DoubleSide} />
+      </mesh>
     </group>
   )
 }
@@ -133,6 +283,10 @@ export function Corridor() {
       const xb = COR_CX + COR_R * Math.cos(t1), zb = COR_R * Math.sin(t1)
       const ya = ceilY(xa), yb = ceilY(xb)
       if (Math.abs(tm - Math.PI) <= DOOR_HALF) {                    // 방쪽 문(박스 접속): BOX_TOP 아래만 트고
+        //  ★㊵-5e 하부 봉인(2026.07.20 현도): 구 설계는 박스 측벽이 지면까지 내려와 트임 아래를 밖에서
+        //  막았으나, ㊵-4 목 밑선(neckBottomY) 전환으로 y 0~박스 밑 띠가 열림 → 벽 쪽에서 복원.
+        //  트임 = [COR_Y0, BOX_TOP]만(박스 단면). 상한 COR_Y0 = 박스 바닥판(하면 100.7) 두께 안 물림.
+        quad(xa,0,za, xb,0,zb, xb,COR_Y0,zb, xa,COR_Y0,za)
         quad(xa,BOX_TOP,za, xb,BOX_TOP,zb, xb,yb,zb, xa,ya,za)      //  위는 헤더 봉인(ㄷ′ 압축 후 스포 구멍 방지 — check_corridor B)
         continue
       }
@@ -183,13 +337,13 @@ export function Corridor() {
     const DSILL = COR_Y0, DTOP = COR_Y0 + COR_THICK / 2 + RAD_DOOR_H
     // 벽 런(xa→xb, 바닥 스커트=돔 표면): full=전체 높이 / 아니면 문 구간(스커트+헤더만)
     const run = (z, xa, xb, full) => {
-      const n = Math.max(2, Math.ceil((xb - xa) / 5))
+      const n = Math.max(2, Math.ceil((xb - xa) / 2.5))   // ★㊵-4: 밑선이 스커트 곡선이라 촘촘히
       for (let i = 0; i < n; i++) {
         const x0 = xa + (xb - xa) * (i / n), x1 = xa + (xb - xa) * ((i + 1) / n)
         if (full) {
-          wq(x0, domeClipY(x0, z), z, x1, domeClipY(x1, z), z, x1, BOX_TOP, z, x0, BOX_TOP, z)
+          wq(x0, neckBottomY(x0, z), z, x1, neckBottomY(x1, z), z, x1, BOX_TOP, z, x0, BOX_TOP, z)
         } else {
-          wq(x0, domeClipY(x0, z), z, x1, domeClipY(x1, z), z, x1, DSILL, z, x0, DSILL, z)
+          wq(x0, neckBottomY(x0, z), z, x1, neckBottomY(x1, z), z, x1, DSILL, z, x0, DSILL, z)
           wq(x0, DTOP, z, x1, DTOP, z, x1, BOX_TOP, z, x0, BOX_TOP, z)
         }
       }
@@ -220,18 +374,25 @@ export function Corridor() {
     <group>
       {/* === 길(path): ★㊴ 시퀀스 = 수평 다리 → 하강 계단 → 낮은 플랫폼(결절) — "플랫폼을 내려다보는" 진입 === */}
       <Bridge />
-      <DescentStairs />
-      <mesh position={[PLAT_X, PLAT_Y, 0]} userData={{ walkable: true }}>
-        <cylinderGeometry args={[PLAT_R, PLAT_R, COR_THICK, 48]} />
-        <meshStandardMaterial color="#cdb074" roughness={0.85} side={THREE.DoubleSide} />
-      </mesh>
-      <mesh position={[PLAT_X, (PLAT_Y - COR_THICK / 2) / 2, 0]}>
-        <cylinderGeometry args={[PILLAR_R, PILLAR_R, PLAT_Y - COR_THICK / 2, 24]} />
-        <meshStandardMaterial color="#a98f5e" roughness={0.95} side={THREE.DoubleSide} />
-      </mesh>
-      {/* ★㊳: 구 직선 계단(Stairs 단일) 폐기 → 다섯 갈래 곡선 계단(플랫폼 = 결절 = '사물') */}
-      <CorridorStairs />
+      {HALL_ENTRY === 'descent' && (<>
+        <DescentStairs />
+        <mesh position={[PLAT_X, PLAT_Y, 0]} userData={{ walkable: true }}>
+          <cylinderGeometry args={[PLAT_R, PLAT_R, COR_THICK, 48]} />
+          <meshStandardMaterial color="#cdb074" roughness={0.85} side={THREE.DoubleSide} />
+        </mesh>
+        <mesh position={[PLAT_X, (PLAT_Y - COR_THICK / 2) / 2, 0]}>
+          <cylinderGeometry args={[PILLAR_R, PILLAR_R, PLAT_Y - COR_THICK / 2, 24]} />
+          <meshStandardMaterial color="#a98f5e" roughness={0.95} side={THREE.DoubleSide} />
+        </mesh>
+        <CorridorStairs />
+      </>)}
+      {HALL_ENTRY === 'asc-sphere' && (<>
+        <AscentStairs />
+        <AscentTunnel />
+        <OrbRoom />
+      </>)}
       <TempleBeam />
+      <NeckSkirt />
 
       {/* === 외피: 거대 원기둥(벽 + 닫힌 빗면 천장) — 공간감 통로 === */}
       <mesh geometry={wallGeo}>

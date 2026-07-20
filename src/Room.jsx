@@ -180,8 +180,14 @@ export function DefAxiomRoom({ stairKind }) {
         <sphereGeometry args={[1, 48, 28, 0, Math.PI * 2, ROOM_OCULUS, Math.PI / 2 - ROOM_OCULUS]} />
         <meshStandardMaterial color="#221b10" roughness={0.95} side={THREE.DoubleSide} fog={false} />   {/* v2.2 암실화(노브) */}
       </mesh>
-      {/* 바닥 — 전역 Ground(y=0)와 완전 동일 평면이라 z-fighting → 0.05 리프트(v2.1 감광으로 명암차가 생기며 가시화된 잠복 결함).
-          방 안 바닥 최대 시거리 ~180에서 깊이 정밀도 오차 ~0.02 → 여유 2배. 단차는 돔 벽 밑에 숨음 */}
+      {/* ★㊵ 구화: 아랫반 셸(윗반의 거울 — 수직 반축 동일) → 반타원 돔이 완전한 타원구가 되어 공중 부양.
+          내부에서는 수평 주 바닥(아래 circle)이 아랫반을 가림 — 아랫반은 바깥에서 '떠 있는 구'로만 읽힌다 */}
+      <mesh position={[0, ROOM_FLOOR_Y, 0]} scale={[ROOM_R, ROOM_HEIGHT, ROOM_R]}>
+        <sphereGeometry args={[1, 48, 28, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2]} />
+        <meshStandardMaterial color="#221b10" roughness={0.95} side={THREE.DoubleSide} fog={false} />
+      </mesh>
+      {/* ★㊵ 주 바닥(수평 유지) — 구 내부를 반으로 가르는 수평 판 = 관람 레벨. 부양으로 지면(y0)과 분리돼
+          구 z-fighting 근거는 소멸했으나 0.05 리프트는 벽 밑선 봉합 여유로 유지 */}
       <mesh position={[0, ROOM_FLOOR_Y + 0.05, 0]} rotation-x={-Math.PI / 2} userData={{ walkable: true }}>
         <circleGeometry args={[ROOM_R, 64]} />
         <meshStandardMaterial color="#241d12" roughness={0.95} side={THREE.DoubleSide} fog={false} />   {/* v2.2 암실화: 전역광은 못 꺼도 알베도×빛 곱셈으로 어둠을 만든다. fog=false: 밀폐 공간에 크림색 대기 미적용(먼 벽 뿌염 방지) */}
@@ -192,14 +198,14 @@ export function DefAxiomRoom({ stairKind }) {
       <spotLight position={[0, ROOM_CYL_TOP - 6, 0]} angle={Math.atan(POOL_R / (ROOM_CYL_TOP - 6)) * 1.2}
         penumbra={0.85} intensity={SPOT_I} distance={170} decay={1.1} color="#ffe8bd" />   {/* v2.1: 웅덩이 가장자리 녹임 */}
       {/* 웅덩이 반사광 — 낮은 포인트: 선돌 앞면(r26) 가독용. 벽(r91)에 닿기 전 감쇠 */}
-      <pointLight position={[0, DAIS_H + 2.5, 0]} intensity={1.4} distance={42} decay={1.7} color="#ffdf9e" />
+      <pointLight position={[0, ROOM_FLOOR_Y + DAIS_H + 2.5, 0]} intensity={1.4} distance={42} decay={1.7} color="#ffdf9e" />
       {/* 빛 샤프트 2절 — 출처 = 원뿔대 '꼭대기 구멍'(y=CYL_TOP, r=WELL_RT). 상절: 우물 안 낙하 · 하절: 디스크 구멍→웅덩이.
           두 절의 이음(디스크 높이)에서 하절 상단이 다시 밝아지는 건 의도 — 아래에서 보면 '구멍에서 빛이 나온다'로 읽힘 */}
       <mesh material={shaftMat} position={[0, (ROOM_CYL_TOP + SHAFT_TOP_Y) / 2, 0]}>
         <cylinderGeometry args={[ROOM_WELL_RT - 0.3, SHAFT_TOP_R - 0.3, ROOM_CYL_TOP - SHAFT_TOP_Y, 40, 1, true]} />
       </mesh>
-      <mesh material={shaftMat} position={[0, (SHAFT_TOP_Y + DAIS_H) / 2, 0]}>
-        <cylinderGeometry args={[SHAFT_TOP_R, POOL_R, SHAFT_TOP_Y - DAIS_H, 40, 1, true]} />
+      <mesh material={shaftMat} position={[0, (SHAFT_TOP_Y + ROOM_FLOOR_Y + DAIS_H) / 2, 0]}>
+        <cylinderGeometry args={[SHAFT_TOP_R, POOL_R, SHAFT_TOP_Y - (ROOM_FLOOR_Y + DAIS_H), 40, 1, true]} />
       </mesh>
       {/* 계단 — T키로 8각형(각짐) ↔ 원형(매끈) 전환 비교. 둘 다 같은 파라미터·낱장 디딤판. */}
       <instancedMesh ref={treadRef} args={[undefined, undefined, INST_COUNT]} visible={stairKind === 'octagon'} userData={{ walkable: stairKind === 'octagon' }}>
@@ -238,18 +244,18 @@ function DefPrecinct() {
   return (
     <group>
       {Array.from({ length: DAIS_STEPS }, (_, k) => (
-        <mesh key={k} position={[0, DAIS_STEP_H * (k + 0.5), 0]} userData={{ walkable: true }}>
+        <mesh key={k} position={[0, ROOM_FLOOR_Y + DAIS_STEP_H * (k + 0.5), 0]} userData={{ walkable: true }}>
           <cylinderGeometry args={[DAIS_R - DAIS_STEP_IN * k, DAIS_R - DAIS_STEP_IN * k, DAIS_STEP_H, 96]} />
           <meshStandardMaterial color="#322817" roughness={0.95} fog={false} />   {/* v2.2 암실화 — 여전히 바닥보다 한 단 위(성역) */}
         </mesh>
       ))}
       {/* 팔각 각인선 — ringGeometry의 thetaSegments=8이면 8각 고리. 꼭짓점 각 집합이 좌우대칭이라 rotation-x 뒤집힘과 무관하게 선돌 각과 일치 */}
-      <mesh position={[0, DAIS_H + 0.03, 0]} rotation-x={-Math.PI / 2}>
+      <mesh position={[0, ROOM_FLOOR_Y + DAIS_H + 0.03, 0]} rotation-x={-Math.PI / 2}>
         <ringGeometry args={[DEF_OCT_R - 0.28, DEF_OCT_R + 0.28, 8, 1, DEF_OCT_PHASE]} />
         <meshStandardMaterial color="#6b5942" roughness={1} side={THREE.DoubleSide} fog={false} />   {/* v2.2 반전: 암실에선 각인이 밝은 쪽 */}
       </mesh>
       {/* 상단 가장자리 링 */}
-      <mesh position={[0, DAIS_H + 0.03, 0]} rotation-x={-Math.PI / 2}>
+      <mesh position={[0, ROOM_FLOOR_Y + DAIS_H + 0.03, 0]} rotation-x={-Math.PI / 2}>
         <ringGeometry args={[DAIS_TOP_R - 1.6, DAIS_TOP_R - 1.0, 96]} />
         <meshStandardMaterial color="#6b5942" roughness={1} side={THREE.DoubleSide} fog={false} />   {/* v2.2 반전: 암실에선 각인이 밝은 쪽 */}
       </mesh>
@@ -265,7 +271,7 @@ function DefOctagon() {
     <group>
       {DEF_IDS.map((id, i) => {
         const a = DEF_OCT_PHASE + i * (Math.PI / 4)
-        return <GivenMonolith key={id} id={id} baseY={DAIS_H}
+        return <GivenMonolith key={id} id={id} baseY={ROOM_FLOOR_Y + DAIS_H}
           x={DEF_OCT_R * Math.cos(a)} z={DEF_OCT_R * Math.sin(a)} yRot={-a} />
       })}
     </group>

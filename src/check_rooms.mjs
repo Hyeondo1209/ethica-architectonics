@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs'
 import {
   petalR, P_FLOOR_TOP, P_FLOOR_R, P_DOOR_TOP, P_ROOM,
-  RAD_PRX, RAD_PCY, RAD_PRY, COR_Y0, COR_THICK, RAD_DOOR_HW,
+  RAD_PRX, RAD_PCY, RAD_PRY, COR_Y0, COR_THICK, RAD_DOOR_HW, RAD_TOP, LIFT_Y,
   RAD_DROP, RAD_ST_N, RAD_ST_T, RAD_ST_LAND, RAD_ST_W,
   P2_SHEAR_Z, P2_EDGE_A, P2_EDGE_B, P2_RIM_A, P2_RIM_B,
   P3_GRAZE_GAP, P3_TIP_CLEAR, P3_REACH_MAX,
@@ -149,12 +149,12 @@ console.log('── P3 천장 인발 4기(SW, ★재작업 ㉙) ──')
   const tipD = Math.hypot(...[0, 1, 2].map(k => meta.tips[g0][k] - meta.tips[g1][k]))
   ok(tipD >= 3, `스침 쌍 끝 거리 ${tipD.toFixed(1)} ≥ 3 (스쳤다 다시 벌어짐)`)
   // ③스침의 유일성: 쌍별 최소거리 실측 — 스침 쌍 ≈ GAP, 나머지는 그보다 멀고, 전 쌍 무접촉
-  //  ⚠몸통권(y ≤ 68)으로 제한: 뿌리·플레어의 근접은 ①근접 출발의 의도라 제외 —
+  //  ⚠몸통권(y ≤ LIFT_Y+68)으로 제한: 뿌리·플레어의 근접은 ①근접 출발의 의도라 제외(★㊵ 부양 동반) —
   //  발산한 몸통들 사이에서 스침 쌍만 되돌아와 가까워지는가(③)를 잰다.
   const minD = (a, b) => {
     let m = 1e9
-    for (let i = 0; i < a.length; i += 2) { if (a[i][1] > 68) continue
-      for (let j = 0; j < b.length; j += 2) { if (b[j][1] > 68) continue
+    for (let i = 0; i < a.length; i += 2) { if (a[i][1] > LIFT_Y + 68) continue
+      for (let j = 0; j < b.length; j += 2) { if (b[j][1] > LIFT_Y + 68) continue
         const d = Math.hypot(a[i][0] - b[j][0], a[i][1] - b[j][1], a[i][2] - b[j][2])
         if (d < m) m = d
       } }
@@ -222,7 +222,7 @@ console.log('── 진입 계단(★계란화 — 문 3곳 × 4방) ──')
 { //  Radial.jsx buildStairGeo와 같은 파생을 재계산해 기하 관계를 검증(JSX라 직접 임포트 불가 — 수식 동치는 소스 스캔으로)
   ok(/INTERSECTION/.test(RADIAL_SRC) && /buildStairGeo/.test(RADIAL_SRC) && /stairGeos\.map/.test(RADIAL_SRC),
     '계단 존재: CSG 교집합 빌더 + 꽃잎 그룹 마운트(등형 — 4방 자동)')
-  const FR_OUT = 2.3 + 0.5, LIN_TOP = 54 + 0.6, Y_FTOP = COR_Y0 - 0.02 + COR_THICK / 2
+  const FR_OUT = 2.3 + 0.5, LIN_TOP = RAD_TOP + 0.6, Y_FTOP = COR_Y0 - 0.02 + COR_THICK / 2   // ★㊵: 구 리터럴 54 → RAD_TOP 파생(부양 동반)
   const frRW = (y) => Math.sqrt(Math.max(0.25, petalR(y) ** 2 - FR_OUT ** 2))
   const FR_BACK = Math.min(frRW(Y_FTOP), frRW(LIN_TOP)) - 0.25
   const FR_FRONT = Math.max(frRW(Y_FTOP), frRW(LIN_TOP)) + 0.25
