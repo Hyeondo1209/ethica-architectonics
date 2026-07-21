@@ -18,11 +18,14 @@ import {
   HALL_DOORS, HALL_DOORS_ON, STAIR_GAP, STAIR_DS, STAIR_TD, STAIR_W, COR_RISE, STAIR_MAX_SLOPE,
   TEMPLE_MODE, TEMPLE_Y0, TEMPLE_X0, TEMPLE_X1, TEMPLE_HZ, TEMPLE_CLR, STAIR_SCHEME,
   CELLA_ON, CELLA_ZHW, CELLA_X1, CELLA_T, CELLA_ROOF_Y0, CELLA_ROOF_Y1, CELLA_ROOF_T, CELLA_CLR, CELLA_BITE_R, CELLA_XW,
+  CELLA_NICHE, CELLA_NICHE_DEPTH, CELLA_RELIEF_OUT, CELLA_NICHE_Y0, CELLA_NICHE_Y1, CELLA_NICHE_WBOT, CELLA_NICHE_WTOP, CELLA_STRATA_N,
+  ALTAR_ON, ALTAR_SCOPE, ALTAR_ZHW, ALTAR_X_BACK, ALTAR_STEP1_X, ALTAR_STEP2_X, ALTAR_STEP1_H, ALTAR_STEP2_H, ALTAR_UNI_XW,
   INCA_ON, INCA_TOP_Y, INCA_SLOPE, INCA_END_X, INCA_X0, INCA_W0, INCA_W1, INCA_BITE, INCA_CUT_Y,
   INCA_PANEL_L, INCA_PANEL_W, INCA_PANEL_T, INCA_ARCH_X0, INCA_ARCH_Y1, INCA_FACETS,
+  INCA_NEXUS_R, INCA_TIP_Y1, INCA_TIP_Y2, INCA_GAP, INCA_TIP_T, INCA_EMBED,
   CL_SILL, CL_R, PASS_FLOOR_Y, TERRACE_RIN, TERRACE_ROUT, TERRACE_Y,
 } from './constants.js'
-import { hallDoors, buildHallStairs, PLAT_TOP, incaStairSpec } from './corridorStairsGeometry.js'
+import { hallDoors, buildHallStairs, PLAT_TOP, incaStairSpec, incaBladesSpec } from './corridorStairsGeometry.js'
 
 let n = 0, fail = 0
 const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
@@ -304,6 +307,17 @@ console.log('— O. ★셀라(㊶) — 배경 상자 봉인 · 근호 노출 차
     let leak = null, worstCnt = 0
     const eyesAll = [...eyesCount]
     for (const st of stairs) for (let i = 0; i < st.plates.length; i += 2) eyesAll.push([st.plates[i].x, st.plates[i].z])
+    //  ★㊷ 다섯 날 디딤·팁 = 새 보행면(눈 위치) — '전 시점' 주장에 편입(팁 = 창턱 직전 최동단 눈)
+    if (INCA_ON) {
+      const ibs = incaBladesSpec()
+      for (const b of ibs.blades) if (!b.reach) {
+        for (let i = 0; i < b.steps.length; i += 2) {
+          const sm = (b.steps[i].s0 + b.steps[i].s1) / 2
+          eyesAll.push([ibs.ncx + sm * Math.cos(b.az), sm * Math.sin(b.az)])
+        }
+        eyesAll.push([b.tip.x, b.tip.z])
+      }
+    }
     for (const [ex, ez] of eyesAll) {
       let cnt = 0
       for (let k = -11; k <= 11; k++) {
@@ -325,6 +339,84 @@ console.log('— O. ★셀라(㊶) — 배경 상자 봉인 · 근호 노출 차
     }
     ok(leak === null, `★|k|≥3 전 시점 불가시(셈-시점 + 계단 판 ${eyesAll.length}곳) — 창가 근호 노출(구 동시 15) 기하 소멸` + (leak ? ` ✗ 눈(${leak[0]},${leak[1]})→#${leak[2]}` : ''))
     ok(worstCnt <= 5 && worstCnt >= 5, `동시 가시 최대 ${worstCnt} = 5 — 배경이 상자 내벽으로 닫혀 '다섯이 선다'가 전 시점 성립`)
+  }
+}
+
+console.log('— R. ★㊸ 셀라 배경 깊이(음각/양각 벽감·지층) — 봉인 무손상 · 벽 무관통 · 리브 사이 정렬 —')
+{
+  const modes = ['intaglio', 'relief', 'rect', 'strata', 'off']
+  ok(modes.includes(CELLA_NICHE), `CELLA_NICHE '${CELLA_NICHE}' — 유효 어법(${modes.join('/')})`)
+  if (CELLA_NICHE === 'off') {
+    ok(true, `벽감 off — 구 평벽(검사 스킵)`)
+  } else {
+    // (1) 음각 = 벽 안 뚫음(현도 "벽을 뚫지 말고") · 양각 = 돌출 · 공통 높이 범위
+    if (CELLA_NICHE === 'intaglio' || CELLA_NICHE === 'rect') {
+      ok(CELLA_NICHE_DEPTH < CELLA_T, `음각 깊이 ${CELLA_NICHE_DEPTH} < 벽 두께 ${CELLA_T} — 뒤로 안 뚫림(현도 "벽을 뚫지 말고")`)
+    } else if (CELLA_NICHE === 'relief') {
+      ok(CELLA_RELIEF_OUT > 0 && CELLA_RELIEF_OUT < CELLA_X1 - CELLA_XW - 8,
+        `양각 돌출 ${CELLA_RELIEF_OUT} — 홀 방향 튀어나옴 · 셀라 내부 폭(${r2(CELLA_X1 - CELLA_XW)}) 안(서벽 무접촉)`)
+    } else if (CELLA_NICHE === 'strata') {
+      ok(CELLA_NICHE_DEPTH < CELLA_T, `지층 깊이 ${CELLA_NICHE_DEPTH} < 벽 두께 ${CELLA_T} — 뒤로 안 뚫림`)
+    }
+    ok(CELLA_NICHE_Y0 >= 2 && CELLA_NICHE_Y1 <= CELLA_ROOF_Y0 - 4 && CELLA_NICHE_Y1 > CELLA_NICHE_Y0 + 20,
+      `벽감 y [${CELLA_NICHE_Y0}, ${CELLA_NICHE_Y1}] — 바닥서 띄움 · 지붕 밑(${CELLA_ROOF_Y0})−4 여유 · 높이 ${CELLA_NICHE_Y1 - CELLA_NICHE_Y0} > 20`)
+    // (2) 봉인 무손상 — 음각은 안쪽면 얕은 파임(벽 두께 안), 양각은 홀 방향 돌출 → 둘 다 옆벽·동벽 차단체 유지.
+    //     O절 근호 차단(cellaBlocks)의 교차 평면(|z|=CELLA_ZHW·x=CELLA_X1)이 온전(벽 뒤로 안 뚫으므로).
+    if (CELLA_NICHE === 'strata') {
+      ok(CELLA_STRATA_N >= 2 && CELLA_STRATA_N <= 6, `지층 ${CELLA_STRATA_N}층 ∈ [2,6]`)
+      const gap = (CELLA_NICHE_Y1 - CELLA_NICHE_Y0) / (CELLA_STRATA_N * 2 - 1)
+      ok(gap > 3, `지층 띠 높이 ${r2(gap)} > 3 — 층 분해능`)
+    } else {
+      // 벽감열: 리브 사이 4곳 정렬 · 폭이 리브 간격(25) 안 · 이웃 벽감과 무병합
+      const slots = [-37.6, -12.6, 12.6, 37.6]
+      const ribZ = [-50, -25, 0, 25, 50]
+      let aligned = true
+      for (let i = 0; i < 4; i++) if (Math.abs(slots[i] - (ribZ[i] + ribZ[i + 1]) / 2) > 0.5) aligned = false
+      ok(aligned, `벽감 4곳 = 리브 사이 중점(±12.6, ±37.6) 정렬 — 리브 기둥 사이로 보임`)
+      const wMax = CELLA_NICHE === 'rect' ? CELLA_NICHE_WBOT : Math.max(CELLA_NICHE_WBOT, CELLA_NICHE_WTOP)
+      ok(wMax < 25 - 4, `벽감 최대 폭 ${wMax} < 리브 간격(25)−4 — 이웃 벽감·리브 무간섭`)
+      if (CELLA_NICHE === 'intaglio' || CELLA_NICHE === 'relief') {
+        ok(CELLA_NICHE_WTOP < CELLA_NICHE_WBOT, `사다리꼴: 상부 ${CELLA_NICHE_WTOP} < 하부 ${CELLA_NICHE_WBOT} — 위로 좁아짐(잉카 감실)`)
+      }
+    }
+    // (3) 리브 관통 구멍과 z 무충돌 — 벽감 가장자리 대 리브 구멍 가장자리(병합 방지)
+    if (CELLA_NICHE !== 'strata') {
+      const slots = [-37.6, -12.6, 12.6, 37.6], ribZ = [-50, -25, 0, 25, 50]
+      const wHalf = Math.max(CELLA_NICHE_WBOT, CELLA_NICHE_WTOP) / 2
+      let minClear = Infinity
+      for (const s of slots) for (const rz of ribZ)
+        minClear = Math.min(minClear, Math.abs(s - rz) - wHalf - (SHELL_RIB_R + CELLA_CLR))
+      ok(minClear >= 0, `벽감 가장자리 ↔ 리브 구멍 가장자리 간극 ${r2(minClear)} ≥ 0 — 병합 없음(최외곽 z±37.6 ↔ #±2 z±50)`)
+    }
+  }
+}
+
+console.log('— R2. ★㊸ 리브 받침 제단(신전 기단) — 다섯 리브 커버 · 다섯 날 무간섭 · 계단 2장 —')
+{
+  if (!ALTAR_ON) {
+    ok(true, `제단 off(검사 스킵)`)
+  } else {
+    const scopes = ['ribs', 'unified']
+    ok(scopes.includes(ALTAR_SCOPE), `ALTAR_SCOPE '${ALTAR_SCOPE}' — 유효(${scopes.join('/')})`)
+    // (1) 리브 열 전체 폭 커버: z 반폭이 #±2(z±50)+리브 반경을 덮음
+    const ribOutZ = 50 + SHELL_RIB_R                                        // #±2 바깥 |z| = 56
+    ok(ALTAR_ZHW >= ribOutZ, `제단 z반폭 ${ALTAR_ZHW} ≥ 리브 열 바깥(${ribOutZ}) — 다섯 리브 밑동 다 덮음`)
+    ok(ALTAR_ZHW <= CELLA_ZHW - 2, `제단 z반폭 ${ALTAR_ZHW} ≤ 셀라 옆벽(${CELLA_ZHW})−2 — 셀라 안`)
+    // (2) 총 높이 < 넥서스(다섯 날 뿌리 y≈38.2) — 무간섭(핵심)
+    const total = ALTAR_STEP1_H + ALTAR_STEP2_H
+    const spec = incaBladesSpec()
+    ok(total < spec.cutY - 4, `제단 총 높이 ${total} < 넥서스(${r2(spec.cutY)})−4 — 다섯 날 뿌리 아래(무간섭)`)
+    // (3) 계단 2장: 상단이 하단보다 물러남(서쪽 끝이 동쪽으로) = 신전 기단 단차
+    const x1West = ALTAR_SCOPE === 'unified' ? ALTAR_UNI_XW : ALTAR_STEP1_X
+    const x2West = ALTAR_SCOPE === 'unified' ? ALTAR_UNI_XW + 10 : ALTAR_STEP2_X
+    ok(x2West > x1West, `계단 2장: 상단 서쪽끝 ${x2West} > 하단 ${x1West} — 상단이 물러남(2장 단차)`)
+    ok(ALTAR_X_BACK > 288 && ALTAR_X_BACK <= 300, `제단 동쪽 끝 ${ALTAR_X_BACK} — 리브 밑동(≤294) 뒤 · 동벽(300) 안`)
+    // (4) 리브 밑동 받침: 리브(x 283.6~288)가 제단 x범위 안(하단이 리브를 받침)
+    ok(x1West < 283.6 && ALTAR_X_BACK > 288, `제단 x [${x1West}, ${ALTAR_X_BACK}] ⊃ 리브 밑동(283.6~288) — 다섯 리브 받침`)
+    // (5) unified 시 넥서스까지: 서쪽 끝이 넥서스 중심 근처
+    if (ALTAR_SCOPE === 'unified') {
+      ok(Math.abs(ALTAR_UNI_XW - spec.ncx) < 12, `unified 서쪽끝 ${ALTAR_UNI_XW} ≈ 넥서스 중심(${r2(spec.ncx)}) — 구조물 전체 받침`)
+    }
   }
 }
 
@@ -407,6 +499,122 @@ console.log('— P. ★잉카 계단(㊶-5~7) — 정상 77 · 절단 · 아치 
   const yOn = (x) => (x - INCA_X0) * INCA_SLOPE
   ok(yOn(TEMPLE_X0) + 1.8 < TEMPLE_Y0 - 2, `프리즈 앞면(${r2(TEMPLE_X0)}) 통과고 ${r2(yOn(TEMPLE_X0))}+1.8 < ${TEMPLE_Y0}−2 — 밑 통과`)
   ok(yOn(CELLA_XW) + 1.8 < CELLA_ROOF_Y0 - 2, `셀라 지붕 구간 진입고 ${r2(yOn(CELLA_XW))}+1.8 < 지붕 밑(${CELLA_ROOF_Y0})−2`)
+}
+
+console.log('— Q. ★㊷ 다섯 날(현도 스케치 07.21) — 반십각 넥서스 · 팁 간극 · 삼각형 · #0 유일 도달 —')
+{
+  const ibs = incaBladesSpec(), qb = incaStairSpec()
+  const blades = ibs.blades, minus = blades.filter(b => !b.reach)
+  // (1) 골격: 다섯 날 · 닿는 것 = #0 하나(1p5 불변) · 넥서스 중심 파생
+  ok(blades.length === 5 && blades.filter(b => b.reach).length === 1 && blades.find(b => b.reach).k === 0,
+    `다섯 날(${blades.map(b => b.k).join(',')}) — 닿는 것 = #0 하나(1p5 불변)`)
+  ok(Math.abs(ibs.ncx - (qb.cutX - INCA_NEXUS_R)) < 1e-9,
+    `넥서스 중심 x ${r2(ibs.ncx)} = 절단면(${r2(qb.cutX)}) − R(${INCA_NEXUS_R}) — 동변 = #0 절단면(파생·현행 잉카 무수정)`)
+  // (2) 방위: 리브 스냅(현도 확정) — z대칭 · 단조 · 실방위 스팬 ≪ 정십각
+  {
+    const az = Object.fromEntries(blades.map(b => [b.k, b.az]))
+    ok(Math.abs(az[-1] + az[1]) < 1e-9 && Math.abs(az[-2] + az[2]) < 1e-9 && Math.abs(az[0]) < 1e-9,
+      `방위 z대칭: az(−k) = −az(k) · #0 = 0°`)
+    ok(az[1] > 0 && az[2] > az[1] && az[2] * DEG < 45,
+      `방위 단조 ${r2(az[1] * DEG)}° < ${r2(az[2] * DEG)}° < 45 — 부채 스팬 ±${r2(az[2] * DEG)}° (정십각 등각 기각 근거)`)
+  }
+  // (3) 팁: 실간극 = GAP(리브 표면 기준) · 어떤 리브에도 무접촉(#0 매스만 물림) · 벽 안
+  for (const b of minus) {
+    const gap = Math.hypot(b.tip.x - b.ribC[0], b.tip.z - b.ribC[1]) - SHELL_RIB_R
+    ok(Math.abs(gap - INCA_GAP) < 0.05, `#${b.k > 0 ? '+' : ''}${b.k} 팁 ↔ 리브 표면 ${r2(gap)} = GAP(${INCA_GAP}) — 못 닿음의 거리`)
+  }
+  {
+    let worst = Infinity, at = null
+    for (const b of minus) {
+      const px = -Math.sin(b.az), pz = Math.cos(b.az)                      // 날 횡방향
+      for (const off of [-INCA_W0 / 2, 0, INCA_W0 / 2]) {
+        const tx = b.tip.x + px * off, tz = b.tip.z + pz * off
+        for (let k = -35; k <= 36; k++) {
+          const [cx, cz] = ribC(k)
+          const d = Math.hypot(tx - cx, tz - cz) - SHELL_RIB_R
+          if (d < worst) { worst = d; at = `#${b.k}팁→리브${k}` }
+        }
+      }
+    }
+    ok(worst >= INCA_GAP - 0.6, `팁·모서리 → 전 리브 최근접 ${r2(worst)}(${at}) ≥ GAP−0.6 — 넷은 어느 리브에도 안 닿는다`)
+  }
+  {
+    let worst = 0, at = null
+    for (const b of minus) {
+      const px = -Math.sin(b.az), pz = Math.cos(b.az)
+      for (const off of [-INCA_W0 / 2, 0, INCA_W0 / 2]) {
+        const d = Math.hypot(b.tip.x + px * off - COR_CX, b.tip.z + pz * off)
+        if (d > worst) { worst = d; at = b.k }
+      }
+    }
+    ok(worst < COR_R - 0.5, `팁·모서리 드럼거리 최대 ${r2(worst)}(#${at}) < 벽 ${COR_R}−0.5 — #±2 = 창턱 직전(${r2(worst)}) '넘지 못한 문지방'(부수 발견)`)
+  }
+  // (4) 팁 삼각형(현도 승인 45<60<77) · 경사·단높이 보행역
+  ok(INCA_TIP_Y2 < INCA_TIP_Y1 && INCA_TIP_Y1 < INCA_TOP_Y,
+    `팁 삼각형 ${INCA_TIP_Y2} < ${INCA_TIP_Y1} < ${INCA_TOP_Y} — 바깥으로 갈수록 낮게(스케치 실루엣)`)
+  for (const b of minus) if (b.k > 0) {                                    // z대칭이므로 +측만
+    const slope = Math.atan2(b.rise, b.tread) * DEG
+    ok(slope <= 35.01 && b.rise > 0.3 && b.rise < 0.9,
+      `#±${b.k} 경사 ${r2(slope)}° ≤ 35 · 단높이 ${r2(b.rise)} ∈ (0.3, 0.9) — ${b.nB}단`)
+  }
+  // (5) 밑곡선 '끝까지'(㊷ ±의 서명 — #0 아치는 접점 y${INCA_ARCH_Y1}에서 멈추고 웨브가 남는다)
+  for (const b of minus) if (b.k > 0) {
+    const u = b.under, u0 = u[0], u1 = u[u.length - 1]
+    ok(Math.abs(u0.s - b.s0) < 1e-9 && u0.y <= -0.29 && Math.abs(u1.s - b.sTip) < 1e-9 && Math.abs(u1.y - (b.tipY - INCA_TIP_T)) < 1e-9,
+      `#±${b.k} 밑곡선: 뿌리(${r2(u0.s)}, ${r2(u0.y)}) 접지 → 종점 = 팁(두께 ${INCA_TIP_T}) — '끝까지'`)
+    let convex = true                                                      // 위로 볼록(S2 현-위 어휘)
+    for (const pt of u) if (pt.y < u0.y + (u1.y - u0.y) * (pt.s - u0.s) / (u1.s - u0.s) - 1e-6) convex = false
+    ok(convex, `#±${b.k} 밑곡선 위로 볼록(전 다면점 현 위)`)
+    //  ★두께 항등 가드 — 순수 sin 원안은 완만한 #±2에서 t≈0.9~0.95 구간이 디딤을 위로 뚫었다(구현 전 검산 적발).
+    //  두께 프로파일 구성의 보증을 실측: 전 다면점에서 (상면 현 − 밑곡선) ≥ TIP_T, 디딤은 상면 현 위.
+    let clear = true
+    for (const pt of u) {
+      const t = (pt.s - b.s0) / (b.sTip - b.s0)
+      if (ibs.cutY + (b.tipY - ibs.cutY) * t - pt.y < INCA_TIP_T - 1e-6) clear = false
+    }
+    let above = true
+    for (const st of b.steps) {
+      const t = (st.s0 - b.s0) / (b.sTip - b.s0)
+      if (st.yTop < ibs.cutY + (b.tipY - ibs.cutY) * t - 1e-6) above = false
+    }
+    ok(clear && above, `#±${b.k} 간극 항등: (상면 − 밑곡선) ≥ ${INCA_TIP_T} 전 구간 · 디딤 전부 현 위 — 자가 교차 원천 봉쇄`)
+  }
+  // (6) 날-날 분리: 인접 쌍 횡간격(림 밖 s부터) — 뿌리 상호 관입은 의도(결절 다발 면제 전례 ㊳)
+  {
+    const az = blades.map(b => b.az)
+    let minGap = Infinity
+    for (let i = 0; i < 4; i++) {
+      const d = (INCA_NEXUS_R + 1.5) * Math.sin(az[i + 1] - az[i]) - INCA_W0
+      if (d < minGap) minGap = d
+    }
+    ok(minGap > 0.2, `인접 날 횡간격(림+1.5부터) 최소 ${r2(minGap)} > 0.2 — 다섯이 갈라선다(뿌리 합류 = 의도)`)
+  }
+  // (7) 넥서스 폴리곤: 림 물림 · 날 뿌리 발자국 안 · 서변 = 중심 지름(문자 그대로 '절반')
+  {
+    ok(Math.abs(ibs.rimR - (INCA_NEXUS_R + 0.4)) < 1e-9 && ibs.nexus.length === 8,
+      `림 반경 ${r2(ibs.rimR)} = R+0.4 물림 · 폴리곤 8점(서변 2 + 림 6)`)
+    let inside = true, worst = Infinity
+    for (const b of blades) {
+      let fi = 0                                                           // 날을 담는 변
+      for (let i = 0; i < 5; i++) if (b.az >= ibs.bnd[i] - 1e-9 && b.az <= ibs.bnd[i + 1] + 1e-9) fi = i
+      const mid = (ibs.bnd[fi] + ibs.bnd[fi + 1]) / 2, half = (ibs.bnd[fi + 1] - ibs.bnd[fi]) / 2
+      const chord = ibs.rimR * Math.cos(half)                              // 변 현의 중심거리
+      const rayR = chord / Math.cos(b.az - mid)                            // 날 축이 현을 지나는 반경
+      const sFace = b.reach ? INCA_NEXUS_R : b.s0                          // #0 = 절단면(12) · ± = s0
+      if (rayR < sFace + 0.2) inside = false
+      if (rayR - sFace < worst) worst = rayR - sFace
+    }
+    ok(inside, `날 다섯 서면 전부 넥서스 발자국 안(최소 물림 ${r2(worst)} ≥ 0.2) — 이음 슬리버 없음`)
+    ok(Math.abs(ibs.nexus[0].x - ibs.ncx) < 1e-9 && Math.abs(ibs.nexus[7].x - ibs.ncx) < 1e-9,
+      `서변 x = 중심(${r2(ibs.ncx)}) — 지름 폐합 = 문자 그대로 '십각형의 절반'`)
+    ok(INCA_PANEL_W / 2 < ibs.rimR * Math.sin(Math.abs(ibs.bnd[0])),
+      `판 반폭 ${INCA_PANEL_W / 2} < 넥서스 서변 반폭 ${r2(ibs.rimR * Math.sin(Math.abs(ibs.bnd[0])))} — 판이 서변 안에 접속`)
+  }
+  // (8) 상부 무충돌·팁 두께 가드(노브 상향 대비)
+  ok(Math.max(INCA_TIP_Y1, INCA_TIP_Y2) + 1.8 < TEMPLE_Y0 - 2 && Math.max(INCA_TIP_Y1, INCA_TIP_Y2) + 1.8 < CELLA_ROOF_Y0 - 2,
+    `팁 머리(+1.8) < 프리즈·셀라 지붕 밑 −2 — 상부 무충돌`)
+  ok(INCA_TIP_T > 0 && INCA_TIP_T <= 0.5 && INCA_EMBED > 0 && INCA_EMBED < 2,
+    `가드: 팁 두께 ${INCA_TIP_T} ∈ (0, 0.5](0 = 퇴화 폴리곤) · 뿌리 물림 ${INCA_EMBED} ∈ (0, 2)`)
 }
 
 console.log('— D. 문 다섯 (위치·문턱·법선·창 안)' + (HALL_DOORS_ON ? '' : ' — ★㊶-3 개구 소등, 좌표·복원 조건 검증') + ' —')

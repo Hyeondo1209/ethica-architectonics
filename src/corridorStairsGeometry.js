@@ -29,6 +29,7 @@ import {
   INCA_END_X, INCA_X0, INCA_TOP_Y, INCA_SLOPE, INCA_TD, INCA_W0, INCA_W1, INCA_BITE,
   INCA_CUT_Y, INCA_PANEL_L, INCA_PANEL_W, INCA_PANEL_T,
   INCA_ARCH_X0, INCA_ARCH_Y1, INCA_FACETS,
+  R_BASE, INCA_NEXUS_R, INCA_TIP_Y1, INCA_TIP_Y2, INCA_GAP, INCA_TIP_T, INCA_EMBED,
 } from './constants.js'
 
 export const PLAT_TOP = PLAT_Y + COR_THICK / 2   // 계단 출발면 = 깊은 제단 상면 ≈31.3
@@ -292,4 +293,59 @@ export function incaStairSpec() {
   }
   const panel = { x0: px0, x1: cutX + 0.2, yTop: cutY, t: INCA_PANEL_T, w: INCA_PANEL_W, under }
   return { n, rise, td, steps, x0: INCA_X0, x1: INCA_END_X, top: INCA_TOP_Y, run, i0, cutY, cutX, arch, panel }
+}
+
+// ════════ ★㊷ 다섯 날(2026.07.21 현도 스케치) — 반십각 넥서스 + #±1·±2 날 4 ════════
+//  구성 원리(1p5 귀류의 완성):
+//   · 넥서스 = 반십각 부채. 중심 ncx = 절단면 − INCA_NEXUS_R (파생) → 동변 = #0 절단면
+//     = 현행 잉카 계단(incaStairSpec)이 무수정으로 중앙 변에서 출발. 서쪽 폐합 = 중심 지름(x=ncx).
+//     다섯 변의 법선 = 리브 방위 스냅(현도 확정 — 리브 실방위 스팬 ±35.9° ≪ 정십각 180°).
+//   · #0 = 기존 스펙 그대로(아치가 리브 접점 y65에서 멈춤·웨브 12·리브 물림) — 닿는 유일자.
+//   · #±1·±2 = 같은 어휘(디딤·브루탈 다면·위로 볼록)이되 밑곡선이 '팁까지' — 칼끝 소멸.
+//     팁 = 리브 면 INCA_GAP 앞 허공(부수 발견: #±2 리브가 벽 밖 4.0이라 팁이 드럼 벽면 84 직전
+//     ≈83.1에서 멈춤 = '창턱까지 갔으나 넘지 못함'이 별도 조작 없이 나온다).
+//  ⚠밑곡선 = 두께 프로파일 구성(교훈): 순수 sin(지면→팁)은 완만한 #±2(상승 6.8)에서 곡선이
+//   디딤보다 빨리 올라 t≈0.9~0.95 구간을 위로 뚫는다(자가 교차 — 구현 전 검산으로 적발).
+//   대신 밑곡선 = 상면 현(cutY→tipY 직선) − 두께(t), 두께(t) = TIP_T + (뿌리 전고 − TIP_T)·(1−sin(tπ/2))
+//   → (상면 − 밑곡선) ≥ TIP_T가 전 구간 항등 보장 + y″<0 = 위로 볼록(S2 현-위 검사 어휘) 유지.
+//  리브 하부 위치 = R_BASE 원(수직 구간 — INCA_END_X와 같은 기준).
+export function incaBladesSpec() {
+  const base = incaStairSpec()
+  const ncx = base.cutX - INCA_NEXUS_R                        // 넥서스 중심(파생 — 동변 = 절단면)
+  const blades = []
+  for (const k of [-2, -1, 0, 1, 2]) {
+    const phi = (k / MERIDIANS) * Math.PI * 2
+    const rx = R_BASE * Math.cos(phi), rz = R_BASE * Math.sin(phi)
+    const dx = rx - ncx, dz = rz, L = Math.hypot(dx, dz)
+    const fx = rx - SHELL_RIB_R * dx / L, fz = rz - SHELL_RIB_R * dz / L   // 리브 내측면 점(넥서스 방향)
+    const az = Math.atan2(fz, fx - ncx), faceDist = Math.hypot(fx - ncx, fz)
+    if (k === 0) { blades.push({ k, az, faceDist, reach: true, ribC: [rx, rz] }); continue }
+    const tipY = Math.abs(k) === 1 ? INCA_TIP_Y1 : INCA_TIP_Y2
+    const s0 = INCA_NEXUS_R - INCA_EMBED, sTip = faceDist - INCA_GAP
+    const nB = Math.max(2, Math.round((tipY - base.cutY) / base.rise))     // 단높이 = #0 rise 어휘 공유
+    const rb = (tipY - base.cutY) / nB, tb = (sTip - s0) / nB
+    const steps = []
+    for (let i = 0; i < nB; i++)
+      steps.push({ s0: s0 + i * tb, s1: s0 + (i + 1) * tb, yTop: base.cutY + (i + 1) * rb })
+    const rootH = base.cutY + 0.3 - INCA_TIP_T                             // 뿌리 전고(상면 cutY ↔ 지면 −0.3)
+    const under = []                                                       // 밑곡선(두께 프로파일 — 위 주석)
+    for (let f = 0; f <= INCA_FACETS; f++) {
+      const t = f / INCA_FACETS
+      const top = base.cutY + (tipY - base.cutY) * t                       // 상면 현
+      under.push({ s: s0 + (sTip - s0) * t, y: top - INCA_TIP_T - rootH * (1 - Math.sin(t * Math.PI / 2)) })
+    }
+    blades.push({ k, az, faceDist, reach: false, ribC: [rx, rz], tipY, s0, sTip, nB, rise: rb, tread: tb,
+      steps, under,
+      tip: { x: ncx + sTip * Math.cos(az), z: sTip * Math.sin(az) } })
+  }
+  // 넥서스 부채 폴리곤(x,z — 반시계): 서변 2점(x=ncx, 지름 폐합) + 림 6점(변 경계 방위, 반지름 +0.4 물림)
+  const az5 = blades.map(b => b.az)                                        // 오름차순(−35.9°…+35.9°)
+  const bnd = [az5[0] - (az5[1] - az5[0]) / 2]
+  for (let i = 0; i < 4; i++) bnd.push((az5[i] + az5[i + 1]) / 2)
+  bnd.push(az5[4] + (az5[4] - az5[3]) / 2)
+  const rimR = INCA_NEXUS_R + 0.4                                          // 물림 0.4: 변 현이 날 서면·절단면을 덮음
+  const nexus = [{ x: ncx, z: rimR * Math.sin(bnd[0]) }]
+  for (const a of bnd) nexus.push({ x: ncx + rimR * Math.cos(a), z: rimR * Math.sin(a) })
+  nexus.push({ x: ncx, z: rimR * Math.sin(bnd[5]) })
+  return { ncx, blades, nexus, bnd, rimR, cutY: base.cutY }
 }

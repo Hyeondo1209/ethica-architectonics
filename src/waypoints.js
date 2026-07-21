@@ -33,7 +33,8 @@ import {
   RAD_ANG0, RAD_R, RAD_JX, RAD_FLOOR_Y,
   P_FLOOR_TOP, P_SPAWN_LX, P1_ON,} from './constants.js'
 import { p1HeightAt } from './radialEventsGeometry.js'   // 1p1 볼록 바닥 보정(모드·노브 자동 추종)
-import { buildHallStairs, incaStairSpec } from './corridorStairsGeometry.js'   // ★㊳ 계단 끝 4곳(못 닿음 판정 지점) — 빌더 파생(자동 추종)
+import { buildHallStairs, incaStairSpec, incaBladesSpec } from './corridorStairsGeometry.js'   // ★㊳ 계단 끝 4곳 + ★㊷ 날 끝 4곳(못 닿음 판정 지점) — 빌더 파생(자동 추종)
+import { INCA_ON, INCA_GAP } from './constants.js'
 
 // ── 스위치 ──
 export const DEV_TELEPORT = true      // ⚠배포 전 false — 패널·[·]·Tab 전부 비활성(스폰만 남음)
@@ -142,6 +143,18 @@ export const WAYPOINTS = [
     { id: 'inca', group: '통로 (1p5)', label: '잉카 계단 진입 판 (부양 · ㊶-6)', prop: '1p5',
       x: (incaStairSpec().panel.x0 + incaStairSpec().panel.x1) / 2, y: incaStairSpec().panel.yTop,
       z: 0, yaw: FACE_PX, pitch: 0.25 },
+    // ★㊷ 못 닿는 날 끝 4곳 — "도달하지 못하는 그 감정"의 판정 지점(마지막 디딤 위, 시선 = 리브 정면).
+    //  좌표 = 빌더 파생(TIP_Y·GAP·NEXUS_R 튜닝 자동 추종). #0은 닿으므로 제외(잉카 정상이 그 지점).
+    ...(INCA_ON ? incaBladesSpec().blades.filter(b => !b.reach) : []).map(b => {
+      const bs = incaBladesSpec(), last = b.steps[b.steps.length - 1]
+      const sm = (last.s0 + last.s1) / 2
+      return {
+        id: `bl${b.k < 0 ? 'm' : 'p'}${Math.abs(b.k)}`, group: '통로 (1p5)',
+        label: `잉카 날 끝 #${b.k > 0 ? '+' : ''}${b.k} — 리브 ${INCA_GAP} 앞 허공`, prop: '1p5',
+        x: bs.ncx + sm * Math.cos(b.az), y: last.yTop, z: sm * Math.sin(b.az),
+        yaw: yawTo(Math.cos(b.az), Math.sin(b.az)), pitch: 0,
+      }
+    }),
   ] : [
     { id: 'slope', group: '통로 (1p5)', label: '하강 계단 — 중간 (제단 조망)', prop: '—',
       x: (DESC_X0 + DESC_X1) / 2, y: COR_Y0 + COR_THICK / 2 - PLAT_DROP * 0.5, z: 0,

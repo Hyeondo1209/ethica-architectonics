@@ -17,12 +17,16 @@ import {
   STAIR_TD, STAIR_W, COR_RISE,
   TEMPLE_MODE, TEMPLE_Y0, TEMPLE_X0, TEMPLE_X1, TEMPLE_HZ, TEMPLE_CLR,
   CELLA_ON, CELLA_ZHW, CELLA_X1, CELLA_T, CELLA_ROOF_Y0, CELLA_ROOF_Y1, CELLA_ROOF_T,
-  INCA_ON, INCA_COLOR, INCA_W0, INCA_CHAMF,
+  INCA_ON, INCA_COLOR, INCA_W0, INCA_CHAMF, INCA_PANEL_T,
   CELLA_CLR, CELLA_BITE_R, CELLA_XW, CELLA_COLOR,
+  CELLA_NICHE, CELLA_NICHE_DEPTH, CELLA_RELIEF_OUT, CELLA_NICHE_Y0, CELLA_NICHE_Y1,
+  CELLA_NICHE_WBOT, CELLA_NICHE_WTOP, CELLA_STRATA_N,
+  ALTAR_ON, ALTAR_SCOPE, ALTAR_ZHW, ALTAR_X_BACK, ALTAR_STEP1_X, ALTAR_STEP2_X,
+  ALTAR_STEP1_H, ALTAR_STEP2_H, ALTAR_UNI_XW, ALTAR_COLOR,
   PLAT_DROP, DESC_X0, DESC_X1,
   SHELL_RIB_R,
 } from './constants'
-import { buildHallStairs, hallDoors, incaStairSpec } from './corridorStairsGeometry'
+import { buildHallStairs, hallDoors, incaStairSpec, incaBladesSpec } from './corridorStairsGeometry'
 import {
   HALL_ENTRY, ASC_RISE, ASC_X0, ASC_X1, ASC_SLOPE, BOX_IN_H,
   COR_CYL_X0,
@@ -292,6 +296,55 @@ export function Cella() {
       const b = new Brush(fz); b.updateMatrixWorld()
       acc = ev.evaluate(acc, b, SUBTRACTION)
     }
+    // ── ★㊸ 배경 깊이: 음각(안 뚫는 얕은 파임) / 양각(벽면 돌출) — 현도 "벽을 뚫지 말고" ──
+    //  리브 사이 중점 z(±12.6, ±37.6)에 정렬 → 리브 기둥 사이로 배경 사건이 보인다.
+    //  음각(intaglio) = 동벽 안쪽면에서 DEPTH(<벽두께)만 감산(뒤로 안 뚫음). 양각(relief) = 안쪽면에서
+    //  홀 방향으로 OUT만 가산(부조 = 튀어나옴). strata = 수평 띠 감산. ⚠구멍·프리즈 봉인 무변.
+    const nichePoly = (wb, wt, y0, y1) => {                     // 사다리꼴 단면 폴리곤(z–y)
+      const sh = new THREE.Shape()
+      sh.moveTo(-wb, y0); sh.lineTo(wb, y0); sh.lineTo(wt, y1); sh.lineTo(-wt, y1); sh.closePath()
+      return sh
+    }
+    if (CELLA_NICHE === 'intaglio' || CELLA_NICHE === 'relief') {
+      const slots = [-37.6, -12.6, 12.6, 37.6]
+      const wb = CELLA_NICHE_WBOT / 2, wt = CELLA_NICHE_WTOP / 2
+      for (const z of slots) {
+        const sh = nichePoly(wb, wt, CELLA_NICHE_Y0, CELLA_NICHE_Y1)
+        if (CELLA_NICHE === 'intaglio') {
+          // 음각: 안쪽면(CELLA_X1)에서 동쪽으로 DEPTH만 파기 — 벽 두께(CELLA_T=2) 안이라 뒤로 안 뚫림
+          const g = new THREE.ExtrudeGeometry(sh, { depth: CELLA_NICHE_DEPTH, bevelEnabled: false })
+          g.rotateY(Math.PI / 2)                                // 압출 z(0~DEPTH) → 월드 x
+          g.translate(CELLA_X1 - 0.02, 0, z)                    // 안쪽면 −0.02(면 겹침)에서 동쪽으로
+          const b = new Brush(g); b.updateMatrixWorld()
+          acc = ev.evaluate(acc, b, SUBTRACTION)
+        } else {
+          // 양각: 안쪽면에서 홀 방향(서쪽)으로 OUT만 돌출 — 가산(리브 구멍보다 먼저 = 구멍이 부조도 뚫음)
+          const g = new THREE.ExtrudeGeometry(sh, { depth: CELLA_RELIEF_OUT, bevelEnabled: false })
+          g.rotateY(-Math.PI / 2)                               // 압출 z → 월드 −x(홀 방향)
+          g.translate(CELLA_X1 + 0.02, 0, z)                    // 안쪽면 +0.02에서 서쪽으로 튀어나옴
+          const b = new Brush(g); b.updateMatrixWorld()
+          acc = ev.evaluate(acc, b, ADDITION)
+        }
+      }
+    } else if (CELLA_NICHE === 'rect') {
+      const slots = [-37.6, -12.6, 12.6, 37.6]
+      const cy = (CELLA_NICHE_Y0 + CELLA_NICHE_Y1) / 2, hy = CELLA_NICHE_Y1 - CELLA_NICHE_Y0
+      for (const z of slots) {
+        const g = new THREE.BoxGeometry(CELLA_NICHE_DEPTH, hy, CELLA_NICHE_WBOT)
+        g.translate(CELLA_X1 - 0.02 + CELLA_NICHE_DEPTH / 2, cy, z)
+        const b = new Brush(g); b.updateMatrixWorld()
+        acc = ev.evaluate(acc, b, SUBTRACTION)
+      }
+    } else if (CELLA_NICHE === 'strata') {
+      const hy = CELLA_NICHE_Y1 - CELLA_NICHE_Y0, gap = hy / (CELLA_STRATA_N * 2 - 1)
+      for (let i = 0; i < CELLA_STRATA_N; i++) {
+        const y0 = CELLA_NICHE_Y0 + i * 2 * gap, dep = CELLA_NICHE_DEPTH * (1 - i * 0.18)
+        const g = new THREE.BoxGeometry(dep, gap, CELLA_ZHW * 2 - 6)
+        g.translate(CELLA_X1 - 0.02 + dep / 2, y0 + gap / 2, 0)
+        const b = new Brush(g); b.updateMatrixWorld()
+        acc = ev.evaluate(acc, b, SUBTRACTION)
+      }
+    }
     for (const d of hallDoors()) {                                 // 리브 관통 구멍 5(지붕만 실질 절제)
       const hole = new THREE.CylinderGeometry(SHELL_RIB_R + CELLA_CLR, SHELL_RIB_R + CELLA_CLR, yTop + 8, 24)
       hole.translate(d.cx, (yTop + 4 - 2) / 2, d.cz)
@@ -308,7 +361,27 @@ export function Cella() {
   )
 }
 
-// ════════ ★잉카 계단(INCA, ㊶-5~7 현도 스케치×2) — 리브 #0 서면으로, 반지름 방향(z=0) ════════
+// ════════ ★리브 받침 제단(ALTAR, ㊸ 2026.07.21 현도 — "경선리브 받치는 제단, 직사각 계단 2장, 신전 입구") ════════
+//  다섯 리브 밑동을 가로지르는 넓은 신전 기단. 직사각 계단 2장(하단 넓음〔서쪽으로 더 뻗음〕·상단 좁음 = 물러남).
+//  리브 열 전체 폭(z ±ALTAR_ZHW = 다섯 다 덮음). 서쪽(진입로)으로 계단이 펼쳐져 관람자가 오르는 신전 정면.
+//  ⚠총 높이 8 < 넥서스(38.2) — 다섯 날 뿌리보다 한참 아래라 무간섭(R2절). walkable.
+//  범위 스위치: 'ribs'(리브 밑동만 — 서쪽 끝 ALTAR_STEP1_X) / 'unified'(넥서스까지 서진 = 구조물 전체 기단).
+export function RibAltar() {
+  if (!ALTAR_ON) return null
+  const xBack = ALTAR_X_BACK
+  const x1West = ALTAR_SCOPE === 'unified' ? ALTAR_UNI_XW : ALTAR_STEP1_X   // 하단 서쪽 끝
+  const x2West = ALTAR_SCOPE === 'unified' ? ALTAR_UNI_XW + 10 : ALTAR_STEP2_X
+  // 계단 2장: 하단(y 0~H1, x1West~xBack 전폭) + 상단(y H1~H1+H2, x2West~xBack 물러남)
+  const step1 = { x0: x1West, x1: xBack, y0: 0, y1: ALTAR_STEP1_H }
+  const step2 = { x0: x2West, x1: xBack, y0: ALTAR_STEP1_H, y1: ALTAR_STEP1_H + ALTAR_STEP2_H }
+  const mk = (s) => (
+    <mesh position={[(s.x0 + s.x1) / 2, (s.y0 + s.y1) / 2, 0]} userData={{ walkable: true }}>
+      <boxGeometry args={[s.x1 - s.x0, s.y1 - s.y0, ALTAR_ZHW * 2]} />
+      <meshStandardMaterial color={ALTAR_COLOR} roughness={0.9} side={THREE.DoubleSide} />
+    </mesh>
+  )
+  return (<group>{mk(step1)}{mk(step2)}</group>)
+}
 //  ㊶-6: 정상 77 · 하부 수직 절단 · 진입 판. ★㊶-7~8: ① 매스 하부 = 접지 스트립 + '위로 볼록' 다면 곡선
 //  → 아치 보이드(리브 밑동 자유 — 계단은 위 접점에서만 리브를 만남). ② 판 20×5×2(가로 우세 4:1), 밑면 = 폭 전체
 //  곡면이 '바닥까지' 흘러듦(㊶-8 현도 — 접지 곡면 콘솔). ③ 브루탈: 곡면 다면화(FACETS)·판 서단 챔퍼(CHAMF).
@@ -316,8 +389,8 @@ export function Cella() {
 //  수제 쿼드로 회귀 필요 — 현재 W0=W1 전제(P절이 강제하진 않음, 노브 사용 시 이 주석 볼 것).
 //  수치 정본 = corridorStairsGeometry.incaStairSpec() — 검증(check_corridor P절)과 공유.
 export function IncaStair() {
-  const { massGeo, panelGeo } = useMemo(() => {
-    if (!INCA_ON) return { massGeo: null, panelGeo: null }
+  const { massGeo, panelGeo, nexusGeo, bladeGeos } = useMemo(() => {
+    if (!INCA_ON) return { massGeo: null, panelGeo: null, nexusGeo: null, bladeGeos: [] }
     const spec = incaStairSpec()
     const { steps, arch, panel, cutX } = spec
     const Y0 = -0.3
@@ -344,7 +417,34 @@ export function IncaStair() {
     ps.closePath()
     const panelGeo = new THREE.ExtrudeGeometry(ps, { depth: panel.w, bevelEnabled: false })
     panelGeo.translate(0, 0, -panel.w / 2)
-    return { massGeo, panelGeo }
+    // ══ ★㊷ 반십각 넥서스 + 날 4(#±1·±2) — 수치 정본 = incaBladesSpec() ══
+    //  넥서스: 부채 폴리곤(x,z) → 압출 두께 = 판 두께(어휘 공유) → 눕힘. 상면 = 절단 높이 +0.04
+    //  (판 상면 cutY와의 동일평면 회피 — §3 동일평면 금지. 판은 넥서스 밑을 지나 중앙 접지 콘솔이 된다).
+    const bs = incaBladesSpec()
+    const nsh = new THREE.Shape()
+    nsh.moveTo(bs.nexus[0].x, bs.nexus[0].z)
+    for (let i = 1; i < bs.nexus.length; i++) nsh.lineTo(bs.nexus[i].x, bs.nexus[i].z)
+    nsh.closePath()
+    const nexusGeo = new THREE.ExtrudeGeometry(nsh, { depth: INCA_PANEL_T, bevelEnabled: false })
+    nexusGeo.rotateX(Math.PI / 2)                                // (x, sy, d) → (x, −d, sy): 압출이 아래로
+    nexusGeo.translate(0, bs.cutY + 0.04, 0)
+    //  날: 단면 폴리곤(s,y — 서면 수직 → 디딤 지그재그 → 팁(두께 TIP_T) → 밑곡선 역순·접지 뿌리)
+    //  → 압출 폭 = #0 발치 폭(어휘 공유) → 방위 회전·넥서스 중심 이동을 기하에 굽는다(변환 베이크).
+    //  뿌리(s < 넥서스 림)끼리의 상호 관입은 의도(손가락이 손목에서 합류 — ㊳ '결절 다발 면제' 전례).
+    const bladeGeos = bs.blades.filter(b => !b.reach).map(b => {
+      const sh = new THREE.Shape()
+      sh.moveTo(b.s0, Y0)
+      sh.lineTo(b.s0, bs.cutY)
+      for (const st of b.steps) { sh.lineTo(st.s0, st.yTop); sh.lineTo(st.s1, st.yTop) }
+      for (let i = b.under.length - 1; i >= 1; i--) sh.lineTo(b.under[i].s, b.under[i].y)
+      sh.closePath()                                             // under[0] = (s0, −0.3) = 시작점
+      const g = new THREE.ExtrudeGeometry(sh, { depth: INCA_W0, bevelEnabled: false })
+      g.translate(0, 0, -INCA_W0 / 2)
+      g.rotateY(-b.az)                                           // 로컬 +s → 월드 (cos az, 0, sin az)
+      g.translate(bs.ncx, 0, 0)
+      return g
+    })
+    return { massGeo, panelGeo, nexusGeo, bladeGeos }
   }, [])
   if (!massGeo) return null
   return (
@@ -355,6 +455,14 @@ export function IncaStair() {
       <mesh geometry={panelGeo} userData={{ walkable: true }}>
         <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.DoubleSide} />
       </mesh>
+      <mesh geometry={nexusGeo} userData={{ walkable: true }}>
+        <meshStandardMaterial color="#cdb074" roughness={0.85} side={THREE.DoubleSide} />
+      </mesh>
+      {bladeGeos.map((g, i) => (
+        <mesh key={'bl' + i} geometry={g} userData={{ walkable: true }}>
+          <meshStandardMaterial color={INCA_COLOR} roughness={0.92} side={THREE.DoubleSide} />
+        </mesh>
+      ))}
     </group>
   )
 }
@@ -488,6 +596,7 @@ export function Corridor() {
       </>)}
       <TempleBeam />
       <Cella />
+      <RibAltar />
       <IncaStair />
       <NeckSkirt />
 
