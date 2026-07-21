@@ -15,7 +15,7 @@ import {
   COR_Y0, COR_THICK, COR_FLOOR_HW,
   PLAT_X, PLAT_R, PLAT_Y, PILLAR_R,
   STAIR_TD, STAIR_W, COR_RISE,
-  TEMPLE_MODE, TEMPLE_Y0, TEMPLE_X0, TEMPLE_X1, TEMPLE_HZ, TEMPLE_CLR,
+  TEMPLE_MODE, TEMPLE_Y0, TEMPLE_X0, TEMPLE_X1, TEMPLE_HZ, TEMPLE_CLR, TEMPLE_PEDIMENT, TEMPLE_OPEN,
   CELLA_ON, CELLA_ZHW, CELLA_X1, CELLA_T, CELLA_ROOF_Y0, CELLA_ROOF_Y1, CELLA_ROOF_T,
   INCA_ON, INCA_COLOR, INCA_W0, INCA_CHAMF, INCA_PANEL_T,
   CELLA_CLR, CELLA_BITE_R, CELLA_XW, CELLA_COLOR,
@@ -23,6 +23,7 @@ import {
   CELLA_NICHE_WBOT, CELLA_NICHE_WTOP, CELLA_STRATA_N,
   ALTAR_ON, ALTAR_SCOPE, ALTAR_ZHW, ALTAR_X_BACK, ALTAR_STEP1_X, ALTAR_STEP2_X,
   ALTAR_STEP1_H, ALTAR_STEP2_H, ALTAR_UNI_XW, ALTAR_COLOR,
+  TIER_ON, TIER_CENTER, TIER_PROFILE, TIER_N, TIER_RMAX, TIER_RISE, TIER_COLOR,
   PLAT_DROP, DESC_X0, DESC_X1,
   SHELL_RIB_R,
 } from './constants'
@@ -240,6 +241,37 @@ export function TempleBeam() {
     // 리브 다섯 관통 구멍(CSG SUBTRACTION — 리브가 물리적으로 지나간다. 부재 안이라 보이지 않을 뿐)
     const ev = new Evaluator(); ev.attributes = ['position', 'normal']
     let acc = new Brush(beam); acc.updateMatrixWorld()
+    // ── ★㊺ 밑면 개구(삼각/아치) — 가운데(z=0) 위로 파 리브 #0 드러냄 ──
+    //  삼각: z–y 삼각 단면(가운데 y=Y0+OPEN 꼭짓점, 양끝 y=Y0)을 x로 압출한 프리즘을 밑에서 감산.
+    //  아치: x축 원기둥(반경 조정 = 가운데 OPEN·양끝 0에 맞춤)을 감산. 둘 다 밑면 아래로 넉넉히 뻗어 확실히 뚫음.
+    if (TEMPLE_PEDIMENT !== 'flat' && TEMPLE_OPEN > 0) {
+      const xMid = (TEMPLE_X0 + TEMPLE_X1) / 2, xLen = TEMPLE_X1 - TEMPLE_X0 + 4
+      if (TEMPLE_PEDIMENT === 'tri') {
+        // 삼각 프리즘: 단면(z,y) = 밑변(z −HZ~HZ, y=Y0−4 아래로) + 꼭짓점(z=0, y=Y0+OPEN)
+        const sh = new THREE.Shape()
+        sh.moveTo(-TEMPLE_HZ, TEMPLE_Y0 - 6); sh.lineTo(TEMPLE_HZ, TEMPLE_Y0 - 6)
+        sh.lineTo(TEMPLE_HZ, TEMPLE_Y0); sh.lineTo(0, TEMPLE_Y0 + TEMPLE_OPEN); sh.lineTo(-TEMPLE_HZ, TEMPLE_Y0)
+        sh.closePath()
+        const g = new THREE.ExtrudeGeometry(sh, { depth: xLen, bevelEnabled: false })
+        g.rotateY(Math.PI / 2); g.translate(xMid - xLen / 2, 0, 0)   // 압출 z→x, 중앙 정렬(rotateY 후 x=0~xLen이므로 −xLen/2)
+        const b = new Brush(g); b.updateMatrixWorld()
+        acc = ev.evaluate(acc, b, SUBTRACTION)
+      } else {
+        // 아치: 반원 단면(z,y) — 가운데 y=Y0+OPEN, 양끝(z=±HZ) y=Y0. 타원 반원을 폴리곤으로.
+        const sh = new THREE.Shape()
+        sh.moveTo(-TEMPLE_HZ, TEMPLE_Y0 - 6); sh.lineTo(TEMPLE_HZ, TEMPLE_Y0 - 6); sh.lineTo(TEMPLE_HZ, TEMPLE_Y0)
+        const NA = 40
+        for (let i = 0; i <= NA; i++) {
+          const z = TEMPLE_HZ - 2 * TEMPLE_HZ * (i / NA), t = z / TEMPLE_HZ
+          sh.lineTo(z, TEMPLE_Y0 + TEMPLE_OPEN * Math.sqrt(Math.max(0, 1 - t * t)))
+        }
+        sh.closePath()
+        const g = new THREE.ExtrudeGeometry(sh, { depth: xLen, bevelEnabled: false })
+        g.rotateY(Math.PI / 2); g.translate(xMid - xLen / 2, 0, 0)
+        const b = new Brush(g); b.updateMatrixWorld()
+        acc = ev.evaluate(acc, b, SUBTRACTION)
+      }
+    }
     const holeTop = ceilY(TEMPLE_X1) + 2
     for (const d of hallDoors()) {
       const hole = new THREE.CylinderGeometry(SHELL_RIB_R + TEMPLE_CLR, SHELL_RIB_R + TEMPLE_CLR, holeTop - TEMPLE_Y0 + 4, 24)
@@ -382,6 +414,44 @@ export function RibAltar() {
   )
   return (<group>{mk(step1)}{mk(step2)}</group>)
 }
+
+// ════════ ★바닥 동심 기단(FloorTiers, ㊹ 2026.07.21 현도 — 공간 완성도 갈래 ②) ════════
+//  드럼 바닥을 여러 겹 낮은 동심 원형 단으로 → 다섯 날이 '기단 위에 선' 인상. 잉카 기단 어법.
+//  구축 = 각 겹 = 원기둥(CylinderGeometry) 낮게 적층. peak = 안쪽부터 높이 누적(중앙 봉우리) /
+//  ring = 전 겹 동일 높이 1단(중앙 평평·테두리 링만). 중심 = 드럼(COR_CX) 또는 넥서스(파생).
+//  ⚠총 높이 < 넥서스(38.2) — 다섯 날 뿌리 아래 무간섭(R3절). 안쪽이 위에 오도록 큰 겹부터 그림.
+export function FloorTiers() {
+  const rings = useMemo(() => {
+    if (!TIER_ON) return null
+    const cx = TIER_CENTER === 'nexus' ? incaBladesSpec().ncx : COR_CX
+    const arr = []
+    for (let i = 0; i < TIER_N; i++) {
+      // i=0 = 최외곽(반경 큼·낮음) → i=N−1 = 최내곽(반경 작음·높음)
+      const r = TIER_RMAX * (1 - i / TIER_N)                    // 바깥→안쪽으로 반경 감소
+      // peak = 안쪽부터 높이 누적(중앙 봉우리) / ring = 바깥 겹만 낮은 테두리 계단, 안쪽은 공통 높이(중앙 평평)
+      //  ring: 최외곽 2겹만 층지고 나머지(안쪽)는 전부 같은 높이 = 평지 + 테두리 계단
+      let h
+      if (TIER_PROFILE === 'peak') h = (i + 1) * TIER_RISE
+      else h = Math.min(i + 1, 3) * TIER_RISE                   // ring: 바깥 3겹만 0.7·1.4·2.1로 층지고 그 안은 2.1 공통(평지)
+      arr.push({ r, h, cx })
+    }
+    return arr
+  }, [])
+  if (!rings) return null
+  return (
+    <group>
+      {rings.map((t, i) => (
+        <mesh key={i} position={[t.cx, t.h / 2, 0]} userData={{ walkable: true }}>
+          <cylinderGeometry args={[t.r, t.r, t.h, 96]} />
+          <meshStandardMaterial color={TIER_COLOR} roughness={0.9} side={THREE.DoubleSide} />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+//  ⚠설계 노트: 각 겹 = 바닥(y=0)부터 높이 h까지 선 원기둥(position.y = h/2). peak에선 안쪽 겹이
+//   더 높아(누적) 바깥 겹 위로 솟아 계단이 보인다(안쪽이 바깥을 덮지만, 덮인 부분은 어차피 안쪽 겹
+//   아래 = 안 보임 · 노출되는 건 각 겹의 '테두리 링'뿐 = 동심 계단). ring에선 전부 h 동일 = 단 하나.
 //  ㊶-6: 정상 77 · 하부 수직 절단 · 진입 판. ★㊶-7~8: ① 매스 하부 = 접지 스트립 + '위로 볼록' 다면 곡선
 //  → 아치 보이드(리브 밑동 자유 — 계단은 위 접점에서만 리브를 만남). ② 판 20×5×2(가로 우세 4:1), 밑면 = 폭 전체
 //  곡면이 '바닥까지' 흘러듦(㊶-8 현도 — 접지 곡면 콘솔). ③ 브루탈: 곡면 다면화(FACETS)·판 서단 챔퍼(CHAMF).
@@ -596,6 +666,7 @@ export function Corridor() {
       </>)}
       <TempleBeam />
       <Cella />
+      <FloorTiers />
       <RibAltar />
       <IncaStair />
       <NeckSkirt />

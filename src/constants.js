@@ -457,6 +457,13 @@ export const WIN_TOP_Y  = CEIL_HI      // 위턱 = 천장
 
 // ── ★신전 프리즈(㊳→㊴) 복원 — 창 상부(y=TEMPLE_Y0~빗면 천장) 수평 부재. 리브 무절단 가림 ──
 export const TEMPLE_MODE = 'beam'
+// ── ★㊺ 엔타블러쳐 밑면 개구(2026.07.21 현도 — "리브가 짧게 느껴짐 → 밑면을 삼각/아치로 열어 가운데 리브 드러냄") ──
+//  프리즈 밑면(y=TEMPLE_Y0)을 평평 대신 삼각(페디먼트)/아치로 파 가운데 리브(#0)가 위로 더 드러나게 한다.
+//  = 그리스 신전 박공·개선문 어휘. 신전 파사드감↑ + "다섯이 같은 선에서 잘림"의 단조 해소.
+//  ⚠개구는 z방향(리브 열)으로 열림 — 가운데(z=0) 최고, 양끝(z±HZ) 0. 배경(셀라)이 그 뒤를 받쳐 봉인 유지(R4절).
+//  ⚠개구 하한 = 문 위(최고 문 상단 110 + 여유) — 문 다섯 온전.
+export const TEMPLE_PEDIMENT = 'arch'   // ★밑면 어법 — 'flat'(평평·구 상태) / 'tri'(삼각 페디먼트) / 'arch'(아치)
+export const TEMPLE_OPEN     = 50      // ★가운데(#0) 개구 높이(현도 "삼각 30 근처") — 밑면 114 → 가운데 144까지 열림
 export const TEMPLE_Y0   = 114              // ★부재 하단 y — 최고 문 상단(110) 위 4(지면 앵커 — 문과 함께 불변)
 export const TEMPLE_X0   = COR_CX + COR_R * Math.cos(43 * Math.PI / 180) - 1.5   // 앞면 ≈263.9 = 창 모서리 − 1.5
 export const TEMPLE_X1   = 295              // 뒷면 — 리브 관 단면(x≤294) 포함 여유 1
@@ -522,6 +529,18 @@ export const ALTAR_STEP1_H  = 4                   // 하단 계단 높이(y 0~4)
 export const ALTAR_STEP2_H  = 4                   // 상단 계단 높이(y 4~8) — 총 8 < 넥서스 38.2
 export const ALTAR_UNI_XW   = 208                 // unified 시 서쪽 끝(넥서스 214.6 살짝 서쪽 = 구조물 전체 받침)
 export const ALTAR_COLOR    = '#c2a062'           // 톤 노브(계단 어휘 공유 — 잉카 판 색)
+// ── ★㊹ 바닥 동심 기단(2026.07.21 현도 — 공간 완성도 갈래 ②: 넥서스 중심 낮은 원형 단으로 바닥에 결) ──
+//  드럼 바닥(반경 84)을 여러 겹 낮은 동심 원형 단으로 → 다섯 날이 '기단 위에 선' 인상. 잉카 기단 어법.
+//  두 스위치(현도 "둘 다 구현"): 중심 = 'drum'(204, 공간 정렬) / 'nexus'(214.6, 구조물 정렬).
+//  단면 = 'peak'(중앙 높고 밖 낮음 = 봉우리) / 'ring'(중앙 평평·테두리만 계단). 겹·반경·높이 = 노브.
+//  ⚠총 높이 < 넥서스(38.2)·제단(8) — 다섯 날 뿌리 한참 아래(R3절). walkable.
+export const TIER_ON        = true                // 스위치
+export const TIER_CENTER    = 'drum'              // 'drum'(204) / 'nexus'(214.6)
+export const TIER_PROFILE   = 'peak'              // 'peak'(중앙 높음) / 'ring'(중앙 평평)
+export const TIER_N         = 7                   // 겹 수(노브 — 현도 "3개보다 많이", 촘촘히)
+export const TIER_RMAX      = 46                  // 최외곽 반경(노브 — 드럼 절반 ~46, 벽 84 안 넉넉)
+export const TIER_RISE      = 0.7                 // 단당 높이(노브 — peak: 안쪽부터 누적, 총 = N×RISE)
+export const TIER_COLOR     = '#c2a062'           // 톤 노브(잉카 판·제단 어휘 공유)
 
 // ── ★잉카 계단(INCA, ㊶-5 2026.07.20 현도 스케치) — 통로 재건축의 첫 조각: 드럼 바닥 → 리브 #0 ──
 //  반지름 방향(z=0, +x) 단일 계단. 잉카·마야 사원 어법 = 바닥까지 꽉 찬 계단식 돌 매스(각 단이 지면까지
