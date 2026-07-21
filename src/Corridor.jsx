@@ -24,6 +24,7 @@ import {
   ALTAR_ON, ALTAR_SCOPE, ALTAR_ZHW, ALTAR_X_BACK, ALTAR_STEP1_X, ALTAR_STEP2_X,
   ALTAR_STEP1_H, ALTAR_STEP2_H, ALTAR_UNI_XW, ALTAR_COLOR,
   TIER_ON, TIER_CENTER, TIER_PROFILE, TIER_N, TIER_RMAX, TIER_RISE, TIER_COLOR,
+  PIER_ON, PIER_N, PIER_HW, PIER_DEPTH, PIER_OUT, PIER_Y0, PIER_TOP_OVER, PIER_COLOR,
   PLAT_DROP, DESC_X0, DESC_X1,
   SHELL_RIB_R,
 } from './constants'
@@ -543,6 +544,60 @@ export function IncaStair() {
   )
 }
 
+// ════════ ★ 드럼 곡면 벽 기어 피어(전략 4, 2026.07.21 → 07.22 기어화) ════════
+//  큰 홀 곡면 벽(창·문 제외)에 수직 슬래브가 벽(COR_R)을 가로질러 안팎으로 돌출:
+//   안쪽 = 홀에서 보는 피어/베이(PIER_DEPTH) · 바깥쪽 = 드럼 밖 톱니(PIER_OUT) → 위에서 보면 기어(cog).
+//  슬래브 = 곧은 수직 매스(리브 아님 — ㉯). 상단 = 각 모서리가 자기 x의 ceilY + OVER 추종(빗면) → 내부 무틈, 지붕 높이 톱니.
+//  ⚠기계 어법(신전 톤과 다름)·바깥 돌출이 창 근처 리브에 닿을 수 있음 — 현도 조감 판정. 전부 노브(폐기 = PIER_ON).
+export function DrumPiers() {
+  const geos = useMemo(() => {
+    if (!PIER_ON) return null
+    const half = Math.floor(PIER_N / 2)
+    const innerOff = 20, outerOff = 180 - 43 - 12       // 문 옆 20° ~ 창 앞 12° 여유(offset 최대 125°)
+    const rOut = COR_R + PIER_OUT       // 바깥면 = 드럼 밖으로 PIER_OUT 돌출(기어 톱니)
+    const rIn = COR_R - PIER_DEPTH      // 안쪽면 = 홀 안으로 PIER_DEPTH 돌출(피어/베이) — 슬래브가 벽(COR_R)을 가로지름
+    const arr = []
+    for (let k = 0; k < half; k++) {
+      const off = half > 1 ? innerOff + (outerOff - innerOff) * (k / (half - 1)) : (innerOff + outerOff) / 2
+      for (const s of [-1, 1]) {
+        const th = (180 + s * off) * Math.PI / 180
+        const c = Math.cos(th), sn = Math.sin(th)
+        // 4 수직 모서리 = (반경 rOut/rIn) × (접선 ±HW). 상단 = 그 모서리 x의 천장 + OVER(빗면 추종·무틈).
+        const corner = (r, w) => {
+          const X = COR_CX + r * c - w * sn, Z = r * sn + w * c
+          return { X, Z, topY: ceilY(X) + PIER_TOP_OVER }
+        }
+        const V = [corner(rOut, -PIER_HW), corner(rOut, PIER_HW), corner(rIn, PIER_HW), corner(rIn, -PIER_HW)]
+        const pos = []
+        for (const p of V) pos.push(p.X, PIER_Y0, p.Z)    // 0..3 바닥
+        for (const p of V) pos.push(p.X, p.topY, p.Z)     // 4..7 상단(빗면 — 지붕 추종)
+        const idx = [
+          4, 5, 6, 4, 6, 7,        // 상단(빗면)
+          0, 1, 5, 0, 5, 4,        // 바깥면(벽 쪽)
+          1, 2, 6, 1, 6, 5,        // +접선 옆면
+          2, 3, 7, 2, 7, 6,        // 안쪽 면(홀에서 보임)
+          3, 0, 4, 3, 4, 7,        // −접선 옆면
+        ]                          // 바닥면은 지면 매몰이라 생략
+        const g = new THREE.BufferGeometry()
+        g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+        g.setIndex(idx); g.computeVertexNormals()
+        arr.push(g)
+      }
+    }
+    return arr
+  }, [])
+  if (!geos) return null
+  return (
+    <group>
+      {geos.map((g, i) => (
+        <mesh key={i} geometry={g}>
+          <meshStandardMaterial color={PIER_COLOR} roughness={0.95} side={THREE.DoubleSide} flatShading />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+
 export function Corridor() {
   const wallMat = '#b89a6a'
 
@@ -675,6 +730,7 @@ export function Corridor() {
       <FloorTiers />
       <RibAltar />
       <IncaStair />
+      <DrumPiers />
       <NeckSkirt />
 
       {/* === 외피: 거대 원기둥(벽 + 닫힌 빗면 천장) — 공간감 통로 === */}
