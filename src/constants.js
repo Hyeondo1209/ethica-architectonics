@@ -490,6 +490,12 @@ export const CELLA_ROOF_Y1 = TEMPLE_Y0 + CELLA_ROOF_T   // 상면 116 — 프리
 export const CELLA_CLR     = TEMPLE_CLR           // 리브 관통 구멍 반경 여유(프리즈와 동일 → 구멍 연속)
 export const CELLA_BITE_R  = COR_R - 0.2          // 드럼 내부 절제 반경 — 셸(84)을 0.2만 넘어 물림
 export const CELLA_XW      = COR_CX + Math.sqrt(CELLA_BITE_R ** 2 - (CELLA_ZHW + CELLA_T) ** 2) - 2
+// ── ★㊻ 개구 배경 봉인(2026.07.21 현도 — 아치 개구 50으로 키우니 개구 위 뒤 뚫림 + 배경벽 단차) ──
+//  ⚠단차 교훈: 배경을 '별도 슬래브로 올리면' 동벽과 이음선(단차)이 생긴다(현도 지적). 대신
+//  동벽 y상단 자체를 개구 위까지 직접 올린다(한 박스 = 이음선 0 = "원래 벽 위에 그냥 올린" 연속면).
+//  옆벽·벽감·지붕 무변(현도 "벽 무늬 그대로"). 리브(x288<300)보다 뒤라 리브 구멍 불요.
+export const CELLA_BACK_ON = true                 // 개구 배경 봉인(동벽 상단 상향)
+export const CELLA_BACK_Y1 = TEMPLE_Y0 + TEMPLE_OPEN + 6   // 동벽 상단 = 개구 최고점(TEMPLE_Y0+OPEN) + 여유 6(개구 높이 자동 추종)
                                                   // 슬랩 서단(파생 ≈256.1) — 바이트가 안쪽을 절제하므로 여유 −2
 export const CELLA_COLOR   = '#b89a6a'            // ★톤 노브 — 기본 = 드럼·프리즈와 동일(한 몸통·이음선 소거). 어둡게(예 #a9905f)면 감실감 — P2 조명 때 재판정 후보
 // ── ★㊸ 셀라 배경 깊이(2026.07.21 현도 — 리드백 ③: 리브 너머 배경에 사건) ──

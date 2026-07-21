@@ -16,7 +16,7 @@ import {
   PLAT_X, PLAT_R, PLAT_Y, PILLAR_R,
   STAIR_TD, STAIR_W, COR_RISE,
   TEMPLE_MODE, TEMPLE_Y0, TEMPLE_X0, TEMPLE_X1, TEMPLE_HZ, TEMPLE_CLR, TEMPLE_PEDIMENT, TEMPLE_OPEN,
-  CELLA_ON, CELLA_ZHW, CELLA_X1, CELLA_T, CELLA_ROOF_Y0, CELLA_ROOF_Y1, CELLA_ROOF_T,
+  CELLA_ON, CELLA_ZHW, CELLA_X1, CELLA_T, CELLA_ROOF_Y0, CELLA_ROOF_Y1, CELLA_ROOF_T, CELLA_BACK_ON, CELLA_BACK_Y1,
   INCA_ON, INCA_COLOR, INCA_W0, INCA_CHAMF, INCA_PANEL_T,
   CELLA_CLR, CELLA_BITE_R, CELLA_XW, CELLA_COLOR,
   CELLA_NICHE, CELLA_NICHE_DEPTH, CELLA_RELIEF_OUT, CELLA_NICHE_Y0, CELLA_NICHE_Y1,
@@ -310,7 +310,13 @@ export function Cella() {
     }
     let acc = slab(CELLA_XW, xOut, yBot, yTop, CELLA_ZHW, zOut)                    // 옆벽 +z
     acc = ev.evaluate(acc, slab(CELLA_XW, xOut, yBot, yTop, -zOut, -CELLA_ZHW), ADDITION)  // 옆벽 −z
-    acc = ev.evaluate(acc, slab(CELLA_X1, xOut, yBot, yTop, -zOut, zOut), ADDITION)        // 동벽
+    acc = ev.evaluate(acc, slab(CELLA_X1, xOut, yBot, yTop, -zOut, zOut), ADDITION)        // 동벽(원래 — 옆벽과 ±zOut 봉합)
+    // ★㊻ 개구 배경 봉인: 개구는 프리즈에 뚫려 있고 프리즈 뒷면 = TEMPLE_X1(295). 배경벽을 셀라 동벽(300)에
+    //  두면 개구 뒷면(295)과 5 떨어져 그 사이로 배경이 비친다(현도 지적 "개구에 벽이 밀착 안 됨").
+    //  → 배경벽 앞면을 프리즈 뒷면(TEMPLE_X1)에 밀착(−1 겹침)시켜 개구 바로 뒤를 막는다. z는 옆벽 안쪽(±CELLA_ZHW).
+    if (CELLA_BACK_ON && CELLA_BACK_Y1 > yTop) {
+      acc = ev.evaluate(acc, slab(TEMPLE_X1 - 0.5, xOut, yTop - 0.5, CELLA_BACK_Y1, -CELLA_ZHW, CELLA_ZHW), ADDITION)
+    }
     acc = ev.evaluate(acc, slab(CELLA_XW, xOut, CELLA_ROOF_Y0, yTop, -zOut, zOut), ADDITION) // 지붕(밑면 = 프리즈 밑면 114)
     { // 드럼 내부 절제 — 곡벽(두께 0 셸) 물림·안쪽 지느러미 소거
       const bite = new THREE.CylinderGeometry(CELLA_BITE_R, CELLA_BITE_R, 300, 96)

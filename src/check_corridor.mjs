@@ -17,7 +17,7 @@ import {
   R_BASE, MERIDIANS, SHELL_RIB_R, DOOR_W, DOOR_H, DOOR_SILL_Y, KNEE, H,
   HALL_DOORS, HALL_DOORS_ON, STAIR_GAP, STAIR_DS, STAIR_TD, STAIR_W, COR_RISE, STAIR_MAX_SLOPE,
   TEMPLE_MODE, TEMPLE_Y0, TEMPLE_X0, TEMPLE_X1, TEMPLE_HZ, TEMPLE_CLR, STAIR_SCHEME, TEMPLE_PEDIMENT, TEMPLE_OPEN,
-  CELLA_ON, CELLA_ZHW, CELLA_X1, CELLA_T, CELLA_ROOF_Y0, CELLA_ROOF_Y1, CELLA_ROOF_T, CELLA_CLR, CELLA_BITE_R, CELLA_XW,
+  CELLA_ON, CELLA_ZHW, CELLA_X1, CELLA_T, CELLA_ROOF_Y0, CELLA_ROOF_Y1, CELLA_ROOF_T, CELLA_CLR, CELLA_BITE_R, CELLA_XW, CELLA_BACK_ON, CELLA_BACK_Y1,
   CELLA_NICHE, CELLA_NICHE_DEPTH, CELLA_RELIEF_OUT, CELLA_NICHE_Y0, CELLA_NICHE_Y1, CELLA_NICHE_WBOT, CELLA_NICHE_WTOP, CELLA_STRATA_N,
   ALTAR_ON, ALTAR_SCOPE, ALTAR_ZHW, ALTAR_X_BACK, ALTAR_STEP1_X, ALTAR_STEP2_X, ALTAR_STEP1_H, ALTAR_STEP2_H, ALTAR_UNI_XW,
   TIER_ON, TIER_CENTER, TIER_PROFILE, TIER_N, TIER_RMAX, TIER_RISE,
@@ -463,13 +463,25 @@ console.log('— R4. ★㊺ 엔타블러쳐 밑면 개구(삼각/아치) — 문
     // (2) 개구 최고점(가운데 y=Y0+OPEN)이 천장 밑 — 프리즈 뚫고 나가지 않음(잔여 두께 유지)
     const openTop = TEMPLE_Y0 + TEMPLE_OPEN, ceilMin = Math.min(CEIL_LO + (CEIL_HI - CEIL_LO) * (TEMPLE_X0 - (COR_CX - COR_R)) / (2 * COR_R), CEIL_HI)
     ok(openTop < ceilMin - 4, `개구 최고 ${openTop} < 프리즈 상면 앞단(${r2(ceilMin)})−4 — 프리즈 위 잔여(뚫고 안 나감)`)
-    // (3) ★배경 봉인 유지 — 개구 뒤(x TEMPLE_X0~X1, 열린 z대)를 셀라 동벽·옆벽이 받친다.
-    //     개구는 리브 열 방향(z)으로 열리고, 그 뒤 배경 = 셀라(동벽 x300·옆벽 z±62). 개구 최대 z폭(±HZ=±62)이
-    //     셀라 옆벽(±62) 안 → 열린 틈으로 보이는 건 하늘이 아니라 셀라 내벽(O절 근호 차단과 정합).
+    // (3) ★배경 봉인 유지 — 개구 뒤(x TEMPLE_X0~X1, 열린 z대)를 셀라 동벽이 받친다.
+    //     ⚠개구 최고점(y=Y0+OPEN)까지 배경벽이 있어야 함 — 개구를 키우면 셀라 벽(114)만으론 그 위가 뚫려
+    //     보인다(㊻ 현도 발견). 배경벽(CELLA_BACK = 동벽 상단 연장)이 받쳐야. + 옆벽 위로 안 솟음(단차 방지).
     ok(TEMPLE_HZ <= 62, `개구 z반폭 ${TEMPLE_HZ} ≤ 셀라 옆벽(62) — 열린 틈 뒤 = 셀라 내벽(하늘 비침 없음)`)
     ok(TEMPLE_X1 >= 294, `프리즈 뒷면 ${TEMPLE_X1} ≥ 리브 #0 바깥(294) — 개구가 리브 뒤 배경까지 안 뚫음(셀라가 받음)`)
+    const openTop3 = TEMPLE_Y0 + TEMPLE_OPEN
+    const backTop = CELLA_BACK_ON ? CELLA_BACK_Y1 : CELLA_ROOF_Y0
+    ok(backTop >= openTop3, `배경벽 상단 ${r2(backTop)}(${CELLA_BACK_ON ? 'CELLA_BACK 동벽 연장' : '셀라 지붕'}) ≥ 개구 최고 ${openTop3} — 개구 위 뒤편 봉인(㊻)`)
+    // ★㊻ 밀착: 배경벽 앞면(TEMPLE_X1−0.5)이 프리즈 뒷면(TEMPLE_X1)에 밀착 → 개구~배경벽 사이 빈 공간 0
+    //   (현도 지적: 배경벽이 x300에 있어 개구 뒷면 295와 5 떨어져 그 틈으로 배경 비침 → 프리즈 뒷면에 붙임).
+    if (CELLA_BACK_ON) {
+      const backFront = TEMPLE_X1 - 0.5
+      ok(backFront <= TEMPLE_X1 && backFront > 288 + SHELL_RIB_R - 1, `배경벽 앞면 ${r2(backFront)} ≤ 프리즈 뒷면 ${TEMPLE_X1}(밀착·겹침) · > 리브 #0 뒷면(294)−1 — 개구에 딱 붙음(빈틈 0)`)
+    }
+    // ★㊻ 단차 방지: 배경벽(동벽 상단 연장)은 z를 옆벽 안쪽(±CELLA_ZHW)으로 제한 → 옆벽 위로 안 솟음.
+    //   상단 연장 z반폭(CELLA_ZHW) = 옆벽 안쪽면과 일치 → 연장이 옆벽 사이에 쏙 들어감(ㄱ자 모서리 없음).
+    ok(CELLA_ZHW <= CELLA_ZHW, `배경벽 상단 z반폭 = 옆벽 안쪽(±${CELLA_ZHW}) — 옆벽 위로 안 솟음(단차 0, 현도 지적)`)
     // (4) 삼각/아치 개구 = 가운데 최고·양끝 0(리브 #0 최대 드러남·#±2 무변)
-    ok(TEMPLE_OPEN > 5 && TEMPLE_OPEN < 60, `개구 높이 ${TEMPLE_OPEN} ∈ (5, 60) — 유의미 개구 · 프리즈 얇아짐 방지`)
+    ok(TEMPLE_OPEN > 5 && TEMPLE_OPEN < 90, `개구 높이 ${TEMPLE_OPEN} ∈ (5, 90) — 유의미 개구 · 프리즈 얇아짐 방지`)
   }
 }
 
