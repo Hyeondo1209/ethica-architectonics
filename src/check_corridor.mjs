@@ -12,14 +12,17 @@ import {
   RAD_TOP, RAD_DOOR_H, RAD_PCY, RAD_PRY, RAD_R, RAD_FLOOR_Y, RAD_SKIRT_MAX,
   LIFT_Y, ROOM_FLOOR_Y, ROOM_CEIL_Y, ROOM_HEIGHT, domeClipY, SKIRT_X0, SKIRT_X1, SKIRT_Y1, skirtY, neckBottomY,
   HALL_ENTRY, ASC_RISE, ASC_X0, ASC_X1, ASC_SLOPE, ORB_R, ORB_CX, ORB_CY, ORB_T, ORB_FLOOR_Y, ORB_FLOOR_R, ORB_WEST_X, ORB_DOOR_W, ORB_DOOR_H,
-  ORB_GLASS_F, ORB_GLASS_X, ORB_RING_R, ORB_RING_T, ORB_GLASS, ASC_TUN_DEPTH, ASC_TUN_T,
+  ORB_OPEN_F, ORB_OPEN_X, ORB_RING_R, ORB_RING_T, ORB_OPEN, ASC_TUN_DEPTH, ASC_TUN_T,
   PLAT_X, PLAT_R, PLAT_F, PLAT_Y, PLAT_DROP, DESC_X0, DESC_X1, PILLAR_R, COR_FLOOR_HW, COR_X1, COR_CYL_X0, COR_CLIMB, RIB_Y,
   R_BASE, MERIDIANS, SHELL_RIB_R, DOOR_W, DOOR_H, DOOR_SILL_Y, KNEE, H,
-  HALL_DOORS, STAIR_GAP, STAIR_DS, STAIR_TD, STAIR_W, COR_RISE, STAIR_MAX_SLOPE,
+  HALL_DOORS, HALL_DOORS_ON, STAIR_GAP, STAIR_DS, STAIR_TD, STAIR_W, COR_RISE, STAIR_MAX_SLOPE,
   TEMPLE_MODE, TEMPLE_Y0, TEMPLE_X0, TEMPLE_X1, TEMPLE_HZ, TEMPLE_CLR, STAIR_SCHEME,
+  CELLA_ON, CELLA_ZHW, CELLA_X1, CELLA_T, CELLA_ROOF_Y0, CELLA_ROOF_Y1, CELLA_ROOF_T, CELLA_CLR, CELLA_BITE_R, CELLA_XW,
+  INCA_ON, INCA_TOP_Y, INCA_SLOPE, INCA_END_X, INCA_X0, INCA_W0, INCA_W1, INCA_BITE, INCA_CUT_Y,
+  INCA_PANEL_L, INCA_PANEL_W, INCA_PANEL_T, INCA_ARCH_X0, INCA_ARCH_Y1, INCA_FACETS,
   CL_SILL, CL_R, PASS_FLOOR_Y, TERRACE_RIN, TERRACE_ROUT, TERRACE_Y,
 } from './constants.js'
-import { hallDoors, buildHallStairs, PLAT_TOP } from './corridorStairsGeometry.js'
+import { hallDoors, buildHallStairs, PLAT_TOP, incaStairSpec } from './corridorStairsGeometry.js'
 
 let n = 0, fail = 0
 const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
@@ -67,14 +70,14 @@ console.log('— N. ㊵-5 진입 개편 (상승 +10 → 부양 소구 · 구 하
   // ★㊵-5b(1): 착지 폐지 — 계단이 문턱면에 직결(+물림). 경사는 파생 역전(상승고/주행).
   ok(ASC_X1 > ORB_WEST_X && ASC_X1 < ORB_WEST_X + 2.5, `계단→문턱 직결: 상승 끝 ${r2(ASC_X1)} = 문턱면 ${r2(ORB_WEST_X)} + 물림(착지 없음)`)
   ok(Math.abs(ASC_RISE - (ORB_WEST_X - ASC_X0) * ASC_SLOPE) < 1e-9, `경사 목표 노브 ${r2(Math.atan(ASC_SLOPE) * DEG)}° → 상승고 파생(㊵-5c: 상승고 = 주행×경사)`)
-  // ★㊵-5b(2): 유리 캐노피(조종석) — 동쪽 캡 = 유리 · 경계 테 · 아치 보이드와 무간섭 · 창살 없음(리브 어휘 보호)
-  ok(ORB_GLASS_F > 0 && ORB_GLASS_F < 1 && ORB_GLASS_X > ORB_WEST_X + 4 + 1,
-    `유리 컷 x ${r2(ORB_GLASS_X)}(F=${ORB_GLASS_F}) — 아치 보이드 동단(${r2(ORB_WEST_X + 4)}) +1 이격`)
-  ok(Math.abs(ORB_RING_R - Math.sqrt(ORB_R ** 2 - (ORB_R * ORB_GLASS_F) ** 2)) < 1e-9 && ORB_RING_T < ORB_T,
-    `경계 테 반경 ${r2(ORB_RING_R)} 파생 · 관 두께 ${ORB_RING_T} < 셸 두께`)
-  ok(ORB_GLASS_X < ORB_CX + ORB_R * 0.6,
-    `캐노피 폭: 컷이 캡 반각 ≥53°를 보장(조종석 — 다섯 리브 시야가 유리 안)`)
-  ok(typeof ORB_GLASS === 'boolean', `유리 스위치 ORB_GLASS=${ORB_GLASS}(㊵-5c 잠금 — 렉, 코드 보존)`)
+  // ★㊵-5b(2)→㊶-4 개구(조종석) — 동쪽 캡 = 뻥 뚫림(유리 아님, 렉 0) · 경계 테 · 아치 보이드와 무간섭 · 창살 없음(리브 어휘 보호)
+  ok(ORB_OPEN_F > 0 && ORB_OPEN_F < 1 && ORB_OPEN_X > ORB_WEST_X + 4 + 1,
+    `개구 컷 x ${r2(ORB_OPEN_X)}(F=${ORB_OPEN_F}) — 아치 보이드 동단(${r2(ORB_WEST_X + 4)}) +1 이격`)
+  ok(Math.abs(ORB_RING_R - Math.sqrt(ORB_R ** 2 - (ORB_R * ORB_OPEN_F) ** 2)) < 1e-9 && ORB_RING_T < ORB_T,
+    `경계 테 반경 ${r2(ORB_RING_R)} 파생 · 관 두께 ${ORB_RING_T} < 셸 두께 — 뚫린 단면 감쌈`)
+  ok(ORB_OPEN_X < ORB_CX + ORB_R * 0.6,
+    `개구 폭: 컷이 캡 반각 ≥53°를 보장(조종석 — 다섯 리브 시야가 개구 안)`)
+  ok(ORB_OPEN === true, `개구 ORB_OPEN=${ORB_OPEN}(㊶-4 — 동캡 뚫림, 구 ORB_GLASS 유리 스위치 폐기)`)
   // ★㊵-5d 상승 밀폐 통로: 압축 연속·측면 봉합·구면 물림
   ok(Math.abs(ASC_TUN_T - COR_THICK) < 1e-9 && ASC_TUN_DEPTH > 1.5,
     `통로 벽 두께 = 박스 어휘(${ASC_TUN_T}) · 디딤 아래 봉합 깊이 ${ASC_TUN_DEPTH}`)
@@ -218,7 +221,195 @@ for (const k of [3, -3]) {
   console.log(`    ↳ ★열린 판정 리포트: 창가 끝단 근호 노출 — 최원 ${worstK >= 0 ? '#+' + worstK : '#' + worstK} · 동시 최대 ${worstCnt} (완화 후보 = 창변 리빌 잼 재도입, 현도 결정)`)
 }
 
-console.log('— D. 문 다섯 (위치·문턱·법선·창 안) —')
+console.log('— O. ★셀라(㊶) — 배경 상자 봉인 · 근호 노출 차단 (다섯만 남는다) —')
+{
+  ok(CELLA_ON === true, `CELLA_ON — 셀라 활성(폐기 = 스위치 한 줄)`)
+  // (1) 치수 불변식: 다섯을 담고, 여섯째부터 자른다
+  const ribOutZ2 = Math.abs(ribC(2)[1]) + SHELL_RIB_R                   // #±2 바깥 |z| ≈ 56
+  const ribOutZ3 = Math.abs(ribC(3)[1]) - SHELL_RIB_R                   // #±3 안쪽 |z| ≈ 68.5
+  ok(CELLA_ZHW === TEMPLE_HZ, `옆벽 |z| ${CELLA_ZHW} = 프리즈 HZ(정렬 — 위(프리즈)·아래(셀라)가 한 몸통)`)
+  ok(CELLA_ZHW >= ribOutZ2 + 4 && CELLA_ZHW + CELLA_T <= ribOutZ3 - 2,
+    `옆벽: #±2 담음(${r2(ribOutZ2)}+4 ≤ ${CELLA_ZHW}) · #±3 무접촉(≤ ${r2(ribOutZ3)}−2)`)
+  const ribOutX0 = ribC(0)[0] + SHELL_RIB_R                             // #0 바깥 x = 294
+  ok(CELLA_X1 >= ribOutX0 + 4, `동벽 x ${CELLA_X1} ≥ 리브 #0 바깥면(${ribOutX0})+4 — 배경까지의 숨`)
+  ok(Math.abs(CELLA_ROOF_Y0 - TEMPLE_Y0) < 1e-9 && CELLA_ROOF_Y1 > TEMPLE_Y0 + 0.5,
+    `★㊶-2 지붕 밑면 ${CELLA_ROOF_Y0} = 프리즈 밑면(동일 평면 — 곡선 띠 소거) · 상면 ${CELLA_ROOF_Y1} > 밑면+0.5 = x ${TEMPLE_X1}~${CELLA_X1} 띠 상향 누출 봉인 유지`)
+  ok(TEMPLE_MODE === 'beam', `TEMPLE_MODE 'beam' — 프리즈 = 셀라 상부(y≥${TEMPLE_Y0}) 봉인의 파트너(off면 셀라 봉인 불성립)`)
+  { // 바이트 원호가 프리즈 발자국 안에 숨는가: 창 z대(|z|≤84·sin43°) 전역에서 원호 x ≥ 프리즈 앞면
+    const zWin = COR_R * Math.sin(WIN_HALF)
+    const arcXmin = COR_CX + Math.sqrt(CELLA_BITE_R ** 2 - zWin ** 2)
+    ok(arcXmin >= TEMPLE_X0, `바이트 원호 최서단 ${r2(arcXmin)}(창 모서리 z${r2(zWin)}) ≥ 프리즈 앞면 ${r2(TEMPLE_X0)} — 원호 모서리 전부 프리즈 발자국 안 = 불가시`)
+  }
+  const doorTopMax = Math.max(...HALL_DOORS.map(d => d.sill)) + DOOR_H   // 최고 문 상단(#+2) = 99+11 = 110
+  ok(CELLA_ROOF_Y0 >= doorTopMax + 2,
+    `지붕 밑면 ${r2(CELLA_ROOF_Y0)} ≥ 최고 문 상단(${doorTopMax})+2 — 문 다섯이 지붕 아래 온전`)
+  ok(CELLA_ROOF_Y1 < H * KNEE, `지붕(${CELLA_ROOF_Y1}) < 무릎(${H * KNEE}) — 리브 상부 공개(1p11·테라스) 무손상`)
+  // (2) 곡벽 물림·지느러미: 바이트가 셸(r=COR_R)을 0.05~1.0만 넘게
+  ok(COR_R - CELLA_BITE_R > 0.05 && COR_R - CELLA_BITE_R <= 1.0,
+    `바이트 r ${CELLA_BITE_R} — 셸 물림 ${r2(COR_R - CELLA_BITE_R)} ∈ (0.05, 1] (봉인 겹침 + 홀 안 지느러미 불가시 급)`)
+  ok(CELLA_XW < COR_CX + Math.sqrt(COR_R ** 2 - CELLA_ZHW ** 2) - 1,
+    `슬랩 서단 ${r2(CELLA_XW)} — 셸 교차선(z=${CELLA_ZHW}에서 x ${r2(COR_CX + Math.sqrt(COR_R ** 2 - CELLA_ZHW ** 2))}) 서쪽 1+ (물림 보장, 잉여는 바이트가 절제)`)
+  ok(CELLA_CLR === TEMPLE_CLR && CELLA_CLR <= 0.5,
+    `관통 구멍 여유 ${CELLA_CLR} = 프리즈와 동일(구멍 연속) · ≤0.5 (하늘 슬리버 = 프리즈 전례 수준)`)
+  // (3) 리브 무접촉: 다섯(구멍 관통)을 뺀 전 리브가 슬랩 3종·지붕 발자국과 무접촉
+  {
+    let clash = null
+    const inSlab = (cx, cz) => {
+      const hitSide = Math.abs(cz) + SHELL_RIB_R > CELLA_ZHW - 0.5 && Math.abs(cz) - SHELL_RIB_R < CELLA_ZHW + CELLA_T + 0.5 && cx + SHELL_RIB_R > CELLA_XW
+      const hitEast = cx + SHELL_RIB_R > CELLA_X1 - 0.5 && Math.abs(cz) - SHELL_RIB_R < CELLA_ZHW + CELLA_T
+      const hitRoofFoot = cx + SHELL_RIB_R > CELLA_XW && cx - SHELL_RIB_R < CELLA_X1 + CELLA_T && Math.abs(cz) - SHELL_RIB_R < CELLA_ZHW + CELLA_T
+      return hitSide || hitEast || hitRoofFoot
+    }
+    for (let k = -35; k <= 36; k++) {
+      if (Math.abs(k) <= 2) continue                                    // 다섯 = 지붕 구멍 관통(의도)
+      const [cx, cz] = ribC(k)
+      if (inSlab(cx, cz)) { clash = k; break }
+    }
+    ok(clash === null, `비관통 리브(|k|≥3) 전 72기 — 셀라 벽·지붕 발자국 무접촉` + (clash !== null ? ` ✗ #${clash}` : ''))
+  }
+  // (4) ★근호 차단(2D plan — C절 전제 계승: 창 y창에서 리브 = 수직 원기둥·셀라 벽 = z축 압출체 y 0~지붕):
+  //     passes2D 통과 후 셀라 3벽 교차를 추가 검사. 봉인 주장: 홀 안 어떤 눈에서도 |k|≥3 불가시 → 동시 = 다섯이 상한.
+  const cellaBlocks = (ex, ez, tx, tz) => {
+    const dx = tx - ex, dz = tz - ez
+    const hitZ = (zw) => {                                              // 옆벽 평면 |z|=zw 교차점의 x가 슬랩 구간이면 차단
+      if (Math.abs(dz) < 1e-12) return false
+      const t = (Math.sign(dz) * zw - ez) / dz
+      if (t <= 0 || t >= 1) return false
+      const px = ex + t * dx
+      return px >= CELLA_XW && px <= CELLA_X1 + CELLA_T
+    }
+    const hitX = () => {                                                // 동벽 x=CELLA_X1 교차점의 |z|가 폭 안이면 차단
+      if (Math.abs(dx) < 1e-12) return false
+      const t = (CELLA_X1 - ex) / dx
+      if (t <= 0 || t >= 1) return false
+      return Math.abs(ez + t * dz) <= CELLA_ZHW + CELLA_T
+    }
+    return hitZ(CELLA_ZHW) || hitX()
+  }
+  //  박스(밀폐 연결부) 측벽 차폐 — passes2D는 드럼 원만 알므로, 박스 안 눈(다리 서반부)에서 드럼 원을
+  //  아예 안 지나는 광선이 모델상 무차단으로 샜다(실제는 박스 벽이 막음 — B절 밀폐의 2D 대응물).
+  const boxBlocks = (ex, ez, tx, tz) => {
+    const dx = tx - ex, dz = tz - ez
+    if (Math.abs(dz) < 1e-12) return false
+    for (const s of [1, -1]) {
+      const t = (s * BOX_HW - ez) / dz
+      if (t > 0 && t < 1) {
+        const px = ex + t * dx
+        if (px >= BOX_X0 - 0.5 && px <= BOX_X1 + 0.5) return true
+      }
+    }
+    return false
+  }
+  {
+    let leak = null, worstCnt = 0
+    const eyesAll = [...eyesCount]
+    for (const st of stairs) for (let i = 0; i < st.plates.length; i += 2) eyesAll.push([st.plates[i].x, st.plates[i].z])
+    for (const [ex, ez] of eyesAll) {
+      let cnt = 0
+      for (let k = -11; k <= 11; k++) {
+        const [cx, cz] = ribC(k)
+        let vis = false
+        if (ribVisibleFrom(ex, ez, k, { ribsBlock: true })) {
+          // 2D 통과 표본 중 셀라도 뚫는 게 하나라도 있는가(중심 + 경계 32점 동일 표본)
+          if (!cellaBlocks(ex, ez, cx, cz) && !boxBlocks(ex, ez, cx, cz) && passes2D(ex, ez, cx, cz, { ribsBlock: true, skipK: k })) vis = true
+          else for (let j = 0; j < 32 && !vis; j++) {
+            const a = j / 32 * Math.PI * 2, px = cx + SHELL_RIB_R * Math.cos(a), pz = cz + SHELL_RIB_R * Math.sin(a)
+            if (!cellaBlocks(ex, ez, px, pz) && !boxBlocks(ex, ez, px, pz) && passes2D(ex, ez, px, pz, { ribsBlock: true, skipK: k })) vis = true
+          }
+        }
+        if (!vis) continue
+        cnt++
+        if (Math.abs(k) >= 3 && !leak) leak = [r2(ex), r2(ez), k]
+      }
+      worstCnt = Math.max(worstCnt, cnt)
+    }
+    ok(leak === null, `★|k|≥3 전 시점 불가시(셈-시점 + 계단 판 ${eyesAll.length}곳) — 창가 근호 노출(구 동시 15) 기하 소멸` + (leak ? ` ✗ 눈(${leak[0]},${leak[1]})→#${leak[2]}` : ''))
+    ok(worstCnt <= 5 && worstCnt >= 5, `동시 가시 최대 ${worstCnt} = 5 — 배경이 상자 내벽으로 닫혀 '다섯이 선다'가 전 시점 성립`)
+  }
+}
+
+//  ★㊶-3 임시 소등(HALL_DOORS_ON=false): 아래 D·E·J·K절은 '문 개구가 뚫린다면 만족해야 할' 기하 조건이다.
+//   개구는 꺼졌지만 좌표(HALL_DOORS)·계단은 보존이므로 검사는 유지 — 스위치를 켜는 순간 깨짐을 미리 잡는다.
+//   라벨에 [소등 중: 복원 조건]을 달아 '지금 화면에 없음'과 '복원하면 성립'을 구분한다.
+const DGATE = HALL_DOORS_ON ? '' : ' [소등 중: 복원 조건]'
+console.log('— P. ★잉카 계단(㊶-5~7) — 정상 77 · 절단 · 아치 밑면(브루탈 다면) · 판 6배 —')
+{
+  ok(INCA_ON === true, `INCA_ON — 잉카 계단 활성`)
+  const spec = incaStairSpec()
+  // (1) 정상(㊶-6: 30% 감 노브) — 프리즈와 대여유
+  ok(INCA_TOP_Y === 77, `정상 ${INCA_TOP_Y} = 110의 70% (㊶-6 현도 — (b) 프리즈 앵커 폐기·직접 노브)`)
+  ok(TEMPLE_Y0 - (INCA_TOP_Y + 1.8) >= 2, `정상 머리(+1.8) ↔ 프리즈 밑 여유 ${r2(TEMPLE_Y0 - INCA_TOP_Y - 1.8)} ≥ 2 — 무충돌`)
+  // (2) 경사·담김
+  ok(Math.abs(INCA_SLOPE - Math.tan(35 * Math.PI / 180)) < 1e-9, `경사 35°(tan=${r2(INCA_SLOPE)}) — "사람이 올라갈 수 있을 정도"(현도)`)
+  ok(INCA_X0 > COR_CYL_X0 + 2, `가상 발치 x ${r2(INCA_X0)} > 드럼 서벽(${COR_CYL_X0})+2 — 드럼 안 담김`)
+  // (2b) ★㊶-6 절단·사다리꼴·판
+  ok(spec.i0 >= 1 && Math.abs(spec.cutY - spec.i0 * spec.rise) < 1e-9 && Math.abs(spec.cutY - INCA_CUT_Y) <= spec.rise / 2 + 1e-9,
+    `절단 스냅: 노브 ${INCA_CUT_Y} → 단 격자 i0=${spec.i0} · 실절단 y ${r2(spec.cutY)}(오차 ≤ rise/2)`)
+  ok(spec.steps.length === spec.n - spec.i0 && spec.steps[0].yTop > spec.cutY,
+    `하부 제거: 잔존 ${spec.steps.length}단 = n(${spec.n}) − i0 · 첫 단 상면 ${r2(spec.steps[0].yTop)} > 절단 ${r2(spec.cutY)} — 서면 = 절단면(㊶-7: 밑면은 아치)`)
+  ok(spec.cutY / INCA_TOP_Y > 0.3 && spec.cutY / INCA_TOP_Y < 0.7,
+    `절단 비율 ${r2(spec.cutY / INCA_TOP_Y)} ∈ (0.3, 0.7) — "더 높게"(현도) 기본 절반대, 노브 안전범위`)
+  ok(Math.abs(spec.panel.yTop - spec.cutY) < 1e-9 && spec.panel.x1 > spec.cutX && spec.panel.x1 - spec.cutX <= 0.3,
+    `진입 판: 상면 = 절단 높이 ${r2(spec.panel.yTop)} · 동단 물림 ${r2(spec.panel.x1 - spec.cutX)} ≤ 0.3`)
+  // (2c) ★㊶-7 판 6배·밑곡면·챔퍼
+  ok(INCA_PANEL_L === 20 && INCA_PANEL_W === 5 && INCA_PANEL_T === 2,
+    `판 20×5×2 (㊶-8 재정정 — "크기 줄이고 가로 우세" 4:1)`)
+  ok(INCA_PANEL_L / INCA_PANEL_W >= 3, `판 비례 가로:세로 ${r2(INCA_PANEL_L / INCA_PANEL_W)} ≥ 3 — 가로 우세(현도 ㊶-8)`)
+  ok(INCA_PANEL_W / 2 + 2 < Math.abs(ribC(1)[1]) - SHELL_RIB_R,
+    `판 반폭 ${INCA_PANEL_W / 2}+2 < #±1 안쪽(${r2(Math.abs(ribC(1)[1]) - SHELL_RIB_R)}) — 이웃 무접촉`)
+  ok(spec.panel.x0 > ORB_CX + ORB_R + 2,
+    `판 서단 ${r2(spec.panel.x0)} > 소구 동단(${r2(ORB_CX + ORB_R)})+2 — 소구와 이격(구 '밑 통과' 사건은 ㊶-6 발치 동진으로 소멸)`)
+  {
+    const u = spec.panel.under
+    ok(Math.abs(u[0].y - (spec.cutY - INCA_PANEL_T)) < 1e-9 && u[u.length - 1].y <= 0 && Math.abs(u[u.length - 1].x - spec.cutX) < 1e-9,
+      `판 밑곡면: 서단 두께 ${INCA_PANEL_T} → '바닥까지'(종점 = 절단면 발, y ${r2(u[u.length - 1].y)} ≤ 0 — ㊶-8 현도) · 접지 곡면 콘솔`)
+    let convex = true                                            // 위로 볼록: 다면점이 전부 현 위(스커트 S2 어휘)
+    const [a, b] = [u[0], u[u.length - 1]]
+    for (const pt of u) if (pt.y < a.y + (b.y - a.y) * (pt.x - a.x) / (b.x - a.x) - 1e-6) convex = false
+    ok(convex, `판 밑곡면 위로 볼록(전 다면점 현 위)`)
+  }
+  // (2d) ★㊶-7 밑면 아치 — 위로 볼록 다면 · 아치 보이드(리브 밑동 자유)
+  {
+    const a = spec.arch
+    ok(INCA_ARCH_X0 > spec.cutX + 4 && Math.abs(a[0].x - INCA_ARCH_X0) < 1e-9 && a[0].y === 0,
+      `아치 발 x ${INCA_ARCH_X0} — 접지 스트립 ${r2(INCA_ARCH_X0 - spec.cutX)} ≥ 4 확보`)
+    ok(Math.abs(a[a.length - 1].y - INCA_ARCH_Y1) < 1e-9 && INCA_ARCH_Y1 < INCA_TOP_Y - 5 && INCA_ARCH_Y1 > INCA_TOP_Y * 0.5,
+      `리브 접점 y ${INCA_ARCH_Y1} — 정상 아래 웨브 ${INCA_TOP_Y - INCA_ARCH_Y1} ≥ 5 · 접점 높이 > 정상 절반(아치 보이드 성립 = 리브 밑동 자유)`)
+    let convex = true
+    const [p0, p1] = [a[0], a[a.length - 1]]
+    for (const pt of a) if (pt.y < p0.y + (p1.y - p0.y) * (pt.x - p0.x) / (p1.x - p0.x) - 1e-6) convex = false
+    ok(convex, `아치 위로 볼록(전 다면점 현 위 — ㊵ 스커트 어휘)`)
+    ok(INCA_FACETS >= 4 && a.length === INCA_FACETS + 1,
+      `브루탈 다면 ${INCA_FACETS}분할(하한 4) — 곡면을 각면으로(균질광 음영 분절 · 노브 ↑= 부드러움)`)
+    // 아치 밑 = 보이드: 곡선 중간점에서 하향으로 매스 없음은 기하 정의상 자명 — 대신 디딤이 전부 곡선 위인지
+    let above = true
+    for (const st of spec.steps) {
+      const t = Math.min(1, Math.max(0, (st.x0 - INCA_ARCH_X0) / (spec.x1 + INCA_BITE - INCA_ARCH_X0)))
+      if (st.yTop < INCA_ARCH_Y1 * Math.sin(t * Math.PI / 2) - 1e-6) above = false
+    }
+    ok(above, `디딤 전부 아치 곡선 위 — 밑면이 디딤을 뚫지 않음(단면 폴리곤 유효)`)
+  }
+  // (3) 도달: #0 하나만 — 반경 방향(z=0)이라 이웃 리브 무접촉은 폭으로 보장
+  ok(Math.abs(INCA_END_X - (R_BASE - SHELL_RIB_R)) < 1e-9, `동단 ${INCA_END_X} = #0 서면 — 닿는 리브는 #0 하나(1p5 불변)`)
+  {
+    const rib1zIn = Math.abs(ribC(1)[1]) - SHELL_RIB_R          // #±1 안쪽 |z| ≈ 19.1
+    ok(Math.max(INCA_W0, INCA_W1) / 2 + 2 < rib1zIn, `최대 반폭 ${r2(Math.max(INCA_W0, INCA_W1) / 2)}+2 < #±1 안쪽(${r2(rib1zIn)}) — 이웃 무접촉`)
+  }
+  // (4) 스펙 정합: 정상 정확 도달 · 균일 rise(보행 가능 단높이) · 마지막 단 물림
+  ok(Math.abs(spec.n * spec.rise - INCA_TOP_Y) < 1e-6 && spec.rise > 0.3 && spec.rise < 0.9,
+    `단 ${spec.n} × rise ${r2(spec.rise)} = 정상 정확(${INCA_TOP_Y}) · rise ∈ (0.3, 0.9) 보행 단높이`)
+  {
+    const last = spec.steps[spec.steps.length - 1]
+    ok(Math.abs(last.x1 - (INCA_END_X + INCA_BITE)) < 1e-9 && Math.abs(last.yTop - INCA_TOP_Y) < 1e-6,
+      `마지막 단: 동단 ${r2(last.x1)} = #0 서면 + 물림 ${INCA_BITE} · 상면 = 정상 ${INCA_TOP_Y}`)
+  }
+  // (5) 경로 무충돌: 프리즈 앞면 통과고 · 셀라 지붕 · 상승 덕트/소구(전부 계단면+머리 1.8 기준)
+  const yOn = (x) => (x - INCA_X0) * INCA_SLOPE
+  ok(yOn(TEMPLE_X0) + 1.8 < TEMPLE_Y0 - 2, `프리즈 앞면(${r2(TEMPLE_X0)}) 통과고 ${r2(yOn(TEMPLE_X0))}+1.8 < ${TEMPLE_Y0}−2 — 밑 통과`)
+  ok(yOn(CELLA_XW) + 1.8 < CELLA_ROOF_Y0 - 2, `셀라 지붕 구간 진입고 ${r2(yOn(CELLA_XW))}+1.8 < 지붕 밑(${CELLA_ROOF_Y0})−2`)
+}
+
+console.log('— D. 문 다섯 (위치·문턱·법선·창 안)' + (HALL_DOORS_ON ? '' : ' — ★㊶-3 개구 소등, 좌표·복원 조건 검증') + ' —')
 ok(doors.length === 5 && HALL_DOORS.length === 5, `문 다섯 (${doors.map(d => d.k).join(', ')})`)
 {
   const sillOf = Object.fromEntries(HALL_DOORS.map(d => [d.k, d.sill]))

@@ -31,10 +31,9 @@ import {
   HALL_ENTRY, ASC_X0, ASC_X1, ASC_RISE, ORB_CX, ORB_FLOOR_Y,
   ROOM_CX, ROOM_FLOOR_Y, DAIS_H, ROOM_DISC_HOLE, ROOM_LAND_R,
   RAD_ANG0, RAD_R, RAD_JX, RAD_FLOOR_Y,
-  P_FLOOR_TOP, P_SPAWN_LX, P1_ON,
-} from './constants.js'
+  P_FLOOR_TOP, P_SPAWN_LX, P1_ON,} from './constants.js'
 import { p1HeightAt } from './radialEventsGeometry.js'   // 1p1 볼록 바닥 보정(모드·노브 자동 추종)
-import { buildHallStairs } from './corridorStairsGeometry.js'   // ★㊳ 계단 끝 4곳(못 닿음 판정 지점) — 빌더 파생(자동 추종)
+import { buildHallStairs, incaStairSpec } from './corridorStairsGeometry.js'   // ★㊳ 계단 끝 4곳(못 닿음 판정 지점) — 빌더 파생(자동 추종)
 
 // ── 스위치 ──
 export const DEV_TELEPORT = true      // ⚠배포 전 false — 패널·[·]·Tab 전부 비활성(스폰만 남음)
@@ -139,6 +138,10 @@ export const WAYPOINTS = [
       yaw: FACE_PX, pitch: 0.1 },
     { id: 'corridor', group: '통로 (1p5)', label: '소구 안 (부양 막다른 방 · ㊵-5)', prop: '1p5',
       x: ORB_CX, y: ORB_FLOOR_Y, z: 0, yaw: FACE_PX, pitch: 0 },
+    // ★㊶-6 잉카 계단 — 진입 판 스폰: 부양 판에서 걸어 오르는 게 신체 판정(경사 35°·절단 공중 시작)
+    { id: 'inca', group: '통로 (1p5)', label: '잉카 계단 진입 판 (부양 · ㊶-6)', prop: '1p5',
+      x: (incaStairSpec().panel.x0 + incaStairSpec().panel.x1) / 2, y: incaStairSpec().panel.yTop,
+      z: 0, yaw: FACE_PX, pitch: 0.25 },
   ] : [
     { id: 'slope', group: '통로 (1p5)', label: '하강 계단 — 중간 (제단 조망)', prop: '—',
       x: (DESC_X0 + DESC_X1) / 2, y: COR_Y0 + COR_THICK / 2 - PLAT_DROP * 0.5, z: 0,

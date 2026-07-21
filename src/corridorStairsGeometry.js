@@ -26,6 +26,9 @@ import {
   PLAT_X, PLAT_R, PLAT_Y, COR_THICK, COR_X1, COR_CX, COR_R, RIB_Y,
   DOOR_H,
   HALL_DOORS, STAIR_GAP, STAIR_DS, STAIR_W, STAIR_SCHEME,
+  INCA_END_X, INCA_X0, INCA_TOP_Y, INCA_SLOPE, INCA_TD, INCA_W0, INCA_W1, INCA_BITE,
+  INCA_CUT_Y, INCA_PANEL_L, INCA_PANEL_W, INCA_PANEL_T,
+  INCA_ARCH_X0, INCA_ARCH_Y1, INCA_FACETS,
 } from './constants.js'
 
 export const PLAT_TOP = PLAT_Y + COR_THICK / 2   // 계단 출발면 = 깊은 제단 상면 ≈31.3
@@ -250,4 +253,43 @@ function _build(scheme) {
     })
   }
   return { stairs, doors }
+}
+
+// ════════ ★잉카 계단 스펙(㊶-5→㊶-6) — 순수 수치 빌더(검증·렌더가 공유하는 정본) ════════
+//  각 단 = 지면(-0.3)부터 자기 상면까지 꽉 찬 상자(잉카 매스 = 디딤 + 지지벽 한 몸).
+//  단수 n = 디딤 목표(INCA_TD)로부터 반올림 → 실 rise·td는 '정상 정확 도달'로 재파생(균일).
+//  ★㊶-6 절단: INCA_CUT_Y를 단 격자에 스냅(i0) → i0 아래 단 전부 제거. ★㊶-7 곡선 밑면: 접지 스트립
+//  (절단면~ARCH_X0) 뒤 '위로 볼록' 다면 곡선(FACETS 분할 — 브루탈)이 리브 접점(ARCH_Y1)까지 상승 =
+//  아치 보이드. 판(6배)의 밑면도 폭 전체 곡면(위로 볼록)이 서면 ROOT 높이로 흘러듦.
+export function incaStairSpec() {
+  const run = INCA_END_X - INCA_X0
+  const n = Math.max(2, Math.round(INCA_TOP_Y / (INCA_TD * INCA_SLOPE)))
+  const rise = INCA_TOP_Y / n, td = run / n
+  const i0 = Math.min(n - 2, Math.max(0, Math.round(INCA_CUT_Y / rise)))   // 절단 스냅(최소 2단은 남김)
+  const cutY = i0 * rise, cutX = INCA_X0 + i0 * td
+  const wAt = (x) => INCA_W0 + (INCA_W1 - INCA_W0) * Math.min(1, Math.max(0, (x - INCA_X0) / run))
+  const steps = []
+  for (let i = i0; i < n; i++) {
+    const x0 = INCA_X0 + i * td
+    const x1 = i === n - 1 ? INCA_END_X + INCA_BITE : x0 + td   // 마지막 단만 리브 물림
+    steps.push({ x0, x1, yTop: (i + 1) * rise, w0: wAt(x0), w1: wAt(x0 + td) })
+  }
+  // ★㊶-7 밑면 아치 다면(위로 볼록: sin — 급상승 후 완만): 발(ARCH_X0, 0) → 리브 접점(END+BITE, ARCH_Y1)
+  const arch = []
+  for (let f = 0; f <= INCA_FACETS; f++) {
+    const t = f / INCA_FACETS
+    arch.push({ x: INCA_ARCH_X0 + (INCA_END_X + INCA_BITE - INCA_ARCH_X0) * t,
+                y: INCA_ARCH_Y1 * Math.sin(t * Math.PI / 2) })
+  }
+  // ★㊶-7→㊶-8 판: 서단 두께 T의 슬라브, 밑면 = 위로 볼록 곡면(1−cos — 완만 출발 후 급강하)이
+  //  '바닥까지'(현도 ㊶-8) — 곡선 종점 = 절단면 발(지면 −0.3 매몰). 판 = 접지 곡면 콘솔.
+  const px0 = cutX - INCA_PANEL_L
+  const under = []
+  for (let f = 0; f <= INCA_FACETS; f++) {
+    const t = f / INCA_FACETS
+    under.push({ x: px0 + (cutX - px0) * t,
+                 y: (cutY - INCA_PANEL_T) - (cutY - INCA_PANEL_T + 0.3) * (1 - Math.cos(t * Math.PI / 2)) })
+  }
+  const panel = { x0: px0, x1: cutX + 0.2, yTop: cutY, t: INCA_PANEL_T, w: INCA_PANEL_W, under }
+  return { n, rise, td, steps, x0: INCA_X0, x1: INCA_END_X, top: INCA_TOP_Y, run, i0, cutY, cutX, arch, panel }
 }

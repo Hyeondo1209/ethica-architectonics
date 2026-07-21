@@ -5,7 +5,7 @@
 //   계단 기하의 정본 = corridorStairsGeometry.js(순수 빌더 — 판·참·간극 전부 저기서 파생).
 import { useMemo } from 'react'
 import * as THREE from 'three'
-import { Brush, Evaluator, SUBTRACTION, INTERSECTION } from 'three-bvh-csg'
+import { Brush, Evaluator, SUBTRACTION, ADDITION } from 'three-bvh-csg'
 import {
   COR_WALL_SEG, DOOR_HALF, COR_CX, COR_R, ceilY, domeClipY,
   neckBottomY, SKIRT_X0, SKIRT_X1,
@@ -16,15 +16,18 @@ import {
   PLAT_X, PLAT_R, PLAT_Y, PILLAR_R,
   STAIR_TD, STAIR_W, COR_RISE,
   TEMPLE_MODE, TEMPLE_Y0, TEMPLE_X0, TEMPLE_X1, TEMPLE_HZ, TEMPLE_CLR,
+  CELLA_ON, CELLA_ZHW, CELLA_X1, CELLA_T, CELLA_ROOF_Y0, CELLA_ROOF_Y1, CELLA_ROOF_T,
+  INCA_ON, INCA_COLOR, INCA_W0, INCA_CHAMF,
+  CELLA_CLR, CELLA_BITE_R, CELLA_XW, CELLA_COLOR,
   PLAT_DROP, DESC_X0, DESC_X1,
   SHELL_RIB_R,
 } from './constants'
-import { buildHallStairs, hallDoors } from './corridorStairsGeometry'
+import { buildHallStairs, hallDoors, incaStairSpec } from './corridorStairsGeometry'
 import {
   HALL_ENTRY, ASC_RISE, ASC_X0, ASC_X1, ASC_SLOPE, BOX_IN_H,
   COR_CYL_X0,
   ORB_R, ORB_CX, ORB_CY, ORB_T, ORB_FLOOR_Y, ORB_FLOOR_R, ORB_WEST_X, ORB_DOOR_W, ORB_DOOR_H,
-  ORB_GLASS, ORB_GLASS_X, ORB_RING_R, ORB_RING_T, ASC_TUN_T, ASC_TUN_UNDER,
+  ORB_OPEN_X, ORB_RING_R, ORB_RING_T, ASC_TUN_T, ASC_TUN_UNDER,
 } from './constants'
 
 // ════════ ★진입 시퀀스(㊴): 수평 다리 → 하강 계단 → 낮은 플랫폼 ════════
@@ -106,8 +109,8 @@ export function AscentStairs() {
     </group>
   )
 }
-//  소구(★㊵-5b): 셸 = (외구 − 내구 − 서쪽 아치 문) 을 컷 평면(x=ORB_GLASS_X)으로 이분 —
-//  서쪽 = 불투명 셸 · 동쪽(리브 방향) = 유리 캐노피(조종석). 경계 = 원형 테(토러스, 축 x) 하나가 프레임.
+//  소구(★㊵-5b → ★㊶-4 개구화): 셸 = (외구 − 내구 − 서쪽 아치 문) 을 컷 평면(x=ORB_OPEN_X)으로 이분한 뒤
+//  서쪽만 남긴다 — 동쪽(리브 방향)은 셸을 만들지 않아 '뻥 뚫린 개구'(구 유리 캐노피 = 렉 → 폐기). 경계 = 원형 테(토러스, 축 x)가 창틀.
 //  창살 배제 의도: 곡면 세로 살 = 리브 어휘 혼동 위험(§ LOCKED). CSG 정공법. 바닥 = 중심 아래 현 원반.
 //  ★★㊵-5f 상승 덕트 → ★㊵-5g 뿌리 연장(현도 "아직 틈"): 한 덩어리 기울어진 각관, 서단을 드럼 벽에 박음.
 //  진단: 덕트가 123.5에서 시작해 벽(120.2)까지 안 닿아 — 그 사이는 박스 얇은 판뿐이라 다리 옆 띠(z 2.5~6)·
@@ -146,7 +149,7 @@ export function AscentTunnel() {
 }
 
 export function OrbRoom() {
-  const { shellGeo, glassGeo, ringGeo, floorGeo } = useMemo(() => {
+  const { shellGeo, ringGeo, floorGeo } = useMemo(() => {
     const ev = new Evaluator(); ev.attributes = ['position', 'normal']
     const mk = (g, x, y, z) => { g.translate(x, y, z); const b = new Brush(g); b.updateMatrixWorld(); return b }
     const hollow = () => {
@@ -154,7 +157,7 @@ export function OrbRoom() {
       return ev.evaluate(a, mk(new THREE.SphereGeometry(ORB_R - ORB_T, 48, 32), ORB_CX, ORB_CY, 0), SUBTRACTION)
     }
     const BIG = ORB_R * 2 + 4
-    //  서쪽 불투명 셸: 중공구 − 아치 − (동쪽 반공간)
+    //  ★㊶-4 서쪽 셸만: 중공구 − 아치 − (동쪽 반공간). 동쪽 캡은 '만들지 않음' = 뻥 뚫린 개구(유리 없음 = 렉 0).
     let west = hollow()
     const rectH = ORB_DOOR_H - ORB_DOOR_W / 2
     const box = new THREE.BoxGeometry(8, rectH, ORB_DOOR_W)
@@ -162,40 +165,26 @@ export function OrbRoom() {
     const cylv = new THREE.CylinderGeometry(ORB_DOOR_W / 2, ORB_DOOR_W / 2, 8, 24)
     cylv.rotateZ(Math.PI / 2)
     west = ev.evaluate(west, mk(cylv, ORB_WEST_X, ORB_FLOOR_Y + rectH, 0), SUBTRACTION)
-    west = ev.evaluate(west, mk(new THREE.BoxGeometry(BIG, BIG, BIG), ORB_GLASS_X + BIG / 2, ORB_CY, 0), SUBTRACTION)
+    west = ev.evaluate(west, mk(new THREE.BoxGeometry(BIG, BIG, BIG), ORB_OPEN_X + BIG / 2, ORB_CY, 0), SUBTRACTION)
     const shellGeo = west.geometry
-    //  동쪽 유리 캐노피: 중공구 ∩ (동쪽 반공간) — 두께 있는 유리 캡
-    let east = hollow()
-    east = ev.evaluate(east, mk(new THREE.BoxGeometry(BIG, BIG, BIG), ORB_GLASS_X + BIG / 2, ORB_CY, 0), INTERSECTION)
-    const glassGeo = east.geometry
-    //  경계 테: 토러스(축 x — rotateY로 눕힘), 컷 원둘레에 물림
+    //  경계 테: 토러스(축 x — rotateY로 눕힘), 뚫린 컷 원둘레에 물려 셸 단면(두께)을 감싸는 프레임(조종석 창틀)
     const ringGeo = new THREE.TorusGeometry(ORB_RING_R, ORB_RING_T, 12, 64)
     ringGeo.rotateY(Math.PI / 2)
-    ringGeo.translate(ORB_GLASS_X, ORB_CY, 0)
+    ringGeo.translate(ORB_OPEN_X, ORB_CY, 0)
     //  바닥 원반: 셸 중간살까지 물림(r = √((R−T/2)² − DROP²))
     const fr = Math.sqrt((ORB_R - ORB_T / 2) ** 2 - (ORB_CY - ORB_FLOOR_Y) ** 2)
     const floorGeo = new THREE.CylinderGeometry(fr, fr, COR_THICK, 48)
     floorGeo.translate(ORB_CX, ORB_FLOOR_Y - COR_THICK / 2, 0)
-    return { shellGeo, glassGeo, ringGeo, floorGeo }
+    return { shellGeo, ringGeo, floorGeo }
   }, [])
   return (
     <group>
       <mesh geometry={shellGeo}>
         <meshStandardMaterial color="#cdb074" roughness={0.85} side={THREE.DoubleSide} />
       </mesh>
-      {ORB_GLASS ? (<>
-        <mesh geometry={glassGeo}>
-          <meshStandardMaterial color="#d8e8e4" roughness={0.08} metalness={0}
-            transparent opacity={0.22} depthWrite={false} side={THREE.DoubleSide} />
-        </mesh>
-        <mesh geometry={ringGeo}>
-          <meshStandardMaterial color="#a98f5e" roughness={0.7} side={THREE.DoubleSide} />
-        </mesh>
-      </>) : (
-        <mesh geometry={glassGeo}>
-          <meshStandardMaterial color="#cdb074" roughness={0.85} side={THREE.DoubleSide} />
-        </mesh>
-      )}
+      <mesh geometry={ringGeo}>
+        <meshStandardMaterial color="#a98f5e" roughness={0.7} side={THREE.DoubleSide} />
+      </mesh>
       <mesh geometry={floorGeo} userData={{ walkable: true }}>
         <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.DoubleSide} />
       </mesh>
@@ -261,6 +250,112 @@ export function TempleBeam() {
     <mesh geometry={geo}>
       <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.DoubleSide} />
     </mesh>
+  )
+}
+
+// ════════ ★셀라(CELLA, ㊶ 2026.07.20 현도 안) — 창 밖 배경 상자: 서면(창 쪽)만 뚫린 직육면체가 다섯 리브를 감싼다 ════════
+//  왜: 창 너머 리브 틈으로 하늘이 비쳐 신전 파사드가 희석(§7 ⑦) + 계단 창가 끝단에서 먼 리브 동시 15 노출.
+//  상자 내벽이 배경이 되면 둘 다 기하로 소멸(보이는 리브 = 다섯뿐 — check_corridor O절 봉인).
+//  구축 = CSG 한 덩어리: (옆벽 2 + 동벽 + 지붕) 유니온
+//         − 드럼 내부 원기둥(CELLA_BITE_R — 곡벽 물림 봉인 + 홀 안쪽 지느러미 절제를 한 수로)
+//         − 리브 구멍 5(프리즈 구멍과 동축·동반경 → 리브가 지붕을 '관통', pierce 어휘 = LOCKED 무결).
+//  시선 봉인 논리(O절 주석과 쌍): y<지붕은 옆벽·동벽·지붕이, y≥TEMPLE_Y0는 기존 프리즈가 막는다 —
+//  지붕 상면을 프리즈 밑면에 0.2 매몰시켜 그 사이 띠(x 295~300 위)로 새던 상향 시선까지 닫는다.
+export function Cella() {
+  const geo = useMemo(() => {
+    if (!CELLA_ON) return null
+    const ev = new Evaluator(); ev.attributes = ['position', 'normal']
+    const xOut = CELLA_X1 + CELLA_T, zOut = CELLA_ZHW + CELLA_T
+    const yTop = CELLA_ROOF_Y1, yBot = -0.5                       // 밑단은 지면에 살짝 매몰(바닥 이음 봉인)
+    const slab = (x0, x1, y0, y1, z0, z1) => {
+      const g = new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0)
+      g.translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
+      const b = new Brush(g); b.updateMatrixWorld(); return b
+    }
+    let acc = slab(CELLA_XW, xOut, yBot, yTop, CELLA_ZHW, zOut)                    // 옆벽 +z
+    acc = ev.evaluate(acc, slab(CELLA_XW, xOut, yBot, yTop, -zOut, -CELLA_ZHW), ADDITION)  // 옆벽 −z
+    acc = ev.evaluate(acc, slab(CELLA_X1, xOut, yBot, yTop, -zOut, zOut), ADDITION)        // 동벽
+    acc = ev.evaluate(acc, slab(CELLA_XW, xOut, CELLA_ROOF_Y0, yTop, -zOut, zOut), ADDITION) // 지붕(밑면 = 프리즈 밑면 114)
+    { // 드럼 내부 절제 — 곡벽(두께 0 셸) 물림·안쪽 지느러미 소거
+      const bite = new THREE.CylinderGeometry(CELLA_BITE_R, CELLA_BITE_R, 300, 96)
+      bite.translate(COR_CX, 140, 0)
+      const b = new Brush(bite); b.updateMatrixWorld()
+      acc = ev.evaluate(acc, b, SUBTRACTION)
+    }
+    if (TEMPLE_MODE !== 'off') {
+      // ★㊶-2 프리즈 발자국 절제 — 지붕 밑면(114)이 프리즈 밑면과 동일 평면이 되면서 발자국이 겹치면
+      //  z파이팅. 프리즈가 덮는 곳엔 지붕을 두지 않는다(밑면이 서로 '이어 붙는' 타일링) → 바이트 원호
+      //  모서리는 전부 프리즈 발자국 안 = 불가시(㊶-1의 '곡선 띠' 소거). ⚠프리즈 off면 절제도 끈다
+      //  (단 상부 봉인 자체가 프리즈 전제 — 셀라는 TEMPLE_MODE 'beam'과 한 세트, O절이 강제).
+      const fz = new THREE.BoxGeometry(TEMPLE_X1 - TEMPLE_X0, CELLA_ROOF_T + 2, TEMPLE_HZ * 2)
+      fz.translate((TEMPLE_X0 + TEMPLE_X1) / 2, CELLA_ROOF_Y0 + CELLA_ROOF_T / 2, 0)
+      const b = new Brush(fz); b.updateMatrixWorld()
+      acc = ev.evaluate(acc, b, SUBTRACTION)
+    }
+    for (const d of hallDoors()) {                                 // 리브 관통 구멍 5(지붕만 실질 절제)
+      const hole = new THREE.CylinderGeometry(SHELL_RIB_R + CELLA_CLR, SHELL_RIB_R + CELLA_CLR, yTop + 8, 24)
+      hole.translate(d.cx, (yTop + 4 - 2) / 2, d.cz)
+      const b = new Brush(hole); b.updateMatrixWorld()
+      acc = ev.evaluate(acc, b, SUBTRACTION)
+    }
+    return acc.geometry
+  }, [])
+  if (!geo) return null
+  return (
+    <mesh geometry={geo}>
+      <meshStandardMaterial color={CELLA_COLOR} roughness={0.95} side={THREE.DoubleSide} />
+    </mesh>
+  )
+}
+
+// ════════ ★잉카 계단(INCA, ㊶-5~7 현도 스케치×2) — 리브 #0 서면으로, 반지름 방향(z=0) ════════
+//  ㊶-6: 정상 77 · 하부 수직 절단 · 진입 판. ★㊶-7~8: ① 매스 하부 = 접지 스트립 + '위로 볼록' 다면 곡선
+//  → 아치 보이드(리브 밑동 자유 — 계단은 위 접점에서만 리브를 만남). ② 판 20×5×2(가로 우세 4:1), 밑면 = 폭 전체
+//  곡면이 '바닥까지' 흘러듦(㊶-8 현도 — 접지 곡면 콘솔). ③ 브루탈: 곡면 다면화(FACETS)·판 서단 챔퍼(CHAMF).
+//  구축 = 단면 폴리곤(x–y) → ExtrudeGeometry 압출(z, 폭). ⚠폭 사다리꼴(W1≠W0)을 쓰려면 압출로는 안 되고
+//  수제 쿼드로 회귀 필요 — 현재 W0=W1 전제(P절이 강제하진 않음, 노브 사용 시 이 주석 볼 것).
+//  수치 정본 = corridorStairsGeometry.incaStairSpec() — 검증(check_corridor P절)과 공유.
+export function IncaStair() {
+  const { massGeo, panelGeo } = useMemo(() => {
+    if (!INCA_ON) return { massGeo: null, panelGeo: null }
+    const spec = incaStairSpec()
+    const { steps, arch, panel, cutX } = spec
+    const Y0 = -0.3
+    // ── 매스: 서면 → 디딤 지그재그 → 동면(웨브) → 아치 다면(역순) → 접지 스트립 ──
+    const ms = new THREE.Shape()
+    ms.moveTo(cutX, Y0)
+    ms.lineTo(cutX, steps[0].yTop)
+    for (const st of steps) { ms.lineTo(st.x0, st.yTop); ms.lineTo(st.x1, st.yTop) }
+    const last = steps[steps.length - 1]
+    ms.lineTo(last.x1, arch[arch.length - 1].y)                  // 동면: 정상 → 리브 접점(웨브)
+    for (let i = arch.length - 1; i >= 0; i--) ms.lineTo(arch[i].x, arch[i].y)
+    ms.lineTo(arch[0].x, Y0)                                     // 발 매몰
+    ms.closePath()                                               // 접지 스트립(발 → 절단면)
+    const massGeo = new THREE.ExtrudeGeometry(ms, { depth: INCA_W0, bevelEnabled: false })
+    massGeo.translate(0, 0, -INCA_W0 / 2)
+    // ── 판: 상면 평판 → 동단 물림 → 밑곡면(역순, 다면) → 서단 챔퍼 ──
+    const ps = new THREE.Shape()
+    ps.moveTo(panel.x0, panel.yTop)
+    ps.lineTo(panel.x1, panel.yTop)
+    ps.lineTo(panel.x1, -0.3)                                    // 동단: 지면까지(㊶-8 — 곡선 종점 = 절단면 발)
+    for (let i = panel.under.length - 1; i >= 1; i--) ps.lineTo(panel.under[i].x, panel.under[i].y)
+    ps.lineTo(panel.x0 + INCA_CHAMF, panel.yTop - panel.t)       // ★브루탈 챔퍼(서단 모따기)
+    ps.lineTo(panel.x0, panel.yTop - panel.t + INCA_CHAMF)
+    ps.closePath()
+    const panelGeo = new THREE.ExtrudeGeometry(ps, { depth: panel.w, bevelEnabled: false })
+    panelGeo.translate(0, 0, -panel.w / 2)
+    return { massGeo, panelGeo }
+  }, [])
+  if (!massGeo) return null
+  return (
+    <group>
+      <mesh geometry={massGeo} userData={{ walkable: true }}>
+        <meshStandardMaterial color={INCA_COLOR} roughness={0.92} side={THREE.DoubleSide} />
+      </mesh>
+      <mesh geometry={panelGeo} userData={{ walkable: true }}>
+        <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.DoubleSide} />
+      </mesh>
+    </group>
   )
 }
 
@@ -392,6 +487,8 @@ export function Corridor() {
         <OrbRoom />
       </>)}
       <TempleBeam />
+      <Cella />
+      <IncaStair />
       <NeckSkirt />
 
       {/* === 외피: 거대 원기둥(벽 + 닫힌 빗면 천장) — 공간감 통로 === */}

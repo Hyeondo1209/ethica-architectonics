@@ -9,7 +9,7 @@ import { Brush, Evaluator, HOLLOW_SUBTRACTION } from 'three-bvh-csg'
 import {
   rOf, uOfX, spiralPoint, SCALE, H, R_BASE, MERIDIANS, SHELL_RIB_R, RIB_RADIAL_SEG,
   STAIR_STEPS, STEP_RISE, TREAD_DEPTH, TREAD_WIDTH, TREAD_THICK, POLE_R, Y_POLE_CUT, U_DOOR,
-  DOOR_W, DOOR_H, DOOR_SILL_Y,
+  DOOR_W, DOOR_H, DOOR_SILL_Y, HALL_DOORS_ON,
   U_SPIRAL_END, U_KNEE_END, KW_STEPS, KW_GO, KW_TREAD_D, KW_TREAD_W, KW_FLATTEN, PANEL_DX, PANEL_Z0, PANEL_Z1, LAND_R, LAND_T, X_LAND_LO, X_LAND_HI, Z_LAND,
   JCT_UP_Z, JCT_DN_Z, LOOKOUT_MAX_SLOPE, U_LOOKOUT_END, LK_STEPS, LK_PLAT_R, LK_DISC_LIFT,
   LK_DISC_HALF, LK_DISC_DX, LK_DISC_DY, LK_DISC_DZ, LK_DISC_ROT,
@@ -124,8 +124,11 @@ export function ExplorationRib() {
     const archCut = new THREE.BoxGeometry(ARCH_X1 - ARCH_X0, ARCH_Y1 - ARCH_Y0, ARCH_Z1 - ARCH_Z0)
     archCut.translate((ARCH_X0 + ARCH_X1) / 2, (ARCH_Y0 + ARCH_Y1) / 2, (ARCH_Z0 + ARCH_Z1) / 2)
     const ribBrush = new Brush(tube); ribBrush.updateMatrixWorld()
-    const b1 = new Brush(doorCut); b1.updateMatrixWorld()
-    const step1 = ev.evaluate(ribBrush, b1, HOLLOW_SUBTRACTION)
+    let step1 = ribBrush
+    if (HALL_DOORS_ON) {                                          // ★㊶-3: 문 개구만 스위치 — 끄면 문 컷 skip(아치는 아래서 유지)
+      const b1 = new Brush(doorCut); b1.updateMatrixWorld()
+      step1 = ev.evaluate(ribBrush, b1, HOLLOW_SUBTRACTION)
+    }
     const b2 = new Brush(archCut); b2.updateMatrixWorld()
     return ev.evaluate(step1, b2, HOLLOW_SUBTRACTION).geometry   // ⚠㊴: 구 entablature 클립 제거(프리즈가 가림 — 리브 무절단 복귀)
   }, [])
@@ -146,6 +149,7 @@ export function HallDoorRibs() {
     return hallDoors().filter(d => d.k !== 0).map(d => {
       const tube = new THREE.TubeGeometry(makeRibCurve(), 200, SHELL_RIB_R, RIB_RADIAL_SEG, false)
       tube.rotateY(-d.phi)                             // rotateY(a) → 방위각 −a. 방위각 +φ에 놓으려면 −φ
+      if (!HALL_DOORS_ON) return tube                  // ★㊶-3 임시 소등: 문 컷 없이 매끈한 관(형태 = 나머지 리브와 동일)
       const cut = new THREE.BoxGeometry(SHELL_RIB_R, DOOR_H, DOOR_W)
       cut.rotateY(Math.atan2(-d.dhat[1], d.dhat[0]))   // 로컬 +x(깊이축)를 문 법선 d̂에 정렬
       cut.translate(d.cx + d.dhat[0] * SHELL_RIB_R, d.sill + DOOR_H / 2, d.cz + d.dhat[1] * SHELL_RIB_R)
