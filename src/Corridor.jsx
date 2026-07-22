@@ -25,10 +25,13 @@ import {
   ALTAR_STEP1_H, ALTAR_STEP2_H, ALTAR_UNI_XW, ALTAR_COLOR,
   TIER_ON, TIER_CENTER, TIER_PROFILE, TIER_N, TIER_RMAX, TIER_RISE, TIER_COLOR,
   PIER_ON, PIER_N, PIER_HW, PIER_DEPTH, PIER_OUT, PIER_Y0, PIER_TOP_OVER, PIER_COLOR,
+  INTAKE_ON, INTAKE_FORM, INTAKE_CX, INTAKE_HOLE_HW, INTAKE_LAYERS, INTAKE_RISE, INTAKE_SETBACK, INTAKE_WALL_T,
+  INTAKE_FUNNEL_DROP, INTAKE_FUNNEL_RB, INTAKE_COLOR, INTAKE_GLOW,
+  GAT_SEAT, GAT_CX, GAT_CROWN_R, GAT_CONE_H, GAT_CROWN_H, GAT_SLIT, GAT_FACETS, GAT_POSTS, GAT_POST_R, GAT_LID_T,
   PLAT_DROP, DESC_X0, DESC_X1,
   SHELL_RIB_R,
 } from './constants'
-import { buildHallStairs, hallDoors, incaStairSpec, incaBladesSpec } from './corridorStairsGeometry'
+import { buildHallStairs, hallDoors, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal } from './corridorStairsGeometry'
 import {
   HALL_ENTRY, ASC_RISE, ASC_X0, ASC_X1, ASC_SLOPE, BOX_IN_H,
   COR_CYL_X0,
@@ -598,6 +601,159 @@ export function DrumPiers() {
   )
 }
 
+// ════════ ★ 빛 흡입구(Light Intake — 2026.07.22, 티켓 1장) ════════
+//  빗면 천장 중앙 개구 위 흡입 구조물 4종. 상단 캡 = 위상 폐쇄 → 5갈래 계단에서 외부 리브 불가시(조건 1).
+//  발광면 = 임시(진짜 빛 P2). 굵은 각/원 켜(㉯ — 얇은 살 없음). 폐기 = INTAKE_ON. 형태 = INTAKE_FORM.
+export function LightIntake() {
+  const parts = useMemo(() => {
+    if (!INTAKE_ON) return null
+    const cx = INTAKE_CX, T = INTAKE_WALL_T
+    const out = []
+    const add = (geo, glow = false) => out.push({ geo, glow })
+    const boxAt = (x0, x1, y0, y1, z0, z1) => { const g = new THREE.BoxGeometry(x1-x0, y1-y0, z1-z0); g.translate((x0+x1)/2, (y0+y1)/2, (z0+z1)/2); return g }
+    const sqRing = (hw, y0, y1, rot) => {     // 사각 링 4벽(중심 cx,0). rot이면 y축 회전(회전 스택)
+      const gs = [
+        boxAt(cx-hw, cx-hw+T, y0, y1, -hw, hw), boxAt(cx+hw-T, cx+hw, y0, y1, -hw, hw),
+        boxAt(cx-hw, cx+hw, y0, y1, hw-T, hw),  boxAt(cx-hw, cx+hw, y0, y1, -hw, -hw+T),
+      ]
+      if (rot) for (const g of gs) { g.translate(-cx, 0, 0); g.rotateY(rot); g.translate(cx, 0, 0) }
+      gs.forEach(g => add(g))
+    }
+    // ── ★갓(현도 스케치 07.22 + 수정 5건): 크라운 + ★원기둥 기둥 + ★수평 리드 + 발광 ──
+    //  양태(각뿔대)는 천장 자리를 대신하므로 ceilGeo가 그린다. 여기선 그 위 구조만.
+    //  ①기둥 = 원기둥 ②리드·처마 = 수평(지면 평행) → 절단면이 빗면 평행이면 기둥 길이가 방위마다 다름
+    //  ④크라운 중심 = GAT_CX(서쪽) ⑤크라운 높이 = GAT_CROWN_H(낮춤).
+    //  처마 = gatSeal() 수치해 파생 → 조건 1(외부 리브 불가시) 자동 보장.
+    if (INTAKE_FORM === 'gat') {
+      const SEG = 64, R = GAT_CROWN_R, gx = GAT_CX
+      const seal = gatSeal(), lidY = seal.lidY, lidR = seal.lidR
+      { // 크라운 벽(수직 통) — 밑동 → 절단면. 'level'이면 둘 다 수평이라 높이 균일(현도 07.22)
+        const pos = [], idx = []
+        for (let i = 0; i <= SEG; i++) {
+          const t = (i/SEG)*Math.PI*2, x = gx + R*Math.cos(t), z = R*Math.sin(t)
+          pos.push(x, seal.baseY - 0.6, z, x, seal.cutY, z)   // 밑단 −0.6 = 양태에 살짝 묻어 이음 봉인
+        }
+        for (let i = 0; i < SEG; i++) { const a=2*i, b=2*i+1, c=2*i+3, d=2*i+2; idx.push(a,b,c, a,c,d) }
+        const g2 = new THREE.BufferGeometry()
+        g2.setAttribute('position', new THREE.Float32BufferAttribute(pos,3)); g2.setIndex(idx); g2.computeVertexNormals(); add(g2)
+      }
+      for (let i = 0; i < GAT_POSTS; i++) {          // ★원기둥 기둥 — 길이는 절단면↔수평 리드 간격(방위마다 다름)
+        const t = (i/GAT_POSTS)*Math.PI*2, x = gx + R*Math.cos(t), z = R*Math.sin(t)
+        const y0 = seal.cutY, h = lidY - y0
+        if (h <= 0.05) continue
+        const c2 = new THREE.CylinderGeometry(GAT_POST_R, GAT_POST_R, h, 14)
+        c2.translate(x, y0 + h/2, z); add(c2)
+      }
+      const lid = new THREE.CylinderGeometry(lidR, lidR, GAT_LID_T, 96)   // ★수평 리드 + 처마(한 몸)
+      lid.translate(gx, lidY + GAT_LID_T/2, 0); add(lid)
+      const gl = new THREE.CylinderGeometry(R - 1.5, R - 1.5, 0.8, 48)    // 발광(리드 밑 — 진짜 빛 P2)
+      gl.translate(gx, lidY - 0.6, 0); add(gl, true)
+      return out
+    }
+
+    const yBase = ceilY(cx - INTAKE_HOLE_HW) - 2         // 서쪽(낮은) 개구변 −2 = 경사 지붕 매몰(밑단 봉인)
+    const OUT0 = INTAKE_HOLE_HW + T + 2                  // 켜0 바깥 반폭/반경 = 개구 가장자리 덮음
+
+    // ── ★슬릿형 챔버(2026.07.22): 지붕면에 '평행 오프셋'으로 얹은 좁고 긴 상자 ──
+    //  벽 밑단 = ceilY(x)−0.5(지붕 따라감 → 홀 안으로 처지는 립 없음) · 상단·뚜껑 = ceilY(x)+RISE.
+    //  뚜껑이 개구를 T만큼 덮어 위상 폐쇄 = 조건 1(어느 각도든 시선이 챔버 내벽·뚜껑에서 종료).
+    if (INTAKE_IS_SLIT) {
+      const yB = x => ceilY(x) - 0.5, yT = x => ceilY(x) + INTAKE_RISE
+      const quad = (a, b, c, d, glow) => {
+        const g = new THREE.BufferGeometry()
+        g.setAttribute('position', new THREE.Float32BufferAttribute([...a, ...b, ...c, ...d], 3))
+        g.setIndex([0,1,2, 0,2,3]); g.computeVertexNormals(); add(g, glow)
+      }
+      const strip = (A, B, glow) => {                    // 두 폴리라인 사이 사각 띠(원호 벽·뚜껑)
+        const pos = [], idx = []
+        for (let i = 0; i < A.length; i++) { pos.push(...A[i], ...B[i]) }
+        for (let i = 0; i < A.length-1; i++) { const a=2*i, b=2*i+1, c=2*i+3, d=2*i+2; idx.push(a,b,c, a,c,d) }
+        const g = new THREE.BufferGeometry()
+        g.setAttribute('position', new THREE.Float32BufferAttribute(pos,3))
+        g.setIndex(idx); g.computeVertexNormals(); add(g, glow)
+      }
+      for (const h of intakeSpec().holes) {
+        if (h.type === 'rect') {
+          const { x0, x1, z0, z1 } = h
+          for (const x of [x0, x1])                      // 긴 벽 둘(z를 따라 달림)
+            quad([x,yB(x),z0], [x,yB(x),z1], [x,yT(x),z1], [x,yT(x),z0])
+          for (const z of [z0, z1])                      // 짧은 끝벽 둘
+            quad([x0,yB(x0),z], [x1,yB(x1),z], [x1,yT(x1),z], [x0,yT(x0),z])
+          const a0 = x0-T, a1 = x1+T, b0 = z0-T, b1 = z1+T
+          quad([a0,yT(a0),b0], [a1,yT(a1),b0], [a1,yT(a1),b1], [a0,yT(a0),b1])   // 뚜껑(개구를 T만큼 덮음)
+          const gx0 = x0+0.5, gx1 = x1-0.5, gz0 = z0+0.5, gz1 = z1-0.5
+          quad([gx0,yT(gx0)-1.5,gz0], [gx1,yT(gx1)-1.5,gz0], [gx1,yT(gx1)-1.5,gz1], [gx0,yT(gx0)-1.5,gz1], true)  // 발광(뚜껑 밑)
+        } else {
+          const SEG = Math.max(16, Math.round(Math.abs(h.phi1-h.phi0) / (Math.PI*2) * 96))
+          const ring = (r, fy) => {                      // 반경 r 위 폴리라인(높이 함수 fy)
+            const pts = []
+            for (let i = 0; i <= SEG; i++) {
+              const p = h.phi0 + (h.phi1-h.phi0) * i/SEG
+              const x = COR_CX + r*Math.cos(p)
+              pts.push([x, fy(x), r*Math.sin(p)])
+            }
+            return pts
+          }
+          strip(ring(h.r0, yB), ring(h.r0, yT))          // 안쪽 벽(고리형에선 천장 섬을 매다는 벽)
+          strip(ring(h.r1, yB), ring(h.r1, yT))          // 바깥 벽
+          strip(ring(h.r0-T, yT), ring(h.r1+T, yT))      // 뚜껑(양쪽 T 덮음)
+          strip(ring(h.r0+0.5, x => yT(x)-1.5), ring(h.r1-0.5, x => yT(x)-1.5), true)  // 발광
+          if (!h.closed) for (const p of [h.phi0, h.phi1]) {   // 끝벽 둘(호가 열린 경우)
+            const P = r => [COR_CX + r*Math.cos(p), 0, r*Math.sin(p)]
+            const A = P(h.r0), B = P(h.r1)
+            quad([A[0],yB(A[0]),A[2]], [B[0],yB(B[0]),B[2]], [B[0],yT(B[0]),B[2]], [A[0],yT(A[0]),A[2]])
+          }
+        }
+      }
+      return out
+    }
+
+    if (INTAKE_FORM === 'b1' || INTAKE_FORM === 'b3') {
+      let y = yBase
+      for (let i = 0; i < INTAKE_LAYERS; i++) {
+        sqRing(OUT0 - i*INTAKE_SETBACK, y, y + INTAKE_RISE, INTAKE_FORM === 'b3' ? i*Math.PI/8 : 0)
+        y += INTAKE_RISE
+      }
+      const capHw = OUT0 - (INTAKE_LAYERS-1)*INTAKE_SETBACK + 1
+      add(boxAt(cx-capHw, cx+capHw, y, y+2.6, -capHw, capHw))          // 캡(위상 폐쇄)
+      const gw = OUT0 - (INTAKE_LAYERS-1)*INTAKE_SETBACK - T
+      add(boxAt(cx-gw, cx+gw, y-2, y-0.5, -gw, gw), true)             // 발광(캡 밑 = 목구멍 속 광원)
+    } else if (INTAKE_FORM === 'b2') {
+      let y = yBase
+      for (let i = 0; i < INTAKE_LAYERS; i++) {
+        const r = OUT0 - i*INTAKE_SETBACK, y1 = y + INTAKE_RISE
+        const cyl = new THREE.CylinderGeometry(r, r, y1-y, 64, 1, true); cyl.translate(cx, (y+y1)/2, 0); add(cyl)
+        const lid = new THREE.RingGeometry(Math.max(r-T, 2), r, 64); lid.rotateX(-Math.PI/2); lid.translate(cx, y1, 0); add(lid)
+        y = y1
+      }
+      const capR = OUT0 - (INTAKE_LAYERS-1)*INTAKE_SETBACK + 1
+      const cap = new THREE.CylinderGeometry(capR, capR, 2.6, 64); cap.translate(cx, y+1.3, 0); add(cap)
+      const gr = capR - T - 1
+      const gl = new THREE.CylinderGeometry(gr, gr, 1.6, 48); gl.translate(cx, y-2, 0); add(gl, true)
+    } else if (INTAKE_FORM === 'funnel') {
+      const yC = ceilY(cx), RT = INTAKE_HOLE_HW + 1, CH = 10          // 목 = 개구+1(가장자리 물림), 굴뚝 높이 CH
+      const chim = new THREE.CylinderGeometry(RT, RT, CH, 64, 1, true); chim.translate(cx, yC + CH/2, 0); add(chim)
+      const cap = new THREE.CylinderGeometry(RT+1, RT+1, 2.6, 64); cap.translate(cx, yC + CH + 1.3, 0); add(cap)
+      const gl = new THREE.CylinderGeometry(RT-2, RT-2, 1.6, 48); gl.translate(cx, yC + CH - 2, 0); add(gl, true)
+      const fun = new THREE.CylinderGeometry(RT, INTAKE_FUNNEL_RB, INTAKE_FUNNEL_DROP, 64, 1, true)
+      fun.translate(cx, yC - INTAKE_FUNNEL_DROP/2, 0); add(fun)        // 홀로 내려오는 나팔(트럼펫)
+    }
+    return out
+  }, [])
+  if (!parts) return null
+  return (
+    <group>
+      {parts.map((p, i) => (
+        <mesh key={i} geometry={p.geo}>
+          {p.glow
+            ? <meshBasicMaterial color={INTAKE_GLOW} side={THREE.DoubleSide} />
+            : <meshStandardMaterial color={INTAKE_COLOR} roughness={0.95} side={THREE.DoubleSide} />}
+        </mesh>
+      ))}
+    </group>
+  )
+}
+
 export function Corridor() {
   const wallMat = '#b89a6a'
 
@@ -641,21 +797,74 @@ export function Corridor() {
     return g
   }, [])
 
-  // 빗면 천장 덮개(닫힘): 중심에서 림으로 삼각 부채 = 기울어진 타원 평면
+  // 빗면 천장 덮개: INTAKE_ON이면 중앙 개구 뚫린 고리(annulus), 아니면 부채꼴(닫힘)
   const ceilGeo = useMemo(() => {
-    const pos = [], idx = []
-    pos.push(COR_CX, ceilY(COR_CX), 0)                              // 중심 = 0번
-    for (let i = 0; i <= COR_WALL_SEG; i++) {
-      const t = (i / COR_WALL_SEG) * Math.PI * 2
-      const x = COR_CX + COR_R * Math.cos(t)
-      pos.push(x, ceilY(x), COR_R * Math.sin(t))
-    }
-    for (let i = 1; i <= COR_WALL_SEG; i++) idx.push(0, i, i + 1)
+    const N = COR_WALL_SEG
     const g = new THREE.BufferGeometry()
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
-    g.setIndex(idx)
-    g.computeVertexNormals()
-    return g
+    if (!INTAKE_ON) {
+      const pos = [COR_CX, ceilY(COR_CX), 0], idx = []
+      for (let i = 0; i <= N; i++) { const t=(i/N)*Math.PI*2, x=COR_CX+COR_R*Math.cos(t); pos.push(x, ceilY(x), COR_R*Math.sin(t)) }
+      for (let i = 1; i <= N; i++) idx.push(0, i, i+1)
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos,3)); g.setIndex(idx); g.computeVertexNormals(); return g
+    }
+    // ★갓 양태(현도 스케치 07.22 + 수정 ③ '각기둥 느낌'): 평평한 빗면 대신 ★각뿔대(패싯 GAT_FACETS).
+    //  바깥 다각형 = 드럼 벽 원에 '외접'(모서리가 접점, 코너는 살짝 밖) → 벽 top을 덮어 틈 0.
+    //  ★안쪽 다각형 = 크라운 원에 '내접'(정점이 원 위, 모서리는 원 안) → 크라운 벽과 겹쳐 틈 0.
+    //   (07.22 현도 "크라운과 양태 사이 틈" = 안쪽을 외접으로 짜서 크라운보다 최대 R(1/cos−1) 바깥에서
+    //    끝나 링 모양 틈이 생긴 것. 내접으로 뒤집어 물린다.)
+    //  안쪽 링 높이: 'level'이면 수평(크라운이 수직 원통 = 벽 높이 균일) · 'tilt'면 빗면 평행.
+    if (INTAKE_FORM === 'gat') {
+      const seat = GAT_SEAT === 'pier' ? PIER_TOP_OVER : 0
+      const seal = gatSeal()
+      const F = GAT_FACETS, kOut = 1 / Math.cos(Math.PI / F)
+      const rOut = COR_R * kOut, rIn = GAT_CROWN_R          // 안쪽 = 내접(정점 반경 = 크라운 반경)
+      const pos = [], idx = []
+      const PO = (t) => { const x = COR_CX + rOut*Math.cos(t); return [x, ceilY(x) + seat, rOut*Math.sin(t)] }
+      const PI_ = (t) => { const x = GAT_CX + rIn*Math.cos(t)
+        return [x, seal.baseY, rIn*Math.sin(t)] }
+      for (let i = 0; i < F; i++) {
+        const t0 = (i/F)*Math.PI*2, t1 = ((i+1)/F)*Math.PI*2
+        const v = [PO(t0), PO(t1), PI_(t1), PI_(t0)]
+        const b = pos.length/3
+        for (const q of v) pos.push(...q)
+        idx.push(b, b+1, b+2, b, b+2, b+3)
+      }
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos,3)); g.setIndex(idx); g.computeVertexNormals(); return g
+    }
+    // ★슬릿형: 원판(림) − 구멍들을 삼각분할(ShapeGeometry) 후 빗면으로 올림 — 직선/원호/고리 개구가 정확.
+    //  shape 좌표 (X,Y) = 세계 (x,z), y는 ceilY(x)로 파생(천장은 평면이라 어떤 삼각분할도 정합).
+    if (INTAKE_IS_SLIT) {
+      const spec = intakeSpec()
+      const shape = new THREE.Shape(); shape.absarc(COR_CX, 0, COR_R, 0, Math.PI*2, false)
+      for (const h of spec.holes) {
+        const p = new THREE.Path()
+        if (h.type === 'rect') { p.moveTo(h.x0,h.z0); p.lineTo(h.x1,h.z0); p.lineTo(h.x1,h.z1); p.lineTo(h.x0,h.z1); p.closePath() }
+        else if (h.closed)     { p.absarc(COR_CX, 0, h.r1, 0, Math.PI*2, false) }        // 고리 = 바깥원 구멍(+아래 섬)
+        else { p.absarc(COR_CX, 0, h.r1, h.phi0, h.phi1, false); p.absarc(COR_CX, 0, h.r0, h.phi1, h.phi0, true); p.closePath() }
+        shape.holes.push(p)
+      }
+      const shapes = [shape]
+      if (spec.island) { const isl = new THREE.Shape(); isl.absarc(COR_CX, 0, spec.island.r, 0, Math.PI*2, false); shapes.push(isl) }
+      const sg = new THREE.ShapeGeometry(shapes, Math.max(24, Math.round(N/2)))
+      const a = sg.attributes.position, out = new Float32Array(a.count*3)
+      for (let i = 0; i < a.count; i++) { const X = a.getX(i), Z = a.getY(i); out[3*i] = X; out[3*i+1] = ceilY(X); out[3*i+2] = Z }
+      const gg = new THREE.BufferGeometry()
+      gg.setAttribute('position', new THREE.BufferAttribute(out,3))
+      gg.setIndex(sg.getIndex()); gg.computeVertexNormals(); sg.dispose(); return gg
+    }
+    // 개구 뚫린 고리: 안쪽 경계(형태별 사각/원 — 개구 가장자리) → 바깥 림. 안쪽=2i, 바깥=2i+1.
+    const round = INTAKE_FORM === 'b2' || INTAKE_FORM === 'funnel'
+    const pos = [], idx = []
+    for (let i = 0; i <= N; i++) {
+      const t = (i/N)*Math.PI*2, cs = Math.cos(t), sn = Math.sin(t)
+      const ir = round ? INTAKE_HOLE_HW : INTAKE_HOLE_HW / Math.max(Math.abs(cs), Math.abs(sn))
+      const ix = INTAKE_CX + ir*cs, iz = ir*sn
+      pos.push(ix, ceilY(ix), iz)                                     // 안쪽(개구 가장자리) 2i
+      const rx = COR_CX + COR_R*cs, rz = COR_R*sn
+      pos.push(rx, ceilY(rx), rz)                                     // 바깥(림) 2i+1
+    }
+    for (let i = 0; i < N; i++) { const a=2*i, b=2*i+1, c=2*i+3, d=2*i+2; idx.push(a,b,c, a,c,d) }
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos,3)); g.setIndex(idx); g.computeVertexNormals(); return g
   }, [])
 
   // === 박스(직육면체 통로) — ★방사 개편(2026.07.09): 서쪽 단축(BOX_X0=54, 원뿔대에 안 닿음 → CSG 불요)
@@ -731,6 +940,7 @@ export function Corridor() {
       <RibAltar />
       <IncaStair />
       <DrumPiers />
+      <LightIntake />
       <NeckSkirt />
 
       {/* === 외피: 거대 원기둥(벽 + 닫힌 빗면 천장) — 공간감 통로 === */}

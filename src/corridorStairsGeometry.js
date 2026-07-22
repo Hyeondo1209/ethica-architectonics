@@ -30,6 +30,8 @@ import {
   INCA_CUT_Y, INCA_PANEL_L, INCA_PANEL_W, INCA_PANEL_T,
   INCA_ARCH_X0, INCA_ARCH_Y1, INCA_FACETS,
   R_BASE, INCA_NEXUS_R, INCA_TIP_Y1, INCA_TIP_Y2, INCA_GAP, INCA_TIP_T, INCA_EMBED,
+  INTAKE_ON, INTAKE_FORM, INTAKE_CX, SLIT_W, SLIT_LEN_F, SLIT_N, SLIT_GAP, SLIT_R, SLIT_ARC_DEG, SLIT_ARC_MID,
+  ceilY, GAT_CX, GAT_CROWN_R, GAT_CONE_H, GAT_CROWN_H, GAT_SLIT, GAT_EAVE_MIN, GAT_EAVE_SF,
 } from './constants.js'
 
 export const PLAT_TOP = PLAT_Y + COR_THICK / 2   // 계단 출발면 = 깊은 제단 상면 ≈31.3
@@ -348,4 +350,95 @@ export function incaBladesSpec() {
   for (const a of bnd) nexus.push({ x: ncx + rimR * Math.cos(a), z: rimR * Math.sin(a) })
   nexus.push({ x: ncx, z: rimR * Math.sin(bnd[5]) })
   return { ncx, blades, nexus, bnd, rimR, cutY: base.cutY }
+}
+
+// ════════ ★ 빛 흡입구 스펙(2026.07.22) — 천장 개구·챔버·검증의 공유 정본 ════════
+//  순수 기술자(descriptor)만 반환. 슬릿형은 좁고 긴 개구 → 빛이 띠로 퍼진다.
+//  조건 1(5갈래 계단서 외부 리브 불가시)은 형태와 무관하게 '챔버 + 뚜껑'이 위상으로 보장한다.
+//   rect: {type:'rect', x0,x1,z0,z1}  ·  arc: {type:'arc', r0,r1,phi0,phi1, closed}
+//  island = 'ring'에서 고리 안쪽에 남는 천장 섬(원판 — 안쪽 벽이 뚜껑에 매달아 지지).
+export function intakeSpec() {
+  const F = INTAKE_FORM
+  if (!INTAKE_ON) return { form: 'off', holes: [], island: null }
+  const cx = INTAKE_CX, MARGIN = 6
+  const zmaxAt = (xa, xb) => {                       // 그 x띠에서 드럼 안에 들어가는 최대 |z|
+    const d = Math.max(Math.abs(xa - COR_CX), Math.abs(xb - COR_CX))
+    return Math.sqrt(Math.max(COR_R * COR_R - d * d, 1)) - MARGIN
+  }
+  const band = (xc) => {                             // 중심 xc의 직선 슬릿 하나
+    const x0 = xc - SLIT_W / 2, x1 = xc + SLIT_W / 2
+    const zh = zmaxAt(x0, x1) * SLIT_LEN_F
+    return { type: 'rect', x0, x1, z0: -zh, z1: zh }
+  }
+  if (F === 'slit')  return { form: F, holes: [band(cx)], island: null }
+  if (F === 'slits') {
+    const holes = []
+    for (let i = 0; i < SLIT_N; i++) holes.push(band(cx + (i - (SLIT_N - 1) / 2) * SLIT_GAP))
+    return { form: F, holes, island: null }
+  }
+  if (F === 'arc' || F === 'ring') {
+    const r0 = SLIT_R - SLIT_W / 2, r1 = SLIT_R + SLIT_W / 2
+    if (F === 'ring') return { form: F, holes: [{ type: 'arc', r0, r1, phi0: 0, phi1: Math.PI * 2, closed: true }], island: { r: r0 } }
+    const half = (SLIT_ARC_DEG * Math.PI / 180) / 2, mid = SLIT_ARC_MID * Math.PI / 180
+    return { form: F, holes: [{ type: 'arc', r0, r1, phi0: mid - half, phi1: mid + half, closed: false }], island: null }
+  }
+  return { form: F, holes: [], island: null }        // 기구형(b1/b2/b3/funnel) = 기존 중앙 개구 경로
+}
+export const INTAKE_IS_SLIT = ['slit', 'slits', 'arc', 'ring'].includes(INTAKE_FORM)
+
+// ════════ ★ 갓 봉인 수치해석(gatSeal — 2026.07.22) — 코드·검증 공유 정본 ════════
+//  조건 1: 5갈래 계단 등 '실제 보행 지점'에서 크라운을 올려다본 시선이 반대편 링 슬릿으로 빠져
+//  외부 리브를 보면 안 된다. 수평 리드(현도 ②)라 서쪽 틈이 벌어져 얕은 광선이 생기므로, 필요한
+//  처마를 해석식이 아니라 표본 광선으로 직접 푼다(보행면 표본 × 방위 × 슬릿 높이).
+//   광선 조건: (a) 위를 향함 (b) 크라운 밑동 개구(기울어진 원판)를 실제로 통과 (c) 슬릿에서 나감.
+//   그 광선이 리드 높이에 도달하는 반경 = 그 광선을 막는 데 필요한 리드 반경. 최댓값이 답.
+//  ⚠보행 표본이 늘면(새 계단 등) 요구 처마도 변한다 — 자동 파생이라 그때도 봉인이 유지된다.
+export function gatSeal() {
+  const cx = GAT_CX, R = GAT_CROWN_R
+  const ringMaxY = ceilY(cx + R)                             // 크라운 링에서 가장 높은 지붕점(동쪽)
+  // ★밑동·절단면·리드 전부 수평(현도 07.22 최종) → 크라운 = 완전한 수직 원통: 벽 높이·기둥 길이 균일,
+  //  요구 처마 최소. 빗면 평행 안은 폐기(constants ⛔ 주석 — 쐐기 슬릿·접시 처마).
+  const baseY = ringMaxY + GAT_CONE_H
+  const cutY  = baseY + GAT_CROWN_H
+  const lidY  = cutY + GAT_SLIT
+
+  const W = []                                               // 보행면 표본(발 딛는 면) + 눈높이
+  const bl = incaBladesSpec()
+  W.push({ x: bl.ncx, z: 0, y: bl.cutY })
+  for (const b of bl.blades) if (b.steps) for (const st of b.steps) {
+    const sm = (st.s0 + st.s1) / 2
+    W.push({ x: bl.ncx + sm * Math.cos(b.az), z: sm * Math.sin(b.az), y: st.yTop })
+  }
+  for (let i = 0; i <= 16; i++) {                            // #0 계단(제단 → 정상 77)
+    const f = i / 16
+    W.push({ x: bl.ncx + 30 + 30 * f, z: 0, y: bl.cutY + (INCA_TOP_Y - bl.cutY) * f })
+  }
+  for (let i = -7; i <= 7; i++) for (let j = -7; j <= 7; j++) {    // 드럼 바닥 격자
+    const x = COR_CX + i * 12, z = j * 12
+    if (Math.hypot(x - COR_CX, z) < COR_R - 4) W.push({ x, z, y: 0 })
+  }
+
+  const EYE_H = 1.6, AZ = 48, KH = 3
+  let need = R
+  for (const v of W) {
+    const vy = v.y + EYE_H
+    for (let i = 0; i < AZ; i++) {
+      const t = (i / AZ) * Math.PI * 2
+      const ex = cx + R * Math.cos(t), ez = R * Math.sin(t), y0 = cutY
+      for (let k = 0; k <= KH; k++) {
+        const yE = y0 + (lidY - y0) * (k / KH) * 0.999
+        const dx = ex - v.x, dy = yE - vy, dz = ez - v.z
+        if (dy <= 0.01) continue
+        const sPar = (baseY - vy) / dy                       // 밑동 개구(수평 링)를 지나는가
+        if (sPar <= 0 || sPar >= 1) continue
+        if (Math.hypot(v.x + sPar * dx - cx, v.z + sPar * dz) >= R) continue
+        const rise = lidY - yE
+        if (rise <= 1e-6) continue
+        const u = rise / dy
+        need = Math.max(need, Math.hypot(ex + u * dx - cx, ez + u * dz))
+      }
+    }
+  }
+  const eave = Math.max(GAT_EAVE_MIN, (need - R) * GAT_EAVE_SF)
+  return { baseY, cutY, lidY, eave, lidR: R + eave, needRaw: need - R }
 }
