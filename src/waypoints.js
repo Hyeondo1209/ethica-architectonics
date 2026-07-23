@@ -33,7 +33,7 @@ import {
   RAD_ANG0, RAD_R, RAD_JX, RAD_FLOOR_Y,
   P_FLOOR_TOP, P_SPAWN_LX, P1_ON,} from './constants.js'
 import { p1HeightAt } from './radialEventsGeometry.js'   // 1p1 볼록 바닥 보정(모드·노브 자동 추종)
-import { buildHallStairs, incaStairSpec, incaBladesSpec } from './corridorStairsGeometry.js'   // ★㊳ 계단 끝 4곳 + ★㊷ 날 끝 4곳(못 닿음 판정 지점) — 빌더 파생(자동 추종)
+import { buildHallStairs, incaStairSpec, incaBladesSpec, descentSpec } from './corridorStairsGeometry.js'   // ★㊳ 계단 끝 4곳 + ★㊷ 날 끝 4곳(못 닿음 판정 지점) — 빌더 파생(자동 추종)
 import { INCA_ON, INCA_GAP } from './constants.js'
 
 // ── 스위치 ──
@@ -132,36 +132,62 @@ export const WAYPOINTS = [
 
   { id: 'joint', group: '통로 (1p5)', label: '접합문 (고리 → 박스)', prop: '—',
     x: RAD_JX, y: JOINT_TOP, z: 0, yaw: FACE_PX, pitch: 0 },
-  // ★㊵-5 스위치 분기: asc-sphere(신 진입) / descent(구 ㊴-5 보존계)
+  // ★㊾ 진입 체제 3분기(2026.07.23): 신 하강로(axial/lateral) / 구 소구계 / 구 ㊴-5 하강계.
+  //  ⚠구조 교정: 잉카 판·못 닿는 날 4는 **진입 체제와 무관한** 1p5 판정 지점인데 asc-sphere 가지
+  //   안에만 있어, 체제를 바꾸면 통째로 사라졌다(㊾에서 발견). → 아래 공통 블록으로 승격.
   ...(HALL_ENTRY === 'asc-sphere' ? [
     { id: 'slope', group: '통로 (1p5)', label: '상승 계단 — 중간 (㊵-5)', prop: '—',
       x: (ASC_X0 + ASC_X1) / 2, y: COR_Y0 + COR_THICK / 2 + ASC_RISE * 0.5, z: 0,
       yaw: FACE_PX, pitch: 0.1 },
     { id: 'corridor', group: '통로 (1p5)', label: '소구 안 (부양 막다른 방 · ㊵-5)', prop: '1p5',
       x: ORB_CX, y: ORB_FLOOR_Y, z: 0, yaw: FACE_PX, pitch: 0 },
-    // ★㊶-6 잉카 계단 — 진입 판 스폰: 부양 판에서 걸어 오르는 게 신체 판정(경사 35°·절단 공중 시작)
-    { id: 'inca', group: '통로 (1p5)', label: '잉카 계단 진입 판 (부양 · ㊶-6)', prop: '1p5',
-      x: (incaStairSpec().panel.x0 + incaStairSpec().panel.x1) / 2, y: incaStairSpec().panel.yTop,
-      z: 0, yaw: FACE_PX, pitch: 0.25 },
-    // ★㊷ 못 닿는 날 끝 4곳 — "도달하지 못하는 그 감정"의 판정 지점(마지막 디딤 위, 시선 = 리브 정면).
-    //  좌표 = 빌더 파생(TIP_Y·GAP·NEXUS_R 튜닝 자동 추종). #0은 닿으므로 제외(잉카 정상이 그 지점).
-    ...(INCA_ON ? incaBladesSpec().blades.filter(b => !b.reach) : []).map(b => {
-      const bs = incaBladesSpec(), last = b.steps[b.steps.length - 1]
-      const sm = (last.s0 + last.s1) / 2
-      return {
-        id: `bl${b.k < 0 ? 'm' : 'p'}${Math.abs(b.k)}`, group: '통로 (1p5)',
-        label: `잉카 날 끝 #${b.k > 0 ? '+' : ''}${b.k} — 리브 ${INCA_GAP} 앞 허공`, prop: '1p5',
-        x: bs.ncx + sm * Math.cos(b.az), y: last.yTop, z: sm * Math.sin(b.az),
-        yaw: yawTo(Math.cos(b.az), Math.sin(b.az)), pitch: 0,
-      }
-    }),
-  ] : [
+  ] : HALL_ENTRY === 'descent' ? [
     { id: 'slope', group: '통로 (1p5)', label: '하강 계단 — 중간 (제단 조망)', prop: '—',
       x: (DESC_X0 + DESC_X1) / 2, y: COR_Y0 + COR_THICK / 2 - PLAT_DROP * 0.5, z: 0,
       yaw: FACE_PX, pitch: -0.15 },
     { id: 'corridor', group: '통로 (1p5)', label: '제단 (드럼 안 결절 · ㊵-4)', prop: '1p5',
       x: PLAT_X, y: PLAT_TOP, z: 0, yaw: FACE_PX, pitch: 0 },
+  ] : (() => {
+    //  좌표 전부 descentSpec() 파생 — DESC_SWEEP·DESC_R를 돌리면 판정 지점이 따라 움직인다.
+    const d = descentSpec(HALL_ENTRY)
+    const at = f => d.samples[Math.round(f * (d.samples.length - 1))]
+    const face = p => yawTo(p.tx, p.tz)                      // 진행 방향 보기
+    const a = at(0.30), b = at(0.72)
+    const out = [
+      { id: 'slope', group: '통로 (1p5)', label: `하강로 — 초반 (${d.scheme} · ${d.slopeDeg.toFixed(0)}°)`, prop: '—',
+        x: a.x, y: a.y, z: a.z, yaw: face(a), pitch: -0.12 },
+    ]
+    if (d.scheme === 'lateral') {
+      //  ★구도점 = **벽 호의 중간**(빌더 viewS 파생 — ★51 접선화로 landS 폐지, 호 범위는 빌더가 안다).
+      //   회전량·방향·진입 방위를 어떻게 돌려도 항상 '도는 중간'을 가리킨다.
+      const sMid = d.viewS
+      let best = d.samples[0], bd = 1e9
+      for (const p of d.samples) { const e = Math.abs(p.s - sMid); if (e < bd) { bd = e; best = p } }
+      const bs = incaBladesSpec()
+      out.push({ id: 'view', group: '통로 (1p5)', label: '★부채 측면 구도 (호 중간 · ㊾)', prop: '1p5',
+        x: best.x, y: best.y, z: best.z,
+        yaw: yawTo(bs.ncx - best.x, -best.z), pitch: -0.28 })
+    }
+    out.push({ id: 'corridor', group: '통로 (1p5)', label: `하강로 — 도착 직전 (${d.scheme})`, prop: '1p5',
+      x: b.x, y: b.y, z: b.z, yaw: face(b), pitch: -0.15 })
+    return out
+  })()),
+  // ★㊶-6 잉카 진입 판 + ★㊷ 못 닿는 날 끝 4 — 진입 체제와 무관한 공통 판정 지점(㊾ 승격).
+  ...(HALL_ENTRY === 'descent' ? [] : [
+    { id: 'inca', group: '통로 (1p5)', label: '잉카 계단 진입 판 (부양 · ㊶-6)', prop: '1p5',
+      x: (incaStairSpec().panel.x0 + incaStairSpec().panel.x1) / 2, y: incaStairSpec().panel.yTop,
+      z: 0, yaw: FACE_PX, pitch: 0.25 },
   ]),
+  ...(HALL_ENTRY !== 'descent' && INCA_ON ? incaBladesSpec().blades.filter(b => !b.reach) : []).map(b => {
+    const bs = incaBladesSpec(), last = b.steps[b.steps.length - 1]
+    const sm = (last.s0 + last.s1) / 2
+    return {
+      id: `bl${b.k < 0 ? 'm' : 'p'}${Math.abs(b.k)}`, group: '통로 (1p5)',
+      label: `잉카 날 끝 #${b.k > 0 ? '+' : ''}${b.k} — 리브 ${INCA_GAP} 앞 허공`, prop: '1p5',
+      x: bs.ncx + sm * Math.cos(b.az), y: last.yTop, z: sm * Math.sin(b.az),
+      yaw: yawTo(Math.cos(b.az), Math.sin(b.az)), pitch: 0,
+    }
+  }),
   // ★㊳ 못 닿는 계단 끝 4곳 — "도달하지 못하는 그 감정"의 판정 지점(끝 판 위, 시선 = 문 정면).
   //  좌표 = 빌더 파생(STAIR5·STAIR_GAP 튜닝 자동 추종). #0은 닿으므로 제외(ribdoor가 그 다음 지점).
   ...(HALL_ENTRY === 'descent' ? buildHallStairs().stairs.filter(s => !s.reach) : []).map(s => ({

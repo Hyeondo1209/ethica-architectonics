@@ -31,9 +31,10 @@ import {
   PLAT_DROP, DESC_X0, DESC_X1,
   SHELL_RIB_R,
 } from './constants'
-import { buildHallStairs, hallDoors, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal } from './corridorStairsGeometry'
+import { buildHallStairs, hallDoors, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal, descentSpec, drumPierAzimuths, descentPortSpec, portPrismTris, outwardTris } from './corridorStairsGeometry'
 import {
   HALL_ENTRY, ASC_RISE, ASC_X0, ASC_X1, ASC_SLOPE, BOX_IN_H,
+  DESC_HW, DESC_GIRDER, DESC_GIRDER_TOP, DESC_GIRDER_BWF,   // ★㊾·㊿·51 하강로
   COR_CYL_X0,
   ORB_R, ORB_CX, ORB_CY, ORB_T, ORB_FLOOR_Y, ORB_FLOOR_R, ORB_WEST_X, ORB_DOOR_W, ORB_DOOR_H,
   ORB_OPEN_X, ORB_RING_R, ORB_RING_T, ASC_TUN_T, ASC_TUN_UNDER,
@@ -65,7 +66,8 @@ export function NeckSkirt() {
 
 //  ★㊴-5: 짧은 다리(입구 직후 끝) → **긴 하강 계단** → 깊은 결절 착지(DESC_X0/X1 정본은 constants).
 export function Bridge() {
-  const xEnd = HALL_ENTRY === 'asc-sphere' ? ASC_X0 + 0.5 : DESC_X0   // ★㊵-5f: 다리는 상승 시작에서 끝(덕트 배 속 잔여 슬랩 제거)
+  //  ★㊾: 새 하강 두 체제는 박스 출구(BOX_X1 = ASC_X0)에서 곧장 시작 — 다리는 거기서 0.5 물려 끝난다.
+  const xEnd = HALL_ENTRY === 'descent' ? DESC_X0 : ASC_X0 + 0.5
   return (
     <mesh position={[(BOX_X0 + xEnd) / 2, COR_Y0, 0]} userData={{ walkable: true }}>
       <boxGeometry args={[xEnd - BOX_X0, COR_THICK, COR_FLOOR_HW * 2]} />
@@ -202,6 +204,59 @@ export function OrbRoom() {
 }
 
 // ════════ ★계단 다섯(㊴-7) — 절곡(flight) / 극좌표(polar) 문법. 판 = 얇은 부양 판 · 참 = 넓은 판 ════════
+// ══ ★★㊾→㊿ 하강로 렌더러 — 'axial' / 'lateral' 공용 ══
+//  ㊿(2026.07.23): ㊾ 판-만 체제를 셀프 렌더 검수로 자가 반려("색종이 행렬" — 현도 지적과 일치) →
+//  §2-D 문법의 첫 시범작으로 **몸**을 입힘. 구성 3층(두께 위계 = 걷는 것 < 받치는 것 < 매듭):
+//   ① 디딤 판(COR_RISE 0.43·보행 정본 — ㊾ 그대로, 충돌·검증 무변경)
+//   ② **보(스트링거)**: 폴리패스 표본을 따라 사다리꼴 단면(상폭 2HW·하폭 ×BWF)을 스윕한 한 덩어리.
+//      상면 = 보행선 − TOP(0.30)이라 판(0.43)이 0.13 파묻혀 융착 — 판 밑 틈이 구조적으로 없다.
+//   ③ ★51: 참 블록 폐지(현도 07.23 — "기하와 안 맞물리는 투박한 매듭") → 경로가 전 구간 접선
+//      연속(진입·꼬리 쌍원호)이 되어 매듭 자체가 불필요. 판 + 보 두 층만 남는다.
+export function DescentPath() {
+  const d = useMemo(() => descentSpec(HALL_ENTRY), [])
+  const girderGeo = useMemo(() => {
+    const sec = [                                     // 단면(로컬 u=횡, v=보행선 기준 종): 사다리꼴 배
+      [-DESC_HW, -DESC_GIRDER_TOP], [DESC_HW, -DESC_GIRDER_TOP],
+      [DESC_HW * DESC_GIRDER_BWF, -DESC_GIRDER], [-DESC_HW * DESC_GIRDER_BWF, -DESC_GIRDER],
+    ]
+    const S = d.samples
+    const pt = (i, j) => {                            // 표본 i의 단면점 j — 횡벡터 = 수평 법선(-tz, 0, tx)
+      const q = S[i], [u, v] = sec[j]
+      return [q.x + u * -q.tz, q.y + v, q.z + u * q.tx]
+    }
+    const pos = []
+    const push = (a, b, c) => pos.push(...a, ...b, ...c)
+    for (let i = 0; i < S.length - 1; i++)
+      for (let j = 0; j < 4; j++) {
+        const a = pt(i, j), b = pt(i, (j + 1) % 4), c = pt(i + 1, (j + 1) % 4), e = pt(i + 1, j)
+        push(a, b, c); push(a, c, e)
+      }
+    for (const [i, flip] of [[0, 0], [S.length - 1, 1]]) {   // 양끝 캡(시작 = 박스 목 소켓 · 끝 = 잉카 판 물림)
+      const p4 = [0, 1, 2, 3].map(j => pt(i, j))
+      if (flip) { push(p4[0], p4[1], p4[2]); push(p4[0], p4[2], p4[3]) }
+      else { push(p4[2], p4[1], p4[0]); push(p4[3], p4[2], p4[0]) }
+    }
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+    g.computeVertexNormals()                          // 비공유 정점 = 면 법선(플랫) — 브루탈 어휘
+    return g
+  }, [d])
+  return (
+    <group>
+      <mesh geometry={girderGeo}>
+        <meshStandardMaterial color="#b89a6a" roughness={0.92} side={THREE.DoubleSide} />
+      </mesh>
+      {d.plates.map((p, i) => (
+        <mesh key={i} position={[p.x, p.yTop - COR_RISE / 2, p.z]} rotation-y={p.rotY}
+          userData={{ walkable: true }}>
+          <boxGeometry args={[d.ds * 1.3, COR_RISE, DESC_HW * 2]} />
+          <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.DoubleSide} />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+
 export function CorridorStairs() {
   const { stairs } = useMemo(() => buildHallStairs(), [])
   return (
@@ -555,37 +610,48 @@ export function IncaStair() {
 export function DrumPiers() {
   const geos = useMemo(() => {
     if (!PIER_ON) return null
-    const half = Math.floor(PIER_N / 2)
-    const innerOff = 20, outerOff = 180 - 43 - 12       // 문 옆 20° ~ 창 앞 12° 여유(offset 최대 125°)
+    //  ★53(2026.07.23, 현도): 하강로가 관통하는 피어(자동 검출)는 **높은 입구(관문)**를 CSG로 뚫는다 —
+    //   위 = 문(아치/사각·보행선 위 DESC_PORT_H), 아래 = 피어 몸이 남아 보를 2.25 파묻어 받침(교각).
+    //   방위 정본은 drumPierAzimuths()로 이관(검출·검증과 공유) — 여기 인라인 공식은 폐지.
     const rOut = COR_R + PIER_OUT       // 바깥면 = 드럼 밖으로 PIER_OUT 돌출(기어 톱니)
     const rIn = COR_R - PIER_DEPTH      // 안쪽면 = 홀 안으로 PIER_DEPTH 돌출(피어/베이) — 슬래브가 벽(COR_R)을 가로지름
+    const ports = descentPortSpec(HALL_ENTRY)
+    const ev = new Evaluator(); ev.attributes = ['position']   // 커스텀 몸 = uv·normal 없음(뒤에서 computeVertexNormals)
     const arr = []
-    for (let k = 0; k < half; k++) {
-      const off = half > 1 ? innerOff + (outerOff - innerOff) * (k / (half - 1)) : (innerOff + outerOff) / 2
-      for (const s of [-1, 1]) {
-        const th = (180 + s * off) * Math.PI / 180
-        const c = Math.cos(th), sn = Math.sin(th)
-        // 4 수직 모서리 = (반경 rOut/rIn) × (접선 ±HW). 상단 = 그 모서리 x의 천장 + OVER(빗면 추종·무틈).
-        const corner = (r, w) => {
-          const X = COR_CX + r * c - w * sn, Z = r * sn + w * c
-          return { X, Z, topY: ceilY(X) + PIER_TOP_OVER }
-        }
-        const V = [corner(rOut, -PIER_HW), corner(rOut, PIER_HW), corner(rIn, PIER_HW), corner(rIn, -PIER_HW)]
-        const pos = []
-        for (const p of V) pos.push(p.X, PIER_Y0, p.Z)    // 0..3 바닥
-        for (const p of V) pos.push(p.X, p.topY, p.Z)     // 4..7 상단(빗면 — 지붕 추종)
-        const idx = [
-          4, 5, 6, 4, 6, 7,        // 상단(빗면)
-          0, 1, 5, 0, 5, 4,        // 바깥면(벽 쪽)
-          1, 2, 6, 1, 6, 5,        // +접선 옆면
-          2, 3, 7, 2, 7, 6,        // 안쪽 면(홀에서 보임)
-          3, 0, 4, 3, 4, 7,        // −접선 옆면
-        ]                          // 바닥면은 지면 매몰이라 생략
-        const g = new THREE.BufferGeometry()
-        g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
-        g.setIndex(idx); g.computeVertexNormals()
-        arr.push(g)
+    for (const th of drumPierAzimuths()) {
+      const c = Math.cos(th), sn = Math.sin(th)
+      // 4 수직 모서리 = (반경 rOut/rIn) × (접선 ±HW). 상단 = 그 모서리 x의 천장 + OVER(빗면 추종·무틈).
+      const corner = (r, w) => {
+        const X = COR_CX + r * c - w * sn, Z = r * sn + w * c
+        return { X, Z, topY: ceilY(X) + PIER_TOP_OVER }
       }
+      const V = [corner(rOut, -PIER_HW), corner(rOut, PIER_HW), corner(rIn, PIER_HW), corner(rIn, -PIER_HW)]
+      const pos = []
+      for (const p of V) pos.push(p.X, PIER_Y0 - 0.5, p.Z)  // 0..3 바닥(관문 피어 CSG 위해 살짝 매몰 = 닫힌 몸)
+      for (const p of V) pos.push(p.X, p.topY, p.Z)         // 4..7 상단(빗면 — 지붕 추종)
+      const idx = [
+        4, 5, 6, 4, 6, 7,        // 상단(빗면)
+        0, 1, 5, 0, 5, 4,        // 바깥면(벽 쪽)
+        1, 2, 6, 1, 6, 5,        // +접선 옆면
+        2, 3, 7, 2, 7, 6,        // 안쪽 면(홀에서 보임)
+        3, 0, 4, 3, 4, 7,        // −접선 옆면
+        1, 0, 3, 1, 3, 2,        // ★53 바닥면(지면 매몰이나 CSG 닫힘에 필요)
+      ]
+      //  ★53-2: 인덱스를 펼쳐 **겉면 감김 강제** — 원본 감김이 안쪽이라 CSG가 파탄났었다(부호 부피 검산).
+      const flat = []
+      for (const i of idx) flat.push(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2])
+      let g = new THREE.BufferGeometry()
+      g.setAttribute('position', new THREE.Float32BufferAttribute(outwardTris(flat), 3))
+      const port = ports.find(p => Math.abs(((p.az - th + Math.PI * 3) % (Math.PI * 2)) - Math.PI) < 1e-6)
+      if (port) {
+        const cut = new THREE.BufferGeometry()
+        cut.setAttribute('position', new THREE.Float32BufferAttribute(portPrismTris(port), 3))
+        const bA = new Brush(g); bA.updateMatrixWorld()
+        const bB = new Brush(cut); bB.updateMatrixWorld()
+        g = ev.evaluate(bA, bB, SUBTRACTION).geometry
+      }
+      g.computeVertexNormals()
+      arr.push(g)
     }
     return arr
   }, [])
@@ -934,6 +1000,8 @@ export function Corridor() {
         <AscentTunnel />
         <OrbRoom />
       </>)}
+      {/* ★㊾ 소구 폐기 → 하강로 두 체제(현도 로컬 판정 스위치) */}
+      {(HALL_ENTRY === 'axial' || HALL_ENTRY === 'lateral') && <DescentPath />}
       <TempleBeam />
       <Cella />
       <FloorTiers />

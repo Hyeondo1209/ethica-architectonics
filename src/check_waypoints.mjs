@@ -19,8 +19,15 @@ import {
   ROOM_DISC_HOLE, ROOM_LAND_R, ROOM_DISC_SLOT_LEN,
   RAD_ANG0, RAD_R, RAD_JX,
   P_FLOOR_TOP, P_FLOOR_R, P_ST_X, petalR,
+  DESC_HW, DESC_R, DESC_SWEEP, DESC_SWEEP_MIN, DESC_SWEEP_MAX, BOX_X1, COR_CX, COR_R, ceilY,   // ★㊾ 하강로
+  DESC_GIRDER, DESC_GIRDER_TOP, DESC_GIRDER_BWF, DESC_TAIL,   // ★㊿ 몸 · ★51 꼬리
+  DESC_PORT_ON, DESC_PORT_H, DESC_PORT_TOP, DESC_PORT_CLR, PIER_DEPTH, PIER_HW, PIER_OUT,   // ★53 관문
 } from './constants.js'
 import { p1HeightAt } from './radialEventsGeometry.js'
+const r2 = (v) => Math.round(v * 100) / 100   // ★㊾ (check_corridor와 같은 보조자)
+import { descentSpec, incaStairSpec, incaBladesSpec, descentPortSpec, portPrismTris, drumPierAzimuths, outwardTris, signedVolume, windingConsistent } from './corridorStairsGeometry.js'   // ★㊾·53
+import * as THREE from 'three'
+import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg'
 import { WAYPOINTS, WP_GROUPS, SPAWN_ID, EYE, wpById } from './waypoints.js'
 
 let n = 0, fail = 0
@@ -102,11 +109,226 @@ console.log('\n— C. 통로(1p5) —')
   if (HALL_ENTRY === 'asc-sphere') {
     ok(Math.hypot(c.x - ORB_CX, c.z) < ORB_FLOOR_R - 1, `소구 중심에서 ${Math.hypot(c.x - ORB_CX, c.z).toFixed(1)} < 바닥 원반 ${ORB_FLOOR_R.toFixed(1)}`)
     ok(Math.abs(c.y - ORB_FLOOR_Y) < 1e-9, `소구 바닥 y=${c.y.toFixed(2)} = 문턱=착지 등고(㊵-5)`)
-  } else {
+  } else if (HALL_ENTRY === 'descent') {
     ok(Math.hypot(c.x - PLAT_X, c.z) < PLAT_R - 1, `플랫폼 중심에서 ${Math.hypot(c.x - PLAT_X, c.z).toFixed(1)} < 반경 ${PLAT_R}`)
     ok(Math.abs(c.y - (PLAT_Y + COR_THICK / 2)) < 1e-9, `플랫폼 y=${c.y.toFixed(2)} = 낮은 플랫폼 판 윗면(★㊴ PLAT_DROP)`)
+  } else {
+    // ★㊾ 새 하강로: 'corridor' = 경로 72% 지점(도착 직전). 시선은 +x 고정이 아니라 **진행 방향**이다
+    //  (측면 체제는 대각으로 들어오므로 +x 고정 검사가 성립하지 않는다 — 구 검사를 체제별로 분기).
+    const d = descentSpec(HALL_ENTRY)
+    let near = 1e9
+    for (const q of d.samples) near = Math.min(near, Math.hypot(q.x - c.x, q.z - c.z, q.y - c.y))
+    ok(near < 0.6, `하강로 위 지점(경로 최근접 ${r2(near)} < 0.6) — 허공 스폰 아님`)
+    ok(c.y > d.yE && c.y < d.yS, `y=${r2(c.y)} ∈ (도착 ${r2(d.yE)}, 출발 ${r2(d.yS)}) — 하강 도중`)
   }
-  ok(dot2(fwd(c.yaw), [1, 0]) > 0.99, '시선 = +x(리브 문 쪽)')
+  if (HALL_ENTRY === 'asc-sphere' || HALL_ENTRY === 'descent') {
+    ok(dot2(fwd(c.yaw), [1, 0]) > 0.99, '시선 = +x(리브 문 쪽)')
+  } else {
+    //  진행 방향 응시(하강로는 굽으므로 표적이 아니라 접선)
+    const d = descentSpec(HALL_ENTRY)
+    let best = d.samples[0], bd = 1e9
+    for (const q of d.samples) { const e = Math.hypot(q.x - c.x, q.z - c.z); if (e < bd) { bd = e; best = q } }
+    ok(dot2(fwd(c.yaw), [best.tx, best.tz]) > 0.97, `시선 = 진행 방향(접선 내적 ${r2(dot2(fwd(c.yaw), [best.tx, best.tz]))} > 0.97)`)
+  }
+}
+
+// ── ★㊾ 하강로 전용 절: 두 체제 공통 불변식 + 측면 체제의 구도점 ──
+if (HALL_ENTRY === 'axial' || HALL_ENTRY === 'lateral') {
+  console.log('\n— C2. ★㊾ 하강로 (소구 폐기 · 두 체제) —')
+  const d = descentSpec(HALL_ENTRY)
+  const st = incaStairSpec()
+  ok(Math.abs(d.yS - (COR_Y0 + COR_THICK / 2)) < 1e-9 && Math.abs(d.S[0] - BOX_X1) < 1e-9,
+    `출발 = 박스 출구 (x${d.S[0]}, y${r2(d.yS)}) — 다리 상면과 등고`)
+  ok(Math.abs(d.yE - st.panel.yTop) < 1e-9 && Math.abs(d.E[0] - st.panel.x0) < 1e-9,
+    `도착 = 잉카 판 서단 (x${r2(d.E[0])}, y${r2(d.yE)}) — 판이 경첩`)
+  ok(d.slopeDeg <= 38.5, `경사 ${r2(d.slopeDeg)}° ≤ 38.5 (축 체제 37.4°가 상한 근처 — 측면은 여유)`)
+  //  ★보행 천장: 단높이가 STEP_UP(0.8)을 넘으면 되돌아 올라올 수 없다. 디딤 역산이 이걸 지킨다.
+  ok(d.rise <= 0.8 - 0.2, `단높이 ${r2(d.rise)} ≤ STEP_UP(0.8)−0.2 — 되돌아 오를 수 있다`)
+  //  ⚠판만 이어 재면 안 된다 — 참 둘레의 판은 건너뛰므로(참 판이 덮음) 실제로 없는 단차를 잰다.
+  //   회전량 40°에서 0.81(허위 실패)로 드러났다(㊾). 판 + 참을 s로 정렬한 **실제 보행 순서**로 잰다.
+  const walk = [...d.plates, ...d.landings].sort((a, b) => a.s - b.s)
+  let maxJump = 0
+  for (let i = 1; i < walk.length; i++) maxJump = Math.max(maxJump, Math.abs(walk[i].yTop - walk[i - 1].yTop))
+  ok(maxJump <= 0.8, `보행 순서 최대 단차 ${r2(maxJump)} ≤ STEP_UP(판+참 정렬)`)
+  //  전 구간이 드럼 안이고 벽에 안 닿는가
+  //  ⚠중심선 반경 + 반폭은 과대계산이다 — 반폭은 **진행 방향의 법선** 쪽이라, 호에서만 반경 방향과
+  //   일치하고 직선 구간(진출·대각)에서는 아니다. 실제 판 모서리 두 점으로 재야 한다(㊾ 최초 검사 오류).
+  let farMost = 0, lowMost = 1e9
+  for (const q of d.samples) {
+    for (const sgn of [-1, 1]) {
+      const ex = q.x + sgn * DESC_HW * (-q.tz), ez = q.z + sgn * DESC_HW * q.tx
+      farMost = Math.max(farMost, Math.hypot(ex - COR_CX, ez))
+    }
+    lowMost = Math.min(lowMost, q.y)
+  }
+  ok(farMost < COR_R - 1, `판 모서리 최원단 ${r2(farMost)} < 드럼 ${COR_R}−1 — 벽 무접촉`)
+  ok(lowMost > 0, `최저 y ${r2(lowMost)} > 0 — 드럼 바닥에 안 닿는다(바닥 = 걷지 않는 지형)`)
+  //  머리 위(갓 절단면)
+  let headMin = 1e9
+  for (const q of d.samples) headMin = Math.min(headMin, ceilY(q.x) - q.y - 1.8)
+  ok(headMin > 6, `머리 위 최소 ${r2(headMin)} > 6 — 천장 여유`)
+  //  ★다섯 날과의 간섭(회전량 상한의 근거)
+  const bs = incaBladesSpec()
+  let bladeClr = 1e9
+  for (const b of bs.blades.filter(b => !b.reach)) {
+    const rx = b.tip.x - bs.ncx, rz = b.tip.z
+    for (const q of d.samples) for (let j = 0; j <= 20; j++) {
+      const u = j / 20
+      bladeClr = Math.min(bladeClr, Math.hypot(q.x - (bs.ncx + rx * u), q.z - rz * u))
+    }
+  }
+  ok(bladeClr > 5, `다섯 날 최소 수평거리 ${r2(bladeClr)} > 5 — 하강로가 부채를 파고들지 않는다`)
+  // ── ★㊿ 몸 규칙(§2-D 문법의 검증 대응물) ──
+  ok(DESC_GIRDER_TOP > 0 && DESC_GIRDER_TOP < 0.43,
+    `보 상면 오프셋 ${DESC_GIRDER_TOP} ∈ (0, 판두께 0.43) — 판이 보에 융착(틈 없음·완전 매몰도 없음)`)
+  ok(DESC_GIRDER >= 4 * 0.43, `보 깊이 ${DESC_GIRDER} ≥ 판의 4배 — '몸'으로 읽히는 하한(§2-D ②)`)
+  ok(DESC_GIRDER_BWF >= 0.4 && DESC_GIRDER_BWF < 1, `하면 폭 비 ${DESC_GIRDER_BWF} ∈ [0.4, 1) — 각재도 용골도 아님`)
+  ok(lowMost - DESC_GIRDER > 0, `보 밑면 최저 ${r2(lowMost - DESC_GIRDER)} > 0 — 바닥 무접촉 유지(몸을 입혀도)`)
+  //  ★회전량 노브 가드(현도가 로컬에서 돌리는 값 — 범위를 벗어나면 여기서 잡는다)
+  ok(DESC_SWEEP >= DESC_SWEEP_MIN && DESC_SWEEP <= DESC_SWEEP_MAX,
+    `회전량 ${DESC_SWEEP}° ∈ [${DESC_SWEEP_MIN}, ${DESC_SWEEP_MAX}] — 상한 초과 시 대각선이 날 밑을 파고든다`)
+  //  ⚠상한은 [판 모서리 최원단] 검사가 진짜 정본. 여기는 노브 범위 가드이므로 그것과 어긋나면 안 된다
+  //   (구 'COR_R−4'는 문서 범위 56~78과 불일치해 R=78이 허위 실패했다 — ㊾).
+  ok(DESC_R + DESC_HW <= COR_R - 2 && DESC_R > 50,
+    `반경 ${DESC_R} + 반폭 ${DESC_HW} ≤ ${COR_R}−2 · > 50 — 문서 범위 56~78과 정합`)
+  if (d.scheme === 'lateral') {
+    //  ★51 참 폐지(현도: "블록 투박·기하와 안 맞물림") — 매듭을 다듬는 대신 꺾임을 없앴다.
+    //   매듭 없음이 정당하려면 **꺾임 자체가 없어야 한다** → 접선 연속을 표본 단위로 강제.
+    ok(d.landings.length === 0, `참 0 — 블록 대신 접선 연속(진입·꼬리 쌍원호)`)
+    let maxTurn = 0, turns10 = 0
+    for (let i = 1; i < d.samples.length; i++) {
+      const a = d.samples[i - 1], b = d.samples[i]
+      const ang = Math.acos(Math.max(-1, Math.min(1, a.tx * b.tx + a.tz * b.tz))) * 180 / Math.PI
+      maxTurn = Math.max(maxTurn, ang); if (ang > 10) turns10++
+    }
+    if (DESC_TAIL === 'chord') {
+      ok(turns10 <= 1, `10° 초과 꺾임 ${turns10}곳 ≤ 1 — chord 꼬리의 단일 코너만 허용(비교 보존계)`)
+    } else {
+      ok(maxTurn < 8, `표본 간 최대 방향 변화 ${r2(maxTurn)}° < 8 — 전 구간 접선 연속(꺾임 0)`)
+      const le = d.samples[d.samples.length - 1]
+      ok(le.tx > 0.99 && Math.abs(le.tz) < 0.12, `도착 접선 (${r2(le.tx)}, ${r2(le.tz)}) ≈ +x — 판 축 정렬 진입`)
+    }
+    const v = W('view')
+    let bd = 1e9
+    for (const q of d.samples) bd = Math.min(bd, Math.hypot(q.x - v.x, q.z - v.z, q.y - v.y))
+    ok(bd < 0.6, `구도점이 하강로 위(최근접 ${r2(bd)} < 0.6)`)
+    const dx = bs.ncx - v.x, dz = -v.z, L = Math.hypot(dx, dz)
+    ok(dot2(fwd(v.yaw), [dx / L, dz / L]) > 0.99, `구도점 시선 = 넥서스 정조준`)
+    ok(L > 40 && L < 110, `구도점→넥서스 수평 ${r2(L)} ∈ (40, 110) — 부채가 한 화면에 들어오는 거리`)
+  } else {
+    ok(d.landings.length === 0, `축 체제 = 참 없는 곧은 한 줄(성격의 대비)`)
+  }
+
+  // ── ★53 피어 관문(현도 07.23: "겹침을 지지로") ──
+  console.log('\n— C3. ★53 피어 관문 —')
+  const ports = descentPortSpec(HALL_ENTRY)
+  if (!DESC_PORT_ON) {
+    ok(true, '관문 꺼짐(DESC_PORT_ON=false) — 검사 생략')
+  } else if (d.scheme === 'axial') {
+    ok(ports.length === 0, `축 체제 관문 ${ports.length} = 0 — 축 경로는 피어 대역을 안 지난다(실측)`)
+  } else {
+    //  ⚠검출은 노브 파생 — 현행 기본(북·60°·R76)에서 2곳이지만 회전량을 줄이면 1곳일 수 있다.
+    ok(ports.length >= 1, `관문 ${ports.length}곳 검출(≥1 — 하강로가 피어 대역을 지나는 한 반드시 있다)`)
+    ok(DESC_PORT_H >= 4, `입구 높이 ${DESC_PORT_H} ≥ 4 — 머리(1.8) 두 배 이상 = '높은 입구'`)
+    ok(DESC_PORT_CLR >= 1, `어깨 여유 ${DESC_PORT_CLR} ≥ 1`)
+    for (const p of ports) {
+      //  경로 위 지점인가 + 관문끼리 안 겹치는가
+      ok(p.s > 0 && p.s < d.L, `관문 az${r2(p.az * 180 / Math.PI)}° s${r2(p.s)} ∈ 경로 안`)
+      //  받침의 물림: 컷 밑(보행선−0.35)이 보 밑(−2.6)보다 위 = 피어가 보를 2.25 파묻는다
+      ok(0.35 < DESC_GIRDER - 0.3, `컷 밑 0.35 < 보 깊이 ${DESC_GIRDER}−0.3 — 받침 물림 ${r2(DESC_GIRDER - 0.35)} 확보`)
+      //  잔여 기둥: 입구 바깥 모서리 반경 < 피어 바깥면 − 3 = 문 옆·뒤로 기둥이 남는다(문이지 절단이 아님)
+      const rPort = Math.hypot(p.x - COR_CX, p.z) + DESC_HW + DESC_PORT_CLR
+      ok(rPort < COR_R + PIER_OUT - 3, `입구 바깥 반경 ${r2(rPort)} < 피어 바깥 ${COR_R + PIER_OUT}−3 — 잔여 기둥 확보`)
+      //  머리 위: 입구 정점이 컷 대역 안에서 실제로 열리는가(아치 스프링 포함)
+      ok(DESC_PORT_H > DESC_HW + DESC_PORT_CLR || DESC_PORT_TOP === 'flat',
+        `아치 반경(${r2(DESC_HW + DESC_PORT_CLR)}) < 높이 ${DESC_PORT_H} — 스프링 라인이 보행선 위`)
+    }
+    if (ports.length >= 2) for (let i = 1; i < ports.length; i++)
+      ok(ports[i].s - ports[i - 1].s > 2 * (PIER_HW + 3.5), `관문 ${i}↔${i + 1} 간격 ${r2(ports[i].s - ports[i - 1].s)} — 프리즘 무겹침`)
+    //  ★CSG 스모크: 관문 1곳을 실제로 뚫어본다(감김·NaN — 부호 부피 가드의 실증)
+    if (ports.length) {
+      const tris = portPrismTris(ports[0])
+      const minTri = DESC_PORT_TOP === 'flat' ? 12 : 40      // 사각 = 단면 4점 = 12tri / 아치 = 13점 = 48tri
+      ok(tris.length >= 9 * minTri && tris.every(v => isFinite(v)), `프리즘 ${tris.length / 9}tri(≥${minTri}) · NaN 0`)
+      //  ★★53-3 감김 일관성: 옆면/캡이 반대로 감기면 부호 부피는 통과해도 CSG가 자재를 남긴다
+      //   (현도 스크린샷 2차의 '얇은 판' — 26 vs 22 혼재). 전역 반전으로 못 잡히는 계열이라 위상으로 잡는다.
+      ok(windingConsistent(tris), '프리즘 감김 일관(같은 방향 변 중복 0) — 면마다 겉면 정렬됨')
+      //  ★부피 = 단면적 × 스윕길이 검산: 혼재 감김이면 여기서 3배 어긋난다(514 vs 1543 실측 사례)
+      const nI = -(DESC_HW + 2.0), nO = DESC_HW + DESC_PORT_CLR
+      const aR2 = (nO - nI) / 2, spr = Math.max(0.5, DESC_PORT_H - aR2)
+      const areaEst = DESC_PORT_TOP === 'flat'
+        ? (nO - nI) * (DESC_PORT_H + 0.35)
+        : (nO - nI) * (spr + 0.35) + Math.PI * aR2 * aR2 / 2
+      const volExp = areaEst * 2 * (PIER_HW + 3.5)
+      const volAct = signedVolume(tris)
+      ok(volAct > volExp * 0.9 && volAct < volExp * 1.1,
+        `프리즘 부피 ${r2(volAct)} ≈ 단면 ${r2(areaEst)} × 길이 ${r2(2 * (PIER_HW + 3.5))} = ${r2(volExp)} (±10%)`)
+      const az = ports[0].az, c = Math.cos(az), sn = Math.sin(az)
+      const corner = (r, w) => [COR_CX + r * c - w * sn, r * sn + w * c]
+      const V = [corner(COR_R + PIER_OUT, -PIER_HW), corner(COR_R + PIER_OUT, PIER_HW),
+                 corner(COR_R - PIER_DEPTH, PIER_HW), corner(COR_R - PIER_DEPTH, -PIER_HW)]
+      const pos = []
+      for (const q of V) pos.push(q[0], -0.5, q[1])
+      for (const q of V) pos.push(q[0], ceilY(q[0]) + 4, q[1])
+      const idx = [4,5,6,4,6,7, 0,1,5,0,5,4, 1,2,6,1,6,5, 2,3,7,2,7,6, 3,0,4,3,4,7, 1,0,3,1,3,2]
+      //  ★53-2: 겉면 감김 강제 — 원본 인덱스 감김이 안쪽이라 CSG가 껍데기·조각으로 파탄났었다(현도 스크린샷).
+      const flat = []
+      for (const i of idx) flat.push(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2])
+      const out = outwardTris(flat)
+      const volA = signedVolume(out)
+      ok(volA > 0 && windingConsistent(out), `피어 몸 부피 ${r2(volA)} > 0 · 감김 일관 — 겉면 확정`)
+      const g = new THREE.BufferGeometry()
+      g.setAttribute('position', new THREE.Float32BufferAttribute(out, 3))
+      const cut = new THREE.BufferGeometry()
+      cut.setAttribute('position', new THREE.Float32BufferAttribute(tris, 3))
+      const ev = new Evaluator(); ev.attributes = ['position']   // 커스텀 지오메트리 = uv·normal 없음(㊶ 전례)
+      const bA = new Brush(g); bA.updateMatrixWorld()
+      const bB = new Brush(cut); bB.updateMatrixWorld()
+      const res = ev.evaluate(bA, bB, SUBTRACTION).geometry
+      const rp = res.attributes.position
+      ok(rp.count > 24 && ![...rp.array].some(v => !isFinite(v)),
+        `CSG 관통 실행 — 결과 ${rp.count}정점 · NaN 0`)
+      //  ★뚫림의 실증 = **부피가 준다**(이번 감김 버그를 잡았을 검사 — 파탄 결과는 부피가 늘거나 음수).
+      const volR = signedVolume([...res.attributes.position.array])
+      ok(volR > 0 && volR < volA - 50,
+        `CSG 결과 부피 ${r2(volR)} ∈ (0, 피어 ${r2(volA)}−50) — 구멍만큼 정확히 줄었다(감김 회귀 보험)`)
+      //  ★★53-3 점유 검사 = 이 버그의 진짜 정본. 부피·감김이 다 통과해도 '실제로 걸어 지나갈 수
+      //   있는가'는 별개다 → 통로 격자에 광선 패리티로 점유를 재고, 아치 곡면 안은 전부 비어야 한다.
+      const rr = Math.hypot(ports[0].x - COR_CX, ports[0].z)
+      const rdv = [(ports[0].x - COR_CX) / rr, ports[0].z / rr]
+      const N0v = [-ports[0].tz, ports[0].tx]
+      const ogv = Math.sign(N0v[0] * rdv[0] + N0v[1] * rdv[1]) || 1
+      const Nv = [N0v[0] * ogv, N0v[1] * ogv]
+      const aRv = (nO - nI) / 2, ncv = (nI + nO) / 2, sprv = Math.max(0.5, DESC_PORT_H - aRv)
+      const archTop = (n) => Math.abs(n - ncv) >= aRv ? sprv : sprv + Math.sqrt(aRv * aRv - (n - ncv) ** 2)
+      const RT = [...res.attributes.position.array], DIR = [0.3714, 0.5571, 0.7428]
+      const insideRes = (P) => {
+        let cnt = 0
+        for (let i = 0; i < RT.length; i += 9) {
+          const a = RT.slice(i, i + 3), b = RT.slice(i + 3, i + 6), cc = RT.slice(i + 6, i + 9)
+          const e1 = [b[0]-a[0], b[1]-a[1], b[2]-a[2]], e2 = [cc[0]-a[0], cc[1]-a[1], cc[2]-a[2]]
+          const h = [DIR[1]*e2[2]-DIR[2]*e2[1], DIR[2]*e2[0]-DIR[0]*e2[2], DIR[0]*e2[1]-DIR[1]*e2[0]]
+          const det = e1[0]*h[0]+e1[1]*h[1]+e1[2]*h[2]
+          if (Math.abs(det) < 1e-12) continue
+          const f = 1/det, sv = [P[0]-a[0], P[1]-a[1], P[2]-a[2]]
+          const u2 = f*(sv[0]*h[0]+sv[1]*h[1]+sv[2]*h[2]); if (u2 < 0 || u2 > 1) continue
+          const q = [sv[1]*e1[2]-sv[2]*e1[1], sv[2]*e1[0]-sv[0]*e1[2], sv[0]*e1[1]-sv[1]*e1[0]]
+          const v2 = f*(DIR[0]*q[0]+DIR[1]*q[1]+DIR[2]*q[2]); if (v2 < 0 || u2+v2 > 1) continue
+          if (f*(e2[0]*q[0]+e2[1]*q[1]+e2[2]*q[2]) > 1e-9) cnt++
+        }
+        return cnt % 2 === 1
+      }
+      let blocked = 0, sampled = 0
+      for (const u2 of [-6, -3, 0, 3, 6]) for (const hh of [0.3, 2, 4, 6]) for (const nn of [-2, 0, 2]) {
+        if (hh > archTop(nn) - 0.2) continue
+        sampled++
+        if (insideRes([ports[0].x + u2*ports[0].tx + nn*Nv[0], ports[0].yWalk + u2*ports[0].dyds + hh,
+                       ports[0].z + u2*ports[0].tz + nn*Nv[1]])) blocked++
+      }
+      ok(blocked === 0, `통로 점유 ${sampled}점 중 막힘 ${blocked} — 실제로 걸어 지나갈 수 있다(관통 실증)`)
+      ok(true, `컷 밑 = 보행선−0.35(판 0.43 융착 통과) · 위 = +${DESC_PORT_H}(${DESC_PORT_TOP})`)
+    }
+  }
 }
 
 console.log('\n— D. 리브 계단 구역(전부 관 안인가) —')

@@ -31,6 +31,10 @@ import {
   INCA_ARCH_X0, INCA_ARCH_Y1, INCA_FACETS,
   R_BASE, INCA_NEXUS_R, INCA_TIP_Y1, INCA_TIP_Y2, INCA_GAP, INCA_TIP_T, INCA_EMBED,
   INTAKE_ON, INTAKE_FORM, INTAKE_CX, SLIT_W, SLIT_LEN_F, SLIT_N, SLIT_GAP, SLIT_R, SLIT_ARC_DEG, SLIT_ARC_MID,
+  HALL_ENTRY, DESC_HW, DESC_SIDE, DESC_R, DESC_SWEEP, DESC_SWEEP_MIN, DESC_SWEEP_MAX, DESC_RISE_MAX,
+  DESC_TAIL, DESC_ENTRY_AZ,   // ★㊾→51 하강로(접선화)
+  PIER_ON, PIER_N, PIER_HW, PIER_DEPTH, PIER_OUT, DESC_PORT_ON, DESC_PORT_H, DESC_PORT_TOP, DESC_PORT_CLR,   // ★53
+  BOX_X1, COR_Y0,
   ceilY, GAT_CX, GAT_CROWN_R, GAT_CONE_H, GAT_CROWN_H, GAT_SLIT, GAT_EAVE_MIN, GAT_EAVE_SF,
 } from './constants.js'
 
@@ -256,6 +260,209 @@ function _build(scheme) {
     })
   }
   return { stairs, doors }
+}
+
+// ════════ ★★㊾→51 하강로 스펙(2026.07.23 접선화) — 박스 목(y101.3) → 잉카 판(y38.2) ════════
+//  ㊾ 원판(직선+참)에서 현도 반려 2건: ① 참 블록 = "기하와 안 맞물리는 투박한 매듭" ② 대각 직선 = "별로".
+//  ★51 해법 = 둘을 한 수로: **전 구간 접선 연속** — 꺾임이 없으면 참이 필요 없다.
+//   'lateral' = [진입 직선] ⌒[필렛] ⌒[벽 동심호] ⌒[꼬리: 쌍원호 S(기본) | 구 직선] → 판.
+//   'axial'   = [직선] 하나(불변 — 성격의 대비로 보존).
+//  높이 = 균일 경사(참·평탄 전폐). ⚠단높이 천장: 디딤을 경사에서 역산(DESC_RISE_MAX — STEP_UP 0.8 보호).
+const _tanEnd = (seg) => { const p = pathAt([seg], seg.L); return [p.tx, p.tz] }
+function segArcDir(cx, cz, R, P0, P1, tStart) {     // 시작 접선이 tStart와 정합하는 회전 방향을 고르는 원호
+  const ph0 = Math.atan2(P0[1] - cz, P0[0] - cx)
+  const raw = Math.atan2(P1[1] - cz, P1[0] - cx)
+  let best = null
+  for (const c of [raw, raw + 2 * Math.PI, raw - 2 * Math.PI]) {
+    if (Math.abs(c - ph0) < 1e-9) continue
+    const g = Math.sign(c - ph0)
+    const dot = (-Math.sin(ph0) * g) * tStart[0] + (Math.cos(ph0) * g) * tStart[1]
+    if (dot > 0.5 && (best === null || Math.abs(c - ph0) < Math.abs(best - ph0))) best = c
+  }
+  return segArc(cx, cz, R, ph0, best === null ? raw : best)
+}
+function arcOrLineTo(P, t, Q) {                     // P에서 접선 t로 출발해 Q에 닿는 유일 원호(공선 퇴화 = 직선)
+  const n = [-t[1], t[0]], d = [Q[0] - P[0], Q[1] - P[1]]
+  const den = n[0] * d[0] + n[1] * d[1]
+  if (Math.abs(den) < 1e-6) return segLine(P, Q)
+  const sr = (d[0] * d[0] + d[1] * d[1]) / (2 * den)
+  return segArcDir(P[0] + sr * n[0], P[1] + sr * n[1], Math.abs(sr), P, Q, t)
+}
+//  ★51 쌍원호(biarc): B(접선 tB) → E(접선 tE)를 원호 두 개로, 조인트 J에서 접선 연속.
+//  등접선장 해 J(d) = ((B+d·tB)+(E−d·tE))/2 — d를 400점 스캔해 불연속 최소해(실측 <1e-6).
+//  해석해 대신 수치 스캔인 이유: 부호·감김 case 분기가 D SIDE·sweep 조합마다 갈려 실수 온상 —
+//  C2절이 표본 단위로 연속성·도착 정렬을 재검증하므로 스캔의 잔차는 그물에 걸린다.
+function biarcTail(B, tB, E, tE) {
+  let best = null
+  const span = Math.hypot(E[0] - B[0], E[1] - B[1])
+  for (let i = 1; i <= 400; i++) {
+    const d = (i / 400) * span * 1.5
+    const J = [(B[0] + d * tB[0] + E[0] - d * tE[0]) / 2, (B[1] + d * tB[1] + E[1] - d * tE[1]) / 2]
+    const g1 = arcOrLineTo(B, tB, J)
+    const g2r = arcOrLineTo(E, [-tE[0], -tE[1]], J)               // 역방향 구축(E→J)
+    const t1 = _tanEnd(g1), t2r = _tanEnd(g2r)
+    const miss = 1 + (t1[0] * t2r[0] + t1[1] * t2r[1])            // J에서 실제 진행 접선 = −(g2r 끝접선)
+    if (best === null || miss < best.miss) best = { miss, g1, g2r }
+  }
+  const rev = g => g.t === 'l' ? segLine(g.b, g.a) : segArc(g.cx, g.cz, g.R, g.ph1, g.ph0)
+  return [best.g1, rev(best.g2r)]
+}
+export function descentSpec(scheme = HALL_ENTRY) {
+  const S = [BOX_X1, 0]                              // 출발 = 박스 출구(축상)
+  const yS = COR_Y0 + COR_THICK / 2                  // 다리 상면과 등고
+  const st = incaStairSpec()
+  const E = [st.panel.x0, 0], yE = st.panel.yTop     // 도착 = 잉카 판 서단 상면
+  const sweep = Math.max(DESC_SWEEP_MIN, Math.min(DESC_SWEEP_MAX, DESC_SWEEP)) * DEG
+  let segs, viewS = null
+  if (scheme === 'axial') {
+    segs = [segLine(S, E)]
+  } else {
+    const side = DESC_SIDE >= 0 ? 1 : -1
+    //  ① 진입 = 쌍원호(★51-2 재작성. 구 단일 접원 필렛은 회전 방향 불일치로 폐기 — 북행 궤도는
+    //   시계 방향인데 동진(+x)→좌회전 접원은 반시계: 내접이 같은 회전을 요구해 263° 장회전 버그).
+    //   쌍원호는 반시계→시계 두 호가 S로 반전을 흡수한다(꼬리와 동일 기계 — 구조의 대칭).
+    const phA = Math.PI - side * (DESC_ENTRY_AZ * DEG)
+    const A = [COR_CX + DESC_R * Math.cos(phA), DESC_R * Math.sin(phA)]
+    const tA = [Math.sin(phA) * side, -Math.cos(phA) * side]   // 벽 호의 진행 접선(az가 sweep 쪽으로)
+    const entry = biarcTail(S, [1, 0], A, tA)
+    //  ② 벽 동심호: A(진입 합류점) → B(ph1 = 180° − side·sweep — sweep 의미는 서축 기준 유지)
+    const ph1 = Math.PI - side * sweep
+    const B = [COR_CX + DESC_R * Math.cos(ph1), DESC_R * Math.sin(ph1)]
+    const wall = segArcDir(COR_CX, 0, DESC_R, A, B, tA)
+    //  ③ 꼬리(★51 스위치)
+    const tail = DESC_TAIL === 'chord' ? [segLine(B, E)] : biarcTail(B, _tanEnd(wall), E, [1, 0])
+    segs = [...entry, wall, ...tail]
+    viewS = entry.reduce((a, g) => a + g.L, 0) + wall.L / 2    // ★구도점 = 벽 호 중간('view' 소비)
+  }
+  const L = pathLen(segs)
+  const yNodes = [[0, yS], [L, yE]]                  // 균일 경사(참·평탄 전폐 — ★51)
+  const slope = (yE - yS) / L
+  const ds = Math.min(STAIR_DS, DESC_RISE_MAX / Math.max(1e-6, Math.abs(slope)))
+  const N = Math.max(2, Math.round(L / ds)), DS = L / N
+  const plates = []
+  for (let i = 0; i < N; i++) {
+    const s = (i + 0.5) * DS, p = pathAt(segs, s)
+    plates.push({ x: p.x, z: p.z, yTop: yAt(yNodes, s), rotY: Math.atan2(-p.tz, p.tx), s })
+  }
+  const NS = Math.max(240, Math.ceil(L / 0.6))
+  const samples = []
+  for (let i = 0; i <= NS; i++) {
+    const s = (i / NS) * L, p = pathAt(segs, s)
+    samples.push({ x: p.x, z: p.z, y: yAt(yNodes, s), s, tx: p.tx, tz: p.tz })
+  }
+  return { scheme, segs, landings: [], plates, samples, L, yS, yE, drop: yS - yE,
+           slopeDeg: Math.atan(Math.abs(slope)) * 180 / Math.PI, ds: DS,
+           rise: DS * Math.abs(slope), S, E, sweepDeg: sweep * 180 / Math.PI, viewS }
+}
+
+// ════════ ★53 피어 관문(2026.07.23) — "겹침을 지지로 승격"(현도) ════════
+//  드럼 기어 피어의 방위 정본(구 Corridor.jsx DrumPiers 인라인 공식의 이관 — 렌더·검출·검증이 공유).
+export function drumPierAzimuths() {
+  const half = Math.floor(PIER_N / 2), innerOff = 20, outerOff = 180 - 43 - 12
+  const out = []
+  for (let k = 0; k < half; k++) {
+    const off = half > 1 ? innerOff + (outerOff - innerOff) * (k / (half - 1)) : (innerOff + outerOff) / 2
+    for (const sg of [-1, 1]) out.push((180 + sg * off) * DEG)
+  }
+  return out
+}
+//  하강로가 관통하는 피어 자동 검출: 방위 대역(피어 반폭 + 경로 반폭) ∩ 반경 대역(피어 안면 75 안쪽).
+//  회전량·방향·반경을 돌리면 관문 목록이 따라 움직인다 — 수동 지정 금지(노브 안전).
+export function descentPortSpec(scheme = HALL_ENTRY) {
+  if (!PIER_ON || !DESC_PORT_ON || (scheme !== 'lateral' && scheme !== 'axial')) return []
+  const d = descentSpec(scheme)
+  const dyds = (d.yE - d.yS) / d.L
+  const ports = []
+  for (const az of drumPierAzimuths()) {
+    let best = null
+    for (const q of d.samples) {
+      const r = Math.hypot(q.x - COR_CX, q.z)
+      if (r + DESC_HW < COR_R - PIER_DEPTH) continue
+      let da = Math.atan2(q.z, q.x - COR_CX) - az
+      while (da > Math.PI) da -= 2 * Math.PI
+      while (da < -Math.PI) da += 2 * Math.PI
+      if (Math.abs(da) > Math.atan2(PIER_HW, COR_R) + Math.atan2(DESC_HW, r)) continue
+      if (!best || Math.abs(da) < Math.abs(best.da)) best = { q, da }
+    }
+    if (best) ports.push({ az, s: best.q.s, x: best.q.x, z: best.q.z,
+                           tx: best.q.tx, tz: best.q.tz, yWalk: best.q.y, dyds })
+  }
+  return ports
+}
+//  관문 프리즘(컷 브러시용 순수 삼각형) — 단면(횡 n × 종 v) 폴리곤을 경사 진행축으로 스윕한 닫힌 몸.
+//   단면: 밑 = 보행선 −0.35(판 융착 통과) · 옆 = 안 −(HW+2.0)/밖 +(HW+CLR) · 위 = 아치(스케치) 또는 사각.
+//   ⚠직선 스윕 근사: 경로는 피어 폭 ±7 안에서 곡선(최대 이탈 0.76〔R32.6 실측〕) — 옆 여유 2.0·1.8이 흡수.
+//  ★53-2 공용: 닫힌 삼각 수프의 부호 부피(발산 정리 — 겉면 CCW이면 +V, 원점 무관) + 겉면 강제.
+//   ⚠CSG는 겉면 법선 일관성을 전제한다. DrumPiers 원본 감김은 **안쪽**이었고(바깥면 법선이 +x 검산)
+//   DoubleSide 재질이 그걸 가려왔다 — 렌더는 멀쩡했지만 CSG에 넣는 순간 껍데기·조각 파탄(현도 스크린샷).
+export function signedVolume(pos) {
+  let v = 0
+  for (let i = 0; i < pos.length; i += 9) {
+    const a = pos.slice(i, i + 3), b = pos.slice(i + 3, i + 6), c = pos.slice(i + 6, i + 9)
+    v += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6
+  }
+  return v
+}
+//  ⚠**전역 반전은 감김이 이미 일관될 때만 통한다.** 관문 프리즘은 옆면 26 / 캡 22가 서로 반대로
+//   감겨 있어(혼재) 부호 부피 가드를 통과했는데도 CSG가 자재를 남겼다(현도 스크린샷 2차 — 개구부의
+//   '얇은 판'). → **면마다 개별로** 중심 기준 바깥을 맞춘다. 피어 상자·관문 프리즘 둘 다 볼록이라
+//   (볼록 단면 × 직선 스윕 = 볼록) 이 방법이 근사가 아니라 정확하다.
+export function outwardTris(pos) {
+  const n = pos.length / 3, c = [0, 0, 0]
+  for (let i = 0; i < pos.length; i += 3) { c[0] += pos[i] / n; c[1] += pos[i + 1] / n; c[2] += pos[i + 2] / n }
+  const out = []
+  for (let i = 0; i < pos.length; i += 9) {
+    const a = pos.slice(i, i + 3), b = pos.slice(i + 3, i + 6), d = pos.slice(i + 6, i + 9)
+    const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], e2 = [d[0] - a[0], d[1] - a[1], d[2] - a[2]]
+    const nr = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
+    const m = [(a[0] + b[0] + d[0]) / 3 - c[0], (a[1] + b[1] + d[1]) / 3 - c[1], (a[2] + b[2] + d[2]) / 3 - c[2]]
+    if (nr[0] * m[0] + nr[1] * m[1] + nr[2] * m[2] < 0) out.push(...a, ...d, ...b)
+    else out.push(...a, ...b, ...d)
+  }
+  return out
+}
+//  감김 일관성(방향 있는 변이 같은 방향으로 두 번 나오면 이웃 면이 반대로 감긴 것) — 검증이 쓴다.
+export function windingConsistent(pos) {
+  const k = (i) => pos.slice(i, i + 3).map(v => Math.round(v * 1e4)).join(',')
+  const seen = new Set()
+  for (let i = 0; i < pos.length; i += 9) {
+    const v = [k(i), k(i + 3), k(i + 6)]
+    for (let j = 0; j < 3; j++) {
+      const e = v[j] + '>' + v[(j + 1) % 3]
+      if (seen.has(e)) return false
+      seen.add(e)
+    }
+  }
+  return true
+}
+export function portPrismTris(port) {
+  const nIn = -(DESC_HW + 2.0), nOut = DESC_HW + DESC_PORT_CLR
+  const sec = [[nIn, -0.35], [nOut, -0.35]]
+  if (DESC_PORT_TOP === 'flat') { sec.push([nOut, DESC_PORT_H], [nIn, DESC_PORT_H]) }
+  else {
+    const aR = (nOut - nIn) / 2, nc = (nIn + nOut) / 2, spring = DESC_PORT_H - aR
+    sec.push([nOut, Math.max(0.5, spring)])
+    for (let i = 1; i < 10; i++) { const a = (i / 10) * Math.PI
+      sec.push([nc + aR * Math.cos(a), Math.max(0.5, spring) + aR * Math.sin(a)]) }
+    sec.push([nIn, Math.max(0.5, spring)])
+  }
+  //  횡 단위벡터 = 수평 법선을 **바깥(반경) 방향으로 정렬**(도는 방향에 따라 부호가 뒤집힌다 — ★53 구속)
+  const r = Math.hypot(port.x - COR_CX, port.z)
+  const rd = [(port.x - COR_CX) / r, port.z / r]
+  const N0 = [-port.tz, port.tx]
+  const og = Math.sign(N0[0] * rd[0] + N0[1] * rd[1]) || 1
+  const N = [N0[0] * og, N0[1] * og]
+  const EL = PIER_HW + 3.5
+  const ring = (u) => sec.map(([n, v]) => [
+    port.x + u * port.tx + n * N[0], port.yWalk + u * port.dyds + v, port.z + u * port.tz + n * N[1]])
+  const A = ring(-EL), B = ring(EL), pos = []
+  const push = (a, b, c) => pos.push(...a, ...b, ...c)
+  for (let i = 0; i < sec.length; i++) {
+    const j = (i + 1) % sec.length
+    push(A[i], B[i], B[j]); push(A[i], B[j], A[j])
+  }
+  for (let i = 1; i < sec.length - 1; i++) { push(A[0], A[i + 1], A[i]); push(B[0], B[i], B[i + 1]) }
+  return outwardTris(pos)   // 감김 가드(㉚ 전례) — 공용 헬퍼로 이관(★53-2)
 }
 
 // ════════ ★잉카 계단 스펙(㊶-5→㊶-6) — 순수 수치 빌더(검증·렌더가 공유하는 정본) ════════

@@ -60,7 +60,10 @@ ok(Math.abs(COR_Y0 - (49 + LIFT_Y)) < 1e-9 && Math.abs(ROOM_FLOOR_Y - LIFT_Y) < 
 }
 console.log('— N. ㊵-5 진입 개편 (상승 +10 → 부양 소구 · 구 하강계 = 스위치 잠금 보존) —')
 {
-  ok(HALL_ENTRY === 'asc-sphere' || HALL_ENTRY === 'descent', `HALL_ENTRY 스위치 유효('${HALL_ENTRY}') — 구 ㊴-5 하강계는 'descent'로 복귀 가능(보존)`)
+  //  ★㊾ 4체제로 확장(소구 폐기 + 하강로 둘). 폐기 = **경로에서 제거**이지 코드 삭제가 아니다 —
+  //   'asc-sphere'(소구)·'descent'(구 ㊴-5) 둘 다 스위치로 복귀 가능해야 한다(보존 원칙).
+  ok(['lateral', 'axial', 'asc-sphere', 'descent'].includes(HALL_ENTRY),
+    `HALL_ENTRY 스위치 유효('${HALL_ENTRY}') — 4체제(신 하강 2 + 구 보존 2) 전부 복귀 가능`)
   ok(Math.abs(ASC_SLOPE) <= 0.7002, `상승 경사 ${r2(Math.atan(ASC_SLOPE) * DEG)}° ≤ 35°(보행 상한 — 소구 서진 후에도 유지)`)
   ok(ORB_CX - ORB_R > COR_CYL_X0 + 1, `소구 서단 ${r2(ORB_CX - ORB_R)} > 드럼 서벽 ${COR_CYL_X0}(접합부 근접 — 하한 지킴)`)
   ok(Math.abs(ASC_RISE - (ORB_WEST_X - ASC_X0) * ASC_SLOPE) < 1e-9 && ASC_X0 >= BOX_X1 && ASC_X0 <= BOX_X1 + 0.01,
