@@ -20,7 +20,10 @@ import * as THREE from 'three'
 import {
   SHELL_RIB_R, RIB_RADIAL_SEG, RIB_WALL_END_CAP,
   RIB_VICE_ON, RIB_NEWEL_R, RIB_NEWEL_Y0, RIB_NEWEL_Y1, RIB_VICE_SOFFIT, RIB_VICE_T, RIB_VICE_NA, RIB_VICE_R_OUT,
-  STEPS_PER_TURN, STEP_RISE, STAIR_STEPS, spiralPoint,
+  STEPS_PER_TURN, STEP_RISE, STAIR_STEPS, spiralPoint, TREAD_THICK,
+  //  ★60 문지방 — 프리즈 방 바닥과 나선을 잇는 매듭(방 쪽 좌표가 필요하다)
+  FR_SILL_ON, FR_SILL_SPAN, FR_SILL_IN, FR_SILL_BITE, FR_SILL_T, FR_SILL_LIFT,
+  FR_FLOOR_Y, TEMPLE_CLR, H, ribCenter,
 } from './constants.js'
 
 //  발산 정리로 닫힌 삼각 수프의 부호 부피 — 감김 일관성 검산의 정본(㊿·53 전례)
@@ -135,12 +138,16 @@ export function viceBottomY(th) {
   return th * (STEP_RISE / VICE_DTHETA) - RIB_VICE_T - STEP_RISE / 2
 }
 
-//  쐐기 = 닫힌 솔리드. ⚠면마다 바깥 방향을 명시해 개별 정렬한다(53-3 교훈: 전역 반전은
-//   감김이 이미 일관될 때만 통한다 — 애초에 일관되게 짓는다).
-export function buildViceWedge() {
-  const h = VICE_DTHETA / 2, NA = RIB_VICE_NA
-  const r0 = RIB_NEWEL_R, r1 = RIB_VICE_R_OUT
-  const th = (a) => -h + (a / NA) * VICE_DTHETA
+//  ★부채꼴 솔리드 — 쐐기(★58)와 문지방(★60)이 공유하는 한 기계.
+//   ⚠공유하는 이유는 절약이 아니라 **어휘 동일성**이다: 문지방이 쐐기와 다른 방식으로 지어지면
+//    같은 나선 위에서 두 어법이 부딪친다(㊾ '판떼기' 반려의 구조적 원인이 그것이었다).
+//    다른 것은 반경대·각폭·밑면 함수뿐이고, 감김·마구리·정렬 규약은 글자 그대로 같다.
+//   ⚠면마다 바깥 방향을 명시해 개별 정렬한다(53-3 교훈: 전역 반전은 감김이 이미 일관될 때만
+//    통한다 — 애초에 일관되게 짓는다).
+//   로컬 좌표 규약: 축이 원점 · 부채의 각중심이 +x · **상면이 y=0**(배치 쪽이 y를 준다).
+function fanSolid(r0, r1, dth, NA, bottomY) {
+  const h = dth / 2
+  const th = (a) => -h + (a / NA) * dth
   const P = (r, a, y) => [r * Math.cos(th(a)), y, r * Math.sin(th(a))]
   const out = []
   const push = (t) => { for (const v of t) out.push(v[0], v[1], v[2]) }
@@ -155,7 +162,7 @@ export function buildViceWedge() {
   const radial = (a) => [Math.cos(th(a)), 0, Math.sin(th(a))]
   const tang = (a, sgn) => [-Math.sin(th(a)) * sgn, 0, Math.cos(th(a)) * sgn]
   for (let a = 0; a < NA; a++) {
-    const y0 = viceBottomY(th(a)), y1 = viceBottomY(th(a + 1))
+    const y0 = bottomY(th(a)), y1 = bottomY(th(a + 1))
     const iT0 = P(r0, a, 0), oT0 = P(r1, a, 0), iT1 = P(r0, a + 1, 0), oT1 = P(r1, a + 1, 0)
     const iB0 = P(r0, a, y0), oB0 = P(r1, a, y0), iB1 = P(r0, a + 1, y1), oB1 = P(r1, a + 1, y1)
     quad(iT0, oT0, oT1, iT1, [0, 1, 0])                        // 상면(밟는 면)
@@ -165,7 +172,7 @@ export function buildViceWedge() {
   }
   //  양 끝 마구리(라이저 면) — 이웃 쐐기와 맞닿는다
   {
-    const y0 = viceBottomY(th(0)), yN = viceBottomY(th(NA))
+    const y0 = bottomY(th(0)), yN = bottomY(th(NA))
     quad(P(r0, 0, 0), P(r1, 0, 0), P(r1, 0, y0), P(r0, 0, y0), tang(0, -1))
     quad(P(r0, NA, 0), P(r1, NA, 0), P(r1, NA, yN), P(r0, NA, yN), tang(NA, 1))
   }
@@ -174,6 +181,11 @@ export function buildViceWedge() {
   g.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3))
   g.computeVertexNormals()
   return { geometry: g, volume: signedVolume(arr), tris: arr.length / 9 }
+}
+
+//  쐐기 = 닫힌 솔리드(밑면 = 나선 볼트). 한 장 만들어 263장 인스턴싱한다.
+export function buildViceWedge() {
+  return fanSolid(RIB_NEWEL_R, RIB_VICE_R_OUT, VICE_DTHETA, RIB_VICE_NA, viceBottomY)
 }
 
 //  쐐기/판 경계 — **기둥 윗끝(RIB_NEWEL_Y1)을 넘는 첫 단**. 기둥이 없으면 쐐기도 없다(한 줄 규칙).
@@ -188,4 +200,43 @@ export function viceSplitIndex() {
 export function newelSpec() {
   const y0 = RIB_NEWEL_Y0, y1 = RIB_NEWEL_Y1
   return { r: RIB_NEWEL_R, y0, y1, h: y1 - y0, cy: (y0 + y1) / 2 }
+}
+
+// ============================================================================
+//  ★60 문지방(sill) — 나선 ↔ 프리즈 방 바닥의 매듭. 렌더·검증이 같은 정본을 소비
+// ============================================================================
+//  자리 = **마지막 쐐기의 방위**. 왜 하필 거기냐: 그 한 단이 '기둥이 있는 마지막 단'이고,
+//  바로 다음 단부터 받치는 게 사라진다(★58 한 줄 규칙). 나가는 문을 **받쳐진 마지막 자리**에
+//  두면 관람자는 "받쳐진 데서 내려서서, 안 받쳐진 것들을 올려다본다" — 1p7의 시점이 곧 동선이 된다.
+//  (한 단 위에 두면 나가는 자리부터 이미 떠 있어서 그 대조가 사라진다.)
+export function sillSpec() {
+  if (!FR_SILL_ON || !RIB_VICE_ON) return null
+  const split = viceSplitIndex()
+  if (split <= 0) return null
+  const i = split - 1                                   // 마지막 쐐기
+  const { theta } = spiralPoint((i + 0.5) / STAIR_STEPS)
+  const wedgeTop = spiralPoint((i + 0.5) / STAIR_STEPS).pos.y + TREAD_THICK / 2   // 쐐기 상면(Dome 배치 규약과 동일)
+  const yTop = FR_FLOOR_Y + FR_SILL_LIFT
+  const c = ribCenter(yTop / H)                         // 그 높이의 리브 축(혀는 축을 중심으로 놓인다)
+  const holeR = SHELL_RIB_R + TEMPLE_CLR                // 바닥 관통 구멍 = 혀가 물어야 할 바깥 목표
+  return {
+    i, theta, dth: FR_SILL_SPAN * VICE_DTHETA,
+    r0: RIB_VICE_R_OUT - FR_SILL_IN,                    // 안쪽 = 쐐기 바깥끝보다 더 안(겹침)
+    r1: holeR + FR_SILL_BITE,                           // 바깥 = 바닥 구멍 모서리 너머(물림)
+    holeR,
+    yTop, yBot: yTop - FR_SILL_T, t: FR_SILL_T,
+    cx: c.x, cz: c.z,
+    wedgeTop, riseFromWedge: yTop - wedgeTop,           // 쐐기 → 혀 오름(0에 가까워야 한다)
+    dropToFloor: yTop - FR_FLOOR_Y,                     // 혀 → 바닥 내림 = FR_SILL_LIFT(동일평면 회피분)
+  }
+}
+
+//  혀 = 쐐기와 **같은 기계**로 뽑은 부채꼴 한 장. 다른 것은 반경대·각폭·평평한 밑면뿐.
+//  ⚠밑면이 평평한 이유: 나선 볼트(helix)는 '이어지는 계단'의 어법이고, 혀는 그 줄이 **끝나는**
+//   자리다(§2-D ③ 매듭). 볼트를 이어 붙이면 매듭이 아니라 한 단이 더 있는 것으로 읽힌다.
+export function buildSill() {
+  const s = sillSpec()
+  if (!s) return null
+  const NA = Math.max(2, RIB_VICE_NA * FR_SILL_SPAN)
+  return { ...fanSolid(s.r0, s.r1, s.dth, NA, () => -s.t), spec: s }
 }

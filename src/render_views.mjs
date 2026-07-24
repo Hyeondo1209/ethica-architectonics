@@ -11,6 +11,7 @@ import * as C from './constants.js'
 import { descentSpec, woldaeSpec, incaStairSpec, incaBladesSpec, drumPierAzimuths, descentPortSpec, portPrismTris, outwardTris, ribCutSpec } from './corridorStairsGeometry.js'
 import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg'
 import { WAYPOINTS, EYE } from './waypoints.js'
+import { buildViceWedge, viceSplitIndex, buildSill } from './ribGeometry.js'   // ★60 매듭 검수
 
 const tris = []
 function addGeo(geo, color) {
@@ -207,6 +208,44 @@ for (const k of [-2, -1, 0, 1, 2]) {
     g.rotateY(-theta); g.translate(pos.x, pos.y, pos.z)
     addGeo(g, [214, 171, 104])
   }
+}
+
+// ── ★60 프리즈 방 바닥 + vice 상단 + 문지방 — 매듭 검수용(2026.07.24) ──
+//  ⚠구판 렌더에는 **방 바닥이 없었다** — 그래서 "나선이 어디로 내려서는가"를 볼 수단 자체가 없었다.
+//   (그 사각지대가 0.85 환형 허공을 여태 못 본 이유이기도 하다.) 격자로 근사하고 구멍 다섯만 뚫는다.
+{
+  const rx0 = C.TEMPLE_X0 + C.FR_WALL_T, rx1 = C.TEMPLE_X1 + C.FR_ANNEX - C.FR_BACK_T
+  const rzh = C.TEMPLE_HZ - C.FR_WALL_T, fy = C.FR_FLOOR_Y
+  const holes = CUTS.map(c => ({ x: c.bx, z: c.bz, r: C.SHELL_RIB_R + C.TEMPLE_CLR }))
+  const NX = 44, NZ = 66
+  for (let i = 0; i < NX; i++) for (let j = 0; j < NZ; j++) {
+    const x0 = rx0 + (rx1 - rx0) * i / NX, x1 = rx0 + (rx1 - rx0) * (i + 1) / NX
+    const z0 = -rzh + 2 * rzh * j / NZ, z1 = -rzh + 2 * rzh * (j + 1) / NZ
+    const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2
+    if (holes.some(h => Math.hypot(cx - h.x, cz - h.z) < h.r)) continue
+    quad([x0, fy, z0], [x1, fy, z0], [x1, fy, z1], [x0, fy, z1], [186, 160, 112])
+  }
+  //  아랫캡 넷(= 바닥 구멍의 마개, 끊긴 자리가 바닥 무늬가 된다)
+  for (const c of CUTS) if (c.k !== 0) {
+    const NC = 24
+    for (let j = 0; j < NC; j++) {
+      const a0 = j / NC * Math.PI * 2, a1 = (j + 1) / NC * Math.PI * 2, yy = c.yBot + 0.02
+      tris.push({ v: [[c.bx, yy, c.bz], [c.bx + c.capB * Math.cos(a0), yy, c.bz + c.capB * Math.sin(a0)],
+                      [c.bx + c.capB * Math.cos(a1), yy, c.bz + c.capB * Math.sin(a1)]], c: [166, 146, 110] })
+    }
+  }
+  //  vice 상단 쐐기 40장 — 나선이 바닥으로 올라붙는 마지막 구간
+  const split = viceSplitIndex(), wg = buildViceWedge().geometry
+  for (let i = Math.max(0, split - 40); i < split; i++) {
+    const f = (i + 0.5) / C.STAIR_STEPS, { theta } = C.spiralPoint(f)
+    const cc = C.ribCenter(C.spiralU(f))
+    const g = wg.clone(); g.rotateY(-theta); g.translate(cc.x, cc.y + C.TREAD_THICK / 2, cc.z)
+    addGeo(g, [214, 171, 104])
+  }
+  //  ★60 문지방 — 색을 일부러 갈라 둔다(검수에서 어디가 매듭인지 즉시 보이게)
+  const sb = buildSill()
+  if (sb) { const g = sb.geometry.clone(); g.rotateY(-sb.spec.theta); g.translate(sb.spec.cx, sb.spec.yTop, sb.spec.cz)
+    addGeo(g, [150, 122, 80]) }
 }
 
 function render(eye, yaw, pitch, W, H, name) {

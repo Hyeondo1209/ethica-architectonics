@@ -26,9 +26,10 @@ import {
   RIB_CUT_ON, RIB_CUT_MODE, RIB_CUT_BOX_HW, RIB_CUT_CAP_T,   // ★56 리브 절단(1p7)
   RIB_WALL_ON, RIB_WALL_T, RIB_WALL_SCOPE,                   // ★57 리브 벽 두께
   RIB_VICE_ON, RIB_NEWEL_R, RIB_POLE_ON, ribCenter, spiralU,  // ★58 중세 나선(vice)
+  FR_SILL_MAT, TEMPLE_COLOR,                                  // ★60 문지방(나선↔프리즈 방 매듭)
 } from './constants'
 import { hallDoors, ribCutSpec } from './corridorStairsGeometry'
-import { buildRibShell, buildViceWedge, viceSplitIndex, newelSpec } from './ribGeometry'
+import { buildRibShell, buildViceWedge, viceSplitIndex, newelSpec, buildSill } from './ribGeometry'
 
 export function Ground() {
   return (
@@ -75,7 +76,10 @@ function RibCutCaps({ cuts, top = true }) {
   return (
     <>
       {cuts.flatMap((c, i) => ([
-        <mesh key={`b${i}`} position={[c.bx, c.yBot + 0.02 - RIB_CUT_CAP_T / 2, c.bz]}>
+        //  ★60: 'floor' 모드에서 아랫캡은 **밟는 면**이다 — 방 바닥 관통 구멍(r6.4)의 마개이므로
+        //   walkable을 안 달면 1-④에서 지름 12.8 구멍 넷이 열린다(2026.07.24 실측 적발).
+        //   'stub'에선 그루터기 꼭대기라 밟을 일이 없으나, 밟혀도 무해하므로 모드 분기 없이 단다.
+        <mesh key={`b${i}`} position={[c.bx, c.yBot + 0.02 - RIB_CUT_CAP_T / 2, c.bz]} userData={{ walkable: true }}>
           <cylinderGeometry args={[c.capB, c.capB, RIB_CUT_CAP_T, 32]} />
           <meshStandardMaterial {...RIB_MAT} onBeforeCompile={ribTintOBC} />
         </mesh>,
@@ -269,6 +273,7 @@ export function RibStair() {
   const nPlate = STAIR_STEPS - split
   const wedge = useMemo(() => (split > 0 ? buildViceWedge().geometry : null), [split])
   const newel = useMemo(() => (RIB_VICE_ON ? newelSpec() : null), [])
+  const sill  = useMemo(() => buildSill(), [])
   const newelC = useMemo(() => (newel ? ribCenter(newel.cy / H) : null), [newel])
   useLayoutEffect(() => {
     const dum = new THREE.Object3D()
@@ -304,6 +309,20 @@ export function RibStair() {
           <primitive object={wedge} attach="geometry" />
           <meshStandardMaterial {...TREAD_MAT} />
         </instancedMesh>
+      )}
+      {/* ★60 문지방 — 마지막 쐐기의 방위에서 프리즈 방 바닥까지 뻗는 한 장(§2-D ③ 매듭).
+          이게 없으면 나선과 방 바닥 사이에 0.85의 환형 허공이 남아 방에 내려설 수 없다. */}
+      {sill && (
+        <mesh
+          geometry={sill.geometry}
+          position={[sill.spec.cx, sill.spec.yTop, sill.spec.cz]}
+          rotation-y={-sill.spec.theta}
+          userData={{ walkable: true }}
+        >
+          {FR_SILL_MAT === 'floor'
+            ? <meshStandardMaterial color={TEMPLE_COLOR} roughness={0.9} />
+            : <meshStandardMaterial {...TREAD_MAT} />}
+        </mesh>
       )}
       <instancedMesh ref={plateRef} args={[undefined, undefined, nPlate]} userData={{ walkable: true }}>
         <boxGeometry args={[TREAD_DEPTH, TREAD_THICK, TREAD_WIDTH]} />

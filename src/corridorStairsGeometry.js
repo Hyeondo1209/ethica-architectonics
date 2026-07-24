@@ -845,8 +845,12 @@ export function ribCutSpec() {
     //  캡 반경: 기운 관의 수평 단면 = 타원(장축 R/cosθ) → 그만큼 덮는다.
     //  ⚠'floor' 모드 아랫캡만 예외 — **바닥 관통 구멍(R+TEMPLE_CLR)을 메우는 마개**를 겸한다.
     //   안 메우면 리브가 사라진 자리에 반경 6.4 수직 샤프트가 열려 아치 터널→홀까지 뚫린다.
+    //  ⚠★60(2026.07.24) 초승달 틈 수리: 구멍은 **수직 원기둥**이라 중심이 hallDoors()의 (cx,cz)에
+    //   고정인데, 캡 중심은 리브 중심선을 따라간 (bx,bz)다. 리브가 휘어 있어 둘이 **0.054 어긋난다**
+    //   → 반경을 정확히 6.4로 잡으면 한쪽에 폭 0.054의 초승달이 남는다(실측). 여유를 실어 덮는다.
+    //   구 검사는 `capB ≥ 구멍반경`만 봐서 이 어긋남을 못 잡았다 — R9절이 어긋남까지 포함해 다시 잡는다.
     const capB = (RIB_CUT_MODE === 'floor')
-      ? SHELL_RIB_R + TEMPLE_CLR
+      ? SHELL_RIB_R + TEMPLE_CLR + RIB_CUT_CAP_MG
       : SHELL_RIB_R / Math.cos(ribTilt(yBot)) + RIB_CUT_CAP_MG
     const capT = SHELL_RIB_R / Math.cos(ribTilt(yTop)) + RIB_CUT_CAP_MG
     return {

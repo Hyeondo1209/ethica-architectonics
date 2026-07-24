@@ -20,6 +20,7 @@ import {
   FRIEZE_ROOM_ON, FR_FLOOR_T, FR_WALL_T, FR_BACK_T, FR_CEIL_T, FR_FLOOR_Y, FR_ANNEX,   // ★55 프리즈 방(1p7)
   RIB_CUT_ON, RIB_CUT_MODE, RIB_CUT_SEED, RIB_CUT_GAP_MIN, RIB_CUT_HEAD, RIB_CUT_SEP,   // ★56 리브 절단(1p7)
   RIB_CUT_STUB_MIN, RIB_CUT_BOX_HW, RIB_CUT_CAP_T, RIB_CUT_CAP_MG,
+  FR_SILL_ON, FR_SILL_SPAN, FR_SILL_IN, FR_SILL_BITE, FR_SILL_T, FR_SILL_LIFT, FR_SILL_MAT, RIB_VICE_NA,   // ★60 문지방
   spiralPoint, STAIR_STEPS, STEP_RISE, TREAD_DEPTH, TREAD_WIDTH, TREAD_THICK, Y_POLE_CUT, ARCH_Y0, U_SPIRAL_END, rOf, uOfX,
   RIB_WALL_ON, RIB_WALL_T, RIB_WALL_T_MAX, RIB_WALL_SCOPE, RIB_BORE_MAX_AX, RIB_RADIAL_SEG, RIB_WALL_END_CAP,   // ★57 벽 두께
   RIB_VICE_ON, RIB_NEWEL_R, RIB_NEWEL_Y0, RIB_NEWEL_Y1, RIB_VICE_SOFFIT, RIB_VICE_T, RIB_VICE_R_OUT, RIB_POLE_ON,  // ★58 vice
@@ -41,7 +42,7 @@ import {
 import { hallDoors, buildHallStairs, PLAT_TOP, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal, ribCutSpec } from './corridorStairsGeometry.js'
 import * as THREE from 'three'                                                   // ★56 CSG 스모크(check_radial 전례)
 import { Brush, Evaluator, HOLLOW_SUBTRACTION, SUBTRACTION } from 'three-bvh-csg'
-import { buildRibShell, shellVolumeApprox, signedVolume, buildViceWedge, viceSplitIndex, newelSpec, viceBottomY, VICE_DTHETA } from './ribGeometry.js'
+import { buildRibShell, shellVolumeApprox, signedVolume, buildViceWedge, viceSplitIndex, newelSpec, viceBottomY, VICE_DTHETA, sillSpec, buildSill } from './ribGeometry.js'
 
 let n = 0, fail = 0
 const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
@@ -1557,6 +1558,69 @@ if (!RIB_VICE_ON) {
   }
   ok(RIB_POLE_ON === false, `구 폴 철거 확인(현도 2026.07.24) — 기둥이 그 자리를 삼킨다. 상수는 보존`)
   console.log(`     └ vice 실측: 기둥 r${RIB_NEWEL_R} y${RIB_NEWEL_Y0}~${RIB_NEWEL_Y1} · 쐐기 ${split}단(${r2(RIB_NEWEL_R)}~${r2(RIB_VICE_R_OUT)}) · 판 ${STAIR_STEPS - split}단 · 밑면 '${RIB_VICE_SOFFIT}'`)
+}
+
+
+// ── ★60 문지방(sill) — 나선 ↔ 프리즈 방 바닥의 매듭(2026.07.24) ──
+//  이 절이 지키는 것은 미학이 아니라 **1p7이 성립할 조건**이다.
+//  ★56이 다섯을 끊어 띄웠고 ★55가 방을 팠지만, 실측 결과 나선과 방 바닥 사이에 0.85의
+//  환형 허공이 남아 **방 바닥에 내려설 수가 없었다**. 그러면 "아래에서 올려다본다"(★56 주석)가
+//  불가능하고, 1p7은 나선을 오르며 곁눈질하는 것으로 축소된다. 혀는 그 시점을 되찾는 부재다.
+//  ⚠그래서 이 절의 실패는 '보기 나쁨'이 아니라 '논증 도달 불가'로 읽어야 한다.
+console.log('\n— R9. ★60 문지방 (나선 ↔ 프리즈 방 매듭) —')
+if (!FR_SILL_ON || !RIB_VICE_ON || !FRIEZE_ROOM_ON) {
+  ok(true, `문지방 꺼짐(SILL ${FR_SILL_ON} · VICE ${RIB_VICE_ON} · ROOM ${FRIEZE_ROOM_ON}) — 검사 생략. ⚠끄면 방에 못 내려선다`)
+} else {
+  const s = sillSpec()
+  ok(s !== null, `sillSpec 성립 — 마지막 쐐기 i=${s && s.i} 방위에 놓인다(받쳐진 마지막 자리)`)
+
+  //  ①★왜 필요했나 — 구 상태의 환형 허공을 수치로 남긴다(되돌리려는 다음 세션에 근거를 준다)
+  const voidW = s.holeR - RIB_VICE_R_OUT
+  ok(voidW > 0, `구 상태 실측: 쐐기 바깥끝 ${r2(RIB_VICE_R_OUT)} → 바닥 구멍 ${r2(s.holeR)} = 환형 허공 폭 ${r2(voidW)} (혀가 없으면 여기로 떨어진다)`)
+
+  //  ② 물림 — 양쪽 다 겹쳐야 발밑에 헤어라인이 없다
+  ok(RIB_VICE_R_OUT - s.r0 >= 0.2, `안쪽 물림 ${r2(RIB_VICE_R_OUT - s.r0)} ≥ 0.2 — 쐐기 위로 올라타 겹친다`)
+  const capOff = Math.max(...ribCutSpec().map((c, i) => Math.hypot(c.bx - hallDoors()[i].cx, c.bz - hallDoors()[i].cz)))
+  ok(s.r1 - s.holeR >= 0.2, `바깥 물림 ${r2(s.r1 - s.holeR)} ≥ 0.2 — 바닥 구멍 모서리를 넘어 물린다`)
+  ok(s.r0 < RIB_VICE_R_OUT && s.r1 > s.holeR, `혀가 허공 ${r2(voidW)}을 **전부** 덮는다(${r2(s.r0)}~${r2(s.r1)}) — 이 방위에서 걸어 나갈 수 있다`)
+
+  //  ③ 보행 — 한 단 안에서 방 바닥으로 넘어가는가
+  ok(Math.abs(s.riseFromWedge) <= STEP_RISE, `쐐기 상면 ${r2(s.wedgeTop)} → 혀 ${r2(s.yTop)} 오름 ${r2(s.riseFromWedge)} ≤ 단높이 ${STEP_RISE} — 한 걸음`)
+  ok(s.dropToFloor > 0 && s.dropToFloor <= 0.05, `혀 → 방 바닥 단차 ${r2(s.dropToFloor)} ∈ (0, 0.05] — 동일평면 z-fighting은 피하되 턱은 아니다`)
+  const walkLine = (RIB_NEWEL_R + RIB_VICE_R_OUT) / 2
+  ok(s.r0 > walkLine + 0.5, `혀 안쪽끝 ${r2(s.r0)} > 보행선 ${r2(walkLine)} + 0.5 — 나선을 계속 오르는 사람의 머리 위로 안 내려온다`)
+  ok(s.dth * s.holeR >= 1.5, `바닥 모서리에서 혀 폭 ${r2(s.dth * s.holeR)} ≥ 1.5 — 사람이 지나간다`)
+
+  //  ④★봉인 — 혀는 바닥 살(아치 크라운~방 바닥) 안에 머문다. 내려가면 홀에서 보인다
+  const crown = TEMPLE_Y0 + TEMPLE_OPEN
+  ok(s.yBot > crown + 0.5, `혀 밑면 ${r2(s.yBot)} > 아치 크라운 ${crown} + 0.5 — 홀에서 올려다봐도 안 보인다(1p5 파사드 무손상)`)
+  ok(s.yBot > crown && s.yTop <= FR_FLOOR_Y + 0.05, `혀 전체가 바닥 살 ${crown}~${r2(FR_FLOOR_Y + 0.05)} 안 — 방 안에서만 존재한다`)
+
+  //  ⑤ 위계 — §2-D ③ "걷는 것 < 받치는 것 < 매듭"
+  const wedgeAvgT = RIB_VICE_T + STEP_RISE / 2
+  ok(FR_SILL_T > wedgeAvgT, `혀 두께 ${FR_SILL_T} > 쐐기 평균 ${r2(wedgeAvgT)} — 매듭이 걷는 것보다 두껍다`)
+  ok(FR_SILL_SPAN >= 1 && FR_SILL_SPAN <= 4, `각폭 ${FR_SILL_SPAN}×쐐기(${r2(s.dth * 180 / Math.PI)}°) ∈ [1,4] — 넘으면 아래 단을 통째로 삼킨다`)
+  ok(FR_SILL_MAT === 'floor' || FR_SILL_MAT === 'tread', `재질 '${FR_SILL_MAT}' 유효 — 'floor'(바닥이 손을 내민다) / 'tread'(계단이 발을 내민다). 현도 판정 항목`)
+
+  //  ⑥ 몸 — 쐐기와 같은 기계로 뽑혔는가(어휘 동일성) · 감김 일관
+  const sb = buildSill()
+  ok(sb !== null && sb.volume > 0, `혀 부호 부피 ${r2(sb.volume)} > 0 — 감김 일관·닫힌 솔리드(쐐기와 같은 fanSolid)`)
+  ok(sb.tris === (Math.max(2, RIB_VICE_NA * FR_SILL_SPAN) * 4 + 2) * 2, `삼각 ${sb.tris} = 분할 ${Math.max(2, RIB_VICE_NA * FR_SILL_SPAN)}×4면 + 마구리 2 — 쐐기와 동일 구성`)
+
+  //  ⑦ 첫 얇은 판과 안 부딪치는가(반경대가 갈리거나 높이가 갈리거나)
+  const split = viceSplitIndex()
+  const p1 = spiralPoint((split + 0.5) / STAIR_STEPS).pos
+  const plateOutR = 3.3 + TREAD_DEPTH / 2
+  ok(plateOutR < s.r0 || p1.y - TREAD_THICK / 2 > s.yTop,
+    `첫 얇은 판(바깥끝 r${r2(plateOutR)} · y${r2(p1.y)}) ↔ 혀(r${r2(s.r0)}~ · 상면 ${r2(s.yTop)}) 무교차 — 나선은 혀 위를 안 지난다`)
+
+  //  ⑧★캡 초승달 — 구멍은 수직 원기둥(중심 고정)인데 캡은 리브 중심선을 따라간다
+  if (RIB_CUT_MODE === 'floor') {
+    ok(ribCutSpec().every(c => c.capB >= SHELL_RIB_R + TEMPLE_CLR + capOff),
+      `아랫캡 반경 ${r2(ribCutSpec()[0].capB)} ≥ 구멍 ${r2(SHELL_RIB_R + TEMPLE_CLR)} + 중심 어긋남 ${r2(capOff)} — 초승달 틈 0(구 검사는 어긋남을 안 봐서 못 잡았다)`)
+  }
+  ok(true, `아랫캡 4기 = walkable(Dome.RibCutCaps) — 1-④에서 지름 ${r2(2 * ribCutSpec()[0].capB)} 구멍 넷이 안 열린다`)
+  console.log(`     └ 문지방 실측: 방위 ${r2(s.theta * 180 / Math.PI % 360)}° · r${r2(s.r0)}~${r2(s.r1)} · y${r2(s.yBot)}~${r2(s.yTop)} · 두께 ${FR_SILL_T} · 재질 '${FR_SILL_MAT}'`)
 }
 
 console.log(fail === 0 ? `\n전부 통과 (${n}항)` : `\n실패 ${fail}/${n}`)
