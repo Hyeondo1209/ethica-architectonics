@@ -17,6 +17,7 @@ import {
   R_BASE, MERIDIANS, SHELL_RIB_R, DOOR_W, DOOR_H, DOOR_SILL_Y, KNEE, H,
   HALL_DOORS, HALL_DOORS_ON, STAIR_GAP, STAIR_DS, STAIR_TD, STAIR_W, COR_RISE, STAIR_MAX_SLOPE,
   TEMPLE_MODE, TEMPLE_Y0, TEMPLE_X0, TEMPLE_X1, TEMPLE_HZ, TEMPLE_CLR, STAIR_SCHEME, TEMPLE_PEDIMENT, TEMPLE_OPEN,
+  FRIEZE_ROOM_ON, FR_FLOOR_T, FR_WALL_T, FR_BACK_T, FR_CEIL_T, FR_FLOOR_Y, FR_ANNEX,   // ★55 프리즈 방(1p7)
   CELLA_ON, CELLA_ZHW, CELLA_X1, CELLA_T, CELLA_ROOF_Y0, CELLA_ROOF_Y1, CELLA_ROOF_T, CELLA_CLR, CELLA_BITE_R, CELLA_XW, CELLA_BACK_ON, CELLA_BACK_Y1,
   CELLA_NICHE, CELLA_NICHE_DEPTH, CELLA_RELIEF_OUT, CELLA_NICHE_Y0, CELLA_NICHE_Y1, CELLA_NICHE_WBOT, CELLA_NICHE_WTOP, CELLA_STRATA_N,
   ALTAR_ON, ALTAR_SCOPE, ALTAR_ZHW, ALTAR_X_BACK, ALTAR_STEP1_X, ALTAR_STEP2_X, ALTAR_STEP1_H, ALTAR_STEP2_H, ALTAR_UNI_XW,
@@ -484,6 +485,65 @@ console.log('— R4. ★㊺ 엔타블러쳐 밑면 개구(삼각/아치) — 문
       const backFront = TEMPLE_X1 - 0.5
       ok(backFront <= TEMPLE_X1 && backFront > 288 + SHELL_RIB_R - 1, `배경벽 앞면 ${r2(backFront)} ≤ 프리즈 뒷면 ${TEMPLE_X1}(밀착·겹침) · > 리브 #0 뒷면(294)−1 — 개구에 딱 붙음(빈틈 0)`)
     }
+
+// ── ★55 프리즈 방(1p7) — 부재 속을 파낸 방. 현도 스케치 2026.07.24 ──
+console.log('\n— R5. ★55 프리즈 방 (1p7 — 떠 있는 실체) —')
+if (!FRIEZE_ROOM_ON) {
+  ok(true, '프리즈 방 꺼짐 — 검사 생략')
+} else {
+  const rx0 = TEMPLE_X0 + FR_WALL_T, rx1 = TEMPLE_X1 + FR_ANNEX - FR_BACK_T, rzh = TEMPLE_HZ - FR_WALL_T
+  const crown = TEMPLE_Y0 + TEMPLE_OPEN                       // 아치 꼭대기 = 방 바닥의 밑면 최고점
+  const cW = ceilY(rx0) - 0.02 - FR_CEIL_T, cE = ceilY(rx1) - 0.02 - FR_CEIL_T
+  //  ①★봉인의 급소 — 바닥 두께. 0이면 아치 크라운에서 방이 터널로 뚫려 홀에서 방 안이 보인다.
+  //   이건 미학 노브가 아니다. 값을 줄일 때 이 검사가 먼저 죽어야 한다.
+  ok(FR_FLOOR_T > 0 && FR_FLOOR_Y === crown + FR_FLOOR_T,
+    `바닥 두께 ${FR_FLOOR_T} > 0 · 바닥 상면 ${FR_FLOOR_Y} = 아치 크라운 ${crown} + 두께 — 홀에서 방 안 불가시`)
+  //  ⚠하한 2의 근거 정정(2026.07.24 실측): CSG는 두께 1에서도 멀쩡했다(NaN 0·바닥면 정점 유지).
+  //   따라서 이 하한은 기하 한계가 아니라 **밟는 면의 살 + 봉인 여유**라는 설계 판단이다.
+  ok(FR_FLOOR_T >= 2, `바닥 두께 ${FR_FLOOR_T} ≥ 2 — 밟는 면의 살·봉인 여유(CSG 한계 아님, 실측)`)
+  //  ② 나머지 다섯 면의 살
+  ok(FR_WALL_T > 0 && rx0 < rx1, `앞·뒷벽 ${FR_WALL_T} — 방 x${r2(rx0)}~${r2(rx1)} ⊂ 프리즈 ${r2(TEMPLE_X0)}~${TEMPLE_X1}`)
+  ok(rzh > 0 && rzh < TEMPLE_HZ, `옆벽 ${FR_WALL_T} — 방 z±${r2(rzh)} ⊂ 프리즈 z±${TEMPLE_HZ}`)
+  ok(FR_CEIL_T > 0 && cE < ceilY(rx1), `천장 두께 ${FR_CEIL_T} — 방 천장 ${r2(cE)} < 빗면 천장 ${r2(ceilY(rx1))} (돔 쪽 무누출)`)
+  //  ③ 방이 방 노릇을 하는가 — 층고·부피
+  ok(cW - FR_FLOOR_Y > 6, `층고(서) ${r2(cW - FR_FLOOR_Y)} > 6 — 설 수 있다`)
+  ok(cE > cW, `동쪽이 높다 ${r2(cE)} > ${r2(cW)} — 빗면 천장 추종(방이 기울어 있다)`)
+  //  ④★리브 다섯이 이 방을 관통하는가 = 1p7이 성립할 조건(끊을 대상이 방 안에 있어야 한다)
+  let thru = 0
+  for (const d of hallDoors())
+    if (d.cx > rx0 - SHELL_RIB_R && d.cx < rx1 + SHELL_RIB_R && Math.abs(d.cz) < rzh) thru++
+  ok(thru === 5, `리브 ${thru}/5기가 방을 관통 — 다섯을 끊을 수 있다(현도 ⓐ: 프리즈 안 5개만)`)
+  //  ★★55-2 리브 뒤 여유 — 1p7의 급소. 벽에 박히면 "아무것에도 의존하지 않는다"가 반대로 읽힌다.
+  //   현도 로컬 판정("답답하다") → 실측 결과 #0 −2.0·#±1 −0.9로 **세 개가 벽 속에 있었다**.
+  //   동쪽 상한 = 셀라 동벽 안면(CELLA_X1−CELLA_T). 그 밖은 돔 리브 케이지 바깥이라 봉인 문제가 된다.
+  let backMin = 1e9, backWho = ''
+  for (const d of hallDoors()) { const g = rx1 - (d.cx + SHELL_RIB_R); if (g < backMin) { backMin = g; backWho = '#' + d.k } }
+  ok(backMin > 0, `리브 뒤 여유 최소 ${r2(backMin)}(${backWho}) > 0 — 어느 리브도 뒷벽에 안 박힌다`)
+  //  ★55-3 별채 — 셀라 바깥면(302)까지는 **새 돌출 0**(셀라가 이미 거기까지 나가 있다).
+  //   그 너머는 신전이 실제로 더 튀어나오는 것 = 조감 판정 대상이므로 검증이 상한으로 잡는다.
+  //  ★55-4 별채 = 파생(동단 ≡ 셀라 바깥면). 구조로 보장되지만, 파생이 끊기면 즉시 허공 돌출이 되므로 잠근다.
+  ok(TEMPLE_X1 + FR_ANNEX === CELLA_X1 + CELLA_T,
+    `별채 동단 ${r2(TEMPLE_X1 + FR_ANNEX)} ≡ 셀라 바깥면 ${CELLA_X1 + CELLA_T} — 항상 셀라 발자국 위(§2-D ① 뿌리)`)
+  //  별채 밑면(아치 크라운 y164)을 배경벽이 받는가 — 허공 돌출 금지(§2-D ①)
+  ok(FR_ANNEX === 0 || (TEMPLE_Y0 + TEMPLE_OPEN >= CELLA_ROOF_Y1 - 0.5 && TEMPLE_Y0 + TEMPLE_OPEN <= CELLA_BACK_Y1),
+    `별채 밑면 y${TEMPLE_Y0 + TEMPLE_OPEN} ∈ 배경벽 y구간 [${r2(CELLA_ROOF_Y1 - 0.5)}, ${CELLA_BACK_Y1}] — 받쳐진다`)
+  //  ★55-5 단차 봉인 — 방 바닥 위로 **다른 컴포넌트가 솟지 않는가**.
+  //   배경벽은 Cella 소속이라 프리즈 방 감산이 안 닿는다 → 상단이 바닥보다 높으면 그대로 단차가 된다.
+  //   (현도 스크린샷으로 발견: 구 +6이 4 솟아 방 동쪽 12 구간에 전폭 턱을 만들었다)
+  ok(CELLA_BACK_Y1 <= FR_FLOOR_Y,
+    `배경벽 상단 ${r2(CELLA_BACK_Y1)} ≤ 방 바닥 ${FR_FLOOR_Y} — 방 안에 턱 없음(다른 컴포넌트 침범 0)`)
+  //  ★현도 요구("앞만큼 뒤도") — 리브 앞뒤 여유의 균형을 수치로 잠근다. 뒤가 앞보다 좁으면 실패.
+  let fMin = 1e9, bMin = 1e9
+  for (const d of hallDoors()) { fMin = Math.min(fMin, d.cx - SHELL_RIB_R - rx0); bMin = Math.min(bMin, rx1 - (d.cx + SHELL_RIB_R)) }
+  ok(bMin >= fMin * 0.9, `뒤 최소 여유 ${r2(bMin)} ≥ 앞 최소 ${r2(fMin)}×0.9 — 앞뒤 공간감 균형(현도 요구)`)
+  ok(FR_BACK_T > 0 && FR_BACK_T < FR_WALL_T + 2, `뒷벽 ${FR_BACK_T} — 얼굴이 아니라 살만(앞벽 ${FR_WALL_T}보다 얇아도 된다)`)
+  //  ⑤★홀 시선 — 아치를 통해 올라오는 광선이 방 바닥을 못 넘는다.
+  //   바닥 슬래브는 방(x rx0~rx1)보다 넓은 프리즈 전폭(TEMPLE_X0~X1 · z±HZ)에 깔리므로 옆으로도 못 샌다.
+  ok(FR_FLOOR_Y > crown && rx0 > TEMPLE_X0 && rzh < TEMPLE_HZ,
+    `바닥이 방보다 넓다(x·z 양쪽 ${FR_WALL_T} 여유) — 아치 시선이 방 옆으로도 못 샌다`)
+  //  ⑥ 1p7 배당 — 웨이포인트가 이 방 안에 있다(밀폐라 텔레포트가 유일 입구)
+  ok(FR_FLOOR_Y < cW, `방 바닥 ${FR_FLOOR_Y} < 천장 ${r2(cW)} — 웨이포인트 착지 가능`)
+}
     // ★㊻ 단차 방지: 배경벽(동벽 상단 연장)은 z를 옆벽 안쪽(±CELLA_ZHW)으로 제한 → 옆벽 위로 안 솟음.
     //   상단 연장 z반폭(CELLA_ZHW) = 옆벽 안쪽면과 일치 → 연장이 옆벽 사이에 쏙 들어감(ㄱ자 모서리 없음).
     ok(CELLA_ZHW <= CELLA_ZHW, `배경벽 상단 z반폭 = 옆벽 안쪽(±${CELLA_ZHW}) — 옆벽 위로 안 솟음(단차 0, 현도 지적)`)

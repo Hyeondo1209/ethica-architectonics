@@ -69,7 +69,15 @@ for (const w of WAYPOINTS) {
 }
 const missing = []
 for (let i = 1; i <= 15; i++) if (!covered.has(i)) missing.push(i)
-ok(missing.length === 0, `1p1~15 전부 웨이포인트 있음${missing.length ? ` — 누락 ${missing.join(',')}` : ''}`)
+//  ★55(2026.07.24): 현도가 구 1p6·1p7(폴 절단)을 폐기하고 1p7만 프리즈 방으로 옮겼다.
+//   1p6은 "프리즈 방 아래 나선 부근"으로 예고만 된 상태 = **의도된 결번**.
+//   숨기면 잊는다 → 결번을 **명시 선언**하고, 선언과 실제가 어긋날 때만 실패시킨다.
+//   ⚠DoD-1(15개 전부 집)은 이 배열이 빌 때까지 미충족이다. 1p6 배치 세션에서 비울 것.
+const UNASSIGNED = [6]                    // 정리 번호(숫자) — missing과 같은 형식이어야 한다
+const miss = missing.join(','), decl = UNASSIGNED.join(',')
+ok(miss === decl,
+  missing.length === 0 ? '1p1~15 전부 웨이포인트 있음'
+    : `미배정 = ${missing.map(n => '1p' + n).join(',')} — ⚠DoD-1 미충족(선언된 결번): 1p6 재배치 대기`)
 
 console.log('\n— B. 지상·방사 —')
 {
@@ -311,11 +319,18 @@ if (HALL_ENTRY === 'axial' || HALL_ENTRY === 'lateral') {
                 : w.notch ? w.notchBotX : w.x1
     const edgeY = (w.rise && wp.y > w.yTop + 1e-9 && w.rise.form !== 'back') ? wp.y : w.yTop + w.rim
     const limit = Math.atan2(eyeY - edgeY, Math.max(0.05, edgeX - wp.x)) * 180 / Math.PI
+    if (WOLDAE_NOTCH === 'off' && !w.rise) {
+      //  ★맨 기준선(노치도 상승도 없음)은 목표를 **못 지키는 것이 정상**이다 — 그게 54-2를 판 이유다.
+      ok(limit < depNexus, `[기준선] 한계각 ${r2(limit)}° < 넥서스 ${r2(depNexus)}° — 둘 다 없으면 하단이 잘린다`)
+    } else {
+      //  ⚠★현도 채택 조합(노치 off + 상승 front H4)이 이 검사로 드러낸 사실:
+      //   **상승단이 노치의 일을 대신한다.** 단 위 끝에 서면 가장자리가 발밑 0.7이라 한계각이 66°까지 열린다
+      //   → 노치를 파지 않고도 넥서스가 보인다. 노치 폐기가 미적 취향이 아니라 기하적으로 정당했다는 뜻.
+      ok(limit > depNexus + 4,
+        `한계각 ${r2(limit)}° > 넥서스 ${r2(depNexus)}° — ${w.notch ? '노치' : '상승단'}이 하단 뷰를 연다`)
+    }
     if (WOLDAE_NOTCH === 'off') {
-      //  ★기준선은 목표를 **못 지키는 것이 정상**이다 — 그게 노치를 판 이유다.
-      //   현도 로컬 판정("하단 뷰가 가려서 별로")을 수치로 고정해 둔다: 노치를 끄면 넥서스가 잘린다.
-      ok(limit < depNexus, `[기준선] 한계각 ${r2(limit)}° < 넥서스 ${r2(depNexus)}° — 노치 없으면 하단이 잘린다(★54-2의 근거)`)
-      ok(w.notch === null, '노치 off — 구 54 상태(비교 기준선)')
+      ok(w.notch === null, '노치 off — 구 54 상태(현도 채택)')
     } else {
       ok(limit > depNexus + 4 && limit > depPanel + 4,
         `한계각 ${r2(limit)}° > 넥서스 ${r2(depNexus)}° · 잉카 판 ${r2(depPanel)}° (+4 여유) — 하단 뷰가 실제로 열린다`)

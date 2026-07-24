@@ -16,6 +16,7 @@ import {
   PLAT_X, PLAT_R, PLAT_Y, PILLAR_R,
   STAIR_TD, STAIR_W, COR_RISE,
   TEMPLE_MODE, TEMPLE_Y0, TEMPLE_X0, TEMPLE_X1, TEMPLE_HZ, TEMPLE_CLR, TEMPLE_PEDIMENT, TEMPLE_OPEN,
+  FRIEZE_ROOM_ON, FR_FLOOR_T, FR_WALL_T, FR_BACK_T, FR_CEIL_T, FR_FLOOR_Y, FR_ANNEX,   // ★55 프리즈 방(1p7)
   CELLA_ON, CELLA_ZHW, CELLA_X1, CELLA_T, CELLA_ROOF_Y0, CELLA_ROOF_Y1, CELLA_ROOF_T, CELLA_BACK_ON, CELLA_BACK_Y1,
   INCA_ON, INCA_COLOR, INCA_W0, INCA_CHAMF, INCA_PANEL_T,
   CELLA_CLR, CELLA_BITE_R, CELLA_XW, CELLA_COLOR,
@@ -456,6 +457,34 @@ export function TempleBeam() {
         acc = ev.evaluate(acc, b, SUBTRACTION)
       }
     }
+    // ── ★55-3 뒤 별채 — 아치 크라운 위에만 얹어 동쪽으로 채운다(아치 터널·배경벽 무변경) ──
+    if (FRIEZE_ROOM_ON && FR_ANNEX > 0) {
+      const ax0 = TEMPLE_X1, ax1 = TEMPLE_X1 + FR_ANNEX, ay0 = TEMPLE_Y0 + TEMPLE_OPEN
+      const an = new THREE.BoxGeometry(ax1 - ax0, 1, TEMPLE_HZ * 2)
+      an.translate((ax0 + ax1) / 2, ay0 + 0.5, 0)
+      const ap = an.attributes.position
+      for (let i = 0; i < ap.count; i++) if (ap.getY(i) > ay0 + 0.5) ap.setY(i, ceilY(ap.getX(i)) - 0.02)
+      an.computeVertexNormals()
+      const b = new Brush(an); b.updateMatrixWorld()
+      acc = ev.evaluate(acc, b, ADDITION)
+    }
+    // ── ★55 프리즈 방(1p7) — 부재 속을 파낸다. 아치·리브 구멍과 같은 감산 패턴 ──
+    //  바닥 = 파낸 자리의 아래에 남는 재료 → **밑면이 아치 등 그대로**(§2-D ② 매스+깎인 밑면, 공짜로 얻는다).
+    //  천장 = 빗면 추종(부재 상면과 같은 방식으로 상면 4정점만 이동) → 동쪽이 높은 방.
+    //  ⚠앞벽(홀 쪽)·옆벽·뒷벽을 FR_WALL_T 남겨 밀폐. 바닥은 FR_FLOOR_T가 봉인을 담당(검증 강제).
+    if (FRIEZE_ROOM_ON) {
+      const rx0 = TEMPLE_X0 + FR_WALL_T, rx1 = TEMPLE_X1 + FR_ANNEX - FR_BACK_T   // ★55-2·3 뒷벽 따로 + 별채
+      const rzh = TEMPLE_HZ - FR_WALL_T, ry0 = FR_FLOOR_Y
+      const room = new THREE.BoxGeometry(rx1 - rx0, 1, rzh * 2)
+      room.translate((rx0 + rx1) / 2, ry0 + 0.5, 0)
+      const rp = room.attributes.position
+      for (let i = 0; i < rp.count; i++) {
+        if (rp.getY(i) > ry0 + 0.5) rp.setY(i, ceilY(rp.getX(i)) - 0.02 - FR_CEIL_T)   // 상면 → 빗면 천장 밑 −두께
+      }
+      room.computeVertexNormals()
+      const b = new Brush(room); b.updateMatrixWorld()
+      acc = ev.evaluate(acc, b, SUBTRACTION)
+    }
     const holeTop = ceilY(TEMPLE_X1) + 2
     for (const d of hallDoors()) {
       const hole = new THREE.CylinderGeometry(SHELL_RIB_R + TEMPLE_CLR, SHELL_RIB_R + TEMPLE_CLR, holeTop - TEMPLE_Y0 + 4, 24)
@@ -467,7 +496,7 @@ export function TempleBeam() {
   }, [])
   if (!geo) return null
   return (
-    <mesh geometry={geo}>
+    <mesh geometry={geo} userData={{ walkable: true }}>
       <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.DoubleSide} />
     </mesh>
   )

@@ -34,7 +34,7 @@ import {
   P_FLOOR_TOP, P_SPAWN_LX, P1_ON,} from './constants.js'
 import { p1HeightAt } from './radialEventsGeometry.js'   // 1p1 볼록 바닥 보정(모드·노브 자동 추종)
 import { buildHallStairs, incaStairSpec, incaBladesSpec, descentSpec } from './corridorStairsGeometry.js'   // ★㊳ 계단 끝 4곳 + ★㊷ 날 끝 4곳(못 닿음 판정 지점) — 빌더 파생(자동 추종)
-import { INCA_ON, INCA_GAP } from './constants.js'
+import { INCA_ON, INCA_GAP, FRIEZE_ROOM_ON, FR_FLOOR_Y, FR_WALL_T, TEMPLE_X0 } from './constants.js'   // ★55 프리즈 방
 
 // ── 스위치 ──
 export const DEV_TELEPORT = true      // ⚠배포 전 false — 패널·[·]·Tab 전부 비활성(스폰만 남음)
@@ -217,8 +217,14 @@ export const WAYPOINTS = [
 
   { id: 'ribdoor', group: '리브 (계단 구역)', label: '리브 문 — 나선 첫 칸', prop: '—',
     x: D0.x, y: D0.y, z: D0.z, yaw: FACE_PX, pitch: 0 },                 // +x = 관 안(폴 쪽)
-  { id: 'pole', group: '리브 (계단 구역)', label: '폴 절단 (외부지지 가설의 종단)', prop: '1p6 · 1p7',
+  //  ⚠구 1p6·1p7 = 폐기 확정(현도 2026.07.24). 폴 절단 장치는 코드·웨이포인트를 남기되
+  //   **정리 배당을 뗀다**(폐기 = 경로에서 제거이지 코드 삭제가 아님 — ㊾ 전례).
+  { id: 'pole', group: '리브 (계단 구역)', label: '폴 절단 (구 장치 — 정리 배당 없음)', prop: '—',
     x: DP.x, y: DP.y, z: DP.z, yaw: yawTo(POLE_DX, POLE_DZ), pitch: POLE_PITCH },
+  //  ★55 프리즈 방(1p7) — 밀폐 공간이라 걸어서 못 간다. 판정하려면 이 텔레포트가 유일한 입구.
+  //   서벽 쪽에 서서 동쪽(리브 다섯)을 본다. y는 방 바닥 상면 = FR_FLOOR_Y 파생.
+  ...(FRIEZE_ROOM_ON ? [{ id: 'frieze', group: '리브 (계단 구역)', label: '★프리즈 방 — 떠 있는 실체 (55)', prop: '1p7',
+    x: TEMPLE_X0 + FR_WALL_T + 4, y: FR_FLOOR_Y, z: 0, yaw: FACE_PX, pitch: 0.18 }] : []),
   { id: 'panel', group: '리브 (계단 구역)', label: '나선 끝 · 착지 판넬', prop: '—',
     x: rOf(U_SPIRAL_END), y: H * U_SPIRAL_END - TREAD_THICK / 2 - 0.03, z: (PANEL_Z0 + PANEL_Z1) / 2,
     yaw: FACE_NX, pitch: 0 },                                            // 판넬 상면 = 계단 밑면 살짝 아래(설계)
