@@ -8,7 +8,7 @@ import fs from 'fs'
 import { PNG } from 'pngjs'
 import * as THREE from 'three'
 import * as C from './constants.js'
-import { descentSpec, incaStairSpec, incaBladesSpec, drumPierAzimuths, descentPortSpec, portPrismTris, outwardTris } from './corridorStairsGeometry.js'
+import { descentSpec, woldaeSpec, incaStairSpec, incaBladesSpec, drumPierAzimuths, descentPortSpec, portPrismTris, outwardTris } from './corridorStairsGeometry.js'
 import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg'
 import { WAYPOINTS, EYE } from './waypoints.js'
 
@@ -24,7 +24,53 @@ const quad = (a, b, c2, d2, col) => { tris.push({ v: [a, b, c2], c: col }); tris
 // ── 하강로: 판 + ★㊿ 보 + 참 블록 (Corridor.jsx DescentPath와 동일 구축) ──
 if (C.HALL_ENTRY === 'axial' || C.HALL_ENTRY === 'lateral') {
   const d = descentSpec(C.HALL_ENTRY)
-  for (const pl of d.plates) {
+  //  ★54 월대 — 사다리꼴 코벨 매스(정거장 잇기, Corridor.Woldae와 동일 구축) + 동단 립
+  const wd = woldaeSpec()
+  if (wd.on) {
+    const C2 = wd.contour, col = [176, 146, 99]
+    const v2 = C2.map(p => new THREE.Vector2(p.x, p.z))
+    const fcs = THREE.ShapeUtils.triangulateShape(v2, [])
+    const top = C2.map(p => [p.x, wd.yTop, p.z]), bot = C2.map(p => [p.x, wd.underY(p.x), p.z])
+    for (const [i, j, k] of fcs) { tris.push({ v: [top[i], top[j], top[k]], c: col }); tris.push({ v: [bot[k], bot[j], bot[i]], c: col }) }
+    for (let i = 0; i < C2.length; i++) { const j = (i + 1) % C2.length
+      quad(top[i], bot[i], bot[j], top[j], col) }
+    if (wd.rise) {                                      // ★54-3 상승단(Corridor.Woldae와 동일 구축)
+      const r = wd.rise
+      let poly
+      if (r.form === 'all') { poly = []
+        for (let i = 0; i < C2.length; i++) { const A = C2[i], B = C2[(i + 1) % C2.length]
+          const inA = A.x >= r.podWest, inB = B.x >= r.podWest
+          if (inA) poly.push(A)
+          if (inA !== inB) { const t = (r.podWest - A.x) / (B.x - A.x); poly.push({ x: r.podWest, z: A.z + (B.z - A.z) * t }) } }
+      } else poly = [{ x: r.podWest, z: -r.podW }, { x: r.podEast, z: -r.podW },
+                     { x: r.podEast, z: r.podW }, { x: r.podWest, z: r.podW }]
+      if (poly.length >= 3) {
+        const fp = THREE.ShapeUtils.triangulateShape(poly.map(p => new THREE.Vector2(p.x, p.z)), [])
+        const tp = poly.map(p => [p.x, r.top, p.z]), bp = poly.map(p => [p.x, wd.yTop, p.z])
+        for (const [i, j, k] of fp) { tris.push({ v: [tp[i], tp[j], tp[k]], c: col }); tris.push({ v: [bp[k], bp[j], bp[i]], c: col }) }
+        for (let i = 0; i < poly.length; i++) { const j = (i + 1) % poly.length; quad(tp[i], bp[i], bp[j], tp[j], col) }
+      }
+      for (let k = 1; k <= r.n; k++) {
+        const xa = r.stairW + (k - 1) * r.run, xb = xa + r.run
+        const zw = Math.min(r.podW, wd.hwAt((xa + xb) / 2)), yt = wd.yTop + r.stepH * k
+        const P = [[xa, yt, -zw], [xb, yt, -zw], [xb, yt, zw], [xa, yt, zw]]
+        const Q = P.map(q => [q[0], wd.yTop, q[2]])
+        quad(P[0], P[1], P[2], P[3], col)
+        for (let i = 0; i < 4; i++) { const j = (i + 1) % 4; quad(P[i], Q[i], Q[j], P[j], col) }
+      }
+    }
+    if (wd.rim > 0) {                                   // 립 = 동단·노치 폴리라인 스윕(Corridor.Woldae와 동일)
+      const E = C2.slice(wd.eastFrom, wd.eastTo + 1), dd = wd.rim * 2
+      const y0 = wd.yTop - 0.05, y1 = wd.yTop + wd.rim
+      const ring = (i) => { const p = E[i]
+        const a = E[Math.max(0, i - 1)], b = E[Math.min(E.length - 1, i + 1)]
+        const dx = b.x - a.x, dz = b.z - a.z, L = Math.hypot(dx, dz) || 1, n = [dz / L, -dx / L]
+        return [[p.x, y0, p.z], [p.x, y1, p.z], [p.x + n[0] * dd, y1, p.z + n[1] * dd], [p.x + n[0] * dd, y0, p.z + n[1] * dd]] }
+      for (let i = 0; i < E.length - 1; i++) { const A = ring(i), B = ring(i + 1)
+        for (let j = 0; j < 4; j++) quad(A[j], A[(j + 1) % 4], B[(j + 1) % 4], B[j], col) }
+    }
+  }
+  for (const pl of d.plates.filter(p => !p.onWoldae)) {
     const g = new THREE.BoxGeometry(d.ds * 1.3, C.COR_RISE, C.DESC_HW * 2)
     g.rotateY(pl.rotY); g.translate(pl.x, pl.yTop - C.COR_RISE / 2, pl.z)
     addGeo(g, [194, 160, 98])
@@ -193,7 +239,12 @@ function render(eye, yaw, pitch, W, H, name) {
 const W = 880, H = 495
 const cams = process.argv.slice(2).length ? process.argv.slice(2) : ['view', 'inca-west']
 for (const id of cams) {
-  if (id === 'inca-west') {                            // 특수: 잉카 판에서 서쪽(도착 역방향)
+  if (id.startsWith('free:')) {                        // ★54 자유 카메라: free:x,y,z,yaw,pitch(도)
+    //  웨이포인트는 전부 '경로 위 눈높이'라 물러선 조감이 없다 — 매싱·비례 판독의 사각지대였다.
+    const [fx, fy, fz, fyaw, fpit] = id.slice(5).split(',').map(Number)
+    render([fx, fy, fz], (fyaw || 0) * Math.PI / 180, (fpit || 0) * Math.PI / 180, W, H,
+      `_render_free_${fyaw}_${fpit}.png`)
+  } else if (id === 'inca-west') {                     // 특수: 잉카 판에서 서쪽(도착 역방향)
     const ic = WAYPOINTS.find(w => w.id === 'inca')
     render([ic.x, ic.y + EYE, ic.z], Math.PI / 2, 0.10, W, H, `_render_${id}.png`)
   } else {

@@ -31,10 +31,11 @@ import {
   PLAT_DROP, DESC_X0, DESC_X1,
   SHELL_RIB_R,
 } from './constants'
-import { buildHallStairs, hallDoors, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal, descentSpec, drumPierAzimuths, descentPortSpec, portPrismTris, outwardTris } from './corridorStairsGeometry'
+import { buildHallStairs, hallDoors, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal, descentSpec, woldaeSpec, drumPierAzimuths, descentPortSpec, portPrismTris, outwardTris } from './corridorStairsGeometry'
 import {
   HALL_ENTRY, ASC_RISE, ASC_X0, ASC_X1, ASC_SLOPE, BOX_IN_H,
   DESC_HW, DESC_GIRDER, DESC_GIRDER_TOP, DESC_GIRDER_BWF,   // ★㊾·㊿·51 하강로
+  WOLDAE_COLOR,                                             // ★54 월대
   COR_CYL_X0,
   ORB_R, ORB_CX, ORB_CY, ORB_T, ORB_FLOOR_Y, ORB_FLOOR_R, ORB_WEST_X, ORB_DOOR_W, ORB_DOOR_H,
   ORB_OPEN_X, ORB_RING_R, ORB_RING_T, ASC_TUN_T, ASC_TUN_UNDER,
@@ -246,13 +247,137 @@ export function DescentPath() {
       <mesh geometry={girderGeo}>
         <meshStandardMaterial color="#b89a6a" roughness={0.92} side={THREE.DoubleSide} />
       </mesh>
-      {d.plates.map((p, i) => (
+      {d.plates.filter(p => !p.onWoldae).map((p, i) => (
         <mesh key={i} position={[p.x, p.yTop - COR_RISE / 2, p.z]} rotation-y={p.rotY}
           userData={{ walkable: true }}>
           <boxGeometry args={[d.ds * 1.3, COR_RISE, DESC_HW * 2]} />
           <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.DoubleSide} />
         </mesh>
       ))}
+    </group>
+  )
+}
+
+//  ★54 월대(月臺) — 박스 목의 전경 단. 벽에서 뻗은 **한 덩어리 코벨 매스**(낱개 까치발 금지 = §2-C).
+//   단면(x–y) 압출: 상면 평평 → 동단 수직면 → 위로 볼록한 다면 밑면 → 벽 안쪽 뿌리.
+//   ⚠판(하강로)은 월대 발자국 안에서 생략된다(위 filter) — 월대 상면이 이미 걷는 면이다.
+export function Woldae() {
+  const w = useMemo(() => woldaeSpec(), [])
+  //  ★54-2 노치 도입으로 구축 전환: 정거장 잇기 → **평면 윤곽 삼각분할 + 옆면 스윕**.
+  //   윤곽 하나가 상면·밑면·옆면·립·발자국 판정의 공통 정본이라, 노치 형상을 바꿔도 전부 따라온다.
+  const geo = useMemo(() => {
+    if (!w.on) return null
+    const C2 = w.contour
+    const v2 = C2.map(p => new THREE.Vector2(p.x, p.z))
+    const faces = THREE.ShapeUtils.triangulateShape(v2, [])
+    const top = C2.map(p => [p.x, w.yTop, p.z])
+    const bot = C2.map(p => [p.x, w.underY(p.x), p.z])
+    const pos = []
+    const tri = (a, b, c) => pos.push(...a, ...b, ...c)
+    for (const [i, j, k] of faces) { tri(top[i], top[j], top[k]); tri(bot[k], bot[j], bot[i]) }
+    for (let i = 0; i < C2.length; i++) {                       // 옆면(뿌리 캡 포함 — 윤곽이 한 바퀴라 자동)
+      const j = (i + 1) % C2.length
+      tri(top[i], bot[i], bot[j]); tri(top[i], bot[j], top[j])
+    }
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+    g.computeVertexNormals()                                    // 비공유 정점 = 면 법선(플랫) — 보와 같은 브루탈 어휘
+    return g
+  }, [w])
+  //  립 = 동단·노치 폴리라인을 따라 스윕(노치를 파도 립이 그 곡선을 그대로 돈다).
+  //   ⚠안쪽 방향 = 진행 방향의 오른쪽(윤곽이 시계 방향이라 오른쪽이 매스 쪽) — 직선·원호 공통.
+  const rimGeo = useMemo(() => {
+    if (!w.on || w.rim <= 0) return null
+    const E = w.contour.slice(w.eastFrom, w.eastTo + 1)
+    if (E.length < 2) return null
+    const d = w.rim * 2, y0 = w.yTop - 0.05, y1 = w.yTop + w.rim
+    const nrm = E.map((_, i) => {                               // 정점별 평균 법선(코너 미터 근사)
+      const a = E[Math.max(0, i - 1)], b = E[Math.min(E.length - 1, i + 1)]
+      const dx = b.x - a.x, dz = b.z - a.z, L = Math.hypot(dx, dz) || 1
+      return [dz / L, -dx / L]
+    })
+    const ring = (i) => {
+      const p = E[i], n = nrm[i]
+      return [[p.x, y0, p.z], [p.x, y1, p.z],
+              [p.x + n[0] * d, y1, p.z + n[1] * d], [p.x + n[0] * d, y0, p.z + n[1] * d]]
+    }
+    const pos = []
+    const tri = (a, b, c) => pos.push(...a, ...b, ...c)
+    const quad = (a, b, c, e) => { tri(a, b, c); tri(a, c, e) }
+    for (let i = 0; i < E.length - 1; i++) {
+      const A = ring(i), B = ring(i + 1)
+      for (let j = 0; j < 4; j++) quad(A[j], A[(j + 1) % 4], B[(j + 1) % 4], B[j])
+    }
+    for (const i of [0, E.length - 1]) {                        // 양끝 마구리
+      const A = ring(i)
+      quad(A[0], A[1], A[2], A[3])
+    }
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+    g.computeVertexNormals()
+    return g
+  }, [w])
+  //  ★54-3 상승단 — 하단(월대) 위에 얹는 상단 + 계단. 얹기 구성이라 하단 기하를 안 건드린다.
+  const riseGeo = useMemo(() => {
+    const r = w.rise
+    if (!w.on || !r) return null
+    const pos = []
+    const tri = (a, b, c) => pos.push(...a, ...b, ...c)
+    const quad = (a, b, c, e) => { tri(a, b, c); tri(a, c, e) }
+    //  상단 판: 'all'은 윤곽을 x≥podWest로 잘라 쓰고(사다리꼴·노치 그대로 따라감), 그 외엔 직사각
+    let poly
+    if (r.form === 'all') {
+      const out = []                                    // 반평면 x ≥ c 클립(Sutherland–Hodgman)
+      const C3 = w.contour, c = r.podWest
+      for (let i = 0; i < C3.length; i++) {
+        const A = C3[i], B = C3[(i + 1) % C3.length]
+        const inA = A.x >= c, inB = B.x >= c
+        if (inA) out.push(A)
+        if (inA !== inB) { const t = (c - A.x) / (B.x - A.x); out.push({ x: c, z: A.z + (B.z - A.z) * t }) }
+      }
+      poly = out
+    } else {
+      poly = [{ x: r.podWest, z: -r.podW }, { x: r.podEast, z: -r.podW },
+              { x: r.podEast, z: r.podW }, { x: r.podWest, z: r.podW }]
+    }
+    if (poly.length >= 3) {
+      const v2 = poly.map(p => new THREE.Vector2(p.x, p.z))
+      const fcs = THREE.ShapeUtils.triangulateShape(v2, [])
+      const top = poly.map(p => [p.x, r.top, p.z]), bot = poly.map(p => [p.x, w.yTop, p.z])
+      for (const [i, j, k] of fcs) { tri(top[i], top[j], top[k]); tri(bot[k], bot[j], bot[i]) }
+      for (let i = 0; i < poly.length; i++) { const j = (i + 1) % poly.length
+        quad(top[i], bot[i], bot[j], top[j]) }
+    }
+    for (let k = 1; k <= r.n; k++) {                    // 계단 — 단마다 한 켜씩 쌓아 올린다
+      const xa = r.stairW + (k - 1) * r.run, xb = xa + r.run
+      const zw = Math.min(r.podW, w.hwAt((xa + xb) / 2))
+      const yt = w.yTop + r.stepH * k
+      const P = [[xa, yt, -zw], [xb, yt, -zw], [xb, yt, zw], [xa, yt, zw]]
+      const Q = P.map(q => [q[0], w.yTop, q[2]])
+      tri(P[0], P[1], P[2]); tri(P[0], P[2], P[3])      // 디딤면
+      for (let i = 0; i < 4; i++) { const j = (i + 1) % 4; quad(P[i], Q[i], Q[j], P[j]) }
+    }
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+    g.computeVertexNormals()
+    return g
+  }, [w])
+  if (!geo) return null
+  return (
+    <group>
+      <mesh geometry={geo} userData={{ walkable: true }}>
+        <meshStandardMaterial color={WOLDAE_COLOR} roughness={0.93} side={THREE.DoubleSide} />
+      </mesh>
+      {riseGeo && (
+        <mesh geometry={riseGeo} userData={{ walkable: true }}>
+          <meshStandardMaterial color={WOLDAE_COLOR} roughness={0.93} side={THREE.DoubleSide} />
+        </mesh>
+      )}
+      {rimGeo && (
+        <mesh geometry={rimGeo}>
+          <meshStandardMaterial color={WOLDAE_COLOR} roughness={0.93} side={THREE.DoubleSide} />
+        </mesh>
+      )}
     </group>
   )
 }
@@ -1002,6 +1127,7 @@ export function Corridor() {
       </>)}
       {/* ★㊾ 소구 폐기 → 하강로 두 체제(현도 로컬 판정 스위치) */}
       {(HALL_ENTRY === 'axial' || HALL_ENTRY === 'lateral') && <DescentPath />}
+      {(HALL_ENTRY === 'axial' || HALL_ENTRY === 'lateral') && <Woldae />}
       <TempleBeam />
       <Cella />
       <FloorTiers />

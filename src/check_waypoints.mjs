@@ -22,10 +22,13 @@ import {
   DESC_HW, DESC_R, DESC_SWEEP, DESC_SWEEP_MIN, DESC_SWEEP_MAX, BOX_X1, COR_CX, COR_R, ceilY,   // ★㊾ 하강로
   DESC_GIRDER, DESC_GIRDER_TOP, DESC_GIRDER_BWF, DESC_TAIL,   // ★㊿ 몸 · ★51 꼬리
   DESC_PORT_ON, DESC_PORT_H, DESC_PORT_TOP, DESC_PORT_CLR, PIER_DEPTH, PIER_HW, PIER_OUT,   // ★53 관문
+  WOLDAE_ON, WOLDAE_OUT, WOLDAE_HW, WOLDAE_TIP_T, WOLDAE_ROOT_D, WOLDAE_RIM, WOLDAE_EMBED, COR_RISE,   // ★54 월대
+  WOLDAE_NOTCH, WOLDAE_NOTCH_R,   // ★54-2 노치
+  WOLDAE_RISE, WOLDAE_RISE_H, BOX_TOP,   // ★54-3 상승단
 } from './constants.js'
 import { p1HeightAt } from './radialEventsGeometry.js'
 const r2 = (v) => Math.round(v * 100) / 100   // ★㊾ (check_corridor와 같은 보조자)
-import { descentSpec, incaStairSpec, incaBladesSpec, descentPortSpec, portPrismTris, drumPierAzimuths, outwardTris, signedVolume, windingConsistent } from './corridorStairsGeometry.js'   // ★㊾·53
+import { descentSpec, woldaeSpec, gatSeal, incaStairSpec, incaBladesSpec, descentPortSpec, portPrismTris, drumPierAzimuths, outwardTris, signedVolume, windingConsistent } from './corridorStairsGeometry.js'   // ★㊾·53·54
 import * as THREE from 'three'
 import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg'
 import { WAYPOINTS, WP_GROUPS, SPAWN_ID, EYE, wpById } from './waypoints.js'
@@ -217,6 +220,166 @@ if (HALL_ENTRY === 'axial' || HALL_ENTRY === 'lateral') {
     ok(L > 40 && L < 110, `구도점→넥서스 수평 ${r2(L)} ∈ (40, 110) — 부채가 한 화면에 들어오는 거리`)
   } else {
     ok(d.landings.length === 0, `축 체제 = 참 없는 곧은 한 줄(성격의 대비)`)
+  }
+
+  // ── ★54 월대(月臺) — 박스 목의 전경 단(현도 제안·명명 2026.07.24) ──
+  console.log('\n— C4. ★54 월대 —')
+  if (!WOLDAE_ON) {
+    ok(true, '월대 꺼짐(WOLDAE_ON=false) — 검사 생략')
+  } else {
+    const w = woldaeSpec()
+    //  ① 레벨: 박스 바닥·하강로 출발면과 등고(무단차 한 레벨 — 문지방이지 계단이 아니다)
+    ok(Math.abs(w.yTop - (COR_Y0 + COR_THICK / 2)) < 1e-9 && Math.abs(w.yTop - d.yS) < 1e-9,
+      `상면 y${r2(w.yTop)} = 박스 바닥 = 하강로 출발면 — 무단차`)
+    //  ② 뿌리(§2-D ① 코벨): 벽 안쪽으로 물려 절단면이 안 보이고, 뿌리 반폭 = 박스 입
+    ok(w.x0 < COR_CX - COR_R, `뿌리 x${r2(w.x0)} < 드럼 내벽 ${r2(COR_CX - COR_R)} — 벽에 파고든다(절단면 은닉)`)
+    ok(Math.abs(w.hwRoot - BOX_HW) < 1e-9,
+      `뿌리 반폭 ±${w.hwRoot} = 박스 반폭 ±${BOX_HW} — 뿌리 전체가 박스 몸통 안(드럼 밖 노출 0)`)
+    //  ★사다리꼴의 존재 이유: 반폭 균일이면 뿌리 모서리가 벽 밖으로 나간다(벽 = 두께 0 셸)
+    let worstOut = -1e9
+    for (const s of w.stations) if (s.hw > BOX_HW) {
+      const wallX = COR_CX - Math.sqrt(Math.max(0, COR_R * COR_R - s.hw * s.hw))
+      worstOut = Math.max(worstOut, wallX - s.x)
+    }
+    ok(worstOut <= 0, `박스가 안 덮는 구간의 벽 관통 ${r2(worstOut)} ≤ 0 — 드럼 밖 노출 없음`)
+    //  ③ 밑면 = 위로 볼록(잉카 S2 어휘 — 현-위 검사). 순수 sin의 자가 교차를 두께 프로파일이 막는다
+    const A = w.stations[0], B = w.stations[w.stations.length - 1]
+    let chordMin = 1e9
+    for (const s of w.stations.slice(1, -1)) {
+      const ch = A.y + (B.y - A.y) * (s.x - A.x) / (B.x - A.x)
+      chordMin = Math.min(chordMin, s.y - ch)
+    }
+    ok(chordMin > 0, `밑면 위로 볼록 — 전 다면점이 현 위(최소 여유 ${r2(chordMin)} > 0)`)
+    let monot = true, tMin = 1e9
+    for (let i = 1; i < w.stations.length; i++) if (w.stations[i].t > w.stations[i - 1].t + 1e-9) monot = false
+    for (const s of w.stations) tMin = Math.min(tMin, s.t)
+    ok(monot, `두께 단조 감소(뿌리 ${r2(w.rootD)} → 팁 ${r2(w.tipT)}) — 캔틸레버는 뿌리에서 깊다`)
+    ok(Math.abs(tMin - w.tipT) < 1e-9, `최소 두께 ${r2(tMin)} = 팁 두께 — 두께 프로파일 항등(㊷ 전례)`)
+    //  ④ 두께 위계(§2-D ③): 걷는 것 < 받치는 것 < 매듭
+    ok(COR_RISE < w.tipT && w.tipT < w.rootD,
+      `위계 판 ${COR_RISE} < 팁 ${w.tipT} < 뿌리 ${w.rootD} — 걷는 것 < 받치는 것`)
+    //  ⑤ 위상 '길 위'(현도 ⓒ): 하강로 출발점이 발자국 안 = 반드시 밟고 지나간다
+    ok(w.inside(d.S[0], 0), `하강로 출발 (x${d.S[0]}, z0)이 월대 발자국 안 — 길 위(비켜 가는 만이 아님)`)
+    ok(d.sFlat > 1, `평탄 구간 ${r2(d.sFlat)} > 1 — 월대 위에서 실제로 평평하게 걷는다`)
+    //  ★평탄은 오직 s=0 구간에만(C2 '참 0'과의 정합 — 경로 중간엔 평탄이 없다)
+    let midFlat = 0
+    for (let i = 1; i < d.plates.length; i++)
+      if (d.plates[i].s > d.sFlat + 2 && Math.abs(d.plates[i].yTop - d.plates[i - 1].yTop) < 1e-6) midFlat++
+    ok(midFlat === 0, `경로 중간 평탄 판 ${midFlat}장 = 0 — 평탄은 출발 문지방(월대)에만`)
+    //  ⑥ 이탈점이 발자국 경계 위(빌더가 실제로 경계를 찾았는가)
+    const ex = d.samples.find(q => q.s >= d.sFlat) || d.samples[d.samples.length - 1]
+    ok(Math.abs(Math.abs(ex.z) - w.hwAt(ex.x)) < 0.6 || Math.abs(ex.x - w.x1) < 0.6,
+      `이탈점 (x${r2(ex.x)}, z${r2(ex.z)})이 발자국 경계 위 — 북변 ±${r2(w.hwAt(ex.x))}`)
+    //  ⑦ 판 생략: 월대 위 판은 안 그린다(코플레이너 회피) + 그 바깥은 전부 그린다
+    ok(d.plates.filter(p => p.onWoldae).length > 0 && d.plates.every(p => p.onWoldae === w.inside(p.x, p.z)),
+      `월대 위 판 ${d.plates.filter(p => p.onWoldae).length}장 생략 — 발자국 판정과 일치`)
+    //  ⑧ 립(매듭) — 조망을 안 가린다: 눈높이의 절반 아래
+    ok(w.rim > 0 && w.rim < EYE / 2, `립 ${w.rim} ∈ (0, 눈높이 ${EYE}/2) — 매듭이되 조망 무차단`)
+    ok(w.x1 - w.rim * 2 > d.S[0], `립이 동단에만(x${r2(w.x1 - w.rim * 2)}~${r2(w.x1)}) — 북쪽 어깨는 열림(하강로 출발)`)
+    //  ⑨ 드럼 안 · 무간섭
+    //  ⚠뿌리 정거장은 제외한다 — 뿌리는 **의도적으로** 벽을 지나 박스 안에 묻히는 물림이다(위 ②·[63]이 담당).
+    //   여기서 재는 것은 '드럼 안에 있는 부분이 벽을 안 스치는가'.
+    let farMost = 0
+    for (const s of w.stations) if (s.x >= COR_CX - COR_R) farMost = Math.max(farMost, Math.hypot(s.x - COR_CX, s.hw))
+    ok(farMost < COR_R - 1, `드럼 안 구간 최원단 ${r2(farMost)} < 드럼 ${COR_R}−1 — 벽 무접촉`)
+    const bs2 = incaBladesSpec()
+    let bladeGap = 1e9
+    for (const b of bs2.blades.filter(b => b.tip)) for (let j = 0; j <= 20; j++) {
+      const u = j / 20, bx = bs2.ncx + (b.tip.x - bs2.ncx) * u, bz = b.tip.z * u
+      for (const s of w.stations) bladeGap = Math.min(bladeGap, Math.hypot(bx - s.x, bz - s.hw), Math.hypot(bx - s.x, bz + s.hw))
+    }
+    ok(bladeGap > 10, `다섯 날 최소 수평거리 ${r2(bladeGap)} > 10 — 월대는 부채 위 허공에 없다`)
+    //  ⑩ 머리 위(천장 빗면) — 월대가 가장 높은 보행면이므로 여기서 제일 빡빡하다
+    ok(ceilY(w.x1) - w.yTop - 1.8 > 6, `동단 머리 위 ${r2(ceilY(w.x1) - w.yTop - 1.8)} > 6`)
+    //  ⑪ 갓 봉인 — ★54에서 gatSeal 표본에 하강로·월대를 편입했다(구멍 봉합). 여유가 남아야 한다
+    const gs = gatSeal()
+    ok(gs.eave - gs.needRaw > 0, `갓 처마 ${r2(gs.eave)} > 요구 ${r2(gs.needRaw)}(월대·하강로 포함) — 봉인 유지`)
+
+    // ── ★54-2 노치 — 세 형상 로컬 비교(현도 "셋 다 구현") ──
+    ok(['semi', 'deca', 'wedge', 'off'].includes(WOLDAE_NOTCH), `노치 형상 '${WOLDAE_NOTCH}' 유효`)
+    //  ★목적 검사(이 검사가 노치의 존재 이유다): 내려다보려고 판 것이니 **실제로 열리는가**를 잰다.
+    //   한계각 = 눈에서 가장자리를 스치는 광선의 부각. 이보다 가파른 것은 내 발판이 가린다.
+    const bs3 = incaBladesSpec(), st3 = incaStairSpec()
+    const wp = W('woldae')
+    //  ⚠버그 1건 자가 적발(전수 스윕): 눈높이를 월대 상면 고정으로 쓰고 있었다 —
+    //   상승단 위에 서면 눈이 그만큼 올라가므로 **웨이포인트의 실제 y**를 써야 한다('back'이 허위 실패했다).
+    const eyeY = wp.y + EYE
+    const depTo = (tx, ty) => Math.atan2(eyeY - ty, Math.abs(tx - wp.x)) * 180 / Math.PI
+    const depNexus = depTo(bs3.ncx, bs3.cutY), depPanel = depTo((st3.panel.x0 + st3.panel.x1) / 2, st3.panel.yTop)
+    //  눈 앞에서 가장 먼저 끊기는 가장자리 = 내가 선 면의 동단(상승단이면 그 단의 동단, 아니면 노치 바닥)
+    const edgeX = w.rise && wp.y > w.yTop + 1e-9 ? Math.min(w.rise.podEast, w.notch ? w.notchBotX : w.x1)
+                : w.notch ? w.notchBotX : w.x1
+    const edgeY = (w.rise && wp.y > w.yTop + 1e-9 && w.rise.form !== 'back') ? wp.y : w.yTop + w.rim
+    const limit = Math.atan2(eyeY - edgeY, Math.max(0.05, edgeX - wp.x)) * 180 / Math.PI
+    if (WOLDAE_NOTCH === 'off') {
+      //  ★기준선은 목표를 **못 지키는 것이 정상**이다 — 그게 노치를 판 이유다.
+      //   현도 로컬 판정("하단 뷰가 가려서 별로")을 수치로 고정해 둔다: 노치를 끄면 넥서스가 잘린다.
+      ok(limit < depNexus, `[기준선] 한계각 ${r2(limit)}° < 넥서스 ${r2(depNexus)}° — 노치 없으면 하단이 잘린다(★54-2의 근거)`)
+      ok(w.notch === null, '노치 off — 구 54 상태(비교 기준선)')
+    } else {
+      ok(limit > depNexus + 4 && limit > depPanel + 4,
+        `한계각 ${r2(limit)}° > 넥서스 ${r2(depNexus)}° · 잉카 판 ${r2(depPanel)}° (+4 여유) — 하단 뷰가 실제로 열린다`)
+      ok(w.notch !== null && w.notch.length >= 3, `노치 ${w.notchForm} 꼭짓점 ${w.notch.length}개`)
+      ok(w.notch.every(p => Number.isFinite(p.x) && Number.isFinite(p.z)), '노치 좌표 유한(NaN 0)')
+      //  ★살 = 노치 옆에 남는 매스. 2 미만이면 뿔처럼 보인다 → 빌더가 클램프하고 여기서 확인
+      ok(w.hwTip - w.notchR >= 2, `노치 옆 살 ±${r2(w.hwTip - w.notchR)} ≥ 2 — 뿔로 안 보임(반경 클램프 작동)`)
+      ok(w.notchDeep > 0 && w.notchDeep < WOLDAE_OUT - 2,
+        `노치 깊이 ${r2(w.notchDeep)} ∈ (0, 돌출 ${WOLDAE_OUT}−2) — 박스 입까지 안 파고든다`)
+      //  ★하강로 무간섭: 노치가 경로·이탈점을 삼키면 안 된다(발자국이 곧 보행면이므로 구멍이 된다)
+      //  ⚠검사 자체의 버그 1건 자가 적발(구현 중): 여유 `+2`를 두면 **이탈점 이후** 표본(북변 밖)까지
+      //   재서 허위 실패한다(s 12.0·12.6·13.2 실측). 평탄 구간은 s < sFlat로 닫혀 있으므로 그것만 잰다.
+      let onPath = 0, worst = null
+      for (const q of d.samples) if (q.s < d.sFlat && !w.inside(q.x, q.z)) { onPath++; worst = q }
+      ok(onPath === 0, `평탄 구간 표본 전부 발자국 안(${onPath}곳 이탈) — 걷는 줄과 구멍이 안 겹침`
+        + (worst ? ` 최악 s${r2(worst.s)} x${r2(worst.x)} z${r2(worst.z)}` : ''))
+      //  노치 자체가 경로에서 충분히 떨어져 있는가(형상·반경을 키워도 안 닿게)
+      let notchGap = 1e9
+      for (const q of d.samples) for (const p of w.notch) notchGap = Math.min(notchGap, Math.hypot(q.x - p.x, q.z - p.z))
+      ok(notchGap > 2, `노치 ↔ 하강로 최소거리 ${r2(notchGap)} > 2 — 반경을 키워도 경로를 안 삼킨다`)
+      //  ★발자국 = 윤곽 정본: 노치 안은 발자국이 아니다(판 생략 판정도 이걸 쓴다)
+      ok(!w.inside(w.x1 - w.notchDeep / 2, 0) && w.inside(w.x1 - w.notchDeep / 2, w.hwTip - 1),
+        `노치 안 = 발자국 밖 · 노치 옆 살 = 발자국 안 — 점-다각형 판정 정합`)
+      //  ★립이 노치를 따라 돈다(동단 직선이 아니라 곡선을 감는다)
+      ok(w.eastTo - w.eastFrom === w.notch.length + 1,
+        `립 폴리라인 ${w.eastTo - w.eastFrom}구간 = 노치 ${w.notch.length}점 + 동단 양끝 — 립이 노치를 감는다`)
+    }
+    //  ★웨이포인트가 좋은 자리에 서 있는가 + y는 보행면 정본(surfY)과 일치하는가
+    ok(Math.abs(wp.y - w.surfY(wp.x, wp.z)) < 1e-9 && w.inside(wp.x, wp.z),
+      `월대 웨이포인트 (x${r2(wp.x)}, z${wp.z}, y${r2(wp.y)})가 발자국 안 · 보행면 정본과 일치`)
+
+    // ── ★54-3 상승단 ──
+    ok(['off', 'front', 'back', 'all'].includes(WOLDAE_RISE), `상승 체제 '${WOLDAE_RISE}' 유효`)
+    if (!w.rise) {
+      ok(Math.abs(d.ySurf - w.yTop) < 1e-9, `상승 off — 하강 출발면 ${r2(d.ySurf)} = 월대 상면(기준선)`)
+    } else {
+      const r = w.rise
+      ok(r.n >= 2 && Math.abs(r.stepH * r.n - r.H) < 1e-9,
+        `계단 ${r.n}단 × 단높이 ${r2(r.stepH)} = 상승 ${r.H} — 균등 배분`)
+      ok(r.stepH <= 0.75, `단높이 ${r2(r.stepH)} ≤ 0.75 — 오를 수 있는 단`)
+      //  ★계단이 박스 입 밖에서 시작하는가 — 안이면 관 천장(내부고 7)에 머리가 닿는다
+      ok(r.fits, `계단 시작 x${r2(r.stairW)} ≥ 박스 입 ${BOX_X1} — 관 안에서 안 올라간다`
+        + (r.fits ? '' : ` ⚠'${r.form}' H${r.H}는 돌출 ${WOLDAE_OUT}에 안 들어감 — WOLDAE_OUT을 키우거나 H를 낮출 것`))
+      ok(r.podEast <= w.x1 + 1e-9 && r.stairW > w.x0, `상승단 x${r2(r.stairW)}~${r2(r.podEast)} ∈ 월대 안`)
+      //  ★천장(월대가 건물에서 가장 높은 보행면이 된다)
+      ok(ceilY(r.podEast) - r.top - 1.8 > 6, `전망단 머리 위 ${r2(ceilY(r.podEast) - r.top - 1.8)} > 6`)
+      //  ★갓 봉인 — 상승단은 최고 보행면이므로 처마 요구가 자랄 수 있다(gatSeal이 월대를 표본에 포함)
+      ok(gatSeal().eave - gatSeal().needRaw > 0, `상승 후에도 갓 여유 ${r2(gatSeal().eave - gatSeal().needRaw)} > 0`)
+      //  ★ⓒ'길 위' — 'all'만 하강로를 오른 레벨에서 출발시킨다(나머지는 전망이 곁길)
+      const onPath = Math.abs(d.ySurf - r.top) < 1e-9
+      ok(r.form === 'all' ? onPath : !onPath,
+        r.form === 'all' ? `'all' = 하강 출발면 ${r2(d.ySurf)} = 상승단 상면 — ⓒ'길 위' 유지`
+                         : `'${r.form}' = 하강 출발면 ${r2(d.ySurf)} = 하단 — 전망은 곁길(ⓒ 부분 해제, 현도 승인)`)
+      ok(d.slopeDeg <= 38.5 && d.rise <= 0.6,
+        `상승분 반영 후 경사 ${r2(d.slopeDeg)}° ≤ 38.5 · 단높이 ${r2(d.rise)} ≤ 0.6`)
+      //  ★유효폭 — ★제 착오를 검사로 박아 둔다: front·all은 가장자리가 함께 올라 안 넓어진다
+      const eyeY2 = r.top + EYE
+      const blkY = (r.form === 'back') ? w.yTop + w.rim : r.top
+      const blkX = (r.form === 'back') ? w.notchBotX : r.podEast
+      const wide = (eyeY2 - blkY) / Math.tan(38.92 * Math.PI / 180)
+      ok(wide > 1.5, `유효폭 ${r2(wide)}m (넥서스가 열리는 후퇴 거리) — ${r.form === 'back' ? '후퇴형이라 H에 비례' : 'H와 무관(가장자리 동반 상승)'}`)
+      //  ★관 위로 솟는가(H > 5.40) — 진술이지 요구는 아니므로 정보로 남긴다
+      ok(true, `눈 y${r2(eyeY2)} vs 박스 천장 ${BOX_TOP} — ${eyeY2 > BOX_TOP ? '관 위로 솟음 ✔' : `아직 관 안(솟으려면 H > ${r2(BOX_TOP - w.yTop - EYE)})`}`)
+    }
   }
 
   // ── ★53 피어 관문(현도 07.23: "겹침을 지지로") ──

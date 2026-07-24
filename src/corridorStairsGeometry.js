@@ -32,9 +32,13 @@ import {
   R_BASE, INCA_NEXUS_R, INCA_TIP_Y1, INCA_TIP_Y2, INCA_GAP, INCA_TIP_T, INCA_EMBED,
   INTAKE_ON, INTAKE_FORM, INTAKE_CX, SLIT_W, SLIT_LEN_F, SLIT_N, SLIT_GAP, SLIT_R, SLIT_ARC_DEG, SLIT_ARC_MID,
   HALL_ENTRY, DESC_HW, DESC_SIDE, DESC_R, DESC_SWEEP, DESC_SWEEP_MIN, DESC_SWEEP_MAX, DESC_RISE_MAX,
+  BOX_HW,
   DESC_TAIL, DESC_ENTRY_AZ,   // ★㊾→51 하강로(접선화)
   PIER_ON, PIER_N, PIER_HW, PIER_DEPTH, PIER_OUT, DESC_PORT_ON, DESC_PORT_H, DESC_PORT_TOP, DESC_PORT_CLR,   // ★53
   BOX_X1, COR_Y0,
+  WOLDAE_ON, WOLDAE_OUT, WOLDAE_HW, WOLDAE_TIP_T, WOLDAE_ROOT_D, WOLDAE_FACETS, WOLDAE_EMBED, WOLDAE_RIM,   // ★54 월대
+  WOLDAE_NOTCH, WOLDAE_NOTCH_R,   // ★54-2 노치
+  WOLDAE_RISE, WOLDAE_RISE_H, WOLDAE_RISE_HW, WOLDAE_STEP_R, WOLDAE_STEP_T,   // ★54-3 상승단
   ceilY, GAT_CX, GAT_CROWN_R, GAT_CONE_H, GAT_CROWN_H, GAT_SLIT, GAT_EAVE_MIN, GAT_EAVE_SF,
 } from './constants.js'
 
@@ -307,6 +311,105 @@ function biarcTail(B, tB, E, tE) {
   const rev = g => g.t === 'l' ? segLine(g.b, g.a) : segArc(g.cx, g.cz, g.R, g.ph1, g.ph0)
   return [best.g1, rev(best.g2r)]
 }
+// ════════ ★54 월대(月臺) — 박스 목의 전경 단(2026.07.24 · 현도 제안·명명 · 확정 4항) ════════
+//  ⓐ이름 = 월대 / ⓑ뿌리 = 벽 코벨 / ⓒ위상 = 길 위 / ⓓ비례·난간 = Claude(근거 = constants 주석).
+//  형상 = **한 덩어리 코벨 매스**의 x–y 단면을 z로 압출한다. 낱개 까치발 여럿은 금지 —
+//   가늘고 반복되는 세로 부재는 열주로 읽혀 리브 어휘를 오염시킨다(§2-C · 52 피어 반려 전례).
+//   상면 평평(yTop) → 동단 수직면(TIP_T) → **밑면 = 위로 볼록한 다면 곡선** → 벽 안쪽 뿌리(ROOT_D).
+//  ⚠밑곡선은 ㊷에서 검산으로 확정된 **두께 프로파일 구성**을 그대로 재사용한다(순수 sin은 완만한 구간에서
+//   자가 교차한다는 교훈 — 여기서도 같은 함정이 있다):
+//     thick(u) = TIP_T + (ROOT_D − TIP_T)·(1 − sin(u·π/2)),  u = 0(뿌리) → 1(팁)
+//   thick이 u에 대해 볼록 ⇒ 밑면(yTop − thick)이 오목 ⇒ **위로 볼록**이 항등으로 보장되고,
+//   최소 두께 ≥ TIP_T도 자동. 다면(FACETS) 분할 = 잉카 아치 보이드의 브루탈 어휘 계승(§2-D ④).
+//  ⚠평면은 직사각이 아니라 **사다리꼴**이다(구현 중 실측이 강제): 반폭을 10 균일로 두면 뿌리 모서리가
+//   (x119, z±10)에 서는데 그 방위의 드럼 벽은 x≈120.6이라 **벽 밖으로 1.6 삐져나온다**(벽 = 두께 0 셸).
+//   뿌리 반폭을 박스 반폭(BOX_HW=6)으로 잠그면 뿌리 전체가 박스 몸통 안에 묻혀 노출이 0이 되고,
+//   덤으로 '입에서 나오며 벌어지는' 형상 = 아래 다섯 날 부채와 같은 몸짓이 된다. 뿌리 반폭은 노브가
+//   아니라 **파생**이다(박스 입과 어긋나면 안 되므로).
+export function woldaeSpec() {
+  const yTop = COR_Y0 + COR_THICK / 2            // 박스 바닥·하강로 출발면과 등고(무단차 — 한 레벨)
+  const x0 = BOX_X1 - WOLDAE_EMBED               // 벽 안쪽으로 물림 = 절단면 은닉(§2-D ③)
+  const x1 = BOX_X1 + WOLDAE_OUT                 // 동단(조망 끝)
+  const hwRoot = BOX_HW, hwTip = WOLDAE_HW
+  const st = []                                  // 단면 정거장(뿌리 → 팁): x · 밑면 y · 반폭
+  for (let i = 0; i <= WOLDAE_FACETS; i++) {
+    const u = i / WOLDAE_FACETS
+    const thick = WOLDAE_TIP_T + (WOLDAE_ROOT_D - WOLDAE_TIP_T) * (1 - Math.sin(u * Math.PI / 2))
+    st.push({ u, x: x0 + (x1 - x0) * u, y: yTop - thick, t: thick, hw: hwRoot + (hwTip - hwRoot) * u })
+  }
+  const hwAt = (x) => {                          // 임의 x의 반폭(사다리꼴 선형 — 노치 무시한 외곽)
+    const u = Math.max(0, Math.min(1, (x - x0) / (x1 - x0)))
+    return hwRoot + (hwTip - hwRoot) * u
+  }
+  const underY = (x) => {                        // 임의 x의 밑면 y(두께 프로파일)
+    const u = Math.max(0, Math.min(1, (x - x0) / (x1 - x0)))
+    return yTop - (WOLDAE_TIP_T + (WOLDAE_ROOT_D - WOLDAE_TIP_T) * (1 - Math.sin(u * Math.PI / 2)))
+  }
+  //  ── ★54-2 노치(동단을 갉는다) — +z에서 −z로 가는 폴리라인. 살(팁반폭 − R) ≥ 2를 클램프로 강제 ──
+  const R = Math.max(0, Math.min(WOLDAE_NOTCH_R, hwTip - 2))
+  const notch = (WOLDAE_NOTCH === 'off' || R <= 0) ? null : (() => {
+    const P = []
+    if (WOLDAE_NOTCH === 'semi') {               // 반원 — 매끈한 품
+      const N = 14
+      for (let i = 0; i <= N; i++) { const t = (90 + 180 * (i / N)) * DEG; P.push({ x: x1 + R * Math.cos(t), z: R * Math.sin(t) }) }
+    } else if (WOLDAE_NOTCH === 'deca') {        // 반십각 — 넥서스와 같은 도형(정십각 절반 = 변 5)
+      for (let i = 0; i <= 5; i++) { const t = (90 + 36 * i) * DEG; P.push({ x: x1 + R * Math.cos(t), z: R * Math.sin(t) }) }
+    } else {                                     // 'wedge' 사다리꼴 — 안쪽에 마주 설 평면이 생긴다
+      P.push({ x: x1, z: R }, { x: x1 - R, z: R * 0.45 }, { x: x1 - R, z: -R * 0.45 }, { x: x1, z: -R })
+    }
+    return P
+  })()
+  //  ── 평면 윤곽(+z 변 → 동단·노치 → −z 변 → 뿌리) : 상·하면 삼각분할과 옆면·립이 전부 이걸 쓴다 ──
+  const contour = []
+  for (const p of st) contour.push({ x: p.x, z: p.hw })            // +z 변(뿌리 → 팁)
+  const eastFrom = contour.length - 1                              // 립이 따라갈 구간의 시작 인덱스
+  if (notch) for (const p of notch) contour.push({ x: p.x, z: p.z })
+  const eastTo = contour.length                                    // (노치 없으면 동단 직선 한 변)
+  for (let i = st.length - 1; i >= 0; i--) contour.push({ x: st[i].x, z: -st[i].hw })   // −z 변(팁 → 뿌리)
+  //  점-다각형(윤곽 정본) — 노치를 판 만큼 발자국에서도 빠진다
+  const inside = (x, z) => {
+    let c = false
+    for (let i = 0, j = contour.length - 1; i < contour.length; j = i++) {
+      const a = contour[i], b = contour[j]
+      if ((a.z > z) !== (b.z > z) && x < (b.x - a.x) * (z - a.z) / (b.z - a.z) + a.x) c = !c
+    }
+    return c
+  }
+  //  ── ★54-3 상승단 — 월대 위에 얹는 단(2단 월대 = 상월대가 하월대 위에 얹히는 그 구성) ──
+  //   ⚠유효폭은 안 는다('front'·'all'은 가장자리가 눈과 함께 올라가므로) — 이건 **사건**을 만드는 장치다.
+  const notchBotX = notch ? x1 - (x1 - Math.min(...notch.map(p => p.x))) : x1
+  let rise = null
+  if (WOLDAE_RISE !== 'off' && WOLDAE_RISE_H > 0) {
+    const H = WOLDAE_RISE_H
+    const n = Math.max(2, Math.round(H / WOLDAE_STEP_R))     // 단 수 — 단높이는 H/n으로 균등 배분
+    const stepH = H / n, run = WOLDAE_STEP_T, stairRun = n * run
+    let podEast, podW, podDepth
+    if (WOLDAE_RISE === 'all') { podEast = x1; podW = Infinity; podDepth = x1 - (BOX_X1 + stairRun) }
+    else if (WOLDAE_RISE === 'back') { podEast = notchBotX - Math.max(2, H * 0.8); podW = WOLDAE_RISE_HW; podDepth = 3 }
+    else { podEast = notchBotX; podW = WOLDAE_RISE_HW; podDepth = 3 }   // 'front' — 단 앞이 바로 허공
+    const podWest = podEast - podDepth, stairW = podWest - stairRun
+    rise = { form: WOLDAE_RISE, H, n, stepH, run, stairRun, podEast, podWest, podDepth, podW, stairW,
+             top: yTop + H, fits: stairW >= BOX_X1 - 1e-9, notchBotX }
+  }
+  //  ★보행면 정본 — 계단·단·기본 상면을 한 함수로. 웨이포인트·하강로·검증이 전부 이걸 쓴다.
+  const surfY = (x, z) => {
+    if (!rise) return yTop
+    if (Math.abs(z) > rise.podW) return yTop
+    if (x >= rise.podWest) return rise.top
+    if (x <= rise.stairW) return yTop
+    return yTop + rise.stepH * Math.min(rise.n, Math.ceil((x - rise.stairW) / rise.run))
+  }
+  return {
+    on: WOLDAE_ON, x0, x1, yTop, stations: st, under: st, inside, hwAt, underY,
+    rise, surfY, notchBotX,
+    hwRoot, hwTip, hw: hwTip, contour, eastFrom, eastTo,
+    notch, notchForm: notch ? WOLDAE_NOTCH : 'off', notchR: notch ? R : 0,
+    notchDeep: notch ? x1 - Math.min(...notch.map(p => p.x)) : 0,
+    tipT: WOLDAE_TIP_T, rootD: WOLDAE_ROOT_D, facets: WOLDAE_FACETS,
+    rim: WOLDAE_RIM, rimTop: yTop + WOLDAE_RIM,
+  }
+}
+
 export function descentSpec(scheme = HALL_ENTRY) {
   const S = [BOX_X1, 0]                              // 출발 = 박스 출구(축상)
   const yS = COR_Y0 + COR_THICK / 2                  // 다리 상면과 등고
@@ -335,14 +438,32 @@ export function descentSpec(scheme = HALL_ENTRY) {
     viewS = entry.reduce((a, g) => a + g.L, 0) + wall.L / 2    // ★구도점 = 벽 호 중간('view' 소비)
   }
   const L = pathLen(segs)
-  const yNodes = [[0, yS], [L, yE]]                  // 균일 경사(참·평탄 전폐 — ★51)
-  const slope = (yE - yS) / L
+  //  ★54 월대: **평면 기하는 손대지 않는다**(관문 자동검출·벽 여유·다섯 날 거리·접선 연속 전부 불변).
+  //   바뀌는 건 수직 프로파일뿐 — 월대 발자국 안에서 y가 평탄(월대 상면)하다가 발자국을 나가는 s에서
+  //   균일 경사로 꺾인다. ⚠참(landing)의 부활이 아니다: landings는 그대로 0이고(C2 '참 0' 유지)
+  //   경로 *중간*엔 평탄이 없다. 이건 §2-D ③의 **출발 문지방**이며 평탄은 오직 s=0 구간에만 허용된다.
+  //   ⚠실측: 경로는 동단이 아니라 **북변(z=+HW)**으로 빠져나간다 → 동쪽 돌출은 순수 조망분.
+  const wd = woldaeSpec()
+  let sFlat = 0
+  if (wd.on) {
+    const STEP = 0.25
+    while (sFlat + STEP <= L && wd.inside(pathAt(segs, sFlat + STEP).x, pathAt(segs, sFlat + STEP).z))
+      sFlat += STEP
+  }
+  //  ★54-3: 하강은 **월대의 실제 보행면 높이에서** 시작한다('all'이면 오른 레벨 = ⓒ'길 위' 유지).
+  //   yS(박스 바닥)는 그대로 두고 ySurf를 따로 둔다 — 기존 출발 검사들이 yS를 보기 때문.
+  const exitP = sFlat > 0 ? pathAt(segs, sFlat) : pathAt(segs, 0)
+  const ySurf = wd.on ? wd.surfY(exitP.x, exitP.z) : yS
+  const yNodes = sFlat > 0 ? [[0, ySurf], [sFlat, ySurf], [L, yE]] : [[0, ySurf], [L, yE]]
+  const slope = (yE - ySurf) / Math.max(1e-6, L - sFlat)
   const ds = Math.min(STAIR_DS, DESC_RISE_MAX / Math.max(1e-6, Math.abs(slope)))
   const N = Math.max(2, Math.round(L / ds)), DS = L / N
   const plates = []
   for (let i = 0; i < N; i++) {
     const s = (i + 0.5) * DS, p = pathAt(segs, s)
-    plates.push({ x: p.x, z: p.z, yTop: yAt(yNodes, s), rotY: Math.atan2(-p.tz, p.tx), s })
+    //  ★54 onWoldae = 월대 상면이 이미 걷는 면인 구간 → 렌더러가 판을 생략한다(판을 얹으면 코플레이너)
+    plates.push({ x: p.x, z: p.z, yTop: yAt(yNodes, s), rotY: Math.atan2(-p.tz, p.tx), s,
+                  onWoldae: wd.on && wd.inside(p.x, p.z) })
   }
   const NS = Math.max(240, Math.ceil(L / 0.6))
   const samples = []
@@ -350,9 +471,10 @@ export function descentSpec(scheme = HALL_ENTRY) {
     const s = (i / NS) * L, p = pathAt(segs, s)
     samples.push({ x: p.x, z: p.z, y: yAt(yNodes, s), s, tx: p.tx, tz: p.tz })
   }
-  return { scheme, segs, landings: [], plates, samples, L, yS, yE, drop: yS - yE,
+  return { scheme, segs, landings: [], plates, samples, L, yS, ySurf, yE, drop: ySurf - yE,
            slopeDeg: Math.atan(Math.abs(slope)) * 180 / Math.PI, ds: DS,
-           rise: DS * Math.abs(slope), S, E, sweepDeg: sweep * 180 / Math.PI, viewS }
+           rise: DS * Math.abs(slope), S, E, sweepDeg: sweep * 180 / Math.PI, viewS,
+           sFlat, woldae: wd }
 }
 
 // ════════ ★53 피어 관문(2026.07.23) — "겹침을 지지로 승격"(현도) ════════
@@ -623,6 +745,21 @@ export function gatSeal() {
   for (let i = -7; i <= 7; i++) for (let j = -7; j <= 7; j++) {    // 드럼 바닥 격자
     const x = COR_CX + i * 12, z = j * 12
     if (Math.hypot(x - COR_CX, z) < COR_R - 4) W.push({ x, z, y: 0 })
+  }
+  //  ★54 구멍 봉합(2026.07.24): 위 표본의 최고점은 y77인데 **하강로는 y38~101을 걷는다**.
+  //   높은 시점일수록 밑동 개구를 얕은 각으로 통과해 리드 밑을 훔쳐볼 수 있어 요구 처마가 커지므로,
+  //   빠져 있으면 노브를 돌렸을 때 아무도 모르게 봉인이 깨진다(현행 값에선 통과 — 요구 4.86 < 5.57).
+  //   ⚠재귀 금지: descentSpec은 gatSeal을 부르지 않는다(woldaeSpec만 부른다) — 호출 방향 단방향 유지.
+  if (HALL_ENTRY === 'axial' || HALL_ENTRY === 'lateral') {
+    const dp = descentSpec(HALL_ENTRY)
+    for (let i = 0; i < dp.plates.length; i += 4) {
+      const p = dp.plates[i]; W.push({ x: p.x, z: p.z, y: p.yTop })
+    }
+    const wd = dp.woldae                                           // 월대 상면 격자(가장 높은 보행면)
+    if (wd.on) for (let i = 0; i <= 4; i++) for (let j = -3; j <= 3; j++) {
+      const x = BOX_X1 + (wd.x1 - BOX_X1) * (i / 4)
+      W.push({ x, z: wd.hwAt(x) * (j / 3), y: wd.yTop })
+    }
   }
 
   const EYE_H = 1.6, AZ = 48, KH = 3

@@ -153,10 +153,29 @@ export const WAYPOINTS = [
     const at = f => d.samples[Math.round(f * (d.samples.length - 1))]
     const face = p => yawTo(p.tx, p.tz)                      // 진행 방향 보기
     const a = at(0.30), b = at(0.72)
-    const out = [
+    const out = []
+    //  ★54 월대 — 압축관(내부고 7)에서 나와 처음 서는 자리. 동단 립 앞에서 홀을 **내려다본다**
+    //   (발밑 101m). 좌표는 woldaeSpec 파생이라 돌출·반폭 노브를 돌리면 따라온다.
+    if (d.woldae.on) {
+      const w = d.woldae
+      //  ★54-2: 노치가 있으면 **노치 안**에 선다(좋은 자리가 칼끝이 아니라 품이 된 것이 노치의 요점).
+      //   시선 = 넥서스 정조준(부각 파생) — 노치 형상·반경을 바꿔도 자동 추종.
+      //  ★54-3: 상승단이 있으면 그 위(전망단 동단 앞)에 선다. y는 보행면 정본 surfY가 준다.
+      //  ⚠버그 1건 자가 적발(전수 스윕): 'all'은 podEast = 동단(137)이라 그 앞 0.7이
+      //   **노치 구멍 안**(x136.3, |z|<4.95가 허공)이었다. 서는 자리는 노치 바닥보다 서쪽이어야 한다.
+      const wEast = Math.min(w.rise ? w.rise.podEast : w.x1, w.notch ? w.notchBotX : w.x1)
+      const wx = (w.rise || w.notch) ? wEast - 0.7 : w.x1 - w.rim * 2 - 1.4
+      const wy = w.surfY(wx, 0)
+      const bs0 = incaBladesSpec()
+      out.push({ id: 'woldae', group: '통로 (1p5)',
+        label: `★월대 — ${w.rise ? '전망단(' + w.rise.form + ' H' + w.rise.H + ')' : w.notch ? '노치 안' : '동단'}`
+             + ` (드럼 전경 · 54${w.notch ? '-2 ' + w.notchForm : ''})`, prop: '1p5',
+        x: wx, y: wy, z: 0, yaw: yawTo(1, 0),
+        pitch: -Math.atan2(wy + EYE - bs0.cutY, bs0.ncx - wx) })
+    }
+    out.push(
       { id: 'slope', group: '통로 (1p5)', label: `하강로 — 초반 (${d.scheme} · ${d.slopeDeg.toFixed(0)}°)`, prop: '—',
-        x: a.x, y: a.y, z: a.z, yaw: face(a), pitch: -0.12 },
-    ]
+        x: a.x, y: a.y, z: a.z, yaw: face(a), pitch: -0.12 })
     if (d.scheme === 'lateral') {
       //  ★구도점 = **벽 호의 중간**(빌더 viewS 파생 — ★51 접선화로 landS 폐지, 호 범위는 빌더가 안다).
       //   회전량·방향·진입 방위를 어떻게 돌려도 항상 '도는 중간'을 가리킨다.
