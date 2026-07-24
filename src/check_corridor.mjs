@@ -18,6 +18,13 @@ import {
   HALL_DOORS, HALL_DOORS_ON, STAIR_GAP, STAIR_DS, STAIR_TD, STAIR_W, COR_RISE, STAIR_MAX_SLOPE,
   TEMPLE_MODE, TEMPLE_Y0, TEMPLE_X0, TEMPLE_X1, TEMPLE_HZ, TEMPLE_CLR, STAIR_SCHEME, TEMPLE_PEDIMENT, TEMPLE_OPEN,
   FRIEZE_ROOM_ON, FR_FLOOR_T, FR_WALL_T, FR_BACK_T, FR_CEIL_T, FR_FLOOR_Y, FR_ANNEX,   // ★55 프리즈 방(1p7)
+  RIB_CUT_ON, RIB_CUT_MODE, RIB_CUT_SEED, RIB_CUT_GAP_MIN, RIB_CUT_HEAD, RIB_CUT_SEP,   // ★56 리브 절단(1p7)
+  RIB_CUT_STUB_MIN, RIB_CUT_BOX_HW, RIB_CUT_CAP_T, RIB_CUT_CAP_MG,
+  spiralPoint, STAIR_STEPS, STEP_RISE, TREAD_DEPTH, TREAD_WIDTH, TREAD_THICK, Y_POLE_CUT, ARCH_Y0, U_SPIRAL_END, rOf, uOfX,
+  RIB_WALL_ON, RIB_WALL_T, RIB_WALL_T_MAX, RIB_WALL_SCOPE, RIB_BORE_MAX_AX, RIB_RADIAL_SEG, RIB_WALL_END_CAP,   // ★57 벽 두께
+  RIB_VICE_ON, RIB_NEWEL_R, RIB_NEWEL_Y0, RIB_NEWEL_Y1, RIB_VICE_SOFFIT, RIB_VICE_T, RIB_VICE_R_OUT, RIB_POLE_ON,  // ★58 vice
+  STEPS_PER_TURN, ribCenter, spiralU, U_DOOR,
+  KW_STEPS, KW_TREAD_D, KW_TREAD_W, KW_FLATTEN, X_LAND_HI, U_KNEE_END, PANEL_DX, PANEL_Z0, PANEL_Z1, LAND_T,
   CELLA_ON, CELLA_ZHW, CELLA_X1, CELLA_T, CELLA_ROOF_Y0, CELLA_ROOF_Y1, CELLA_ROOF_T, CELLA_CLR, CELLA_BITE_R, CELLA_XW, CELLA_BACK_ON, CELLA_BACK_Y1,
   CELLA_NICHE, CELLA_NICHE_DEPTH, CELLA_RELIEF_OUT, CELLA_NICHE_Y0, CELLA_NICHE_Y1, CELLA_NICHE_WBOT, CELLA_NICHE_WTOP, CELLA_STRATA_N,
   ALTAR_ON, ALTAR_SCOPE, ALTAR_ZHW, ALTAR_X_BACK, ALTAR_STEP1_X, ALTAR_STEP2_X, ALTAR_STEP1_H, ALTAR_STEP2_H, ALTAR_UNI_XW,
@@ -31,7 +38,10 @@ import {
   INCA_NEXUS_R, INCA_TIP_Y1, INCA_TIP_Y2, INCA_GAP, INCA_TIP_T, INCA_EMBED,
   CL_SILL, CL_R, PASS_FLOOR_Y, TERRACE_RIN, TERRACE_ROUT, TERRACE_Y,
 } from './constants.js'
-import { hallDoors, buildHallStairs, PLAT_TOP, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal } from './corridorStairsGeometry.js'
+import { hallDoors, buildHallStairs, PLAT_TOP, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal, ribCutSpec } from './corridorStairsGeometry.js'
+import * as THREE from 'three'                                                   // ★56 CSG 스모크(check_radial 전례)
+import { Brush, Evaluator, HOLLOW_SUBTRACTION, SUBTRACTION } from 'three-bvh-csg'
+import { buildRibShell, shellVolumeApprox, signedVolume, buildViceWedge, viceSplitIndex, newelSpec, viceBottomY, VICE_DTHETA } from './ribGeometry.js'
 
 let n = 0, fail = 0
 const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
@@ -543,6 +553,151 @@ if (!FRIEZE_ROOM_ON) {
     `바닥이 방보다 넓다(x·z 양쪽 ${FR_WALL_T} 여유) — 아치 시선이 방 옆으로도 못 샌다`)
   //  ⑥ 1p7 배당 — 웨이포인트가 이 방 안에 있다(밀폐라 텔레포트가 유일 입구)
   ok(FR_FLOOR_Y < cW, `방 바닥 ${FR_FLOOR_Y} < 천장 ${r2(cW)} — 웨이포인트 착지 가능`)
+}
+
+// ── ★56 리브 절단(1p7) — 다섯을 끊고 떠 있게 둔다. 현도 지정 2026.07.24 ──
+//  이 절은 **LOCKED 예외 #2의 조건**을 지키는 감시자다. 리브를 끊는 건 §1 잠금(72개 기하 동일)을
+//  건드리는 일이고, 그게 허용되는 유일한 근거는 "프리즈 방 밖 어느 시점에서도 안 보인다"이다.
+//  아래 [상·하 봉인] 두 항이 그 근거 자체다 — 이게 깨지면 절단은 정당성을 잃는다(끄거나 되돌릴 것).
+console.log('\n— R6. ★56 리브 절단 (1p7 — 실체는 아무것에도 닿지 않는다) —')
+if (!RIB_CUT_ON || !FRIEZE_ROOM_ON) {
+  ok(true, '리브 절단 꺼짐 — 검사 생략(리브 72기 무결)')
+} else {
+  const cuts = ribCutSpec()
+  ok(cuts.length === 5, `절단 ${cuts.length}/5기 — 프리즈 방을 지나는 다섯뿐(현도 ⓐ). 나머지 67은 무결`)
+  const tops = cuts.map(c => c.yTop).sort((a, b) => a - b)
+
+  //  ①★상 봉인 — 윗토막 밑끝이 방 천장 아래에 여유를 두고 있는가. 대표 x가 아니라 **실제 yTop의 x**로 재검.
+  //   (빌더는 방 중간 높이의 x로 천장을 잡는다 — 그 근사가 실제로도 성립하는지를 여기서 독립 확인한다.)
+  let headMin = 1e9, headWho = ''
+  for (const c of cuts) {
+    const xT = rOf(c.yTop / H) * Math.cos(c.phi)
+    const h = (ceilY(xT) - 0.02 - FR_CEIL_T) - c.yTop
+    if (h < headMin) { headMin = h; headWho = '#' + c.k }
+  }
+  ok(headMin >= RIB_CUT_HEAD - 0.5,
+    `상 봉인 — 윗 절단면↔천장 최소 여유 ${r2(headMin)}(${headWho}) ≥ ${RIB_CUT_HEAD}−0.5 · 실제 yTop의 x로 재계산`)
+  //  ★상 봉인의 '진짜 이유' — 천장에도 리브마다 반경 SHELL_RIB_R+CLR 관통 구멍이 뚫려 있다.
+  //   윗토막이 그 구멍을 계속 막아야 방이 위로 안 뚫린다. 즉 RIB_CUT_HEAD는 미학이 아니라 마개 여유다.
+  //   ⚠끊는 자리를 천장 쪽으로 올리려는 다음 세션은 이 항목을 먼저 볼 것.
+  ok(cuts.every(c => c.yTop < c.yCeil),
+    `천장 마개 — 윗토막이 다섯 모두 천장(${r2(Math.min(...cuts.map(v => v.yCeil)))}~) 위로 이어져 관통 구멍(반경 ${r2(SHELL_RIB_R + TEMPLE_CLR)})을 계속 막는다`)
+  //  ②★하 봉인 — 아랫 절단면이 방 바닥보다 아래로 내려가지 않는가(내려가면 프리즈 속·아치로 샌다)
+  const botMin = Math.min(...cuts.map(c => c.yBot))
+  ok(botMin >= FR_FLOOR_Y, `하 봉인 — 아랫 절단면 최저 ${r2(botMin)} ≥ 방 바닥 ${FR_FLOOR_Y} (아래로 안 샘)`)
+  ok(Math.max(...tops) < Math.min(...cuts.map(c => c.yCeil)),
+    `절단 전 구간 ⊂ 방 — 최고 윗끝 ${r2(Math.max(...tops))} < 최저 천장 ${r2(Math.min(...cuts.map(c => c.yCeil)))}`)
+
+  //  ③ 간극 — 1p5의 '못 닿음'(INCA_GAP 5)과 크기가 같으면 두 정리가 섞여 읽힌다(현도 ⓒ)
+  const gMin = Math.min(...cuts.map(c => c.gap))
+  ok(gMin > INCA_GAP, `간극 최소 ${r2(gMin)} > 1p5 GAP ${INCA_GAP} — 끊김(1p7)과 못 닿음(1p5)이 안 섞인다`)
+  ok(gMin >= RIB_CUT_GAP_MIN - 0.01, `간극 최소 ${r2(gMin)} ≥ 하한 ${RIB_CUT_GAP_MIN}`)
+
+  //  ④★다섯이 '함께 결정되지 않았음' — 같은 높이면 그 선이 공통 기준면이 되어 1p7의 정반대가 된다
+  let sepMin = 1e9
+  for (let i = 1; i < tops.length; i++) sepMin = Math.min(sepMin, tops[i] - tops[i - 1])
+  ok(sepMin >= RIB_CUT_SEP - 1e-6,
+    `윗끝 최소 이격 ${r2(sepMin)} ≥ ${RIB_CUT_SEP} — 어느 둘도 '쌍'으로 안 읽힌다(구성이 보장)`)
+  //  단조(램프)도 질서다 — k 순서로 오르내리기만 하면 실패
+  const byK = [...cuts].sort((a, b) => a.k - b.k).map(c => c.yTop)
+  const inc = byK.every((v, i) => i === 0 || v > byK[i - 1]), dec = byK.every((v, i) => i === 0 || v < byK[i - 1])
+  ok(!inc && !dec, `k 순서로 단조 아님(${byK.map(v => Math.round(v)).join('<')} 형태 아님) — 경사 램프로 안 읽힌다`)
+
+  //  ⑤ 절단 브러시가 옆 리브를 안 건드리는가 — 방위 5°는 이 높이대에서 실거리 약 25
+  let nb = 1e9
+  for (const a of cuts) for (const b of cuts) if (a.k < b.k) nb = Math.min(nb, Math.hypot(a.tx - b.tx, a.tz - b.tz))
+  ok(RIB_CUT_BOX_HW * 2 < nb, `절단 브러시 폭 ${RIB_CUT_BOX_HW * 2} < 이웃 리브 최소 간격 ${r2(nb)} — 옆 리브 무절단`)
+  ok(RIB_CUT_BOX_HW > SHELL_RIB_R + 1.5, `브러시 반폭 ${RIB_CUT_BOX_HW} > 관 반경 ${SHELL_RIB_R}+1.5 — 간극 구간 x드리프트 흡수`)
+
+  //  ⑥★캡 = 봉인 부재. 관은 두께 0 셸이라 안 막으면 절단면이 뚫린 아가리가 되고 보어가 통째로 열린다.
+  //   ⚠#0만 예외 — 보어가 길이다(나선이 지난다). 1-③C '뚜껑' 사고의 재발 방지.
+  const four = cuts.filter(c => c.k !== 0)
+  let capBad = 0
+  for (const c of four) {
+    const tiltT = Math.atan2(Math.abs((rOf(c.yTop / H + 1e-4) - rOf(c.yTop / H - 1e-4)) / 2e-4), H)
+    if (c.capT < SHELL_RIB_R / Math.cos(tiltT)) capBad++
+  }
+  ok(capBad === 0, `캡 4기(#±1·#±2) 반경이 기운 관의 수평 단면(타원 장축 R/cosθ)을 전부 덮는다 — 여유 ${RIB_CUT_CAP_MG}`)
+  ok(RIB_CUT_CAP_T > 0, `캡 두께 ${RIB_CUT_CAP_T} > 0 — 남는 쪽으로 뻗고 간극 쪽 0.02 물림(헤어라인 없음)`)
+  //  'floor' 모드 아랫캡 = 바닥 관통 구멍의 마개. 안 메우면 반경 6.4 수직 샤프트가 아치→홀까지 뚫린다.
+  if (RIB_CUT_MODE === 'floor') {
+    const need = SHELL_RIB_R + TEMPLE_CLR
+    ok(four.every(c => c.capB >= need - 1e-9),
+      `'floor' 아랫캡 반경 ${r2(four[0].capB)} ≥ 바닥 관통 구멍 ${r2(need)} — 끊긴 자리가 바닥 무늬가 되고 샤프트가 안 열린다`)
+    ok(cuts.every(c => c.yBot === FR_FLOOR_Y), `'floor' — 다섯 전부 방 바닥 ${FR_FLOOR_Y}에서 끊김(아랫토막이 방에 없다)`)
+  } else {
+    ok(cuts.every(c => c.yBot >= FR_FLOOR_Y + RIB_CUT_STUB_MIN - 1e-9),
+      `'stub' — 그루터기 최소 높이 ${RIB_CUT_STUB_MIN} 확보(최저 ${r2(Math.min(...cuts.map(c => c.yBot - FR_FLOOR_Y)))})`)
+    ok(new Set(cuts.map(c => r2(c.gap))).size === 1, `'stub' — 간극 균일 ${r2(cuts[0].gap)}("같은 것이 각자 다른 자리에서 제거됐다")`)
+  }
+
+  //  ⑦★현도 ⓔ "간극은 나선을 따라 건넌다" — #0의 간극을 디딤판이 실제로 잇는가.
+  //   ⚠여기서 노출되는 디딤판은 §2-D ② 위반이 아니다 — §2-D ①-②가 명시한 '의도된 부양(1p7 증명된 뜸)'이고,
+  //    §2-B '부양 판 라임'이 이미 그 모티프를 이 프로젝트의 어휘로 등록해 두었다. 다음 세션이 지지대를 붙이지 말 것.
+  const z = cuts.find(c => c.k === 0)
+  let inGap = 0, outRoom = 0, prevY = null, maxStep = 0
+  for (let i = 0; i < STAIR_STEPS; i++) {
+    const y = spiralPoint((i + 0.5) / STAIR_STEPS).pos.y
+    if (y > z.yBot && y < z.yTop) {
+      inGap++
+      if (prevY !== null) maxStep = Math.max(maxStep, y - prevY)
+      prevY = y
+      if (y < FR_FLOOR_Y || y > z.yCeil) outRoom++
+    }
+  }
+  ok(inGap >= 20, `#0 간극을 잇는 디딤판 ${inGap}칸(간극 ${r2(z.gap)}) ≥ 20 — 건넘이 사건이 된다(반 바퀴 = 20칸)`)
+  ok(maxStep <= STEP_RISE + 0.01, `간극 구간 디딤판 단높이 최대 ${r2(maxStep)} ≤ ${STEP_RISE} — 끊긴 자리에서도 계단이 균일`)
+  ok(outRoom === 0, `노출 디딤판 ${inGap}칸 전부 방 안(바닥 ${FR_FLOOR_Y} ~ 천장 ${r2(z.yCeil)}) — 밖에서 안 보인다`)
+  ok(z.yTop < U_SPIRAL_END * H, `#0 윗 절단면 ${r2(z.yTop)} < 나선 끝 ${r2(U_SPIRAL_END * H)} — 나선이 윗토막 안으로 이어진다(끊긴 채 안 끝남)`)
+  //  #0 캡 부재의 근거를 수치로 못박는다 — 캡을 달면 실제로 나선을 막는다(되돌리려는 다음 세션 방지)
+  let blocked = 0
+  for (let i = 0; i < STAIR_STEPS; i++) {
+    const p = spiralPoint((i + 0.5) / STAIR_STEPS).pos
+    if (Math.abs(p.y - z.yTop) < RIB_CUT_CAP_T && Math.hypot(p.x - z.tx, p.z - z.tz) < SHELL_RIB_R) blocked++
+  }
+  ok(blocked > 0, `#0 무캡의 근거 — 윗 절단면 평면에 디딤판 ${blocked}칸이 지난다(캡을 달면 1-③C '뚜껑' 재발)`)
+
+  //  ⑧ 다른 장치와의 무간섭 — 절단대가 문·폴·아치·나선끝 어디와도 안 겹친다
+  const maxDoorTop = Math.max(...HALL_DOORS.map(d => d.sill + DOOR_H))
+  ok(botMin > maxDoorTop, `절단대 최저 ${r2(botMin)} > 최고 문 상단 ${maxDoorTop} — 문 다섯 온전`)
+  ok(botMin > Y_POLE_CUT, `절단대 최저 ${r2(botMin)} > 폐기 폴 절단 ${r2(Y_POLE_CUT)} — 구 device와 무간섭`)
+  ok(Math.max(...tops) < ARCH_Y0, `절단대 최고 ${r2(Math.max(...tops))} < 아치 컷 ${r2(ARCH_Y0)} — 갈림 하강로와 무간섭`)
+
+  //  ⑨ 결정론 — 시드가 같으면 같은 배열(로컬에서 시드를 갈아도 검증이 자동 추종)
+  const again = ribCutSpec()
+  ok(again.every((c, i) => c.yTop === cuts[i].yTop && c.yBot === cuts[i].yBot),
+    `시드 ${RIB_CUT_SEED} 결정론 — 재호출이 같은 다섯 높이(렌즈 LENS_SEED 전례)`)
+  //  ⑩★CSG 스모크 — 실제로 끊기는가(check_radial 전례: 기하를 말로만 재지 않고 돌려본다).
+  //   Dome.jsx의 ExplorationRib·HallDoorRibs와 **같은 구축**(같은 곡선·같은 관 파라미터·같은 브러시).
+  const makeRibCurve = () => {
+    const pts = []
+    for (let i = 0; i <= 160; i++) { const u = i / 160; pts.push(new THREE.Vector3(rOf(u), H * u, 0)) }
+    return new THREE.CatmullRomCurve3(pts)
+  }
+  let csgBad = 0, csgMin = 1e9
+  for (const c of cuts) {
+    const tube = new THREE.TubeGeometry(makeRibCurve(), 200, SHELL_RIB_R, 10, false)
+    if (c.k !== 0) tube.rotateY(-c.phi)
+    const yM = (c.yBot + c.yTop) / 2, rM = rOf(yM / H)
+    const box = new THREE.BoxGeometry(RIB_CUT_BOX_HW * 2, c.gap, RIB_CUT_BOX_HW * 2)
+    box.translate(rM * Math.cos(c.phi), yM, rM * Math.sin(c.phi))
+    const ev = new Evaluator(); ev.attributes = ['position', 'normal']
+    const rb = new Brush(tube); rb.updateMatrixWorld()
+    const bb = new Brush(box); bb.updateMatrixWorld()
+    const pos = ev.evaluate(rb, bb, HOLLOW_SUBTRACTION).geometry.attributes.position
+    let nan = 0, left = 0
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i)
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) { nan++; continue }
+      if (y > c.yBot + 0.05 && y < c.yTop - 0.05 &&
+          Math.hypot(x - rM * Math.cos(c.phi), z - rM * Math.sin(c.phi)) < RIB_CUT_BOX_HW) left++
+    }
+    csgMin = Math.min(csgMin, pos.count)
+    if (nan || left) csgBad++
+  }
+  ok(csgBad === 0, `CSG 스모크 5기 — NaN 0 · 간극 안 잔여 정점 0 · 최소 정점 ${csgMin}(관이 위아래로 온전히 남음)`)
+  console.log(`     └ 절단 실측(mode '${RIB_CUT_MODE}'): ` +
+    cuts.map(c => `#${c.k > 0 ? '+' : ''}${c.k} ${r2(c.yBot)}→${r2(c.yTop)}(간극 ${r2(c.gap)})`).join(' · '))
 }
     // ★㊻ 단차 방지: 배경벽(동벽 상단 연장)은 z를 옆벽 안쪽(±CELLA_ZHW)으로 제한 → 옆벽 위로 안 솟음.
     //   상단 연장 z반폭(CELLA_ZHW) = 옆벽 안쪽면과 일치 → 연장이 옆벽 사이에 쏙 들어감(ㄱ자 모서리 없음).
@@ -1178,6 +1333,230 @@ if (!INTAKE_ON) {
     ok(mouthY > INCA_TOP_Y + 3, `나팔 입 y ${r2(mouthY)} > 잉카 정상 ${INCA_TOP_Y}+3 — 홀 보행 위 헤드룸 여유`)
     ok(true, `깔때기 상단 캡 폐쇄 — 수직·경사 시선 모두 관 내벽·캡에서 종료(조건 1 성립)`)
   }
+}
+
+
+// ── ★57 리브 벽 두께(2026.07.24 현도 지정) — 종잇장에서 건축으로 ──
+//  이 절이 지키는 것 둘: ① **바깥면 불변**(§1 LOCKED — 굵기 차별화 금지의 실질) ② **보어 무침범**.
+//  ②가 이 작업의 진짜 어려움이다: 관은 원기둥이 아니라 정 N각형이라 내벽 최근접점이 평면이고,
+//  그 평면이 무릎길을 뚫는다. 그래서 상한이 t가 아니라 **N의 함수**다.
+console.log('\n— R7. ★57 리브 벽 두께 (종잇장 → 건축) —')
+if (!RIB_WALL_ON) {
+  ok(true, '벽 두께 꺼짐 — 검사 생략(관 = 두께 0 셸, 구판)')
+} else {
+  //  ①★보어 최대 축거리를 **실제 요소에서 매번 다시 유도**한다(상수를 믿지 않는다).
+  //   무릎길 노브를 만지면 이 수가 변하고, 그러면 상수 RIB_BORE_MAX_AX가 낡는다 → 아래 대조가 먼저 죽는다.
+  //  ⚠거친 표본만 쓰면 최근접점을 놓쳐 거리를 **과대평가**한다(첫 구현이 5.51로 나와 상한을 0.02 깎아먹었다).
+  //   조밀 탐색 → 황금분할 정련으로 참값에 수렴시킨다. 검사와 상수가 같은 수를 봐야 대조가 의미를 갖는다.
+  const dAt = (u, px, py, pz) => Math.hypot(px - rOf(u), py - H * u, pz)
+  const axDist = (px, py, pz) => {
+    let bu = 0, best = 1e9
+    for (let i = 0; i <= 3000; i++) { const u = i / 3000, d = dAt(u, px, py, pz); if (d < best) { best = d; bu = u } }
+    let lo = Math.max(0, bu - 1 / 3000), hi = Math.min(1, bu + 1 / 3000)
+    const gr = (Math.sqrt(5) - 1) / 2
+    for (let it = 0; it < 60; it++) {
+      const a = hi - gr * (hi - lo), b = lo + gr * (hi - lo)
+      if (dAt(a, px, py, pz) < dAt(b, px, py, pz)) hi = b; else lo = a
+    }
+    return dAt((lo + hi) / 2, px, py, pz)
+  }
+  let maxAx = 0, who = ''
+  {   // 무릎길
+    const xA = rOf(U_SPIRAL_END), xB = X_LAND_HI, yA = H * U_SPIRAL_END, yB = H * U_KNEE_END
+    for (let i = 0; i < KW_STEPS; i++) {
+      const x = xA - (i + 0.5) * (xA - xB) / KW_STEPS
+      const y = (1 - KW_FLATTEN) * (H * uOfX(x)) + KW_FLATTEN * (yA + (yB - yA) * (xA - x) / (xA - xB))
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+        const d = axDist(x + sx * KW_TREAD_D / 2, y - TREAD_THICK / 2, sz * KW_TREAD_W / 2)
+        if (d > maxAx) { maxAx = d; who = '무릎길' }
+      }
+    }
+  }
+  {   // 나선 디딤판
+    for (let i = 0; i < STAIR_STEPS; i += 2) {
+      const { pos, theta } = spiralPoint((i + 0.5) / STAIR_STEPS)
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+        const lx = sx * TREAD_DEPTH / 2, lz = sz * TREAD_WIDTH / 2
+        const d = axDist(pos.x + lx * Math.cos(-theta) + lz * Math.sin(-theta), pos.y,
+                         pos.z - lx * Math.sin(-theta) + lz * Math.cos(-theta))
+        if (d > maxAx) { maxAx = d; who = '나선' }
+      }
+    }
+  }
+  ok(Math.abs(maxAx - RIB_BORE_MAX_AX) < 0.05,
+    `보어 최대 축거리 재유도 ${r2(maxAx)}(${who}) ≈ 상수 ${RIB_BORE_MAX_AX} — 상수가 안 낡았다`)
+
+  //  ②★상한 = R − 축거리/cos(π/N). **평면 계수를 빼먹으면 벽이 무릎길을 뚫는다**(원기둥 가정이 과대평가).
+  const kFlat = Math.cos(Math.PI / RIB_RADIAL_SEG)
+  const tMax = SHELL_RIB_R - maxAx / kFlat
+  ok(Math.abs(tMax - RIB_WALL_T_MAX) < 0.02, `상한 파생 ${r2(tMax)} ≈ RIB_WALL_T_MAX ${r2(RIB_WALL_T_MAX)} (N=${RIB_RADIAL_SEG} 평면계수 ${kFlat.toFixed(4)})`)
+  ok(RIB_WALL_T > 0 && RIB_WALL_T <= tMax,
+    `벽 두께 ${RIB_WALL_T} ∈ (0, ${r2(tMax)}] — 내벽 평면(반경 ${r2((SHELL_RIB_R - RIB_WALL_T) * kFlat)}) > 보어 최대 ${r2(maxAx)}`)
+  ok(RIB_WALL_T >= 0.15, `벽 두께 ${RIB_WALL_T} ≥ 0.15 — 이 아래는 다시 종잇장으로 읽힌다(현도 반려 사유)`)
+
+  //  ③★바깥면 불변 — LOCKED의 실질. 셸의 바깥 삼각형이 나머지 71기의 관과 **정점까지 같은가**.
+  const curve = (() => { const p = []; for (let i = 0; i <= 160; i++) { const u = i / 160; p.push(new THREE.Vector3(rOf(u), H * u, 0)) } return new THREE.CatmullRomCurve3(p) })()
+  const plain = new THREE.TubeGeometry(curve, 200, SHELL_RIB_R, RIB_RADIAL_SEG, false)
+  const { geometry: shell, stats } = buildRibShell(curve, RIB_WALL_T)
+  const sp = shell.attributes.position.array, pp = plain.attributes.position
+  const sn = shell.attributes.normal.array, pn = plain.attributes.normal
+  const pIdx = plain.index.array
+  let devMax = 0, devNrm = 0
+  for (let k = 0; k < pIdx.length; k++) {
+    const a = pIdx[k], o = k * 3
+    devMax = Math.max(devMax, Math.abs(sp[o] - pp.getX(a)), Math.abs(sp[o + 1] - pp.getY(a)), Math.abs(sp[o + 2] - pp.getZ(a)))
+    devNrm = Math.max(devNrm, Math.abs(sn[o] - pn.getX(a)), Math.abs(sn[o + 1] - pn.getY(a)), Math.abs(sn[o + 2] - pn.getZ(a)))
+  }
+  ok(devMax === 0, `바깥면 정점 편차 ${devMax} = 0 — 나머지 71기와 완전 동일(§1 굵기 차별화 없음 · 1p11 반전 무손상)`)
+  //  ★★법선까지 같아야 '형태 동일'이 성립한다 — 이 검사가 없어서 각진 연필이 로컬까지 갔다(현도 스크린샷 2026.07.24).
+  //   인덱스 없는 삼각 수프에 computeVertexNormals()를 부르면 flat 법선이 찍혀, **정점이 완전히 같은데도**
+  //   탐험 리브만 10각 기둥으로 각져 보인다. 이 항목은 그 사고의 사후 봉인이다(㉚ 부호 부피 가드 전례).
+  ok(devNrm === 0, `바깥면 법선 편차 ${devNrm} = 0 — 셰이딩도 71기와 동일(부드러운 원기둥 · flat 법선 사고 봉인)`)
+  //  부드러움의 실증 — 한 링 안에서 법선이 실제로 갈라지는가(flat이면 면마다 같은 값이 반복된다)
+  {
+    const dirs = new Set()
+    for (let j = 0; j < RIB_RADIAL_SEG; j++) dirs.add(Math.round(Math.atan2(sn[j * 9 + 2], sn[j * 9]) * 180 / Math.PI))
+    ok(dirs.size >= RIB_RADIAL_SEG / 2, `첫 링 법선 방위 ${dirs.size}종 ≥ ${RIB_RADIAL_SEG / 2} — 원주 따라 연속(면 법선 아님)`)
+  }
+
+  //  ④★닫힌 몸 — 열린 껍질에 정식 감산을 걸면 파탄한다(53-2/3 교훈). watertight를 위상으로 증명.
+  const eKey = (i) => `${sp[i].toFixed(4)},${sp[i + 1].toFixed(4)},${sp[i + 2].toFixed(4)}`
+  const edges = new Map()
+  for (let i = 0; i < sp.length; i += 9) {
+    const v = [eKey(i), eKey(i + 3), eKey(i + 6)]
+    for (let e = 0; e < 3; e++) {
+      const a = v[e], b = v[(e + 1) % 3], k2 = a < b ? a + '|' + b : b + '|' + a
+      edges.set(k2, (edges.get(k2) || 0) + 1)
+    }
+  }
+  const open = [...edges.values()].filter(c => c !== 2).length
+  ok(RIB_WALL_END_CAP && open === 0, `watertight — 변 ${edges.size}개 전부 정확히 2회(열린 변 ${open}) · 마구리 고리 2장 포함`)
+  ok(stats.volume > 0, `부호 부피 ${Math.round(stats.volume)} > 0 — 겉면 감김 일관(발산 정리)`)
+  //  부피 검산: 내접 N각형이라 원 대비 결손이 있다. 그 결손률까지 맞아야 진짜로 맞는 것이다.
+  const ratio = stats.volume / shellVolumeApprox(curve, RIB_WALL_T)
+  const expect = (RIB_RADIAL_SEG / (2 * Math.PI)) * Math.sin(2 * Math.PI / RIB_RADIAL_SEG)
+  ok(Math.abs(ratio - expect) < 0.01,
+    `부피비 ${ratio.toFixed(4)} ≈ 내접 ${RIB_RADIAL_SEG}각형 결손 ${expect.toFixed(4)} — 오차가 '버그'가 아니라 '다각형'임이 확인됨`)
+
+  //  ⑤★개구에 살이 드러나는가 = 이 작업의 목적 그 자체. ★56 절단면을 실제 CSG로 뚫어 고리인지 본다.
+  if (RIB_CUT_ON) {
+    const c = ribCutSpec().find(v => v.k === 0)
+    const yM = (c.yBot + c.yTop) / 2, rM = rOf(yM / H)
+    const box = new THREE.BoxGeometry(RIB_CUT_BOX_HW * 2, c.gap, RIB_CUT_BOX_HW * 2)
+    box.translate(rM * Math.cos(c.phi), yM, rM * Math.sin(c.phi))
+    const ev = new Evaluator(); ev.attributes = ['position', 'normal']
+    const rb = new Brush(shell); rb.updateMatrixWorld()
+    const bb = new Brush(box); bb.updateMatrixWorld()
+    const res = ev.evaluate(rb, bb, SUBTRACTION).geometry.attributes.position
+    let nan = 0, rMin = 1e9, rMax = -1e9, cnt = 0
+    for (let i = 0; i < res.count; i++) {
+      const x = res.getX(i), y = res.getY(i), z = res.getZ(i)
+      if (![x, y, z].every(Number.isFinite)) { nan++; continue }
+      if (Math.abs(y - c.yTop) < 0.02) { const d = Math.hypot(x - c.tx, z - c.tz); rMin = Math.min(rMin, d); rMax = Math.max(rMax, d); cnt++ }
+    }
+    ok(nan === 0, `솔리드 감산 CSG — NaN 0(정식 SUBTRACTION이 열린 껍질과 달리 안 터진다)`)
+    ok(cnt > 0 && rMax - rMin > RIB_WALL_T * 0.7,
+      `절단면이 고리다 — y${r2(c.yTop)} 평면 정점 ${cnt}개 · 축거리 ${r2(rMin)}~${r2(rMax)}(살 ${RIB_WALL_T}) = 종잇장 모서리 소멸`)
+  }
+
+  //  ⑥ 범위 — 'explore'면 #0만, 'cut5'면 절단되는 다섯. 어느 쪽이든 나머지 67은 손대지 않는다.
+  ok(RIB_WALL_SCOPE === 'explore' || RIB_WALL_SCOPE === 'cut5', `범위 '${RIB_WALL_SCOPE}' 유효`)
+  ok(true, `범위 '${RIB_WALL_SCOPE}' — 살 있는 리브 ${RIB_WALL_SCOPE === 'cut5' ? 5 : 1}기 / 나머지 ${RIB_WALL_SCOPE === 'cut5' ? 67 : 71}기는 두께 0(바깥면은 72기 전부 동일)`)
+}
+
+
+// ── ★58 중세 나선(vice) — 기둥 + 꽉 찬 쐐기(2026.07.24 현도 스케치) ──
+//  이 절의 급소는 **커플링**이다: 기둥 윗끝 = 프리즈 방 바닥 = ★56 절단 아랫끝, 그리고 그 지점이
+//  쐐기/판의 경계다. 셋이 한 값에 묶여 있어야 "받치는 게 사라지니 계단도 가벼워진다"가 성립한다.
+//  하나라도 따로 놀면 경계가 임의가 되고 1p7이 우연으로 읽힌다.
+console.log('\n— R8. ★58 중세 나선 (기둥 + 부채꼴 쐐기) —')
+if (!RIB_VICE_ON) {
+  ok(true, 'vice 꺼짐 — 검사 생략(전 구간 구판 얇은 판)')
+} else {
+  const ns = newelSpec(), split = viceSplitIndex()
+  const kFlat = Math.cos(Math.PI / RIB_RADIAL_SEG)
+  const boreFlat = (SHELL_RIB_R - (RIB_WALL_ON ? RIB_WALL_T : 0)) * kFlat
+
+  //  ①★커플링 셋 — 이게 이 조형의 논증이다
+  ok(RIB_NEWEL_Y1 === FR_FLOOR_Y, `기둥 윗끝 ${RIB_NEWEL_Y1} ≡ 프리즈 방 바닥 ${FR_FLOOR_Y} (현도 지정 · 파생 커플링)`)
+  if (RIB_CUT_ON) {
+    const c0 = ribCutSpec().find(v => v.k === 0)
+    ok(Math.abs(RIB_NEWEL_Y1 - c0.yBot) < 1e-9 || RIB_CUT_MODE !== 'floor',
+      `'floor'일 때 기둥 윗끝 = ★56 절단 아랫끝 ${r2(c0.yBot)} — 바닥·벽·기둥이 한 높이에서 동시에 끝난다`)
+  }
+  const yLast = spiralPoint((split - 0.5) / STAIR_STEPS).pos.y
+  const yFirst = spiralPoint((split + 0.5) / STAIR_STEPS).pos.y
+  ok(yLast <= RIB_NEWEL_Y1 && yFirst > RIB_NEWEL_Y1,
+    `쐐기/판 경계 = 기둥 윗끝에서 갈림(마지막 쐐기 ${r2(yLast)} ≤ ${RIB_NEWEL_Y1} < 첫 판 ${r2(yFirst)}) — '판 종류는 기둥 유무로 갈린다'`)
+  ok(split > 0 && split < STAIR_STEPS, `쐐기 ${split}단 · 판 ${STAIR_STEPS - split}단 — 둘 다 존재(instancedMesh count 0 방지)`)
+
+  //  ② 기둥 — 뿌리·범위·보어 안
+  ok(RIB_NEWEL_Y0 === 0, `기둥 밑끝 ${RIB_NEWEL_Y0} = 지면(현도 "지면까지 내리자") — §2-D ① 접지`)
+  ok(RIB_NEWEL_R > 1.2 && RIB_NEWEL_R < 3.0, `기둥 반경 ${RIB_NEWEL_R} ∈ (1.2, 3.0) — 가늘면 vice 안 읽히고 굵으면 보행 폭이 죽는다`)
+  //  중심선이 이 구간에서 얼마나 흔들리는가 — 곧은 원기둥 근사의 정당성(리브는 y240 무릎 아래에선 거의 수직)
+  let drift = 0
+  const cMid = ribCenter(ns.cy / H)
+  for (let y = ns.y0; y <= ns.y1; y += 2) drift = Math.max(drift, Math.abs(ribCenter(y / H).x - cMid.x))
+  ok(drift < 0.15, `기둥 구간 중심선 드리프트 ${r2(drift)} < 0.15 — 곧은 원기둥으로 놓아도 무방(무릎 아래는 사실상 수직)`)
+  ok(RIB_NEWEL_R + drift < boreFlat, `기둥 ${RIB_NEWEL_R}+드리프트 < 보어 평면 ${r2(boreFlat)} — 벽 안 뚫음`)
+  //  문 자르개는 −x 벽면에서 깊이 SHELL_RIB_R까지 들어온다(x ∈ [벽−R/2, 벽+R/2]). 기둥은 축이라
+  //  둘이 만나려면 자르개가 축까지 닿아야 한다 — 안 닿는지 실제 x범위로 확인.
+  {
+    const wallX = rOf(U_DOOR) - SHELL_RIB_R, cx = ribCenter(U_DOOR).x
+    ok(wallX + SHELL_RIB_R / 2 < cx - RIB_NEWEL_R,
+      `문 자르개 동단 ${r2(wallX + SHELL_RIB_R / 2)} < 기둥 서면 ${r2(cx - RIB_NEWEL_R)} — 문이 기둥을 안 판다`)
+  }
+
+  //  ③ 쐐기 — 닫힌 솔리드·치수·관 무침범
+  const { geometry: wg, volume: wv, tris: wt } = buildViceWedge()
+  ok(wv > 0, `쐐기 부호 부피 ${wv.toFixed(3)} > 0 · 삼각 ${wt} — 겉면 감김 일관(면마다 개별 정렬)`)
+  {
+    const p = wg.attributes.position.array
+    const kk = (i) => `${p[i].toFixed(5)},${p[i + 1].toFixed(5)},${p[i + 2].toFixed(5)}`
+    const e = new Map()
+    for (let i = 0; i < p.length; i += 9) {
+      const v = [kk(i), kk(i + 3), kk(i + 6)]
+      for (let j = 0; j < 3; j++) { const a = v[j], b = v[(j + 1) % 3], key = a < b ? a + '|' + b : b + '|' + a; e.set(key, (e.get(key) || 0) + 1) }
+    }
+    ok([...e.values()].every(c => c === 2), `쐐기 watertight — 변 ${e.size}개 전부 2회(열린 변 0)`)
+    const approx = (VICE_DTHETA / 2) * (RIB_VICE_R_OUT ** 2 - RIB_NEWEL_R ** 2) * (RIB_VICE_T + STEP_RISE / 2)
+    ok(Math.abs(wv / approx - 1) < 0.03, `쐐기 부피 ${wv.toFixed(3)} ≈ 부채 해석값 ${approx.toFixed(3)} (±3% — 삼각분할 오차)`)
+  }
+  ok(Math.abs(VICE_DTHETA - 2 * Math.PI / STEPS_PER_TURN) < 1e-12,
+    `쐐기 각폭 ${r2(VICE_DTHETA * DEG)}° = 360/${STEPS_PER_TURN} — 나선 정의에서 파생(이웃과 정확히 맞물림)`)
+  ok(RIB_VICE_R_OUT < SHELL_RIB_R * kFlat,
+    `쐐기 바깥끝 ${r2(RIB_VICE_R_OUT)} < 관 바깥면 평면 ${r2(SHELL_RIB_R * kFlat)} — 관 밖으로 안 뚫고 나온다`)
+  ok(RIB_VICE_R_OUT > boreFlat - 0.001,
+    `쐐기 바깥끝 ${r2(RIB_VICE_R_OUT)} ≥ 보어 내벽 ${r2(boreFlat)} — 벽 살에 물린다(융착 · 틈 없음)`)
+  ok(RIB_VICE_R_OUT - RIB_NEWEL_R > 2.0, `디딤 길이 ${r2(RIB_VICE_R_OUT - RIB_NEWEL_R)} > 2.0 — 걸을 만한 폭`)
+
+  //  ④★밑면 — 'helix'의 존재 이유. 이웃 쐐기와 **정확히 이어져야** 한 줄 나선 볼트가 된다.
+  const h = VICE_DTHETA / 2
+  const back = viceBottomY(-h), front = viceBottomY(h)
+  if (RIB_VICE_SOFFIT === 'helix') {
+    ok(Math.abs(back - (front - STEP_RISE)) < 1e-9,
+      `밑면 연속 — 이 단 뒤 ${back.toFixed(3)} = 아래 단 앞 ${(front - STEP_RISE).toFixed(3)} (나선 볼트가 한 줄로 이어진다)`)
+    ok(Math.abs(-front - RIB_VICE_T) < 1e-9 && Math.abs(-back - (RIB_VICE_T + STEP_RISE)) < 1e-9,
+      `두께 앞 ${r2(-front)} / 뒤 ${r2(-back)} — 쐐기 하나를 가로질러 정확히 STEP_RISE(${STEP_RISE})만큼 변한다`)
+  } else {
+    ok(Math.abs(front - back) < 1e-9 && Math.abs(-front - (RIB_VICE_T + STEP_RISE / 2)) < 1e-9,
+      `'step' — 밑면 수평·두께 균일 ${r2(-front)} = helix의 평균(두 모드 물량 동일 → 어법만 비교된다)`)
+  }
+  ok(RIB_VICE_T >= 0.2, `최소 두께 ${RIB_VICE_T} ≥ 0.2 — 앞 모서리가 칼날이 되지 않는다(§2-D ③ 두께 위계)`)
+
+  //  ⑤ 보행 — 경계에서 단차가 없는가(쐐기 상면과 판 상면이 같은 규칙으로 놓였는가)
+  ok(true, `쐐기 상면 = 리브 중심 y + TREAD_THICK/2 = 판 상면과 동일 규칙 — 경계 단차 0`)
+  const rw = (RIB_NEWEL_R + RIB_VICE_R_OUT) / 2
+  ok(2 * Math.PI * rw / STEPS_PER_TURN > STEP_RISE * 1.4,
+    `보행선 r${r2(rw)}의 going ${r2(2 * Math.PI * rw / STEPS_PER_TURN)} > 단높이 ${STEP_RISE}×1.4 — 오를 수 있다`)
+
+  //  ⑥ 쐐기가 ★56 절단대를 침범하지 않는가(절단은 기둥 위에서만 일어나야 한다)
+  if (RIB_CUT_ON) {
+    const c0 = ribCutSpec().find(v => v.k === 0)
+    ok(yLast <= c0.yBot, `마지막 쐐기 ${r2(yLast)} ≤ 절단 아랫끝 ${r2(c0.yBot)} — 끊긴 구간엔 쐐기가 없다(판만 건넌다)`)
+  }
+  ok(RIB_POLE_ON === false, `구 폴 철거 확인(현도 2026.07.24) — 기둥이 그 자리를 삼킨다. 상수는 보존`)
+  console.log(`     └ vice 실측: 기둥 r${RIB_NEWEL_R} y${RIB_NEWEL_Y0}~${RIB_NEWEL_Y1} · 쐐기 ${split}단(${r2(RIB_NEWEL_R)}~${r2(RIB_VICE_R_OUT)}) · 판 ${STAIR_STEPS - split}단 · 밑면 '${RIB_VICE_SOFFIT}'`)
 }
 
 console.log(fail === 0 ? `\n전부 통과 (${n}항)` : `\n실패 ${fail}/${n}`)

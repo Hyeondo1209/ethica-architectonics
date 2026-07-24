@@ -8,7 +8,7 @@ import fs from 'fs'
 import { PNG } from 'pngjs'
 import * as THREE from 'three'
 import * as C from './constants.js'
-import { descentSpec, woldaeSpec, incaStairSpec, incaBladesSpec, drumPierAzimuths, descentPortSpec, portPrismTris, outwardTris } from './corridorStairsGeometry.js'
+import { descentSpec, woldaeSpec, incaStairSpec, incaBladesSpec, drumPierAzimuths, descentPortSpec, portPrismTris, outwardTris, ribCutSpec } from './corridorStairsGeometry.js'
 import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg'
 import { WAYPOINTS, EYE } from './waypoints.js'
 
@@ -162,9 +162,11 @@ if (C.HALL_ENTRY === 'axial' || C.HALL_ENTRY === 'lateral') {
     addGeo(g, [171, 143, 94])
   }
 }
-// ── 리브 다섯(구면 경선 튜브) ──
+// ── 리브 다섯(구면 경선 튜브) — ★56 절단 반영(끊긴 띠는 안 그린다) ──
+const CUTS = ribCutSpec()
 for (const k of [-2, -1, 0, 1, 2]) {
-  const phi = k / C.MERIDIANS * Math.PI * 2, M = 40, S = 10
+  const cut = CUTS.find(c => c.k === k)
+  const phi = k / C.MERIDIANS * Math.PI * 2, M = 160, S = 10
   const ring = (u) => {
     const cu = Math.cos(u), su = Math.sin(u)
     const cpt = [C.R_BASE * cu * Math.cos(phi), C.R_BASE * su, C.R_BASE * cu * Math.sin(phi)]
@@ -179,8 +181,31 @@ for (const k of [-2, -1, 0, 1, 2]) {
   let prev = ring(-0.02)
   for (let i = 1; i <= M; i++) {
     const cur = ring(-0.02 + (i / M) * 0.82)
-    for (let j = 0; j < S; j++) quad(prev[j], prev[(j + 1) % S], cur[(j + 1) % S], cur[j], [204, 186, 146])
+    //  ★56: 절단 띠 안의 세그먼트는 건너뛴다 = 끊긴 자리(간극). 실제 CSG의 근사이지만 매싱 판단에는 충분.
+    const yM = (prev[0][1] + cur[0][1]) / 2
+    if (!(cut && yM > cut.yBot && yM < cut.yTop))
+      for (let j = 0; j < S; j++) quad(prev[j], prev[(j + 1) % S], cur[(j + 1) % S], cur[j], [204, 186, 146])
     prev = cur
+  }
+  //  절단면 캡(#0 제외 — 보어가 길이라 안 막는다)
+  if (cut && k !== 0) for (const [yy, rr] of [[cut.yBot, cut.capB], [cut.yTop, cut.capT]]) {
+    const cx = C.rOf(yy / C.H) * Math.cos(phi), cz = C.rOf(yy / C.H) * Math.sin(phi), NC = 20
+    for (let j = 0; j < NC; j++) {
+      const a0 = j / NC * Math.PI * 2, a1 = (j + 1) / NC * Math.PI * 2
+      tris.push({ v: [[cx, yy, cz], [cx + rr * Math.cos(a0), yy, cz + rr * Math.sin(a0)],
+                      [cx + rr * Math.cos(a1), yy, cz + rr * Math.sin(a1)]], c: [178, 158, 120] })
+    }
+  }
+}
+// ── ★56 노출 나선(#0 간극 구간) — §2-D ① '의도된 부양'(1p7 증명된 뜸). 여기가 검수의 핵심이다 ──
+{
+  const z = CUTS.find(c => c.k === 0)
+  if (z) for (let i = 0; i < C.STAIR_STEPS; i++) {
+    const f = (i + 0.5) / C.STAIR_STEPS, { pos, theta } = C.spiralPoint(f)
+    if (pos.y < z.yBot - 1 || pos.y > z.yTop + 1) continue
+    const g = new THREE.BoxGeometry(C.TREAD_DEPTH, C.TREAD_THICK, C.TREAD_WIDTH)
+    g.rotateY(-theta); g.translate(pos.x, pos.y, pos.z)
+    addGeo(g, [214, 171, 104])
   }
 }
 

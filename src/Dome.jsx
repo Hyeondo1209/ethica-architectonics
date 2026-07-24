@@ -5,7 +5,7 @@
 //  ★1-③A(2026.07.04): 탐험 리브 분리(72→71+1) + −x면 CSG 문 + 나선 재정의 + 폴 절단(1p7)
 import { useRef, useMemo, useLayoutEffect } from 'react'
 import * as THREE from 'three'
-import { Brush, Evaluator, HOLLOW_SUBTRACTION } from 'three-bvh-csg'
+import { Brush, Evaluator, HOLLOW_SUBTRACTION, SUBTRACTION } from 'three-bvh-csg'
 import {
   rOf, uOfX, spiralPoint, SCALE, H, R_BASE, MERIDIANS, SHELL_RIB_R, RIB_RADIAL_SEG,
   STAIR_STEPS, STEP_RISE, TREAD_DEPTH, TREAD_WIDTH, TREAD_THICK, POLE_R, Y_POLE_CUT, U_DOOR,
@@ -23,8 +23,12 @@ import {
   LAMP_RIBS, LAMP_R, LAMP_TUBE_R, LAMP_ENTRY_Y, LAMP_TOP_Y, LAMP_MOUTH_Y0, LAMP_MOUTH_Y1, LAMP_FUNNEL_H, LAMP_MOUTH_R, LAMP_POOL_R,
   TERRACE_Y, TERRACE_RIN, TERRACE_ROUT, TERRACE_ARC,
   RIB_TINT_COL, RIB_TINT_AMT, RIB_TINT_EMIS, RIB_TINT_Y0, RIB_TINT_Y1,
+  RIB_CUT_ON, RIB_CUT_MODE, RIB_CUT_BOX_HW, RIB_CUT_CAP_T,   // ★56 리브 절단(1p7)
+  RIB_WALL_ON, RIB_WALL_T, RIB_WALL_SCOPE,                   // ★57 리브 벽 두께
+  RIB_VICE_ON, RIB_NEWEL_R, RIB_POLE_ON, ribCenter, spiralU,  // ★58 중세 나선(vice)
 } from './constants'
-import { hallDoors } from './corridorStairsGeometry'
+import { hallDoors, ribCutSpec } from './corridorStairsGeometry'
+import { buildRibShell, buildViceWedge, viceSplitIndex, newelSpec } from './ribGeometry'
 
 export function Ground() {
   return (
@@ -43,6 +47,48 @@ function makeRibCurve() {
   return new THREE.CatmullRomCurve3(pts)
 }
 const RIB_MAT = { color: '#bb8a4e', roughness: 0.7, metalness: 0 }   // 두 컴포넌트 공유(재질 동일 LOCKED)
+
+// ── ★56 리브 절단(1p7) 공용 — 탐험 리브(#0)와 홀 문 리브 4기가 같은 수법을 쓴다(형태 동일 LOCKED 유지) ──
+//  ①끊기 = 수평 슬래브 브러시 HOLLOW_SUBTRACTION. 관은 두께 0 셸이라 '겹치는 면만 제거'가 맞는 연산이다.
+//   ⚠수평으로 자르는 이유: 리브는 이 높이대에서 거의 수직(기울기 0.3~7.9° 실측)이라 수평 절단면이
+//    거의 정원이 되고, 다섯이 같은 어법으로 잘린 것이 읽힌다. 법선 절단은 다섯이 제각각 기울어 어수선하다.
+//  ②막기 = 절단면 캡(구 폴 절단 '평면 캡' 어휘). 안 막으면 뚫린 파이프 아가리 = 보어가 통째로 열린다.
+//   캡은 남는 쪽으로 두께만큼 뻗고 간극 쪽으로 0.02만 물린다 → 경계 일치로 인한 헤어라인 없이 봉인.
+//  ★★#0에는 캡을 달지 않는다 — **보어가 길이다.** 실측(2026.07.24): 윗 절단면 y184.05에 디딤판
+//   i313~315가 축거리 3.3으로 지나므로 반경 6.12 캡은 나선을 정면으로 막는다. 이건 1-③C에서
+//   '착지 디스크가 나선 꼭대기를 덮은 뚜껑' 사고와 **같은 사고**다(그때 디스크를 폐치해 해결했다).
+//   ⚠LOCKED 안전: 이 비대칭은 형태 차별화가 아니라 **문·아치와 같은 기능 배당**이다(§1 "문 = 형태가
+//   아니라 접근 지점"). #0은 걸어 지나는 관이라 막을 수 없고, 나머지 넷은 보어가 죽은 공간이라 막는다.
+//   그리고 이 차이는 프리즈 방 안에서만 보인다 = LOCKED 예외 #2의 조건(다른 시점 불가시)을 벗어나지 않는다.
+// ── ★57 리브 벽 두께 — 이 리브가 '살 있는 몸'인가(§1 LOCKED: 바깥면은 절대 불변) ──
+//  두께가 있으면 관이 **닫힌 솔리드**가 되므로 개구는 HOLLOW_SUBTRACTION이 아니라 **SUBTRACTION**으로 뚫는다.
+//  그래야 문·아치·절단면에 벽의 살이 인방·문선(reveal)으로 드러난다 — 종잇장 모서리가 사라지는 지점이 여기다.
+const wallOf = (k) => (RIB_WALL_ON && (RIB_WALL_SCOPE === 'cut5' || k === 0)) ? RIB_WALL_T : 0
+const ribCutBrush = (c) => {
+  const g = new THREE.BoxGeometry(RIB_CUT_BOX_HW * 2, c.gap, RIB_CUT_BOX_HW * 2)
+  const yM = (c.yBot + c.yTop) / 2, rM = rOf(yM / H)
+  g.translate(rM * Math.cos(c.phi), yM, rM * Math.sin(c.phi))
+  return g
+}
+//  캡 두 장(아래 = 아랫토막을 막음 · 위 = 떠 있는 윗토막을 막음). 재질은 리브와 완전 동일.
+function RibCutCaps({ cuts, top = true }) {
+  return (
+    <>
+      {cuts.flatMap((c, i) => ([
+        <mesh key={`b${i}`} position={[c.bx, c.yBot + 0.02 - RIB_CUT_CAP_T / 2, c.bz]}>
+          <cylinderGeometry args={[c.capB, c.capB, RIB_CUT_CAP_T, 32]} />
+          <meshStandardMaterial {...RIB_MAT} onBeforeCompile={ribTintOBC} />
+        </mesh>,
+        top ? (
+          <mesh key={`t${i}`} position={[c.tx, c.yTop - 0.02 + RIB_CUT_CAP_T / 2, c.tz]}>
+            <cylinderGeometry args={[c.capT, c.capT, RIB_CUT_CAP_T, 32]} />
+            <meshStandardMaterial {...RIB_MAT} onBeforeCompile={ribTintOBC} />
+          </mesh>
+        ) : null,
+      ]))}
+    </>
+  )
+}
 // ★리브 굴절 그라데이션(2026.07.12 — 정점 렌즈와 한 몸. 수치 정본 = constants.js LENS 블록):
 //  세계 y로 알베도 워시 + 미발광 — '위(렌즈)에서 내려온 굴절광이 무릎으로 잦아듦'.
 //  셰이더 패치라 기하·CSG 무접촉 → 탐험 리브 #0(CSG 2컷)과 나머지 71(인스턴스)이 자동 동일(형태·재질 LOCKED 안전).
@@ -112,7 +158,10 @@ export function DomeRibs() {
 //  둘 다 HOLLOW_SUBTRACTION(열린 껍질 — 겹치는 면만 제거, 뚜껑 없음) 체이닝.
 export function ExplorationRib() {
   const geo = useMemo(() => {
-    const tube = new THREE.TubeGeometry(makeRibCurve(), 200, SHELL_RIB_R, RIB_RADIAL_SEG, false)
+    //  ★57: 두께가 있으면 닫힌 셸(솔리드), 없으면 구판 그대로의 열린 관. 바깥면은 두 경우 모두 동일.
+    const t = wallOf(0)
+    const { geometry: tube } = buildRibShell(makeRibCurve(), t)
+    const OP = t > 0 ? SUBTRACTION : HOLLOW_SUBTRACTION   // 솔리드면 정식 감산 = 개구에 살이 드러난다
     const ev = new Evaluator(); ev.attributes = ['position', 'normal']
     // ① 문 자르개: 세로 슬롯 상자 — x중심을 −x벽(rOf(U_DOOR)−SHELL_RIB_R ≈ 282)에, 깊이 = SHELL_RIB_R(6)
     //   → x∈[279,285]: −x면(≈282)만 관통, 중심(288)·+x벽(294)에는 못 미침.
@@ -127,11 +176,18 @@ export function ExplorationRib() {
     let step1 = ribBrush
     if (HALL_DOORS_ON) {                                          // ★㊶-3: 문 개구만 스위치 — 끄면 문 컷 skip(아치는 아래서 유지)
       const b1 = new Brush(doorCut); b1.updateMatrixWorld()
-      step1 = ev.evaluate(ribBrush, b1, HOLLOW_SUBTRACTION)
+      step1 = ev.evaluate(ribBrush, b1, OP)
     }
     const b2 = new Brush(archCut); b2.updateMatrixWorld()
-    return ev.evaluate(step1, b2, HOLLOW_SUBTRACTION).geometry   // ⚠㊴: 구 entablature 클립 제거(프리즈가 가림 — 리브 무절단 복귀)
+    let acc = ev.evaluate(step1, b2, OP)                       // ⚠㊴: 구 entablature 클립 제거(프리즈가 가림)
+    // ③ ★56 절단(1p7) — 프리즈 방 안에서 끊는다. 나선은 그대로 간극을 건넌다(현도 ⓔ).
+    if (RIB_CUT_ON) {
+      const c = ribCutSpec().find(v => v.k === 0)
+      if (c) { const b3 = new Brush(ribCutBrush(c)); b3.updateMatrixWorld(); acc = ev.evaluate(acc, b3, OP) }
+    }
+    return acc.geometry
   }, [])
+  //  ⚠캡 없음 — 위 ribCutBrush 주석 ★★ 참조. #0의 보어는 나선이 지나는 길이라 막으면 뚫고 못 간다.
   return (
     <mesh geometry={geo}>
       <meshStandardMaterial {...RIB_MAT} side={THREE.DoubleSide} onBeforeCompile={ribTintOBC} />
@@ -147,7 +203,8 @@ export function HallDoorRibs() {
   const geos = useMemo(() => {
     const ev = new Evaluator(); ev.attributes = ['position', 'normal']
     return hallDoors().filter(d => d.k !== 0).map(d => {
-      const tube = new THREE.TubeGeometry(makeRibCurve(), 200, SHELL_RIB_R, RIB_RADIAL_SEG, false)
+      const t = wallOf(d.k)                            // ★57 — 'cut5'면 넷도 살을 갖는다
+      const { geometry: tube } = buildRibShell(makeRibCurve(), t)
       tube.rotateY(-d.phi)                             // rotateY(a) → 방위각 −a. 방위각 +φ에 놓으려면 −φ
       if (!HALL_DOORS_ON) return tube                  // ★㊶-3 임시 소등: 문 컷 없이 매끈한 관(형태 = 나머지 리브와 동일)
       const cut = new THREE.BoxGeometry(SHELL_RIB_R, DOOR_H, DOOR_W)
@@ -155,16 +212,34 @@ export function HallDoorRibs() {
       cut.translate(d.cx + d.dhat[0] * SHELL_RIB_R, d.sill + DOOR_H / 2, d.cz + d.dhat[1] * SHELL_RIB_R)
       const rb = new Brush(tube); rb.updateMatrixWorld()
       const cb = new Brush(cut); cb.updateMatrixWorld()
-      return ev.evaluate(rb, cb, HOLLOW_SUBTRACTION).geometry   // ⚠㊴: entablature 클립 제거(LOCKED 위반 장치 소멸 — 프리즈가 가림)
+      return ev.evaluate(rb, cb, t > 0 ? SUBTRACTION : HOLLOW_SUBTRACTION).geometry   // ⚠㊴: entablature 클립 제거
     })
   }, [])
+  // ★56 절단(1p7) — 문 소등 여부와 무관하게 적용(문은 '접근 지점', 절단은 '존재의 진술'로 서로 독립).
+  const cut = useMemo(() => {
+    if (!RIB_CUT_ON) return geos
+    const ev = new Evaluator(); ev.attributes = ['position', 'normal']
+    const spec = ribCutSpec()
+    return geos.map((g, i) => {
+      const c = spec.filter(v => v.k !== 0)[i]
+      if (!c) return g
+      const rb = new Brush(g); rb.updateMatrixWorld()
+      const cb = new Brush(ribCutBrush(c)); cb.updateMatrixWorld()
+      return ev.evaluate(rb, cb, wallOf(c.k) > 0 ? SUBTRACTION : HOLLOW_SUBTRACTION).geometry
+    })
+  }, [geos])
+  //  ★57: 살이 있으면 절단면이 저절로 '고리 단면'이 된다 → 윗캡(원판)은 끈다.
+  //   ⚠아랫캡은 유지 — 'floor' 모드에서 그건 리브 부재가 아니라 **바닥 관통 구멍의 마개**다(R6 [128]).
+  const cuts = useMemo(() => (RIB_CUT_ON ? ribCutSpec().filter(v => v.k !== 0) : []), [])
+  const capTop = wallOf(1) === 0
   return (
     <group>
-      {geos.map((g, i) => (
+      {cut.map((g, i) => (
         <mesh key={i} geometry={g}>
           <meshStandardMaterial {...RIB_MAT} side={THREE.DoubleSide} onBeforeCompile={ribTintOBC} />
         </mesh>
       ))}
+      <RibCutCaps cuts={cuts} top={capTop} />
     </group>
   )
 }
@@ -183,30 +258,64 @@ export function Apex() {
 
 // ── 나선 계단(1-③A): 문(RIB_Y) → 무릎길 진입. f축(constants.spiralPoint) 위에 디딤판 배치 ──
 //  · 폴(1p7 device): 외부 지지의 '가설' — 지면(y=0)에서 올라 1p6 지점(Y_POLE_CUT)에서 종단·평면 캡.
+//  ── 나선 ★58 중세 vice: 기둥(newel) + 부채꼴 쐐기 / 기둥 위로는 구판 얇은 판 ──
+//   ★한 줄 규칙: **판 종류는 기둥의 유무로 갈린다.** 기둥이 끝나는 y(=프리즈 방 바닥=★56 절단 아랫끝)
+//    위로는 받치는 게 아무것도 없으므로 계단도 얇은 판으로 되돌아간다(§2-B '부양 판 라임' = 1p7 증명된 뜸).
+//   ⚠쐐기는 축을 중심으로 놓는다(구 디딤판은 헬릭스 위에 놓였다) — 부채의 각중심이 로컬 +x,
+//    rotation.y=−θ가 그걸 진행 방위로 돌린다(구판과 같은 규약). 상면은 판 상면과 같은 높이로 맞춘다.
 export function RibStair() {
-  const treadRef = useRef()
+  const wedgeRef = useRef(), plateRef = useRef()
+  const split = RIB_VICE_ON ? viceSplitIndex() : 0
+  const nPlate = STAIR_STEPS - split
+  const wedge = useMemo(() => (split > 0 ? buildViceWedge().geometry : null), [split])
+  const newel = useMemo(() => (RIB_VICE_ON ? newelSpec() : null), [])
+  const newelC = useMemo(() => (newel ? ribCenter(newel.cy / H) : null), [newel])
   useLayoutEffect(() => {
     const dum = new THREE.Object3D()
     for (let i = 0; i < STAIR_STEPS; i++) {
       const f = (i + 0.5) / STAIR_STEPS
       const { pos, theta } = spiralPoint(f)
-      dum.position.copy(pos)
-      dum.rotation.set(0, -theta, 0)                 // 디딤판 장축(x=TREAD_DEPTH)이 방사 방향 — 구판 문법 유지
-      dum.updateMatrix()
-      treadRef.current.setMatrixAt(i, dum.matrix)
+      if (i < split) {
+        const c = ribCenter(spiralU(f))                          // 쐐기 = 축 중심
+        dum.position.set(c.x, c.y + TREAD_THICK / 2, c.z)        // 상면을 판 상면과 정렬
+        dum.rotation.set(0, -theta, 0)
+        dum.updateMatrix()
+        wedgeRef.current.setMatrixAt(i, dum.matrix)
+      } else {
+        dum.position.copy(pos)
+        dum.rotation.set(0, -theta, 0)                           // 디딤판 장축(x=TREAD_DEPTH)이 방사 방향 — 구판 문법 유지
+        dum.updateMatrix()
+        plateRef.current.setMatrixAt(i - split, dum.matrix)
+      }
     }
-    treadRef.current.instanceMatrix.needsUpdate = true
-  }, [])
+    if (wedgeRef.current) wedgeRef.current.instanceMatrix.needsUpdate = true
+    plateRef.current.instanceMatrix.needsUpdate = true
+  }, [split])
   return (
     <>
-      <instancedMesh ref={treadRef} args={[undefined, undefined, STAIR_STEPS]} userData={{ walkable: true }}>
+      {newel && (
+        <mesh position={[newelC.x, newel.cy, newelC.z]} userData={{ walkable: false }}>
+          <cylinderGeometry args={[RIB_NEWEL_R, RIB_NEWEL_R, newel.h, 24]} />
+          <meshStandardMaterial {...RIB_MAT} onBeforeCompile={ribTintOBC} />
+        </mesh>
+      )}
+      {wedge && (
+        <instancedMesh ref={wedgeRef} args={[undefined, undefined, split]} userData={{ walkable: true }}>
+          <primitive object={wedge} attach="geometry" />
+          <meshStandardMaterial {...TREAD_MAT} />
+        </instancedMesh>
+      )}
+      <instancedMesh ref={plateRef} args={[undefined, undefined, nPlate]} userData={{ walkable: true }}>
         <boxGeometry args={[TREAD_DEPTH, TREAD_THICK, TREAD_WIDTH]} />
         <meshStandardMaterial {...TREAD_MAT} />
       </instancedMesh>
-      <mesh position={[R_BASE, Y_POLE_CUT / 2, 0]}>
-        <cylinderGeometry args={[POLE_R, POLE_R, Y_POLE_CUT, 12]} />
-        <meshStandardMaterial color="#8f6c3e" roughness={0.85} />
-      </mesh>
+      {/* ★58 폴 철거(현도 2026.07.24) — 기둥이 그 자리를 삼킨다. 상수는 보존(웨이포인트·검증 참조) */}
+      {RIB_POLE_ON && (
+        <mesh position={[R_BASE, Y_POLE_CUT / 2, 0]}>
+          <cylinderGeometry args={[POLE_R, POLE_R, Y_POLE_CUT, 12]} />
+          <meshStandardMaterial color="#8f6c3e" roughness={0.85} />
+        </mesh>
+      )}
     </>
   )
 }

@@ -40,6 +40,9 @@ import {
   WOLDAE_NOTCH, WOLDAE_NOTCH_R,   // ★54-2 노치
   WOLDAE_RISE, WOLDAE_RISE_H, WOLDAE_RISE_HW, WOLDAE_STEP_R, WOLDAE_STEP_T,   // ★54-3 상승단
   ceilY, GAT_CX, GAT_CROWN_R, GAT_CONE_H, GAT_CROWN_H, GAT_SLIT, GAT_EAVE_MIN, GAT_EAVE_SF,
+  FRIEZE_ROOM_ON, FR_FLOOR_Y, FR_CEIL_T, TEMPLE_CLR,                                          // ★55 프리즈 방
+  RIB_CUT_ON, RIB_CUT_MODE, RIB_CUT_SEED, RIB_CUT_GAP_MIN, RIB_CUT_HEAD,                       // ★56 리브 절단(1p7)
+  RIB_CUT_STUB_MIN, RIB_CUT_SEP, RIB_CUT_CAP_T, RIB_CUT_CAP_MG,
 } from './constants.js'
 
 export const PLAT_TOP = PLAT_Y + COR_THICK / 2   // 계단 출발면 = 깊은 제단 상면 ≈31.3
@@ -785,4 +788,74 @@ export function gatSeal() {
   }
   const eave = Math.max(GAT_EAVE_MIN, (need - R) * GAT_EAVE_SF)
   return { baseY, cutY, lidY, eave, lidR: R + eave, needRaw: need - R }
+}
+
+// ============================================================================
+//  ★56 리브 절단(1p7) — 순수 빌더. Dome(렌더 CSG)·check_corridor(검증)가 같은 정본을 소비
+// ============================================================================
+//  1p7 "실체의 본성에는 존재가 속한다". 증명은 1p6에 기댄다 — 다른 것이 산출할 수 없으므로
+//  자기 원인이고, 따라서 밑에 **아무것도 없어야** 한다. 그래서 끊고, 떠 있게 둔다.
+//
+//  ★설계 불변식 셋(어기면 1p7이 반대로 읽히거나 봉인이 깨진다 — R6절이 전부 강제):
+//   ① 절단 구간 ⊂ [FR_FLOOR_Y, 방 천장 − RIB_CUT_HEAD] — 방 밖 어느 시점에서도 불가시(LOCKED 예외 #2의 조건).
+//   ② 간극 > INCA_GAP(1p5의 5) — 1p5의 '못 닿음'과 1p7의 '끊김'이 같은 크기면 두 정리가 섞여 읽힌다.
+//   ③ 다섯 높이는 층화 배정 — 같은 높이면 그 선이 공통 기준면이 되어 "함께 결정됨"이 된다(1p7의 정반대).
+//
+//  ⚠**끊은 자리는 반드시 캡으로 막는다.** 리브 관은 두께 0 셸이라, 안 막으면 절단면이 뚫린
+//   파이프 아가리가 되고 보어가 통째로 열린다(아랫토막은 아래로 홀까지, 윗토막은 위로 정점까지).
+//   구 폴 절단의 '평면 캡(뭉툭)' 어휘를 그대로 계승 — 잘린 단면이 면으로 읽히는 편이 조형적으로도 낫다.
+import { mulberry32 } from './lensGeometry.js'   // 결정론 PRNG — 렌즈(원석 시드)와 같은 것을 쓴다(중복 정의 금지)
+
+//  리브 중심선의 수직 대비 기울기(rad) — 수평으로 자르면 단면이 타원이 되므로 캡 반경 보정에 쓴다
+function ribTilt(y) {
+  const u = y / H, du = 1e-4
+  const dr = (rOf(u + du) - rOf(u - du)) / (2 * du)
+  return Math.atan2(Math.abs(dr), H)
+}
+
+export function ribCutSpec() {
+  if (!RIB_CUT_ON || !FRIEZE_ROOM_ON) return []
+  const doors = hallDoors(), n = doors.length
+  const rnd = mulberry32(RIB_CUT_SEED)
+
+  //  ★공통 창을 쓴다(리브별 창이 아니라). 천장이 동쪽으로 기울어 리브마다 상한이 다른데,
+  //   각자의 창에 따로 뽑으면 이격이 창 폭에 좌우돼 통제가 안 된다 → **가장 낮은 천장**에 맞춘다.
+  //   대가 = #0가 갈 수 있는 높이를 조금 양보. 소득 = 다섯의 이격이 SEP로 보장된다.
+  const ceilOf = (phi) => ceilY(rOf((FR_FLOOR_Y + 20) / H) * Math.cos(phi)) - 0.02 - FR_CEIL_T
+  const hi = Math.min(...doors.map(d => ceilOf(d.phi))) - RIB_CUT_HEAD
+  //  창의 아래끝 = '윗토막 밑끝'이 가질 수 있는 최저값. 간극 하한은 두 모드 공통,
+  //  'stub'은 그루터기 최소 높이만큼 더 밀려 올라간다.
+  const lo = FR_FLOOR_Y + RIB_CUT_GAP_MIN + (RIB_CUT_MODE === 'stub' ? RIB_CUT_STUB_MIN : 0)
+
+  //  ★최소 이격 + 무작위 여유: 정렬한 균등난수에 여유를 실어 얹고 i·SEP를 더한다.
+  //   → 이격 ≥ SEP는 구조적으로 보장(검사가 아니라 구성이 보장), 그 위 간격은 불규칙.
+  const slack = Math.max(0, (hi - lo) - RIB_CUT_SEP * (n - 1))
+  const srt = Array.from({ length: n }, () => rnd()).sort((a, b) => a - b)
+  let tops = srt.map((u, i) => lo + u * slack + i * RIB_CUT_SEP)
+  //  ⚠섞는다 — 안 섞으면 높이가 k 순서대로 단조 증가해 **경사 램프**로 읽힌다(그것도 질서다).
+  for (let i = tops.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [tops[i], tops[j]] = [tops[j], tops[i]] }
+
+  return doors.map((d, i) => {
+    const yTop = tops[i]
+    //  'floor' — 바닥에서 끊긴다: 아랫토막이 방에 없다. 간극 = 바닥~윗토막(제각각).
+    //  'stub'  — 그루터기가 남는다: 간극은 균일(GAP_MIN), 그루터기 끝이 제각각.
+    const yBot = (RIB_CUT_MODE === 'floor') ? FR_FLOOR_Y : yTop - RIB_CUT_GAP_MIN
+    const yCeil = ceilOf(d.phi)
+    const rB = rOf(yBot / H), rT = rOf(yTop / H)
+    //  캡 반경: 기운 관의 수평 단면 = 타원(장축 R/cosθ) → 그만큼 덮는다.
+    //  ⚠'floor' 모드 아랫캡만 예외 — **바닥 관통 구멍(R+TEMPLE_CLR)을 메우는 마개**를 겸한다.
+    //   안 메우면 리브가 사라진 자리에 반경 6.4 수직 샤프트가 열려 아치 터널→홀까지 뚫린다.
+    const capB = (RIB_CUT_MODE === 'floor')
+      ? SHELL_RIB_R + TEMPLE_CLR
+      : SHELL_RIB_R / Math.cos(ribTilt(yBot)) + RIB_CUT_CAP_MG
+    const capT = SHELL_RIB_R / Math.cos(ribTilt(yTop)) + RIB_CUT_CAP_MG
+    return {
+      k: d.k, phi: d.phi,
+      yBot, yTop, gap: yTop - yBot, yCeil, headroom: yCeil - yTop, winLo: lo, winHi: hi,
+      bx: rB * Math.cos(d.phi), bz: rB * Math.sin(d.phi),     // 아랫 절단면 중심(월드)
+      tx: rT * Math.cos(d.phi), tz: rT * Math.sin(d.phi),     // 윗 절단면 중심(월드)
+      capB, capT, capH: RIB_CUT_CAP_T,
+      plugsFloorHole: RIB_CUT_MODE === 'floor',
+    }
+  })
 }
