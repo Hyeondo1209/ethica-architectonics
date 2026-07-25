@@ -7,7 +7,7 @@ import { useMemo } from 'react'
 import * as THREE from 'three'
 import { Brush, Evaluator, SUBTRACTION, ADDITION } from 'three-bvh-csg'
 import {
-  COR_WALL_SEG, DOOR_HALF, COR_CX, COR_R, SHELL_RIB_R, ceilY, domeClipY,
+  COR_WALL_SEG, DOOR_HALF, COR_CX, COR_R, SHELL_RIB_R, MERIDIANS, H, ribCenter, ceilY, domeClipY,
   neckBottomY, SKIRT_X0, SKIRT_X1,
   WIN_HALF, WIN_SILL_Y, WIN_TOP_Y,
   RAD_JX, RAD_JDOOR_HW, RAD_DOOR_H,
@@ -1042,53 +1042,58 @@ export function Corridor() {
       const rOut = COR_R * kOut, rIn = GAT_CROWN_R          // 바깥 = 드럼 벽에 외접(현도 07.22 원안)
       const PO = (t) => [COR_CX + rOut*Math.cos(t), ceilY(COR_CX + rOut*Math.cos(t)) + seat, rOut*Math.sin(t)]
       const PI_ = (t) => [GAT_CX + rIn*Math.cos(t), seal.baseY, rIn*Math.sin(t)]
-      //  ★64-6(현도 07.25 최종): 매끈한 각뿔대(20삼각형)에 **리브 겹치는 부분만** CSG로 제거한다.
-      //   ⚠구멍이 리브 관(반경 6)보다 크면 리브가 못 채우는 틈이 생긴다(스커트 시행착오) → 구멍 =
-      //    리브 관 반경 + 헤어라인 여유만. 각뿔대는 두께 0이라 solid 감산이 안 먹으므로 **얇은 껍질**로
-      //    만들어 뺀다(아래로 SKIN 복제 + 바깥·안쪽 링 옆면 = 닫힌 solid). 각뿔대 전체를 통짜 껍질로
-      //    만들어 CSG 입력이 깔끔 → 삼각형 폭증 최소(구 thickenSurface의 면별 프리즘이 3649조각 낸 것과 대비).
-      const SKIN = 0.5
-      const shellPos = []
-      const tri = (a, b, c) => shellPos.push(a[0],a[1],a[2], b[0],b[1],b[2], c[0],c[1],c[2])
-      for (let i = 0; i < F; i++) {
-        const t0 = (i/F)*Math.PI*2, t1 = ((i+1)/F)*Math.PI*2
-        const o0 = PO(t0), o1 = PO(t1), i0 = PI_(t0), i1 = PI_(t1)
-        //  윗면(사다리꼴 2삼각형) + 아랫면(−SKIN, 감김 반전)
-        tri(o0, o1, i1); tri(o0, i1, i0)
-        const O0=[o0[0],o0[1]-SKIN,o0[2]], O1=[o1[0],o1[1]-SKIN,o1[2]], I0=[i0[0],i0[1]-SKIN,i0[2]], I1=[i1[0],i1[1]-SKIN,i1[2]]
-        tri(O0, I1, O1); tri(O0, I0, I1)
-        //  바깥 링 옆면 + 안쪽 링 옆면
-        tri(o0, O0, O1); tri(o0, O1, o1)
-        tri(i0, i1, I1); tri(i0, I1, I0)
+      //  ★64-7(현도 07.25 최종 — "원래대로 두고 리브 겹치는 부분만"): **두께 0 면**(원안 그대로)에서
+      //   리브 관 안쪽만 잘라낸다. 폐기한 오답들: ⓐ두께 껍질+CSG → 구멍 가장자리가 **소매(collar)**처럼
+      //   솟아 보임(현도 "이상한 구조물") ⓑ수직 원기둥 구멍 → 기운 리브를 빗나가 **초승달** 잔재
+      //   ⓒ사다리꼴을 대각선 하나로 쪼갬 → 네 귀 높이가 달라 면이 뒤틀리고 **좌우 비대칭**(현도 적발).
+      //  방식: 사다리꼴을 격자로 잘게 나눠(리브 있는 면만 조밀) 각 삼각형을 **리브 관(높이별 축·반경)**
+      //   으로 클립 → 구멍 가장자리가 리브를 정확히 따라간다. **절반(z≥0)만 만들고 거울 복사**하므로
+      //   좌우 대칭은 구조적으로 보장된다(삼각분할 대각선 문제 원천 제거).
+      const ribAt = (k, y) => {                              // 그 높이의 리브 축·수평 반경
+        const c = ribCenter(y / H).x, dd = 0.4
+        const slope = Math.abs(ribCenter((y + dd) / H).x - ribCenter((y - dd) / H).x) / (2 * dd)
+        const a = k * 2 * Math.PI / MERIDIANS
+        return { x: c * Math.cos(a), z: c * Math.sin(a), r: (SHELL_RIB_R + RIB_HOLE_CLR) * Math.sqrt(1 + slope*slope) }
       }
-      const shell = new THREE.BufferGeometry()
-      shell.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(shellPos), 3)); shell.computeVertexNormals()
-      const evG = new Evaluator(); evG.attributes = ['position', 'normal']
-      let acc = new Brush(shell); acc.updateMatrixWorld()
-      //  리브 5개 구멍. ⚠**수직 원기둥은 안 된다**(현도 적발 "관 안 초승달"): 리브는 기울어진 경선이고
-      //   각뿔대는 리브 자리에서 y폭이 7이나 되므로, 그 높이차만큼 리브 축이 옆으로 ~1.9 이동한다 →
-      //   수직 구멍은 아래쪽에서 리브를 빗나가 한쪽에 **초승달**을 남긴다(높이별 축거리 판정: 침범 5088).
-      //   → **리브를 따라가는 구멍(ribHoleSolid)**을 쓴다(침범 8 = 헤어라인). 범위는 각뿔대 표면 y폭
-      //   전체를 넉넉히 감싸야 한다(딱 맞추면 462 침범). 리브가 그 구멍을 채우므로 틈은 안 생긴다.
-      const surfY = (d, pick) => {                            // 관 반경 안 각뿔대 표면 y (min/max — 빗면이라 폭 있음)
-        let ym = pick === 'min' ? Infinity : -Infinity
-        for (let a = 0; a < 16; a++) { const th = a/16*Math.PI*2
-          for (const rr of [0, 3, SHELL_RIB_R + 0.5]) {
-            const x = d.cx + rr*Math.cos(th), z = d.cz + rr*Math.sin(th), r = Math.hypot(x - COR_CX, z)
-            const f = Math.min(1, Math.max(0, (rOut - r) / Math.max(rOut - rIn, 1e-6))), rimY = ceilY(x) + seat
-            const y = rimY + (seal.baseY - rimY) * f
-            ym = pick === 'min' ? Math.min(ym, y) : Math.max(ym, y)
+      const sOf = (P, k) => { const a = ribAt(k, P[1]); return Math.hypot(P[0] - a.x, P[2] - a.z) - a.r }
+      const clipRib = (poly, k) => {                          // 반평면 s≥0(관 바깥)만 남긴다
+        const o = []
+        for (let i = 0; i < poly.length; i++) {
+          const A = poly[i], B = poly[(i+1) % poly.length], sa = sOf(A, k), sb = sOf(B, k)
+          if (sa >= 0) o.push(A)
+          if ((sa >= 0) !== (sb >= 0)) { const t = sa / (sa - sb)
+            o.push([A[0] + (B[0]-A[0])*t, A[1] + (B[1]-A[1])*t, A[2] + (B[2]-A[2])*t]) }
+        }
+        return o
+      }
+      const NU = 24, NV = 12, half = []
+      for (let f = 0; f < F/2; f++) {                         // 절반(방위 0~180°)만 생성
+        const t0 = (f/F)*Math.PI*2, t1 = ((f+1)/F)*Math.PI*2
+        const o0 = PO(t0), o1 = PO(t1), i0 = PI_(t0), i1 = PI_(t1)
+        const P = (u, v) => {
+          const ox = o0[0]+(o1[0]-o0[0])*u, oy = o0[1]+(o1[1]-o0[1])*u, oz = o0[2]+(o1[2]-o0[2])*u
+          const ix = i0[0]+(i1[0]-i0[0])*u, iy = i0[1]+(i1[1]-i0[1])*u, iz = i0[2]+(i1[2]-i0[2])*u
+          return [ox+(ix-ox)*v, oy+(iy-oy)*v, oz+(iz-oz)*v]
+        }
+        const fine = (f === 0)                                // 리브 다섯은 전부 방위 0~36°(면 0)에 있다
+        const nu = fine ? NU : 1, nv = fine ? NV : 1
+        const vAt = (j) => { const t = j/nv; return fine ? t*t : t }   // 바깥(리브 쪽)을 촘촘히
+        for (let iu = 0; iu < nu; iu++) for (let iv = 0; iv < nv; iv++) {
+          const A = P(iu/nu, vAt(iv)), B = P((iu+1)/nu, vAt(iv)), D = P((iu+1)/nu, vAt(iv+1)), E = P(iu/nu, vAt(iv+1))
+          for (let poly of [[A, B, D], [A, D, E]]) {
+            if (fine) for (const k of [0, 1, 2]) { poly = clipRib(poly, k); if (poly.length < 3) break }
+            if (poly.length < 3) continue
+            for (let j = 1; j + 1 < poly.length; j++) half.push([poly[0], poly[j], poly[j+1]])
           }
         }
-        return ym
       }
-      for (const d of hallDoors()) {
-        const b = new Brush(ribHoleSolid(d.k, surfY(d, 'min') - SKIN - 1, surfY(d, 'max') + 2, RIB_HOLE_CLR))
-        b.updateMatrixWorld()
-        acc = evG.evaluate(acc, b, SUBTRACTION)
-      }
-      acc.geometry.computeVertexNormals()
-      return acc.geometry
+      const pos = []
+      for (const t of half) for (const v of t) pos.push(v[0], v[1], v[2])
+      for (const t of half) { const m = t.map(v => [v[0], v[1], -v[2]])   // 거울 복사(감김 반전)
+        for (const v of [m[0], m[2], m[1]]) pos.push(v[0], v[1], v[2]) }
+      const gg = new THREE.BufferGeometry()
+      gg.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(pos), 3))
+      gg.computeVertexNormals(); return gg
     }
     // ★슬릿형: 원판(림) − 구멍들을 삼각분할(ShapeGeometry) 후 빗면으로 올림 — 직선/원호/고리 개구가 정확.
     //  shape 좌표 (X,Y) = 세계 (x,z), y는 ceilY(x)로 파생(천장은 평면이라 어떤 삼각분할도 정합).

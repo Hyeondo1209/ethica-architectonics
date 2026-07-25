@@ -1347,38 +1347,59 @@ if (!INTAKE_ON) {
             ym = pick === 'min' ? Math.min(ym, y) : Math.max(ym, y) } }
         return ym }
       for (const d of hallDoors()) { const b = new Brush(ribHoleSolid(d.k, surfY(d,'min') - SKIN - 1, surfY(d,'max') + 2, RIB_HOLE_CLR)); b.updateMatrixWorld(); acc = evG.evaluate(acc, b, SUBTRACTION) }
-      //  ⚠삼각형 추출은 **인덱스를 존중**해야 한다(CSG 결과는 indexed — 무시하면 검사가 통째로 거짓).
-      const sp = acc.geometry.attributes.position, T = []
-      if (acc.geometry.index) { const ix = acc.geometry.index.array
-        for (let i = 0; i < ix.length; i += 3) T.push([[sp.getX(ix[i]),sp.getY(ix[i]),sp.getZ(ix[i])],[sp.getX(ix[i+1]),sp.getY(ix[i+1]),sp.getZ(ix[i+1])],[sp.getX(ix[i+2]),sp.getY(ix[i+2]),sp.getZ(ix[i+2])]]) }
-      else for (let i = 0; i < sp.count; i += 3) T.push([[sp.getX(i),sp.getY(i),sp.getZ(i)],[sp.getX(i+1),sp.getY(i+1),sp.getZ(i+1)],[sp.getX(i+2),sp.getY(i+2),sp.getZ(i+2)]])
-      // ① ★보어 침범(초승달) — **높이별 리브 축과의 거리**로 잰다. 직선 광선은 휜 관을 못 재
-      //   초승달을 놓친다(2026.07.25 오진의 원인). 천장 삼각형 위를 조밀 샘플해 리브 보어 안이면 침범.
-      const axCache = new Map()
-      const axisAt = (k, y) => { const key = k + '|' + y.toFixed(2); if (axCache.has(key)) return axCache.get(key)
-        const g = ribHoleSolid(k, y - 0.08, y + 0.08, 0.08), a = g.attributes.position; let x = 0, z = 0
-        for (let i = 0; i < a.count; i++) { x += a.getX(i); z += a.getZ(i) }
-        const r = { x: x/a.count, z: z/a.count }; axCache.set(key, r); return r }
-      let intrude = 0
-      for (const d of hallDoors()) { const lo = surfY(d,'min') - 1, hi = surfY(d,'max') + 1
-        for (const t of T) { const ys = [t[0][1], t[1][1], t[2][1]]
-          if (Math.max(...ys) < lo || Math.min(...ys) > hi) continue
-          const cx = (t[0][0]+t[1][0]+t[2][0])/3, cz = (t[0][2]+t[1][2]+t[2][2])/3
-          if (Math.hypot(cx - d.cx, cz - d.cz) > 25) continue
-          for (let i = 0; i <= 6; i++) for (let j = 0; j <= 6 - i; j++) { const a = i/6, b = j/6, c = 1 - a - b
-            const px = a*t[0][0]+b*t[1][0]+c*t[2][0], py = a*t[0][1]+b*t[1][1]+c*t[2][1], pz = a*t[0][2]+b*t[1][2]+c*t[2][2]
-            if (py < lo || py > hi) continue
-            const ax = axisAt(d.k, Math.round(py*4)/4)
-            if (Math.hypot(px - ax.x, pz - ax.z) < 5.5) intrude++ } } }
-      ok(intrude <= 20, `리브 보어에 천장 침범 없음 — 높이별 축거리 판정 ${intrude} ≤ 20(헤어라인 허용). 수직 원기둥이면 5088 = 초승달` )
-      // ② 리브 사이(리브에서 먼 방위·반경)에 각뿔대 표면이 있나 — 틈 없음
-      const TV = T.map(t => [new THREE.Vector3(...t[0]), new THREE.Vector3(...t[1]), new THREE.Vector3(...t[2])])
+      //  ★64-7: 갓 각뿔대 = 두께0 면 + 격자 클립 + 거울 복사. 소스와 같은 로직을 재현해 검증한다.
+      const ribAt = (k, y) => { const c = ribCenter(y / H).x, dd = 0.4
+        const slope = Math.abs(ribCenter((y + dd) / H).x - ribCenter((y - dd) / H).x) / (2 * dd)
+        const a = k * 2 * Math.PI / MERIDIANS
+        return { x: c * Math.cos(a), z: c * Math.sin(a), r: (SHELL_RIB_R + RIB_HOLE_CLR) * Math.sqrt(1 + slope*slope) } }
+      const sOf = (P, k) => { const a = ribAt(k, P[1]); return Math.hypot(P[0] - a.x, P[2] - a.z) - a.r }
+      const clipRib = (poly, k) => { const o = []
+        for (let i = 0; i < poly.length; i++) { const A = poly[i], B = poly[(i+1)%poly.length], sa = sOf(A,k), sb = sOf(B,k)
+          if (sa >= 0) o.push(A)
+          if ((sa >= 0) !== (sb >= 0)) { const t = sa/(sa-sb); o.push([A[0]+(B[0]-A[0])*t, A[1]+(B[1]-A[1])*t, A[2]+(B[2]-A[2])*t]) } }
+        return o }
+      const NU = 24, NV = 12, half = []
+      for (let f = 0; f < GAT_FACETS/2; f++) {
+        const t0 = (f/GAT_FACETS)*Math.PI*2, t1 = ((f+1)/GAT_FACETS)*Math.PI*2
+        const o0 = PO(t0), o1 = PO(t1), i0 = PI_(t0), i1 = PI_(t1)
+        const P = (u, v) => { const ox=o0[0]+(o1[0]-o0[0])*u, oy=o0[1]+(o1[1]-o0[1])*u, oz=o0[2]+(o1[2]-o0[2])*u
+          const ix=i0[0]+(i1[0]-i0[0])*u, iy=i0[1]+(i1[1]-i0[1])*u, iz=i0[2]+(i1[2]-i0[2])*u
+          return [ox+(ix-ox)*v, oy+(iy-oy)*v, oz+(iz-oz)*v] }
+        const fine = (f === 0), nu = fine ? NU : 1, nv = fine ? NV : 1
+        const vAt = (j) => { const t = j/nv; return fine ? t*t : t }
+        for (let iu = 0; iu < nu; iu++) for (let iv = 0; iv < nv; iv++) {
+          const A = P(iu/nu, vAt(iv)), B = P((iu+1)/nu, vAt(iv)), D = P((iu+1)/nu, vAt(iv+1)), E = P(iu/nu, vAt(iv+1))
+          for (let poly of [[A,B,D],[A,D,E]]) {
+            if (fine) for (const k of [0,1,2]) { poly = clipRib(poly, k); if (poly.length < 3) break }
+            if (poly.length < 3) continue
+            for (let j = 1; j+1 < poly.length; j++) half.push([poly[0], poly[j], poly[j+1]]) } } }
+      const T = half.slice()
+      for (const t of half) { const m = t.map(v => [v[0], v[1], -v[2]]); T.push([m[0], m[2], m[1]]) }
+      const TV = T.map(t => t.map(v => new THREE.Vector3(v[0], v[1], v[2])))
       const ray = new THREE.Ray(new THREE.Vector3(), new THREE.Vector3(0, 1, 0)), tgt = new THREE.Vector3()
+      const hitY = (x, z) => { ray.origin.set(x, 100, z); let b = null
+        for (const t of TV) { if (ray.intersectTriangle(t[0], t[1], t[2], false, tgt) && tgt.y > 100) { if (b === null || tgt.y < b) b = tgt.y } }
+        return b }
+      // ① ★좌우 대칭 — 같은 방위·반경의 ±z 천장 높이가 같아야(구 대각선 분할은 0.7~1.4 어긋났다)
+      let asym = 0, nSym = 0
+      for (const az of [8, 16.8, 24, 32.1, 45, 60, 90, 120, 150]) for (const rr of [35, 50, 65, 78]) {
+        const th = az*Math.PI/180, a = hitY(COR_CX + rr*Math.cos(th), rr*Math.sin(th)), b = hitY(COR_CX + rr*Math.cos(-th), rr*Math.sin(-th))
+        nSym++
+        if (!((a === null && b === null) || (a !== null && b !== null && Math.abs(a - b) < 0.02))) asym++ }
+      ok(asym === 0, `갓 좌우 대칭 — ±z 천장 높이 일치 ${nSym}곳 (절반 생성 후 거울 복사로 구조적 보장)` + (asym ? ` ✗ ${asym}곳 불일치` : ''))
+      // ② 리브 보어 침범 없음(높이별 축거리) — 초승달·소매 잔재 검출
+      let intrude = 0
+      for (const d of hallDoors()) for (const t of T) { const ys = [t[0][1], t[1][1], t[2][1]]
+        if (Math.max(...ys) < 190 || Math.min(...ys) > 210) continue
+        for (let i = 0; i <= 5; i++) for (let j = 0; j <= 5 - i; j++) { const a = i/5, b = j/5, c = 1 - a - b
+          const px = a*t[0][0]+b*t[1][0]+c*t[2][0], py = a*t[0][1]+b*t[1][1]+c*t[2][1], pz = a*t[0][2]+b*t[1][2]+c*t[2][2]
+          const ax = ribAt(d.k, py); if (Math.hypot(px - ax.x, pz - ax.z) < SHELL_RIB_R - 0.5) intrude++ } }
+      ok(intrude === 0, `리브 보어 침범 없음 — 관 안에 갓 면 조각 0(구 수직 원기둥은 초승달, 두께 껍질은 소매)` + (intrude ? ` ✗ ${intrude}` : ''))
+      // ③ 리브 사이 틈 없음(리브 구멍·이음선을 피한 지점)
       let gap = 0, checks = 0
-      for (const az of [8.4, -8.4, 180, 90, -90, 135]) for (const rr of [60, 70]) {
-        const th = az*Math.PI/180; ray.origin.set(COR_CX + rr*Math.cos(th), 100, rr*Math.sin(th)); checks++
-        let hit = false; for (const t of TV) { if (ray.intersectTriangle(t[0], t[1], t[2], false, tgt) && tgt.y > 100) { hit = true; break } }
-        if (!hit) gap++ }
+      for (const az of [8.4, -8.4, 26, -26, 45, 90, 135, -45, -90, -135]) for (const rr of [40, 60, 75]) {
+        const th = az*Math.PI/180; checks++
+        if (hitY(COR_CX + rr*Math.cos(th), rr*Math.sin(th)) === null) gap++ }
       ok(gap === 0, `리브 사이 각뿔대 연속 — 틈 없음(리브 없는 ${checks}곳 전부 천장 있음)` + (gap ? ` ✗ ${gap}곳 틈` : ''))
     }
     ok(seal.lidR < COR_R, `리드 반경 ${r2(seal.lidR)} < 드럼 반경 ${COR_R} — 지붕 밖으로 안 넘침`)
