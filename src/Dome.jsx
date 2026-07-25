@@ -32,7 +32,7 @@ import {
 } from './constants'
 import { hallDoors, ribCutSpec } from './corridorStairsGeometry'
 import { buildRibShell, makeRibCurve, buildViceWedge, viceSplitIndex, newelSpec, buildSill, buildFloorCollar, buildFloorLanding, freeNewelSpec, freeSplitRange, buildOpenRim, isOpenRib } from './ribGeometry'
-import { buildKneeBody } from './kneeBodyGeometry'
+import { buildKneeBody, buildKneePlinth } from './kneeBodyGeometry'
 import { kneeTreads, kneeStairSpec } from './kneeStair'   // ★66 계단 규격·참
 import { PropStele } from './Steles'
 
@@ -157,6 +157,8 @@ const FLOOR_MAT = { color: '#a98f5e', roughness: 0.95 }
 const KNEE_BODY_MAT = { color: '#b89a6a', roughness: 0.92 }
 //  ★66 참 — 디딤(밝음)과 몸(어두움) 사이 톤. '멈춰 서는 바닥'이 디딤과 다른 것임을 균질광에서도 읽히게 한다
 const KNEE_LAND_MAT = { color: '#c8a578', roughness: 0.9 }
+//  ★68-3 난간 — 몸보다 한 톤 어둡게. 바닥 가장자리를 감싸는 선으로 읽혀야 한다
+const KNEE_RAIL_MAT = { color: '#a8895c', roughness: 0.95 }
 
 // ── 셸: 경선 리브 67개 (= 단일 속성 실체, 전부 균일) — 문 뚫린 다섯(#0·#±1·#±2)은 별도 컴포넌트 담당 ──
 //  ★㊳(2026.07.14): 인스턴스는 회전 복제라 개별 CSG 불가 → 문 리브 4기(#±1·#±2)를 HallDoorRibs로 분리
@@ -531,11 +533,18 @@ export function KneeWalk() {
   //  ★65 몸 — 판·참 밑에 깔리는 한 덩어리. 판(TREAD_MAT)보다 어두운 KNEE_BODY_MAT로 두께 위계를 눈에 보이게 한다
   //   (§2-D ③ 걷는 것 < 받치는 것). 상면이 판 밑면보다 KW_BODY_TOP 높아 판이 파묻히므로 z파이팅 없음.
   const bodyGeo = useMemo(() => buildKneeBody(), [])
+  //  ★68-3 난간 — 바닥 **가장자리**를 감싸되 전 구간 연속(현도 "텍스트를 읽기 힘들 것 같다 → 다시 복원하되 끊김만 없게")
+  const railGeo = useMemo(() => buildKneePlinth(), [])
   return (
     <>
       {bodyGeo && (
         <mesh geometry={bodyGeo}>
           <meshStandardMaterial {...KNEE_BODY_MAT} />
+        </mesh>
+      )}
+      {railGeo && (
+        <mesh geometry={railGeo}>
+          <meshStandardMaterial {...KNEE_RAIL_MAT} />
         </mesh>
       )}
       {/* ★66 참 — 멈춰 서는 자리(13개). 색만 갈라 두고 두께는 디딤과 **같다**:

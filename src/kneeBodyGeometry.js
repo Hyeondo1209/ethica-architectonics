@@ -22,12 +22,13 @@
 // ============================================================================
 import * as THREE from 'three'
 import { Brush, Evaluator, INTERSECTION } from 'three-bvh-csg'
-import { kneeSurfaceY, kneeStairSpec, KNEE_XA, KNEE_XB, KNEE_SX } from './kneeStair.js'
+import { kneeSurfaceY, kneeStairSpec, kneeTreadW, KNEE_XA, KNEE_XB, KNEE_SX } from './kneeStair.js'
 import {
-  TREAD_THICK,
+  TREAD_THICK, rOf, H,
   KW_BODY_ON, KW_BODY_MODE, KW_BODY_HW, KW_BODY_D, KW_BODY_BWF,
-  KW_BODY_TOP, KW_BODY_EXT, KW_BODY_SEG, KW_BODY_TAPER, KW_TREAD_W,
-  KW_ENTRY_ON, KW_ENTRY_L, KW_KNOT_D,   // ★67 도입 참 매듭
+  KW_BODY_TOP, KW_BODY_EXT, KW_BODY_SEG, KW_BODY_TAPER, KW_MIN_HALFW,
+  KW_ENTRY_ON, KW_ENTRY_L, KW_KNOT_D,   // ★67 도입 참
+  KW_RAIL_ON, KW_RAIL_H, KW_PLINTH_T, KW_PLINTH_GAP,   // ★69-2 가장자리 추종 난간 매듭
   SHELL_RIB_R, RIB_RADIAL_SEG, RIB_WALL_ON, RIB_WALL_T,
 } from './constants.js'
 import { makeRibCurve, signedVolume } from './ribGeometry.js'
@@ -64,8 +65,13 @@ export function kneeBodyHalfWidth(x) {
   //  ★67: **정션쪽에만** 테이퍼가 남는다. 나선쪽 테이퍼는 폐기 —
   //   도입 참이 나선 마지막 디딤판을 흡수하므로 피할 대상이 없어졌고, 그 테이퍼가 바로
   //   "거대한 구조물이 입구에서 폭 2.9로 시작하는" 결함의 원인이었다(현도 로컬 소견 07.25).
+  //  ⚠★69-2: 테이퍼 하한을 **보행 폭(1.0)에서 KW_MIN_HALFW(3.2)로** 올린다.
+  //   ★65가 하한을 1.0으로 둔 건 "정션 판에 물릴 때 보행 폭으로 좁아진다"는 이유였는데,
+  //   정작 정션 착지장은 z 반폭 Z_LAND(4.5) = **폭 9.0**이라 좁힐 이유가 없었다.
+  //   그리고 그 하한이 지금 난간을 정션 끝에서 |z| 1.45까지 끌어내려 "남는 부분"의 반대편 결함
+  //   (선반 0.10)을 만들고 있었다 — 실측으로 잡았다.
   const f = Math.max(0, Math.min(1, (x - xLo) / KW_BODY_TAPER))
-  return KW_TREAD_W / 2 + (KW_BODY_HW - KW_TREAD_W / 2) * f
+  return KW_MIN_HALFW + (KW_BODY_HW - KW_MIN_HALFW) * f
 }
 
 //  몸의 깊이 — 도입 참 밑은 **매듭 매스**로 두껍다(§2-D ③ 걷는 것 0.20 < 받치는 것 1.60 < 매듭 2.60).
@@ -186,6 +192,77 @@ export function buildKneeBody() {
   const out = ev.evaluate(a, b, INTERSECTION)
   prism.dispose(); tube.dispose()
   return out.geometry
+}
+
+// ── ★68-3 난간 = 바닥의 **가장자리**를 감싼다 · 전 구간 연속 ──────────────────
+//  ★경위(2026.07.25, 세 판): ①★68 ② = 벽 추종 걸레받이 → 현도 "끊긴다 · 사다리꼴이다"
+//   ②★68-2 = 계단에 붙인 상수 난간(평행·연속) → 현도 *"이렇게 되면 나중에 여기 옆에 적힐 **텍스트를
+//    읽기 힘들** 것 같다. 차라리 다시 복원해서 난간이 끝을 감싸되 **끊어지는 부분만** 없게."*
+//  ★★그래서 판단 기준이 바뀌었다: 이 난간의 임무는 '평행하게 보이기'가 아니라 **계단과 벽 사이의 선반을
+//   비워 두는 것**이다(그 선반이 생애 텍스트의 자리다 — §7 빗면 텍스트 항목). 계단에 붙이면 선반이
+//   난간 바깥으로 밀려나 가려진다. → **다시 가장자리를 감싼다.** 사다리꼴은 대가로 받아들인다.
+//  ★끊김만 없앤다 — 원인은 구판의 요구치였다: 디딤반폭 1.0 + 두께 0.55 + 틈 **0.35** = 1.90 인데
+//   배 구간 벽 반폭이 **1.69**라 자리가 없어 3토막이 났다. 두 가지로 푼다:
+//   ⓐ 틈을 0.10으로 줄이고 ⓑ **안쪽끝을 계단 쪽으로 당긴다**(clamp) — 자리가 좁으면 난간이 계단에
+//     가까워질 뿐 **사라지지 않는다.** 두께는 유지되고, 한 줄로 끝까지 간다.
+export function kneeWallHalfAt(x, y) {
+  const lim = (RIB_WALL_ON ? SHELL_RIB_R - RIB_WALL_T : SHELL_RIB_R) * Math.cos(Math.PI / RIB_RADIAL_SEG)
+  const dAt = (pz) => {
+    let b = 1e9
+    for (let i = 0; i <= 900; i++) { const u = i / 900; const d = Math.hypot(x - rOf(u), y - H * u, pz); if (d < b) b = d }
+    return b
+  }
+  if (dAt(0) > lim) return 0
+  let lo = 0, hi = SHELL_RIB_R * 1.2
+  for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (dAt(m) <= lim) lo = m; else hi = m }
+  return lo
+}
+
+export function buildKneePlinth() {
+  if (!KW_RAIL_ON) return null
+  const S = kneeBodySamples().filter(s => s.x <= KNEE_XA && s.x >= KNEE_XB)
+  const vTop = -TREAD_THICK / 2 + KW_BODY_TOP
+  //  ★69-2(2026.07.25, 현도): *"난간이 좀 **남는 부분**이 있잖아? 차라리 **끝에 딱 붙이고**, 꼭 직선이
+  //   아니어도 되니까, **끊기지만 않게**."* → 상수 |z|(★69)를 버리고 다시 **가장자리 추종**으로.
+  //  ★★그런데 이번엔 공짜다 — ★68-3에서 끊김을 만들었던 원인(배 구간 벽 반폭 **1.69**)을 ★69 클램프가
+  //   이미 없앴다(최소 **3.36**). 그래서 벽을 따라가도 ⓐ 한 번도 안 끊기고 ⓑ 두께가 0.55로 균일하며
+  //   ⓒ 안쪽 텍스트 선반이 최소 1.8 남는다. **원인을 고쳤더니 예전에 못 쓰던 형태가 쓸 수 있게 됐다.**
+  //  ⚠꼭대기까지 관 안이라야 하므로 벽 반폭을 **보행면과 난간 상단 두 높이에서 재서 좁은 쪽**을 쓴다
+  //   (정션 끝에서는 보행면이 축보다 위라 올라갈수록 관이 좁아진다).
+  const ring = S.map(s => {
+    const y = s.y + vTop
+    const w = Math.min(kneeWallHalfAt(s.x, y), kneeWallHalfAt(s.x, y + KW_RAIL_H), kneeBodyHalfWidth(s.x))
+    const wo = w - 0.01
+    //  clamp는 안전장치로 남긴다 — ★69 아래서는 한 번도 발동하지 않는다(검사가 그걸 잰다)
+    const wi = Math.max(kneeTreadW(s.x) / 2 + KW_PLINTH_GAP, wo - KW_PLINTH_T)
+    return { x: s.x, y, wo, wi: Math.min(wi, wo - 0.12) }
+  })
+  const pos = []
+  const push = (a, b, c) => pos.push(...a, ...b, ...c)
+  for (const side of [-1, 1]) {
+    //  ⚠z 미러링은 방향 반전을 동반한다(★68에서 밟은 지뢰) — side<0에서 감김을 뒤집는다
+    const emit = (a, b, c) => (side < 0 ? push(a, c, b) : push(a, b, c))
+    const pt = (i, j) => {
+      const r = ring[i]
+      const z = [r.wi, r.wo, r.wo, r.wi][j] * side
+      const dy = [0, 0, KW_RAIL_H, KW_RAIL_H][j]
+      return [r.x, r.y + dy, z]
+    }
+    for (let i = 0; i < ring.length - 1; i++) for (let j = 0; j < 4; j++) {
+      const a = pt(i, j), b = pt(i, (j + 1) % 4), c = pt(i + 1, (j + 1) % 4), d = pt(i + 1, j)
+      emit(a, b, c); emit(a, c, d)
+    }
+    const s0 = [0, 1, 2, 3].map(j => pt(0, j))
+    emit(s0[2], s0[1], s0[0]); emit(s0[3], s0[2], s0[0])
+    const s1 = [0, 1, 2, 3].map(j => pt(ring.length - 1, j))
+    emit(s1[0], s1[1], s1[2]); emit(s1[0], s1[2], s1[3])
+  }
+  const g = finish(pos)
+  g.userData = { runs: 1, samples: ring.length,
+    minT: Math.min(...ring.map(r => r.wo - r.wi)), maxT: Math.max(...ring.map(r => r.wo - r.wi)),
+    shelf: Math.min(...ring.map((r, i) => r.wi - kneeTreadW(S[i].x) / 2)),
+    outMin: Math.min(...ring.map(r => r.wo)), outMax: Math.max(...ring.map(r => r.wo)) }
+  return g
 }
 
 //  검증·진단이 소비하는 스펙 한 벌(렌더와 같은 정본)

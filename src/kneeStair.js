@@ -31,7 +31,7 @@ import {
   rOf, uOfX, H, U_SPIRAL_END, U_KNEE_END, X_LAND_HI, KW_FLATTEN,
   KW_RISE, KW_SLOPE_DEG, KW_FLIGHT_N, KW_LAND_MIN, KW_TREAD_W,
   KW_ENTRY_ON, KW_ENTRY_L, KW_ENTRY_OUT, KW_ENTRY_Z0, KW_ENTRY_Z1, KW_ENTRY_W,   // ★67 도입 참
-  SHELL_RIB_R, RIB_RADIAL_SEG, RIB_WALL_ON, RIB_WALL_T,   // kneeHeadroom(층고)이 쓴다
+  SHELL_RIB_R, RIB_RADIAL_SEG, RIB_WALL_ON, RIB_WALL_T, KW_MIN_HALFW, KW_MIN_MARGIN, TREAD_THICK, KW_BODY_TOP,   // kneeHeadroom(층고)이 쓴다
 } from './constants.js'
 
 export const KNEE_XA = rOf(U_SPIRAL_END)      // 나선끝(출발 · x 큼 · 낮음)
@@ -52,9 +52,20 @@ export const KNEE_SX = KNEE_XA - KNEE_ENTRY_IN                    // 계단 출�
 //   현을 (KNEE_SX, YA)→(XB, YB)로 바꿨더니, 같은 끝점을 더 짧은 수평으로 가느라 현이 중간에서 1.5 더
 //   처졌고 **참 넷이 관 밖으로 나갔다**(축거리 5.97~6.45 > 내벽 5.50). 현은 관 안에 남기 위한 선이지
 //   주행 구간의 함수가 아니다 → 원래대로 (KNEE_XA, YA)→(XB, YB)를 유지한다.
+//  ★69 클램프 — 보행면이 관 바닥으로 내려가 폭을 잃는 것을 막는다(현도 제안 2026.07.25).
+//   필요 반폭 W에서 허용 최대 축거리 d = √(R²−W²)가 나온다. 축은 기울어 있으므로 수직 환산에 secθ를 쓴다.
+//   ⚠블렌드 식은 **그대로** 두고 하한만 건다 — ③F·③G에서 닫힌 결정을 최소로 건드리기 위해서다.
+const _RIN = (RIB_WALL_ON ? SHELL_RIB_R - RIB_WALL_T : SHELL_RIB_R) * Math.cos(Math.PI / RIB_RADIAL_SEG)
+const _DMAX = Math.sqrt(Math.max(0, _RIN * _RIN - KW_MIN_HALFW * KW_MIN_HALFW))
 export function kneeSpineY(x) {
-  return (1 - KW_FLATTEN) * (H * uOfX(x))
-       + KW_FLATTEN * (KNEE_YA + (KNEE_YB - KNEE_YA) * (KNEE_XA - x) / (KNEE_XA - KNEE_XB))
+  const blend = (1 - KW_FLATTEN) * (H * uOfX(x))
+              + KW_FLATTEN * (KNEE_YA + (KNEE_YB - KNEE_YA) * (KNEE_XA - x) / (KNEE_XA - KNEE_XB))
+  const d = 0.05
+  const th = Math.atan2(H * uOfX(x - d) - H * uOfX(x + d), 2 * d)      // 리브 축의 경사
+  //  ⚠재는 면은 스파인이 아니라 **몸 상면**(디딤 밑면 + KW_BODY_TOP = 스파인보다 0.04 아래)이고,
+  //   secθ 환산에도 오차가 있다. 그만큼 미리 들어 두지 않으면 실제 폭이 목표보다 0.11 모자란다(실측).
+  const lowest = H * uOfX(x) - _DMAX / Math.cos(th) + (TREAD_THICK / 2 - KW_BODY_TOP) + KW_MIN_MARGIN
+  return Math.max(blend, lowest)
 }
 //  스파인의 역함수 — "높이 y를 스파인이 달성하는 x". 단조(감소 x ↔ 증가 y)라 이분법이 안전하다.
 export function kneeSpineX(y) {
@@ -153,7 +164,10 @@ export function kneeSurfaceY(x) {
 
 //  ── 디딤판 정본 — 렌더·검증·웨이포인트가 같은 배열을 쓴다(사본 금지) ──
 //   디딤 깊이는 G보다 조금 크게(코) → 겹쳐서 틈이 안 생긴다. 구 어휘(1.2배) 계승하되 과하지 않게.
-export const KNEE_NOSE = 1.12
+//  ⚠1.12 → 1.17(★68): 현도가 경사를 40°로 올리며 G가 0.226으로 줄어 디딤 실폭이 0.253 < 기준 0.26이 됐다.
+//   경사·리듬은 현도 결정이므로 건드리지 않고 **코만 더 내밀어** 발 얹을 면을 회복한다(0.264).
+//   실제 계단도 이렇게 한다 — 코의 돌출은 디딤 나비를 안 늘리고 발가락 자리를 준다.
+export const KNEE_NOSE = 1.17
 //  ★67-3 계단 폭 — 도입부에서 KW_ENTRY_W로 시작해 **첫 flight에 걸쳐** 제 폭(KW_TREAD_W)으로 수렴한다.
 //   근거: 도입 참 반폭 4.0은 나선 도착(z 3.29)이 요구하는 최소치라 못 줄인다. 그러면 8폭 판과 2.0 계단을
 //   잇는 방법은 계단 쪽을 넓히는 것뿐이다. 급전이(4배)가 현도 "투박하다"의 실체였다.

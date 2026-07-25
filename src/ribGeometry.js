@@ -18,7 +18,7 @@
 // ============================================================================
 import * as THREE from 'three'
 import {
-  SHELL_RIB_R, RIB_RADIAL_SEG, RIB_WALL_END_CAP,
+  SHELL_RIB_R, RIB_RADIAL_SEG, RIB_WALL_END_CAP, RIB_BORE_FACET,
   RIB_VICE_ON, RIB_NEWEL_R, RIB_NEWEL_Y0, RIB_NEWEL_Y1, RIB_VICE_SOFFIT, RIB_VICE_T, RIB_VICE_NA, RIB_VICE_R_OUT,
   STEPS_PER_TURN, STEP_RISE, STAIR_STEPS, spiralPoint, TREAD_THICK,
   //  ★60 문지방 — 프리즈 방 바닥과 나선을 잇는 매듭(방 쪽 좌표가 필요하다)
@@ -82,8 +82,38 @@ export function buildRibShell(curve, t, tubSeg = 200, radSeg = RIB_RADIAL_SEG) {
   }
   //  ① 바깥면 — 원본 관의 삼각형을 **그대로**(정점·법선·감김 무수정 = 나머지 71기와 형태 동일 보장)
   for (let k = 0; k < idx.length; k += 3) tri(po, no, +1, idx[k], idx[k + 1], idx[k + 2])
-  //  ② 안쪽면 — 같은 인덱스, 감김 반전 + 법선 반전(보어 쪽 = 살 바깥으로 향함). 부드러움은 그대로 유지.
-  for (let k = 0; k < idx.length; k += 3) tri(pi, ni, -1, idx[k + 2], idx[k + 1], idx[k])
+  //  ② 안쪽면 — 같은 정점, 감김 반전. 법선 처리는 ★68에서 갈렸다:
+  //   ★★68(2026.07.25) **안쪽면만 패싯**(현도 소견: "무릎길 내벽이 그냥 주황색 경선 리브여서 짓다 만 느낌").
+  //    원인 진단: 관은 정10각(패싯 폭 3.57)인데 **법선이 부드러워 원통으로 읽힌다.** 형태는 있는데 빛이 지운다.
+  //    ⚠그 부드러움은 바깥면에 대해서는 **절대적으로 옳다**(★57 '각진 연필' 사고 — 72기 형태 동일 §1 LOCKED은
+  //     정점만으로 부족하고 법선까지 같아야 성립한다). 그러나 **안쪽면은 LOCKED의 대상이 아니다** —
+  //     살(RIB_WALL_T)이 다섯 기에만 있으므로 안쪽은 이미 72기가 다르다. 즉 안쪽면은 LOCKED의 대상이
+  //     아닌데 LOCKED의 대가를 치르고 있었다. → 안쪽만 패싯 법선을 준다. **바깥면은 한 정점도 안 건드린다.**
+  //    ★폭 방향으로만 평평하게, **길이 방향으로는 매끄럽게** 한다(사각형 한 장의 법선을 네 귀에 공유).
+  //     삼각형마다 제 법선을 주면 사각형이 안 평평한 구간에서 대각선 이음매가 비친다.
+  if (RIB_BORE_FACET) {
+    const W2 = radSeg + 1
+    const V = (i, j) => [pi.getX(i * W2 + j), pi.getY(i * W2 + j), pi.getZ(i * W2 + j)]
+    for (let i = 0; i < tubSeg; i++) for (let j = 0; j < radSeg; j++) {
+      //  ⚠삼각분할·감김은 **원본을 그대로** 따른다(TubeGeometry: (a,b,d)·(b,c,d), 안쪽은 그 역순).
+      //   여기서 새로 짜면 감김이 뒤집혀 솔리드가 파탄한다 — 초기 구현이 그랬다(부호 부피 147115 vs 정답 8382).
+      const a = V(i, j), b = V(i + 1, j), c = V(i + 1, j + 1), d = V(i, j + 1)
+      //  사각형 한 장의 법선 = 두 대각선의 외적(비평면이어도 안정적인 평균) → 폭 방향 평평·길이 방향 매끄러움
+      const d1 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]], d2 = [d[0] - b[0], d[1] - b[1], d[2] - b[2]]
+      let n = [d1[1] * d2[2] - d1[2] * d2[1], d1[2] * d2[0] - d1[0] * d2[2], d1[0] * d2[1] - d1[1] * d2[0]]
+      const nl = Math.hypot(...n) || 1
+      //  보어 쪽(축을 향함)이 이 면의 바깥이다 — 축에서 면 중심으로 가는 방향의 **반대**로 맞춘다
+      const ctr = [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2, (a[2] + c[2]) / 2]
+      const axc = curve.getPointAt((i + 0.5) / tubSeg)
+      const ov = [ctr[0] - axc.x, ctr[1] - axc.y, ctr[2] - axc.z]
+      const sgn = (n[0] * ov[0] + n[1] * ov[1] + n[2] * ov[2]) > 0 ? -1 : 1
+      n = n.map(v => sgn * v / nl)
+      for (const q of [d, b, a, d, c, b]) { out.push(q[0], q[1], q[2]); nrm.push(n[0], n[1], n[2]) }
+    }
+  } else {
+    //  구판 — 안쪽도 부드럽게(원통으로 읽힘). 되돌릴 때만 쓴다.
+    for (let k = 0; k < idx.length; k += 3) tri(pi, ni, -1, idx[k + 2], idx[k + 1], idx[k])
+  }
 
   //  ③ 마구리 두 장(고리) — 열린 몸이면 감산 CSG가 파탄하므로 솔리드의 전제다.
   //   ⚠방향은 짐작하지 않고 **접선으로 판정해 맞춘다**(u=0 쪽은 −접선, u=1 쪽은 +접선이 바깥).

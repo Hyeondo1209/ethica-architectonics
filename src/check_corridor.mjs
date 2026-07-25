@@ -33,6 +33,7 @@ import {
   KW_BODY_ON, KW_BODY_MODE, KW_BODY_HW, KW_BODY_D, KW_BODY_BWF, KW_BODY_TOP, KW_BODY_EXT,   // ★65 무릎길 몸
   KW_RISE, KW_SLOPE_DEG, KW_FLIGHT_N, KW_LAND_MIN,   // ★66 계단 규격
   KW_ENTRY_ON, KW_ENTRY_L, KW_ENTRY_OUT, KW_KNOT_D,   // ★67 도입 참
+  KW_RAIL_ON, KW_RAIL_H, KW_MIN_HALFW, RIB_BORE_FACET,   // ★68·69
   X_LAND_LO, Z_LAND,
   CELLA_ON, CELLA_ZHW, CELLA_X1, CELLA_T, CELLA_ROOF_Y0, CELLA_ROOF_Y1, CELLA_ROOF_T, CELLA_CLR, CELLA_BITE_R, CELLA_XW, CELLA_BACK_ON, CELLA_BACK_Y1,
   CELLA_NICHE, CELLA_NICHE_DEPTH, CELLA_RELIEF_OUT, CELLA_NICHE_Y0, CELLA_NICHE_Y1, CELLA_NICHE_WBOT, CELLA_NICHE_WTOP, CELLA_STRATA_N,
@@ -50,8 +51,8 @@ import {
 import { hallDoors, buildHallStairs, PLAT_TOP, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal, ribCutSpec } from './corridorStairsGeometry.js'
 import * as THREE from 'three'                                                   // ★56 CSG 스모크(check_radial 전례)
 import { Brush, Evaluator, HOLLOW_SUBTRACTION, SUBTRACTION } from 'three-bvh-csg'
-import { kneeBodySamples, kneeBodySpec, kneeWalkY, kneeBodyHalfWidth, prismGeometry, innerTubeSolid, buildKneeBody } from './kneeBodyGeometry.js'
-import { kneeStairSpec, kneeTreads, kneeSurfaceY, kneeSpineY, kneeHeadroom, KNEE_NOSE, KNEE_XA, KNEE_XB, KNEE_YA, KNEE_YB, KNEE_RUN, KNEE_CLIMB } from './kneeStair.js'   // ★66   // ★65 무릎길 몸
+import { kneeBodySamples, kneeBodySpec, kneeWalkY, kneeBodyHalfWidth, prismGeometry, innerTubeSolid, buildKneeBody, buildKneePlinth, kneeWallHalfAt } from './kneeBodyGeometry.js'
+import { kneeStairSpec, kneeTreads, kneeTreadW, kneeSurfaceY, kneeSpineY, kneeHeadroom, KNEE_NOSE, KNEE_SX, KNEE_XA, KNEE_XB, KNEE_YA, KNEE_YB, KNEE_RUN, KNEE_CLIMB } from './kneeStair.js'   // ★66   // ★65 무릎길 몸
 import { buildRibShell, makeRibCurve, shellVolumeApprox, signedVolume, buildViceWedge, viceSplitIndex, newelSpec, viceBottomY, VICE_DTHETA, sillSpec, buildSill, freeSplitRange, freeNewelSpec, destCut, floorKnotSpec, buildFloorCollar, buildFloorLanding, openRimSpec, isOpenRib, ribHoleSolid } from './ribGeometry.js'
 
 let n = 0, fail = 0
@@ -2255,6 +2256,59 @@ if (!KW_BODY_ON) {
   }
   ok(X_LAND_LO < X_LAND_HI - KW_BODY_EXT, `하강·전망 시작 x<${r2(X_LAND_LO)} < 몸 −x끝 ${r2(bodyLo)} — 갈래 무침범(갈림은 판이 맡는다)`)
 
+  //  ── ★68 ① 보어 패싯 — **정점은 한 개도 안 건드렸다**는 것이 이 절의 핵심 보증(§1 LOCKED) ──
+  {
+    const cur = makeRibCurve()
+    const sh = buildRibShell(cur, RIB_WALL_T)
+    const ap = shellVolumeApprox(cur, RIB_WALL_T)
+    const apv = typeof ap === 'number' ? ap : ap.volume
+    ok(Math.abs(sh.stats.volume - apv) / apv < 0.10,
+       `관 셸 부피 ${r2(sh.stats.volume)} ≈ 해석 근사 ${r2(apv)} — 패싯 법선이 기하를 안 건드렸다(감김 무손상)`)
+    //  ⚠초기 구현이 안쪽면을 직접 재삼각분할했다가 감김이 뒤집혀 부피가 147115(정답 8382)로 나왔다.
+    //   그래서 여기서는 **삼각분할·감김은 원본 그대로**, 법선만 갈아끼운다. 이 항이 그 규율을 지킨다.
+    ok(sh.stats.tris === 8040, `관 셸 삼각 ${sh.stats.tris} — 구판과 동일(정점·삼각분할 불변, 바뀐 것은 법선뿐)`)
+  }
+  //  ── ★69-2 난간 = 가장자리에 딱 붙되 안 끊긴다(현도 "남는 부분이 있어서 불편") ──
+  //   ⚠기준이 또 바뀌었다: ★69는 '상수 |z|'였는데, 그러면 넓은 구간에서 난간 **바깥에 바닥이 남는다**.
+  //    현도: *"차라리 끝에 딱 붙이고, 꼭 직선이 아니어도 되니까, 끊기지만 않게."* → 가장자리 추종 복귀.
+  //   ★★그리고 이번엔 공짜다 — ★68-3에서 끊김을 만들던 원인(배 구간 벽 반폭 1.69)을 ★69 클램프가
+  //    이미 없앴다. **원인을 고쳤더니 예전에 못 쓰던 형태가 쓸 수 있게 됐다.**
+  if (KW_RAIL_ON) {
+    const rl = buildKneePlinth()
+    const A2 = audit(rl)
+    ok(A2.open === 0 && A2.vol > 0, `난간 watertight — 열린변 ${A2.open} · 부피 ${r2(A2.vol)}>0(거울상 감김 반전 포함)`)
+    const u2 = rl.userData
+    ok(u2.runs === 1, `난간 토막 ${u2.runs}개 — 전 구간 연속`)
+    //  ★★이 항이 ★69의 값어치를 잰다: clamp가 **한 번도 발동 안 하면** 두께가 균일하다는 뜻이고,
+    //   그건 곧 "가장자리를 따라가도 자리가 늘 충분하다"는 것이다(★68-3에서는 0.35까지 얇아졌다).
+    ok(Math.abs(u2.minT - u2.maxT) < 1e-6, `난간 두께 ${r2(u2.minT)} 균일 — 안전장치 clamp가 한 번도 발동 안 함(★69 들림 덕분, 구판은 0.35까지 얇아졌다)`)
+    ok(u2.shelf >= 1.2, `텍스트 선반 최소 ${r2(u2.shelf)} ≥ 1.2 — 계단끝 ~ 난간 안끝(★68-3은 배에서 0.10)`)
+    //  ★"남는 부분 없음" — 난간 바깥끝이 실제로 벽에 붙어 있는가
+    ok(u2.outMax > 5.0 && u2.outMin > KW_MIN_HALFW - 0.1,
+       `난간 바깥끝 |z| ${r2(u2.outMin)}~${r2(u2.outMax)} — 벽에 붙어 따라간다(바닥이 남지 않는다)`)
+    const rp = rl.attributes.position
+    let worstR = 0
+    for (let i = 0; i < rp.count; i++) { const d = dCR(rp.getX(i), rp.getY(i), rp.getZ(i)); if (d > worstR) worstR = d }
+    ok(worstR <= SHELL_RIB_R, `난간 최대 반경 ${r2(worstR)} ≤ 리브 바깥 ${SHELL_RIB_R} — 꼭대기까지 관 안`)
+  }
+  //  ── ★69 클램프 자체 — "보행면이 관 바닥에 붙어 폭을 잃는다"는 근본 원인을 막았는가 ──
+  {
+    let mn = 1e9, mnx = 0
+    for (let i = 0; i <= 300; i++) {
+      const x = KNEE_SX - (KNEE_SX - KNEE_XB) * i / 300
+      const w = kneeWallHalfAt(x, kneeSurfaceY(x) - TREAD_THICK / 2 + KW_BODY_TOP)
+      if (w < mn) { mn = w; mnx = x }
+    }
+    ok(mn >= KW_MIN_HALFW, `보행면 높이 관 반폭 최소 ${r2(mn)} ≥ 목표 ${KW_MIN_HALFW} (x${r2(mnx)}) — 구판 1.69에서 회복`)
+    //  ⚠대가 — 스파인이 들리면 flight보다 가팔라질 수 있고, 그러면 참이 한 곳도 못 선다(W 4.0에서 실제로 그렇다)
+    let sp = 0
+    for (let i = 1; i < 800; i++) {
+      const x = KNEE_XA - KNEE_RUN * i / 800, d = 0.06
+      const s2 = Math.atan2(kneeSpineY(x - d) - kneeSpineY(x + d), 2 * d) * 180 / Math.PI
+      if (s2 > sp) sp = s2
+    }
+    ok(sp < kneeStairSpec().slopeDeg, `클램프 후 스파인 최대경사 ${r2(sp)}° < flight ${r2(kneeStairSpec().slopeDeg)}° — 참이 성립하는 조건 유지(W를 4.0까지 올리면 41.7°가 돼 깨진다)`)
+  }
   console.log(`     └ ★65 실측: 모드 ${KW_BODY_MODE} · 몸 삼각 ${C.tri} · 부피 ${r2(C.vol)}(각기둥 ${r2(A.vol)}) · 최대반경 ${r2(worst)} · 배 여유 ${r2(minRoom)} · flight경사 ${r2(kneeStairSpec().slopeDeg)}°`)
 }
 
@@ -2324,17 +2378,17 @@ console.log('\n— T. ★66 무릎길 계단 규격 (골판 → 계단 + 참) �
   //  ⚠flight 단수 — 초입 급구간에서는 참이 못 서서 자동으로 길어진다. 통례 상한(18)을 넘으면 '긴 첫 flight'다.
   const long = s.flights.filter(f => f.n > 18)
   ok(long.length <= 1, `통례(18단) 초과 flight ${long.length}개 — ${long.length ? `최대 ${s.maxRisersPerFlight}단(나선에서 올라오는 급구간이라 참이 못 선다 = 신전 앞 긴 계단 어법, 현도 판정 사항)` : '없음'}`)
-  //  ★67-3 폭 전이 — 도입 참(8폭)과 계단(2.0) 사이가 그냥 끊기면 "투박하다"(현도 07.25)
+  //  ⛔★67-3 폭 전이는 **★69로 최종 폐기**했다 — 원인이 사라졌기 때문이다.
+  //   그 전이는 "판 8.0 → 계단 2.0 = 4배 급전이"를 잇기 위한 것이었는데, ★69로 **수로**가 넓어져
+  //   비가 1.25배로 떨어졌다. 이제 재야 할 것은 계단 폭이 아니라 **수로 폭**이다.
   {
     const T = kneeTreads()
-    const wEntry = T[0].w, wRun = T[T.length - 1].w
     const e2 = kneeStairSpec().landings[0]
-    const jump = e2 ? (e2.z1 - e2.z0) / wEntry : 1
-    ok(wEntry > wRun + 0.5, `계단 폭 전이 ${r2(wEntry)} → ${r2(wRun)} — 도입부가 넓게 시작해 제 폭으로 수렴한다`)
-    ok(jump <= 2.0, `판 폭 ${r2(e2 ? e2.z1 - e2.z0 : 0)} ÷ 도입 계단 폭 ${r2(wEntry)} = ${r2(jump)}배 ≤ 2.0 — 급전이 아님(구 4.0배)`)
-    let mono = true
-    for (let i = 1; i < T.length; i++) if (T[i].w > T[i - 1].w + 1e-9) mono = false
-    ok(mono, `폭이 단조 감소 — 도중에 다시 넓어지지 않는다(전이가 한 번뿐)`)
+    const chan = T[0].w + 2 * (KW_MIN_HALFW - T[0].w / 2)
+    const jump = e2 ? (e2.z1 - e2.z0) / chan : 1
+    ok(Math.max(...T.map(t => t.w)) - Math.min(...T.map(t => t.w)) < 1e-9,
+       `디딤 폭 전 구간 ${r2(T[0].w)} 일정 — 상수 난간과 짝을 이룬다`)
+    ok(jump <= 1.6, `도입 참 폭 ${r2(e2 ? e2.z1 - e2.z0 : 0)} ÷ 수로 폭 ${r2(chan)} = ${r2(jump)}배 ≤ 1.6 (★67-3 시절 4.0배)`)
   }
   console.log(`     └ ★66 실측: ${s.N}단(구 435) · R ${r2(s.R)} · G ${r2(s.G)} · flight ${s.slopeDeg.toFixed(1)}° · flight ${s.flights.length}개 · 참 ${s.landings.length}개(총 ${r2(s.landTotal)}) · 층고 ${r2(minHR)}~${r2(Math.max(...[0.05, 0.2, 0.4].map(f => kneeHeadroom(KNEE_XA - KNEE_RUN * f))))}`)
 }
