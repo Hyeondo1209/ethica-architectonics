@@ -7,10 +7,10 @@ import { useRef, useMemo, useLayoutEffect } from 'react'
 import * as THREE from 'three'
 import { Brush, Evaluator, HOLLOW_SUBTRACTION, SUBTRACTION } from 'three-bvh-csg'
 import {
-  rOf, uOfX, spiralPoint, SCALE, H, R_BASE, MERIDIANS, SHELL_RIB_R, RIB_RADIAL_SEG,
+  rOf, spiralPoint, SCALE, H, R_BASE, MERIDIANS, SHELL_RIB_R, RIB_RADIAL_SEG,
   STAIR_STEPS, STEP_RISE, TREAD_DEPTH, TREAD_WIDTH, TREAD_THICK, POLE_R, Y_POLE_CUT, U_DOOR,
   DOOR_W, DOOR_H, DOOR_SILL_Y, HALL_DOORS_ON,
-  U_SPIRAL_END, U_KNEE_END, KW_STEPS, KW_GO, KW_TREAD_D, KW_TREAD_W, KW_FLATTEN, PANEL_DX, PANEL_Z0, PANEL_Z1, LAND_R, LAND_T, X_LAND_LO, X_LAND_HI, Z_LAND,
+  U_KNEE_END, KW_TREAD_W, LAND_R, LAND_T, X_LAND_LO, X_LAND_HI, Z_LAND,
   JCT_UP_Z, JCT_DN_Z, LOOKOUT_MAX_SLOPE, U_LOOKOUT_END, LK_STEPS, LK_PLAT_R, LK_DISC_LIFT,
   LK_DISC_HALF, LK_DISC_DX, LK_DISC_DY, LK_DISC_DZ, LK_DISC_ROT,
   DESC_SLOPE, DESC_STEPS, X_DESC0, PASS_FLOOR_Y,
@@ -31,7 +31,9 @@ import {
   STELE7_ON, STELE7_F, STELE7_OFF,
 } from './constants'
 import { hallDoors, ribCutSpec } from './corridorStairsGeometry'
-import { buildRibShell, buildViceWedge, viceSplitIndex, newelSpec, buildSill, buildFloorCollar, buildFloorLanding, freeNewelSpec, freeSplitRange, buildOpenRim, isOpenRib } from './ribGeometry'
+import { buildRibShell, makeRibCurve, buildViceWedge, viceSplitIndex, newelSpec, buildSill, buildFloorCollar, buildFloorLanding, freeNewelSpec, freeSplitRange, buildOpenRim, isOpenRib } from './ribGeometry'
+import { buildKneeBody } from './kneeBodyGeometry'
+import { kneeTreads, kneeStairSpec } from './kneeStair'   // ★66 계단 규격·참
 import { PropStele } from './Steles'
 
 export function Ground() {
@@ -45,11 +47,8 @@ export function Ground() {
 
 // 공유 리브 곡선 — 탐험 리브·나머지 71개가 반드시 같은 곡선·같은 해상도(형태 동일 LOCKED §1).
 // φ=0(+x) 평면에 정의; 나머지는 y축 회전 인스턴스로 복제.
-function makeRibCurve() {
-  const pts = []; const SEG = 160
-  for (let i = 0; i <= SEG; i++) { const u = i / SEG; pts.push(new THREE.Vector3(rOf(u), H * u, 0)) }
-  return new THREE.CatmullRomCurve3(pts)
-}
+//  ★65(2026.07.25): 정의를 ribGeometry로 이관 — 무릎길 몸이 관 내벽에 맞물리려면 클립 솔리드가
+//   리브와 **같은 곡선 객체**를 써야 한다. 사본 두 벌은 언젠가 어긋난다(§1 LOCKED의 실질).
 const RIB_MAT = { color: '#bb8a4e', roughness: 0.7, metalness: 0 }   // 두 컴포넌트 공유(재질 동일 LOCKED)
 
 // ── ★56 리브 절단(1p7) 공용 — 탐험 리브(#0)와 홀 문 리브 4기가 같은 수법을 쓴다(형태 동일 LOCKED 유지) ──
@@ -154,6 +153,10 @@ const ribTintOBC = (RIB_TINT_AMT > 0 || RIB_TINT_EMIS > 0) ? (shader) => {
 const TREAD_MAT = { color: '#d6ab68', roughness: 0.8 }
 const SHELL_MAT = { color: '#c2a062', roughness: 0.9 }
 const FLOOR_MAT = { color: '#a98f5e', roughness: 0.95 }
+//  ★65 무릎길 몸 — ㊿ 하강로 보(#b89a6a)와 같은 돌. 판(#d6ab68)보다 어두워 두께 위계가 눈에 읽힌다(§2-D ③)
+const KNEE_BODY_MAT = { color: '#b89a6a', roughness: 0.92 }
+//  ★66 참 — 디딤(밝음)과 몸(어두움) 사이 톤. '멈춰 서는 바닥'이 디딤과 다른 것임을 균질광에서도 읽히게 한다
+const KNEE_LAND_MAT = { color: '#c8a578', roughness: 0.9 }
 
 // ── 셸: 경선 리브 67개 (= 단일 속성 실체, 전부 균일) — 문 뚫린 다섯(#0·#±1·#±2)은 별도 컴포넌트 담당 ──
 //  ★㊳(2026.07.14): 인스턴스는 회전 복제라 개별 CSG 불가 → 문 리브 4기(#±1·#±2)를 HallDoorRibs로 분리
@@ -500,45 +503,56 @@ function JunctionLanding() {
 // ── 착지 판넬(LandingPanel, ★1-③G): 나선 옆끝(z=+STAIR_R)에서 무릎길 중앙(z=0)으로 가로지르는 솔리드 착지판 ──
 //  나선 도착 → 판넬 건너 중앙 → 중앙 계단. 무릎길 z 드리프트 폐기(비스듬함 소멸) + 계단 옆쏠림 없어져 관 이탈도 해소.
 //  상면 = 계단 상면보다 살짝 아래(−TREAD_THICK/2−0.03) → 계단이 판넬 위에 떠(z파이팅 없음), 착지판은 얕게 파인 랜딩.
-function LandingPanel() {
-  const xC = rOf(U_SPIRAL_END)                                     // 나선 도착 x
-  const yTop = H * U_SPIRAL_END - TREAD_THICK / 2 - 0.03           // 판넬 상면(계단 밑면보다 살짝 아래)
-  const zC = (PANEL_Z0 + PANEL_Z1) / 2
-  return (
-    <mesh position={[xC, yTop - LAND_T / 2, zC]} userData={{ walkable: true }}>
-      <boxGeometry args={[PANEL_DX, LAND_T, PANEL_Z1 - PANEL_Z0]} />
-      <meshStandardMaterial {...TREAD_MAT} />
-    </mesh>
-  )
-}
+//  ⛔★67(2026.07.25) `LandingPanel` 폐기 — 무릎길의 **첫 참**이 그 일을 대신한다.
+//   구판은 1.6×5.0×두께 0.35 판이 (a)나선 도착을 받고 (b)z+3.3→0을 건너고 (c)회전을 받아냈다.
+//   현도 로컬 소견: "착지 판넬이 너무 작은데 거대한 구조물로서의 무릎길 도입이 이렇게 놓여 있다."
+//   → 부재를 더하지 않고 **뺐다**. ㊾6이 이미 참 13개를 깔았으므로 도입 참은 열넷째일 뿐 새 어휘가 아니다.
 
 // ── 무릎길(KneeWalk, ★1-③B · 재작성 ★1-③E · 경사완화 ★1-③F · 중앙정렬 ★1-③G): 나선 나감 → 갈림 디스크 ──
 //  ★1-③E (가): 나선이 −x로 나가므로 무릎길이 그대로 이어짐(평면 급반전 131°→9° 소멸) — 다리 폐기.
 //  ★1-③F (ㄱ): 높이 = 리브 중심선과 곧은 현 KW_FLATTEN 블렌드 → 시작 62°→35°(관 안). 수평 균일(Δx=KW_GO) → 무더기·틈 없음(1-③D).
 //  ★1-③G: z=0 중앙 정렬(드리프트 폐기) → 비스듬함 소멸. 나선 옆끝(z+STAIR_R)↔중앙(z=0)은 판넬(LandingPanel)이 이음.
 export function KneeWalk() {
+  //  ★66(2026.07.25) 계단 규격 개정 — 골판 435칸 → 진짜 계단 + 참. 배치 정본은 `kneeStair.js`.
+  //   여기서 좌표를 다시 계산하지 않는다(사본 금지) — 렌더·검증·웨이포인트가 같은 배열을 소비한다.
+  const treads = useMemo(() => kneeTreads(), [])
+  const spec = useMemo(() => kneeStairSpec(), [])
   const ref = useRef()
   useLayoutEffect(() => {
     const dum = new THREE.Object3D()
-    const xA = rOf(U_SPIRAL_END), xB = X_LAND_HI                          // ★도착 x = 판 +x변(X_LAND_HI, 커플링 2026.07.07). 기본 = rOf(U_KNEE_END). 나선 끝 x → 판 +x변
-    //  ⚠칸수(KW_STEPS)는 나선끝 기준이라, X_LAND_HI를 크게 넓히면 디딤판이 살짝 촘촘해짐(틈은 안 생김). 넓히는 방향이라 무해 — 필요 시 칸수도 커플링.
-    const yA = H * U_SPIRAL_END, yB = H * U_KNEE_END                      // 현(chord) 양끝 높이 (나선끝·정션)
-    for (let i = 0; i < KW_STEPS; i++) {
-      const x = xA - (i + 0.5) * (xA - xB) / KW_STEPS                     // 수평 균일 간격
-      const yCen = H * uOfX(x)                                            // 리브 중심선 높이(가파름)
-      const yChord = yA + (yB - yA) * (xA - x) / (xA - xB)                // 곧은 현 높이(완만 ~25°)
-      const y = (1 - KW_FLATTEN) * yCen + KW_FLATTEN * yChord             // 블렌드 → 완만화(중심축서 아래로 뜸)
-      dum.position.set(x, y, 0)                                           // z=0 중앙 (드리프트 폐기, 1-③G)
+    treads.forEach((t, i) => {
+      dum.position.set(t.x, t.y, 0)                                     // z=0 중앙(드리프트 폐기, 1-③G)
+      dum.scale.set(t.d / spec.G, 1, t.w / KW_TREAD_W)                  // 깊이 = G×코 · z폭 = ★67-3 폭 전이
       dum.updateMatrix()
       ref.current.setMatrixAt(i, dum.matrix)
-    }
+    })
     ref.current.instanceMatrix.needsUpdate = true
-  }, [])
+  }, [treads, spec])
+  //  ★65 몸 — 판·참 밑에 깔리는 한 덩어리. 판(TREAD_MAT)보다 어두운 KNEE_BODY_MAT로 두께 위계를 눈에 보이게 한다
+  //   (§2-D ③ 걷는 것 < 받치는 것). 상면이 판 밑면보다 KW_BODY_TOP 높아 판이 파묻히므로 z파이팅 없음.
+  const bodyGeo = useMemo(() => buildKneeBody(), [])
   return (
     <>
-      <LandingPanel />
-      <instancedMesh ref={ref} args={[undefined, undefined, KW_STEPS]} userData={{ walkable: true }}>
-        <boxGeometry args={[KW_TREAD_D, TREAD_THICK, KW_TREAD_W]} />
+      {bodyGeo && (
+        <mesh geometry={bodyGeo}>
+          <meshStandardMaterial {...KNEE_BODY_MAT} />
+        </mesh>
+      )}
+      {/* ★66 참 — 멈춰 서는 자리(13개). 색만 갈라 두고 두께는 디딤과 **같다**:
+          참도 §2-D ③에서 '걷는 것'이고, 받치는 것은 밑의 몸이다.
+          ⚠구현 초기에 LAND_T(0.35)로 깔았더니 참 밑면이 관 바닥에 더 가까워져 보어 상한을 깨뜨렸다(R7이 잡음). */}
+      {spec.landings.map((L, i) => {
+        //  ★67 도입 참만 z 범위가 다르다 — 나선 옆끝(z+STAIR_R)까지 뻗어 도착을 직접 받는다.
+        const z0 = L.z0 ?? -KW_TREAD_W / 2, z1 = L.z1 ?? KW_TREAD_W / 2
+        return (
+          <mesh key={i} position={[(L.x0 + L.x1) / 2, L.y, (z0 + z1) / 2]} userData={{ walkable: true }}>
+            <boxGeometry args={[L.x1 - L.x0, TREAD_THICK, z1 - z0]} />
+            <meshStandardMaterial {...KNEE_LAND_MAT} />
+          </mesh>
+        )
+      })}
+      <instancedMesh ref={ref} args={[undefined, undefined, treads.length]} userData={{ walkable: true }}>
+        <boxGeometry args={[spec.G, TREAD_THICK, KW_TREAD_W]} />
         <meshStandardMaterial {...TREAD_MAT} />
       </instancedMesh>
     </>

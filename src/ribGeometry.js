@@ -27,7 +27,7 @@ import {
   RIB_FREE_MODE,             // ★62-2 자립 구간 어휘
   RIB_OPEN_ON, BAL_STEP, BAL_W, BAL_PARA_H, BAL_RIM_IN,   // ★63 우물 발코니
   MERIDIANS,   // ★64 리브 추종 구멍
-  FR_FLOOR_Y, TEMPLE_CLR, H, ribCenter,
+  FR_FLOOR_Y, TEMPLE_CLR, H, ribCenter, rOf,
   //  ★61 리브 갈아타기 — 자립 나선(방 바닥 → 목적지 아가리)
   RIB_XFER_ON, RIB_DEST_K, FREE_MOUTH_CLR,
 } from './constants.js'
@@ -49,6 +49,17 @@ export function signedVolume(posArr) {
 
 //  두께 있는 리브 셸(닫힌 솔리드) — t=0이면 구판 그대로의 열린 관을 돌려준다(스위치 off 경로).
 //  반환: { geometry, outerGeo, stats }
+//  ★공유 리브 곡선 — **단일 정본**(★65 2026.07.25 Dome.jsx에서 이관).
+//   72기 리브·관 클립·검증이 전부 이 한 곡선을 소비해야 한다. 사본을 따로 만들면 형태 동일(§1 LOCKED)이
+//   '지금은 같은 수식'이라는 우연으로 전락한다 — 무릎길 몸(★65)이 관 내벽에 정확히 맞물려야 하므로
+//   여기서부터는 우연이 아니라 구성으로 보장한다. φ=0(+x) 평면 정의, 나머지는 y축 회전 인스턴스.
+//   ⚠SEG=160은 리브 셸·검증이 공유하는 해상도다(바꾸면 정점이 어긋나 LOCKED가 깨진다).
+export function makeRibCurve(seg = 160) {
+  const pts = []
+  for (let i = 0; i <= seg; i++) { const u = i / seg; pts.push(new THREE.Vector3(rOf(u), H * u, 0)) }
+  return new THREE.CatmullRomCurve3(pts)
+}
+
 export function buildRibShell(curve, t, tubSeg = 200, radSeg = RIB_RADIAL_SEG) {
   const outerGeo = new THREE.TubeGeometry(curve, tubSeg, SHELL_RIB_R, radSeg, false)
   if (!(t > 0)) return { geometry: outerGeo, outerGeo, stats: { solid: false, volume: 0 } }

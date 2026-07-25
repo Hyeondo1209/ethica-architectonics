@@ -11,7 +11,9 @@ import * as C from './constants.js'
 import { descentSpec, woldaeSpec, incaStairSpec, incaBladesSpec, drumPierAzimuths, descentPortSpec, portPrismTris, outwardTris, ribCutSpec } from './corridorStairsGeometry.js'
 import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg'
 import { WAYPOINTS, EYE } from './waypoints.js'
-import { buildViceWedge, viceSplitIndex, buildSill, buildFloorCollar, buildFloorLanding, freeSplitRange, freeNewelSpec, destCut, openRimSpec, isOpenRib } from './ribGeometry.js'   // ★60 매듭 · ★61 자립 나선 · ★62 바닥 매듭
+import { buildViceWedge, viceSplitIndex, buildSill, buildFloorCollar, buildFloorLanding, freeSplitRange, freeNewelSpec, destCut, openRimSpec, isOpenRib } from './ribGeometry.js'
+import { buildKneeBody, innerTubeSolid, kneeWalkY } from './kneeBodyGeometry.js'   // ★65 무릎길 몸
+import { kneeTreads, kneeStairSpec } from './kneeStair.js'                          // ★66 계단 규격·참   // ★60 매듭 · ★61 자립 나선 · ★62 바닥 매듭
 
 const tris = []
 function addGeo(geo, color) {
@@ -372,6 +374,60 @@ function render(eye, yaw, pitch, W, H, name) {
   }
   const png = new PNG({ width: W, height: H }); img.copy(png.data)
   fs.writeFileSync(name, PNG.sync.write(png)); console.log('wrote', name, `(${tris.length} tris)`)
+}
+
+// ── ★65 무릎길(2026.07.25) — 판 435 + 몸 + 관 하반부(계곡) + 양끝 매듭 판 ──
+//  상부 여정 그룹과 같은 −RIB_DEST_PHI 회전을 건다(App.jsx와 동일).
+//  ⚠★이 래스터라이저는 **후면 컬링이 없다**. 카메라가 관 안에 있으므로 관을 통째로 굽으면 앞쪽 관벽이
+//   화면을 통째로 덮는다 → 관은 **보행선 아래**(= 걸으며 실제로 보이는 계곡)만 굽는다.
+//   이 검수가 보려는 것이 정확히 그 계곡이다: 몸이 관 바닥에 어떻게 앉고 어디서 들리는가.
+{
+  const phi = C.RIB_XFER_ON ? C.RIB_DEST_PHI : 0
+  const cs = Math.cos(phi), sn = Math.sin(phi)
+  const rot = (x, z) => [x * cs - z * sn, x * sn + z * cs]
+  const xA = C.rOf(C.U_SPIRAL_END), xB = C.X_LAND_HI
+
+  //  ① 관 계곡 — 정본(innerTubeSolid)의 삼각형에서 보행선 아래만 남긴다
+  {
+    const g = innerTubeSolid()
+    const p = g.attributes.position
+    for (let i = 0; i < p.count; i += 3) {
+      const V = [0, 1, 2].map(k => [p.getX(i + k), p.getY(i + k), p.getZ(i + k)])
+      //  세 정점 모두 그 x의 보행면보다 아래일 때만(위쪽 관벽·마구리는 버린다)
+      if (!V.every(v => v[1] < kneeWalkY(Math.min(xA, Math.max(xB, v[0]))) - 0.05)) continue
+      if (!V.every(v => v[0] > xB - 1 && v[0] < xA + 1)) continue
+      tris.push({ v: V.map(v => { const [px, pz] = rot(v[0], v[2]); return [px, v[1], pz] }), c: [140, 118, 84] })
+    }
+  }
+
+  //  ② 몸 — CSG 결과는 indexed다(★64 교훈 ⓐ). addGeo가 toNonIndexed로 풀어 주므로 그대로 넘긴다.
+  if (C.KW_BODY_ON) {
+    const b = buildKneeBody()
+    if (b) { const g = b.clone(); g.rotateY(-phi); addGeo(g, [184, 154, 106]) }
+  }
+
+  //  ③ ★66 디딤 + 참 — 배치 정본은 kneeStair(사본 금지). 참은 색을 갈라 리듬이 눈에 보이게 한다.
+  for (const t of kneeTreads()) {
+    const [px, pz] = rot(t.x, 0)
+    const g = new THREE.BoxGeometry(t.d, C.TREAD_THICK, t.w)
+    g.rotateY(-phi); g.translate(px, t.y, pz)
+    addGeo(g, [214, 171, 104])
+  }
+  for (const L of kneeStairSpec().landings) {
+    const z0 = L.z0 ?? -C.KW_TREAD_W / 2, z1 = L.z1 ?? C.KW_TREAD_W / 2   // ★67 도입 참만 z 범위가 다르다
+    const [px, pz] = rot((L.x0 + L.x1) / 2, (z0 + z1) / 2)
+    const g = new THREE.BoxGeometry(L.x1 - L.x0, C.TREAD_THICK, z1 - z0)
+    g.rotateY(-phi); g.translate(px, L.y, pz)
+    addGeo(g, L.entry ? [206, 172, 128] : [200, 165, 120])
+  }
+
+  //  ④ 정션 착지장(구 착지 판넬은 ★67로 폐기 — 도입 참이 대신한다)
+  {
+    const [px, pz] = rot((C.X_LAND_LO + C.X_LAND_HI) / 2, 0)
+    const g = new THREE.BoxGeometry(C.X_LAND_HI - C.X_LAND_LO, C.LAND_T, 2 * C.Z_LAND)
+    g.rotateY(-phi); g.translate(px, C.U_KNEE_END * C.H + 0.1 - C.LAND_T / 2, pz)
+    addGeo(g, [163, 133, 88])
+  }
 }
 
 const W = 880, H = 495

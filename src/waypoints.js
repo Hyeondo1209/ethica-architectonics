@@ -18,9 +18,8 @@
 // ============================================================================
 import {
   H, R_BASE, MERIDIANS, TREAD_THICK, POLE_CUT_F,
-  rOf, uOfX, ribCenter, spiralPoint,
-  U_SPIRAL_END, U_KNEE_END, U_LOOKOUT_END,
-  KW_STEPS, KW_FLATTEN, PANEL_Z0, PANEL_Z1,
+  rOf, ribCenter, spiralPoint,
+  U_KNEE_END, U_LOOKOUT_END,
   X_LAND_LO, X_LAND_HI,
   LK_PLAT_R, LK_DISC_LIFT, LK_DISC_HALF, LK_DISC_DX, LK_DISC_DY, LK_DISC_DZ, LK_DISC_ROT,
   PASS_FLOOR_Y, PASS_X_END, RM_X0, RM_X1,
@@ -39,6 +38,7 @@ import { RIB_XFER_ON, RIB_DEST_PHI, STELE7_F, STAIR_STEPS, spiralU, RIB_FREE_MOD
 import { openRimSpec, isOpenRib } from './ribGeometry.js'                                              // ★63 우물 발코니
 import { ribCutSpec } from './corridorStairsGeometry.js'                                               // ★63 리브별 절단 좌표  // ★61 리브 갈아타기
 import { freeSplitRange, destCut } from './ribGeometry.js'                               // ★61 자립 나선(정본 파생)
+import { kneeTreads, kneeStairSpec } from './kneeStair.js'   // ★66·67 무릎길 계단 정본(사본 금지)
 
 // ── 스위치 ──
 export const DEV_TELEPORT = true      // ⚠배포 전 false — 패널·[·]·Tab 전부 비활성(스폰만 남음)
@@ -86,16 +86,15 @@ const POLE_DX = R_BASE - DP.x, POLE_DZ = 0 - DP.z
 const POLE_HD = Math.hypot(POLE_DX, POLE_DZ)                        // 캡까지 수평거리(= STAIR_R ≈3.3)
 const POLE_PITCH = -Math.atan2(TREAD_THICK / 2 + EYE, POLE_HD)
 
-// ── 무릎길 중간칸(KneeWalk의 배치식을 그대로 재현 — 수평 균일 + KW_FLATTEN 블렌드) ──
+// ── 무릎길 중간 — ★66 이후 배치 정본은 kneeStair 하나뿐이다(사본 재현 금지) ──
+//  ⚠구판은 여기서 블렌드 식을 **다시 적었다**. 계단이 참을 갖게 되면서 그 사본은 즉시 거짓이 됐을 것이다.
+//   웨이포인트는 이제 실제 디딤판 배열의 가운데 칸에 선다.
 const kneeWalkAt = (i) => {
-  const xA = rOf(U_SPIRAL_END), xB = X_LAND_HI
-  const yA = H * U_SPIRAL_END, yB = H * U_KNEE_END
-  const x = xA - (i + 0.5) * (xA - xB) / KW_STEPS
-  const yCen = H * uOfX(x)                                   // 리브 중심선(가파름)
-  const yChord = yA + (yB - yA) * (xA - x) / (xA - xB)       // 곧은 현(완만)
-  return { x, y: (1 - KW_FLATTEN) * yCen + KW_FLATTEN * yChord + TREAD_THICK / 2, z: 0 }
+  const T = kneeTreads()
+  const t = T[Math.min(T.length - 1, Math.max(0, i))]
+  return { x: t.x, y: t.y + TREAD_THICK / 2, z: 0 }
 }
-const KW = kneeWalkAt(Math.floor(KW_STEPS / 2))
+const KW = kneeWalkAt(Math.floor(kneeTreads().length / 2))
 
 // ── 전망 반원판: 재질 반쪽이 로컬 −x에 있다(thetaStart π) → 중심(=지름변)이 아니라 안쪽으로 들어가 선다 ──
 const LK_X0 = rOf(U_LOOKOUT_END) + LK_DISC_DX
@@ -295,10 +294,12 @@ export const WAYPOINTS = [
   ...(BAL ? [{ id: 'balcony', group: '리브 (계단 구역)', label: `★우물 발코니 #${BAL.k > 0 ? '+' : ''}${BAL.k} — 끊긴 관을 내려다본다 (63)`, prop: '1p7',
     x: BAL.x, y: BAL.y, z: BAL.z, yaw: BAL.yaw, pitch: -0.5 }] : []),
   //  ⚠★61: 아래 상부 지점들(판넬~테라스)은 목적지 리브(+10°)로 회전 배치 — rX/rZ/rYaw가 일괄 적용.
-  { id: 'panel', group: '리브 (계단 구역)', label: '나선 끝 · 착지 판넬', prop: '—',
-    x: rX(rOf(U_SPIRAL_END), (PANEL_Z0 + PANEL_Z1) / 2), y: H * U_SPIRAL_END - TREAD_THICK / 2 - 0.03,
-    z: rZ(rOf(U_SPIRAL_END), (PANEL_Z0 + PANEL_Z1) / 2),
-    yaw: rYaw(FACE_NX), pitch: 0 },                                      // 판넬 상면 = 계단 밑면 살짝 아래(설계)
+  { id: 'panel', group: '리브 (계단 구역)', label: '나선 끝 · 도입 참 (★67)', prop: '—',
+    //  ⛔구 착지 판넬 폐기(★67) — 무릎길의 **첫 참**이 그 자리다. 좌표는 계단 정본에서 파생한다.
+    ...(() => { const e = kneeStairSpec().landings[0]
+      const zc = ((e.z0 ?? 0) + (e.z1 ?? 0)) / 2, xc = (e.x0 + e.x1) / 2
+      return { x: rX(xc, zc), y: e.y + TREAD_THICK / 2, z: rZ(xc, zc) } })(),
+    yaw: rYaw(FACE_NX), pitch: 0 },
   { id: 'kneewalk', group: '리브 (계단 구역)', label: '무릎길 중간', prop: '—',
     x: rX(KW.x, KW.z), y: KW.y, z: rZ(KW.x, KW.z), yaw: rYaw(FACE_NX), pitch: 0 },
   { id: 'junction', group: '리브 (계단 구역)', label: '갈림 — 사각 착지판 (이지선다)', prop: '—',

@@ -30,6 +30,10 @@ import {
   RIB_VICE_ON, RIB_NEWEL_R, RIB_NEWEL_Y0, RIB_NEWEL_Y1, RIB_VICE_SOFFIT, RIB_VICE_T, RIB_VICE_R_OUT, RIB_POLE_ON,  // ★58 vice
   STEPS_PER_TURN, ribCenter, spiralU, U_DOOR,
   KW_STEPS, KW_TREAD_D, KW_TREAD_W, KW_FLATTEN, X_LAND_HI, U_KNEE_END, PANEL_DX, PANEL_Z0, PANEL_Z1, LAND_T,
+  KW_BODY_ON, KW_BODY_MODE, KW_BODY_HW, KW_BODY_D, KW_BODY_BWF, KW_BODY_TOP, KW_BODY_EXT,   // ★65 무릎길 몸
+  KW_RISE, KW_SLOPE_DEG, KW_FLIGHT_N, KW_LAND_MIN,   // ★66 계단 규격
+  KW_ENTRY_ON, KW_ENTRY_L, KW_ENTRY_OUT, KW_KNOT_D,   // ★67 도입 참
+  X_LAND_LO, Z_LAND,
   CELLA_ON, CELLA_ZHW, CELLA_X1, CELLA_T, CELLA_ROOF_Y0, CELLA_ROOF_Y1, CELLA_ROOF_T, CELLA_CLR, CELLA_BITE_R, CELLA_XW, CELLA_BACK_ON, CELLA_BACK_Y1,
   CELLA_NICHE, CELLA_NICHE_DEPTH, CELLA_RELIEF_OUT, CELLA_NICHE_Y0, CELLA_NICHE_Y1, CELLA_NICHE_WBOT, CELLA_NICHE_WTOP, CELLA_STRATA_N,
   ALTAR_ON, ALTAR_SCOPE, ALTAR_ZHW, ALTAR_X_BACK, ALTAR_STEP1_X, ALTAR_STEP2_X, ALTAR_STEP1_H, ALTAR_STEP2_H, ALTAR_UNI_XW,
@@ -46,7 +50,9 @@ import {
 import { hallDoors, buildHallStairs, PLAT_TOP, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal, ribCutSpec } from './corridorStairsGeometry.js'
 import * as THREE from 'three'                                                   // ★56 CSG 스모크(check_radial 전례)
 import { Brush, Evaluator, HOLLOW_SUBTRACTION, SUBTRACTION } from 'three-bvh-csg'
-import { buildRibShell, shellVolumeApprox, signedVolume, buildViceWedge, viceSplitIndex, newelSpec, viceBottomY, VICE_DTHETA, sillSpec, buildSill, freeSplitRange, freeNewelSpec, destCut, floorKnotSpec, buildFloorCollar, buildFloorLanding, openRimSpec, isOpenRib, ribHoleSolid } from './ribGeometry.js'
+import { kneeBodySamples, kneeBodySpec, kneeWalkY, kneeBodyHalfWidth, prismGeometry, innerTubeSolid, buildKneeBody } from './kneeBodyGeometry.js'
+import { kneeStairSpec, kneeTreads, kneeSurfaceY, kneeSpineY, kneeHeadroom, KNEE_NOSE, KNEE_XA, KNEE_XB, KNEE_YA, KNEE_YB, KNEE_RUN, KNEE_CLIMB } from './kneeStair.js'   // ★66   // ★65 무릎길 몸
+import { buildRibShell, makeRibCurve, shellVolumeApprox, signedVolume, buildViceWedge, viceSplitIndex, newelSpec, viceBottomY, VICE_DTHETA, sillSpec, buildSill, freeSplitRange, freeNewelSpec, destCut, floorKnotSpec, buildFloorCollar, buildFloorLanding, openRimSpec, isOpenRib, ribHoleSolid } from './ribGeometry.js'
 
 let n = 0, fail = 0
 const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
@@ -1472,15 +1478,15 @@ if (!RIB_WALL_ON) {
     return dAt((lo + hi) / 2, px, py, pz)
   }
   let maxAx = 0, who = ''
-  {   // 무릎길
-    const xA = rOf(U_SPIRAL_END), xB = X_LAND_HI, yA = H * U_SPIRAL_END, yB = H * U_KNEE_END
-    for (let i = 0; i < KW_STEPS; i++) {
-      const x = xA - (i + 0.5) * (xA - xB) / KW_STEPS
-      const y = (1 - KW_FLATTEN) * (H * uOfX(x)) + KW_FLATTEN * (yA + (yB - yA) * (xA - x) / (xA - xB))
-      for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-        const d = axDist(x + sx * KW_TREAD_D / 2, y - TREAD_THICK / 2, sz * KW_TREAD_W / 2)
-        if (d > maxAx) { maxAx = d; who = '무릎길' }
-      }
+  {   // 무릎길 — ★66 이후 **디딤판·참의 정본은 kneeStair**다(여기서 배치식을 다시 적지 않는다)
+    for (const tr of kneeTreads()) for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      const d = axDist(tr.x + sx * tr.d / 2, tr.y - TREAD_THICK / 2, sz * tr.w / 2)
+      if (d > maxAx) { maxAx = d; who = '무릎길 디딤' }
+    }
+    //  ⚠도입 참(★67)은 z 범위가 다르다(나선 옆끝까지) — 상수 폭으로 재면 거짓이 된다
+    for (const L of kneeStairSpec().landings) for (const sx of [-1, 1]) for (const zz of [L.z0 ?? -KW_TREAD_W / 2, L.z1 ?? KW_TREAD_W / 2]) {
+      const d = axDist(sx < 0 ? L.x0 : L.x1, L.y - TREAD_THICK / 2, zz)
+      if (d > maxAx) { maxAx = d; who = L.entry ? '무릎길 도입 참' : '무릎길 참' }
     }
   }
   {   // 나선 디딤판
@@ -1492,6 +1498,18 @@ if (!RIB_WALL_ON) {
                          pos.z - lx * Math.sin(-theta) + lz * Math.cos(-theta))
         if (d > maxAx) { maxAx = d; who = '나선' }
       }
+    }
+  }
+  //  ★65 무릎길 몸 — **자립일 때만** 이 스캔에 들어간다. 여기서 재는 것은 "벽이 파고들면 안 되는 것"이고,
+  //   그 자격은 요소가 벽과 **독립**으로 정의될 때만 생긴다.
+  //   · 'girder' = 관보다 좁은 각기둥 = 벽과 독립 → 이제 이게 가장 빡빡한 요소다(판 4.635 → 몸 5.286).
+  //   · 'fill'   = **벽이 깎아 만든 것** → 정의상 벽보다 깊을 수 없다. 넣으면 각기둥 원본(9.35)을 재게 돼
+  //                상한이 음수로 나오고 검사가 거짓이 된다(실측 확인 2026.07.25). 대신 R11절이 따로 잰다.
+  if (KW_BODY_ON && KW_BODY_MODE === 'girder') {
+    const vBot = -TREAD_THICK / 2 + KW_BODY_TOP - KW_BODY_D
+    for (const s of kneeBodySamples()) for (const sz of [-1, 1]) {
+      const d = axDist(s.x, s.y + vBot, sz * KW_BODY_HW * KW_BODY_BWF)
+      if (d > maxAx) { maxAx = d; who = '★65 몸 밑변' }
     }
   }
   ok(Math.abs(maxAx - RIB_BORE_MAX_AX) < 0.05,
@@ -2079,6 +2097,246 @@ if (!RIB_XFER_ON) {
     ok(have0 > 0, `#0 관 벽이 아치 창 영역을 지남(조밀 표본 ${have0}점) — #0에는 안 뚫으므로 상부가 맹관이 된다(아치는 목적지로 이관)`)
   }
   console.log(`     └ ★61 실측: 횡단 50.2 · 자립 ${RIB_FREE_MODE} ${fr.n}칸 상승 ${r2(freeRise)}(≈${r2(fr.n / 40)}바퀴) · 아가리 y${r2(dc.yTop)} · 회전 +${r2(RIB_DEST_PHI * 180 / Math.PI)}°`)
+}
+
+// ── ★65 무릎길 몸 (판떼기 → 매스) — §2-D 마감 문법 적용 ──
+//  ★이 절이 지키는 것: ① CSG 입력 자격(watertight·부호부피 — ★64 교훈) ② 몸이 리브 **바깥면**을 안 넘음
+//   ③ 판이 몸에 파묻힘(판 밑 틈 0) ④ **뿌리가 실재함**(§2-D ① — 'fill'은 접지, 'girder'는 양끝 지지체)
+//   ⑤ 매듭 물림 ⑥ 나선·하강 무침범 ⑦ 모드가 실제로 서로 다른 형태를 냄.
+//  ⚠★64 교훈 ⓐ 준수: CSG 결과는 **indexed** — 삼각형은 반드시 인덱스로 뽑는다(무시하면 검사가 통째로 거짓).
+console.log('\n— R11. ★65 무릎길 몸 (허공의 판 435장 → 뿌리 있는 매스) —')
+if (!KW_BODY_ON) {
+  ok(true, '무릎길 몸 꺼짐 — 검사 생략(구판 = 판떼기 435장)')
+} else {
+  const S = kneeBodySpec()
+  //  닫힘·부피 감사 — 인덱스가 있으면 인덱스로, 없으면 순서대로. 열린 변 0이 CSG 입력의 자격이다.
+  const audit = (g) => {
+    const p = g.attributes.position, idx = g.index
+    const tri = idx ? idx.count / 3 : p.count / 3
+    const key = (i) => `${p.getX(i).toFixed(4)},${p.getY(i).toFixed(4)},${p.getZ(i).toFixed(4)}`
+    const edges = new Map()
+    let vol = 0
+    const V = (i) => new THREE.Vector3(p.getX(i), p.getY(i), p.getZ(i))
+    for (let t = 0; t < tri; t++) {
+      const ii = [0, 1, 2].map(k => (idx ? idx.getX(t * 3 + k) : t * 3 + k))
+      const [a, b, c] = ii.map(V)
+      vol += a.dot(new THREE.Vector3().crossVectors(b, c)) / 6
+      for (let k = 0; k < 3; k++) {
+        const ka = key(ii[k]), kb = key(ii[(k + 1) % 3])
+        const f = ka < kb ? ka + '|' + kb : kb + '|' + ka
+        edges.set(f, (edges.get(f) || 0) + (ka < kb ? 1 : -1))
+      }
+    }
+    let open = 0
+    for (const [, c] of edges) if (c !== 0) open++
+    return { tri, vol, open }
+  }
+  const A = audit(prismGeometry()), B = audit(innerTubeSolid())
+  ok(A.open === 0 && A.vol > 0, `각기둥 브러시 watertight — 열린변 ${A.open} · 부호부피 ${r2(A.vol)}>0 (★64 자격)`)
+  ok(B.open === 0 && B.vol > 0, `관 내부 브러시 watertight — 열린변 ${B.open} · 부호부피 ${r2(B.vol)}>0`)
+  //  ⚠마구리 두 장의 감김이 **서로 반대**여야 닫힌다. 같게 찍었던 초기 구현은 부피가 음수·30배 과대로 나왔다.
+  const body = buildKneeBody()
+  const C = audit(body)
+  ok(C.vol > 0, `몸 부피 ${r2(C.vol)} > 0 — 감김 일관(교차가 뒤집히지 않았다)`)
+  ok(C.vol <= A.vol + 1e-6, `몸 부피 ${r2(C.vol)} ≤ 각기둥 ${r2(A.vol)} — 교차는 각기둥을 못 키운다`)
+
+  //  ★모드가 실제로 다른 형태인가 — 'fill'은 관이 깎아 부피가 줄고, 'girder'는 안 깎여 그대로다.
+  const clipped = A.vol - C.vol
+  if (KW_BODY_MODE === 'fill') {
+    ok(clipped > A.vol * 0.1, `'fill' — 관이 각기둥의 ${r2(clipped / A.vol * 100)}%를 깎았다(배에서 몸이 관 바닥에 앉는다는 뜻)`)
+  } else {
+    ok(clipped < A.vol * 0.01, `'girder' — 관이 안 깎음(깎인 ${r2(clipped)}) = 자립 배, 뿌리는 양끝 판(§2-D ①③)`)
+  }
+
+  //  ★리브 바깥면 불변(§1 LOCKED)의 실질 — 몸이 관 **바깥**으로 나가면 72기 동일이 깨진다.
+  //   ⚠거리는 **관이 실제로 지어진 곡선**(Catmull-Rom)으로 재야 한다. 해석식 rOf 곡선과는 이 구간에서
+  //    최대 0.24 이격돼 있어(실측) 해석식으로 재면 없는 누출을 만들어 낸다.
+  const cr = makeRibCurve()
+  const CRP = []
+  for (let i = 0; i <= 4000; i++) CRP.push(cr.getPointAt(i / 4000))
+  const dCR = (x, y, z) => {
+    let best = 1e9
+    for (const q of CRP) { const d = (q.x - x) ** 2 + (q.y - y) ** 2 + (q.z - z) ** 2; if (d < best) best = d }
+    return Math.sqrt(best)
+  }
+  const bp = body.attributes.position
+  let worst = 0
+  for (let i = 0; i < bp.count; i++) {
+    const d = dCR(bp.getX(i), bp.getY(i), bp.getZ(i))
+    if (d > worst) worst = d
+  }
+  ok(worst <= SHELL_RIB_R, `몸 최대 반경 ${r2(worst)} ≤ 리브 바깥 ${SHELL_RIB_R} — 관 밖으로 안 샘(바깥면 불변)`)
+  //  ⚠10각 패싯은 굽은 구간에서 이상적 관보다 살짝 부푼다(실측 +0.06) — 그래서 기준은 내벽(5.78)이 아니라
+  //   바깥면(6.0)이다. 내벽 기준으로 잡으면 구성상 불가능한 실패를 보고하게 된다.
+
+  //  ★판이 몸에 파묻히는가 — 몸 상면이 판 밑면보다 위여야 판 밑 틈이 구조적으로 없다(㊿ ②)
+  const xA = KNEE_XA, xB = KNEE_XB
+  const T416 = kneeTreads()
+  let gap = 0
+  for (const tr of T416) if (S.vTop < -TREAD_THICK / 2 - 1e-9) gap++
+  ok(gap === 0 && KW_BODY_TOP > 0, `디딤 ${T416.length}장 + 참 ${kneeStairSpec().landings.length}개 전부 몸에 ${KW_BODY_TOP} 파묻힘 — 밑 틈 0 · z파이팅 없음`)
+
+  //  ★뿌리가 실재하는가(§2-D ①) — 'fill'은 배에서 관 바닥에 **닿아야** 하고, 'girder'는 양끝이 판에 물려야 한다.
+  const kFlat = Math.cos(Math.PI / RIB_RADIAL_SEG)
+  const limit = S.innerR * kFlat
+  //  R7의 axDist는 그 블록 스코프라 여기선 못 쓴다 — 같은 방식(조밀탐색+황금분할)으로 하나 더 둔다.
+  const _d = (u, px, py, pz) => Math.hypot(px - rOf(u), py - H * u, pz)
+  const axD = (px, py, pz) => {
+    let bu = 0, best = 1e9
+    for (let i = 0; i <= 2000; i++) { const u = i / 2000, d = _d(u, px, py, pz); if (d < best) { best = d; bu = u } }
+    let lo = Math.max(0, bu - 1 / 2000), hi = Math.min(1, bu + 1 / 2000)
+    const gr = (Math.sqrt(5) - 1) / 2
+    for (let it = 0; it < 50; it++) {
+      const a = hi - gr * (hi - lo), b = lo + gr * (hi - lo)
+      if (_d(a, px, py, pz) < _d(b, px, py, pz)) hi = b; else lo = a
+    }
+    return _d((lo + hi) / 2, px, py, pz)
+  }
+  let touch = 0, minRoom = 1e9
+  for (const s of S.samples) {
+    const room = limit - axD(s.x, s.y + S.vTop, 0)
+    if (room < minRoom) minRoom = room
+    if (room <= KW_BODY_D) touch++
+  }
+  if (KW_BODY_MODE === 'fill') {
+    ok(touch > 0, `접지 표본 ${touch}/${S.samples.length} — 몸이 관 바닥에 실제로 앉는다(뿌리 = §2-D ①접지, 최소 여유 ${r2(minRoom)})`)
+  } else {
+    ok(true, `자립 — 관 바닥까지 최소 ${r2(minRoom)} 뜸. 뿌리 = 양끝 판(§2-D ③지지체)`)
+  }
+
+  //  ★매듭 물림(§2-D ③) — 몸이 판넬·정션 판 안으로 파고들어야 이음매에 헤어라인이 안 생긴다.
+  const xs = S.samples.map(s => s.x)
+  const bodyHi = Math.max(...xs), bodyLo = Math.min(...xs)
+  ok(bodyHi >= xA + KW_BODY_EXT - 1e-6, `나선끝 매듭 — 몸 +x끝 ${r2(bodyHi)} ≥ 나선끝 ${r2(xA)}+${KW_BODY_EXT}(판넬 x ${r2(xA - PANEL_DX / 2)}~${r2(xA + PANEL_DX / 2)} 안으로 물림)`)
+  ok(bodyLo <= X_LAND_HI - KW_BODY_EXT + 1e-6, `정션 매듭 — 몸 −x끝 ${r2(bodyLo)} ≤ 판 +x변 ${r2(X_LAND_HI)}−${KW_BODY_EXT}(정션 판 안으로 물림)`)
+
+  //  ★무침범 — 몸이 나선 마지막 바퀴나 하강·전망을 삼키지 않는가.
+  //   ⚠실측(2026.07.25): 나선 디딤판은 전부 x≥282.8 = 무릎길 구간 **밖**이고, 하강·전망은 x<184.5다.
+  //    즉 겹칠 수 있는 것은 몸이 매듭으로 뻗은 KW_BODY_EXT 구간뿐이라 거기만 정밀히 본다.
+  //  ★67: 도입 참이 **나선 마지막 디딤판을 흡수한다**(그게 설계다 — 도착과 착지가 한 부재로 합쳐졌다).
+  //   그래서 '묻힘 0'은 더 이상 옳은 검사가 아니다. 옳은 것은 **오르는 단차가 걸을 만한가**이다.
+  const entry = kneeStairSpec().landings.find(l => l.entry)
+  let eat = 0
+  for (let i = 0; i < STAIR_STEPS; i += 1) {
+    const { pos } = spiralPoint((i + 0.5) / STAIR_STEPS)
+    if (pos.x < bodyLo || pos.x > bodyHi) continue
+    if (entry && pos.x >= entry.x0 && pos.x <= entry.x1 && pos.z >= entry.z0 && pos.z <= entry.z1) continue  // 도입 참이 받는 자리
+    const wy = kneeWalkY(Math.min(xA, Math.max(xB, pos.x)))
+    if (pos.y > wy + S.vBot && pos.y < wy + S.vTop && Math.abs(pos.z) < kneeBodyHalfWidth(pos.x)) eat++
+  }
+  ok(eat === 0, `나선 디딤판 ${STAIR_STEPS}칸 중 몸에 묻힌 것 ${eat} — 도입 참이 받는 자리(x ${r2(entry?.x0 ?? 0)}~${r2(entry?.x1 ?? 0)} · z ${entry?.z0}~${entry?.z1})는 제외`)
+  if (entry) {
+    //  나선에서 도입 참으로 오르는 단차 — 0 이상이되 한 단(R)의 1.5배를 넘으면 턱이다
+    let last = null
+    for (let i = 0; i < STAIR_STEPS; i++) {
+      const { pos } = spiralPoint((i + 0.5) / STAIR_STEPS)
+      if (pos.x >= entry.x0 && pos.x <= entry.x1 && pos.z >= entry.z0 && pos.z <= entry.z1) last = pos
+    }
+    const rise = last ? entry.y - (last.y + TREAD_THICK / 2) : null
+    const R66 = kneeStairSpec().R
+    ok(last !== null && rise >= -1e-6 && rise <= 1.5 * R66,
+       `나선 → 도입 참 단차 ${r2(rise ?? -99)} ∈ [0, ${r2(1.5 * R66)}] — 내려서는 순간이 턱이 아니다(마지막 단 y${r2(last?.y ?? 0)} → 참 y${r2(entry.y)})`)
+    ok(entry.L >= 2.4 && (entry.z1 - entry.z0) >= 6.0,
+       `도입 참 ${r2(entry.L)} × ${r2(entry.z1 - entry.z0)} = 면적 ${r2(entry.L * (entry.z1 - entry.z0))} — 구 착지 판넬(1.6 × 5.0 = 8.0)의 3배(현도 "너무 작다" 07.25)`)
+    //  ★67-2 대칭 — 현도: "저 판떼기 비대칭적이고 딱히 착지에 도움이 되지도 않아"(07.25 사진)
+    ok(Math.abs(entry.z0 + entry.z1) < 1e-9,
+       `도입 참 z ${entry.z0}~${entry.z1} — **보행 중심(z=0) 대칭**. 구판 −1~+4는 한쪽으로만 4 뻗은 슬래브라 '남은 다리'로 읽혔다`)
+    //  ★67-2 나선 머리 여유 — 참을 바깥으로 내밀면 나선 마지막 접근 단을 덮어 그 위가 낮아진다.
+    //   ⚠★67 초판(KW_ENTRY_OUT 1.20)이 칸 388(x283.73)을 덮어 **머리 여유 0.33**을 만들었다(구 판넬 x≤283.49는 안 덮었다).
+    //   융착되는 도착 단(여유 ≈0)은 제외하고 잰다 — 그건 '덮인' 게 아니라 '합쳐진' 것이다.
+    let hrMin = 1e9, hrI = -1
+    for (let i = 0; i < STAIR_STEPS; i++) {
+      const { pos } = spiralPoint((i + 0.5) / STAIR_STEPS)
+      if (!(pos.x >= entry.x0 && pos.x <= entry.x1 && pos.z >= entry.z0 && pos.z <= entry.z1)) continue
+      const hr = entry.y - TREAD_THICK / 2 - (pos.y + TREAD_THICK / 2)
+      if (hr > 0.05 && hr < hrMin) { hrMin = hr; hrI = i }
+    }
+    ok(hrMin >= 2.2, `참 밑 나선 머리 여유 ${hrMin === 1e9 ? '해당 없음' : r2(hrMin) + `(칸 ${hrI})`} ≥ 2.2 — 도착 직전 단에서 머리가 참에 안 닿는다`)
+  }
+  ok(X_LAND_LO < X_LAND_HI - KW_BODY_EXT, `하강·전망 시작 x<${r2(X_LAND_LO)} < 몸 −x끝 ${r2(bodyLo)} — 갈래 무침범(갈림은 판이 맡는다)`)
+
+  console.log(`     └ ★65 실측: 모드 ${KW_BODY_MODE} · 몸 삼각 ${C.tri} · 부피 ${r2(C.vol)}(각기둥 ${r2(A.vol)}) · 최대반경 ${r2(worst)} · 배 여유 ${r2(minRoom)} · flight경사 ${r2(kneeStairSpec().slopeDeg)}°`)
+}
+
+// ── ★66 무릎길 계단 규격·참 — 골판(2R+G 0.429·참 0개)을 다시 못 만들게 하는 절 ──
+//  ★이 절이 존재하는 이유: ★66의 진단은 전부 "**아무도 다시 재지 않았다**"에서 나왔다.
+//   KW_GO=0.22는 나선끝 62° 시절 값인데 ③F·③G가 35°로 낮춘 뒤 재유도되지 않아 단높이가 0.105로 떨어졌고,
+//   2R+G=0.429 = 사람이 못 딛는 골판이 됐다. 그 유산이 **세 세션을 살아남았다.**
+//   → 이제 사람 치수를 검사가 지킨다. 수치가 낡으면 검사가 먼저 죽는다.
+console.log('\n— T. ★66 무릎길 계단 규격 (골판 → 계단 + 참) —')
+{
+  const s = kneeStairSpec()
+  //  ⚠상한을 0.66 → 0.68로 넓힌다(★67-3). 0.60~0.66은 **실내 실용 계단**의 블롱델 밴드이고, 기념비적·행렬용
+  //   계단은 통상 그보다 완만하다(디딤이 깊고 단이 낮다). 그리고 여기선 완만함이 **관에 막혀** 있다:
+  //   32° 이하는 참이 스파인을 못 따라잡아 보행면이 가라앉고 관 바닥을 뚫는다(실측 −1.22/−0.01).
+  //   즉 34°(0.661)는 '통례를 벗어난 값'이 아니라 **기하가 허용하는 가장 완만한 값**이다.
+  ok(s.blondel >= 0.60 && s.blondel <= 0.68,
+     `블롱델 2R+G = ${r2(s.blondel)} ∈ [0.60, 0.68] — R ${r2(s.R)} · G ${r2(s.G)} (구판 0.429 = 골판)`)
+  ok(s.R >= 0.14 && s.R <= 0.21, `단높이 ${r2(s.R)} ∈ [0.14, 0.21] — 1단위≈1m이므로 사람이 딛는 높이(구판 0.105)`)
+  ok(s.G * KNEE_NOSE >= 0.26, `디딤 실폭 ${r2(s.G * KNEE_NOSE)} ≥ 0.26 — 코(${KNEE_NOSE}배) 포함 발이 얹힌다(구판 0.264는 겹침용이라 실제 딛는 면은 0.22)`)
+  //  ★참이 실재하는가 — ㊴이 홀 계단에 못 박은 규칙("거장 전례 = 직선 flight + 참")의 이 구간 적용
+  ok(s.landings.length >= 6, `참 ${s.landings.length}개 ≥ 6 — 435단 연속(참 0개)이 아니다(㊴ 규칙의 이 구간 적용)`)
+  ok(Math.min(...s.landings.map(l => l.L)) >= KW_LAND_MIN,
+     `가장 짧은 참 ${r2(Math.min(...s.landings.map(l => l.L)))} ≥ ${KW_LAND_MIN} — 보폭 미만은 참이 아니다`)
+  //  ★참 길이는 노브가 아니라 **리브 곡선이 정한다**. 그 규칙이 살아 있는지 = 참이 다 같지 않은지로 잰다.
+  const Ls = s.landings.map(l => l.L)
+  ok(Math.max(...Ls) - Math.min(...Ls) > 0.15,
+     `참 길이 ${r2(Math.min(...Ls))}~${r2(Math.max(...Ls))} — 균일하지 않다 = 리브 곡선이 정했다(스파인 따라잡기 규칙이 살아 있다)`)
+  //  ★닫힘 — 계단이 나선끝·정션 판에 **정확히** 닿아야 한다(어긋나면 양끝에 단차)
+  ok(Math.abs(s.endX - KNEE_XB) < 1e-3 && Math.abs(s.endY - KNEE_YB) < 1e-6,
+     `닫힘: 끝 (${r2(s.endX)}, ${r2(s.endY)}) = 정션 판 (${r2(KNEE_XB)}, ${r2(KNEE_YB)})`)
+  ok(Math.abs(s.N * s.R - KNEE_CLIMB) < 1e-6, `등반 ${r2(s.N * s.R)} = ${s.N}단 × ${r2(s.R)} — 단높이가 전 구간 동일(다리가 배우는 것은 이것 하나다)`)
+  //  ★보행면은 스파인 **위로만** 뜬다 — 아래로 내려가면 관 바닥을 뚫는다(참이 생기며 새로 생긴 위험)
+  let lift = 0, minHR = 1e9, hrX = 0
+  for (let i = 0; i <= 2000; i++) {
+    const x = KNEE_XA - KNEE_RUN * i / 2000
+    lift = Math.min(lift, kneeSurfaceY(x) - kneeSpineY(x))
+    const h = kneeHeadroom(x); if (h < minHR) { minHR = h; hrX = x }
+  }
+  //  ★flight는 스파인보다 **반드시 가팔라야** 한다 — 그래야 보행면이 스파인 위로 떠서 참이 성립하고,
+  //   그래야 보행면이 관 바닥 쪽으로 내려가지 않는다. 이게 이 구간 계단의 존재 조건이다.
+  //   ⛔girder 모드는 이 조건과 통례를 **동시에 만족할 수 없다**(2026.07.25 산술 확인):
+  //     스파인 시작 41.8° → 경사 > 41.8° 필요 / 2R+G ≥ 0.60 → 경사 ≤ 40.8°. 교집합 공집합.
+  //     그래서 ★66이 ★65의 두 안 중 girder를 **폐기**했다. 이 절이 실패하는 것이 곧 그 문서화다.
+  const _d2 = (u, px, py, pz) => Math.hypot(px - rOf(u), py - H * u, pz)
+  const axD = (px, py, pz) => { let b = 1e9
+    for (let i = 0; i <= 1500; i++) { const d = _d2(i / 1500, px, py, pz); if (d < b) b = d }
+    return b }
+  let spineMax = 0
+  for (let i = 0; i <= 2000; i++) {
+    const x = KNEE_XA - KNEE_RUN * i / 2000, d = 0.05
+    spineMax = Math.max(spineMax, Math.atan2(kneeSpineY(x - d) - kneeSpineY(x + d), 2 * d) * 180 / Math.PI)
+  }
+  //  ⚠★67-3 정정: 구판은 "flight > 스파인 **최대** 경사"를 요구했다. 그건 **충분조건이지 필요조건이 아니다** —
+  //   스파인 최대(35.67°)는 나선끝 극점 한 점에서만 나오고, 그 구간은 관 여유가 5.4로 최대라 보행면이
+  //   잠시 가라앉아도 안전하다. 실제로 34° flight에서 참 12개가 정상 생성되고 바닥 여유 0.21이 유지된다.
+  //   → 진짜 불변식은 **바닥 여유 > 0**(아래)이고, 여기서는 "참이 실제로 생기는 구간에서는 더 가파르다"만 잰다.
+  let slower = 0
+  for (const L of s.landings) {
+    if (L.entry) continue
+    const d = 0.05, xu = L.x0
+    const sl = Math.atan2(kneeSpineY(xu - d) - kneeSpineY(xu + d), 2 * d) * 180 / Math.PI
+    if (sl >= s.slopeDeg) slower++
+  }
+  ok(slower === 0, `참 ${s.landings.length - 1}곳 전부에서 flight ${r2(s.slopeDeg)}° > 그 자리 스파인 경사 — 따라잡기가 성립하는 조건(스파인 최대 ${r2(spineMax)}°는 나선끝 극점 한 점이라 무관)`)
+  ok(lift > -KW_ENTRY_L - 0.1, `스파인 대비 최저 ${r2(lift)} — 도입 참(평평·나선 도착 높이)이 만드는 낙차 안(그 구간 여유 5.4)`)
+  ok(minHR >= 2.2, `최소 층고 ${r2(minHR)} ≥ 2.2 (x${r2(hrX)}) — 참이 보행면을 들어올린 대가. 눈높이 1.6이므로 머리 위 ${r2(minHR - 1.6)}`)
+  //  ⚠flight 단수 — 초입 급구간에서는 참이 못 서서 자동으로 길어진다. 통례 상한(18)을 넘으면 '긴 첫 flight'다.
+  const long = s.flights.filter(f => f.n > 18)
+  ok(long.length <= 1, `통례(18단) 초과 flight ${long.length}개 — ${long.length ? `최대 ${s.maxRisersPerFlight}단(나선에서 올라오는 급구간이라 참이 못 선다 = 신전 앞 긴 계단 어법, 현도 판정 사항)` : '없음'}`)
+  //  ★67-3 폭 전이 — 도입 참(8폭)과 계단(2.0) 사이가 그냥 끊기면 "투박하다"(현도 07.25)
+  {
+    const T = kneeTreads()
+    const wEntry = T[0].w, wRun = T[T.length - 1].w
+    const e2 = kneeStairSpec().landings[0]
+    const jump = e2 ? (e2.z1 - e2.z0) / wEntry : 1
+    ok(wEntry > wRun + 0.5, `계단 폭 전이 ${r2(wEntry)} → ${r2(wRun)} — 도입부가 넓게 시작해 제 폭으로 수렴한다`)
+    ok(jump <= 2.0, `판 폭 ${r2(e2 ? e2.z1 - e2.z0 : 0)} ÷ 도입 계단 폭 ${r2(wEntry)} = ${r2(jump)}배 ≤ 2.0 — 급전이 아님(구 4.0배)`)
+    let mono = true
+    for (let i = 1; i < T.length; i++) if (T[i].w > T[i - 1].w + 1e-9) mono = false
+    ok(mono, `폭이 단조 감소 — 도중에 다시 넓어지지 않는다(전이가 한 번뿐)`)
+  }
+  console.log(`     └ ★66 실측: ${s.N}단(구 435) · R ${r2(s.R)} · G ${r2(s.G)} · flight ${s.slopeDeg.toFixed(1)}° · flight ${s.flights.length}개 · 참 ${s.landings.length}개(총 ${r2(s.landTotal)}) · 층고 ${r2(minHR)}~${r2(Math.max(...[0.05, 0.2, 0.4].map(f => kneeHeadroom(KNEE_XA - KNEE_RUN * f))))}`)
 }
 
 console.log(fail === 0 ? `\n전부 통과 (${n}항)` : `\n실패 ${fail}/${n}`)
