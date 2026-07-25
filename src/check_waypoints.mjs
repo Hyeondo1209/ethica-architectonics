@@ -32,11 +32,25 @@ import { descentSpec, woldaeSpec, gatSeal, incaStairSpec, incaBladesSpec, descen
 import * as THREE from 'three'
 import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg'
 import { WAYPOINTS, WP_GROUPS, SPAWN_ID, EYE, wpById } from './waypoints.js'
+import { RIB_XFER_ON, RIB_DEST_PHI, RIB_DEST_K, FR_FLOOR_Y, FREE_MOUTH_CLR, TEMPLE_HZ, RIB_FREE_MODE, BAL_STEP } from './constants.js'   // ★61·62-2·63
+import { openRimSpec, isOpenRib } from './ribGeometry.js'
+import { ribCutSpec } from './corridorStairsGeometry.js'
+import { freeSplitRange, freeNewelSpec, destCut } from './ribGeometry.js'
 
 let n = 0, fail = 0
 const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
 const W = (id) => wpById(id)
 const DEG = 180 / Math.PI
+
+// ── ★61: 상부 지점(판넬~테라스·자립·아가리)은 목적지 리브(+RIB_DEST_PHI)로 회전 배치돼 있다.
+//  검사식은 전부 φ=0 평면에서 유도됐으므로, 회전 지점은 **역회전해서** 같은 식으로 잰다
+//  (10° = 리브 간격 2배라 리브 격자·회랑 상대기하는 불변 — 라벨만 이동, DESIGN §7 ★61).
+const XPHI = RIB_XFER_ON ? RIB_DEST_PHI : 0
+const unrot = (w) => {
+  const c = Math.cos(-XPHI), sn = Math.sin(-XPHI)
+  return { ...w, x: w.x * c - w.z * sn, z: w.x * sn + w.z * c, yaw: w.yaw + XPHI }
+}
+const WU = (id) => unrot(W(id))   // 회전 지점 전용 접근자(비회전 지점에 쓰면 틀린다 — 주의)
 
 // 리브 중심선(φ=0 평면의 곡선 x=rOf(u), y=H·u)까지의 최단거리 — check_lamps.mjs와 동일 수법
 function distToCenterline(px, py) {
@@ -511,7 +525,8 @@ if (HALL_ENTRY === 'axial' || HALL_ENTRY === 'lateral') {
 
 console.log('\n— D. 리브 계단 구역(전부 관 안인가) —')
 for (const id of ['ribdoor', 'pole', 'panel', 'kneewalk', 'junction', 'lookout']) {
-  const w = W(id)
+  //  ★61: 판넬 이후는 목적지 리브 소속 — 역회전 후 φ=0 곡선에 잰다(ribdoor·pole은 #0 그대로)
+  const w = ['ribdoor', 'pole'].includes(id) ? W(id) : WU(id)
   const d3 = Math.hypot(distToCenterline(w.x, w.y), w.z)     // 3D 관거리(평면거리 ⊕ z)
   ok(d3 < SHELL_RIB_R, `${id} 관거리 ${d3.toFixed(2)} < 리브 반경 ${SHELL_RIB_R}`)
   ok(w.y > RIB_Y - 1 && w.y < U_LOOKOUT_END * H + 6,
@@ -524,7 +539,7 @@ for (const id of ['ribdoor', 'pole', 'panel', 'kneewalk', 'junction', 'lookout']
   ok(dot2(fwd(p.yaw), [(R_BASE - p.x) / hd, -p.z / hd]) > 0.99, '폴 절단 시선이 폴 축 정면')
 }
 {
-  const k = W('kneewalk'), jn = W('junction')
+  const k = WU('kneewalk'), jn = WU('junction')
   ok(k.x > X_LAND_HI && k.x < rOf(U_SPIRAL_END),
     `무릎길 중간 x=${k.x.toFixed(1)} ∈ (판 +x변 ${X_LAND_HI.toFixed(1)}, 나선끝 ${rOf(U_SPIRAL_END).toFixed(1)})`)
   ok(k.y > H * U_SPIRAL_END && k.y < H * U_KNEE_END,
@@ -533,7 +548,7 @@ for (const id of ['ribdoor', 'pole', 'panel', 'kneewalk', 'junction', 'lookout']
   ok(Math.abs(jn.y - (U_KNEE_END * H + 0.1)) < 1e-9, `갈림 y=${jn.y.toFixed(2)} = 착지판 윗면`)
 }
 {
-  const lk = W('lookout')
+  const lk = WU('lookout')
   const cx = rOf(U_LOOKOUT_END) + LK_DISC_DX, cz = LK_DISC_DZ                 // 반원판 중심(노브 파생)
   const cy = U_LOOKOUT_END * H + LK_DISC_LIFT + LK_DISC_DY
   ok(lk.pitch > 0.6, `전망 pitch=${lk.pitch.toFixed(2)} — 보어를 올려다봄`)
@@ -546,13 +561,13 @@ for (const id of ['ribdoor', 'pole', 'panel', 'kneewalk', 'junction', 'lookout']
 
 console.log('\n— E. 통로판(1p9~11) —')
 {
-  const a = W('ante')
+  const a = WU('ante')
   ok(a.x > RM_X0 && a.x < RM_X1, `전실 x=${a.x.toFixed(1)} ∈ 방(${RM_X0.toFixed(1)}~${RM_X1.toFixed(1)})`)
   ok(Math.abs(a.y - PASS_FLOOR_Y) < 1e-9, `전실 y=${a.y.toFixed(2)} = 방 바닥`)
   ok(dot2(fwd(a.yaw), [0, 1]) > 0.99, '전실 시선 = +z(회랑 입)')
 }
 for (const id of ['cloister', 'lamp']) {
-  const w = W(id), r = Math.hypot(w.x, w.z), phi = Math.atan2(w.z, w.x)
+  const w = WU(id), r = Math.hypot(w.x, w.z), phi = Math.atan2(w.z, w.x)
   ok(Math.abs(r - CL_R) < CL_HW - 0.3, `${id} 반경 ${r.toFixed(1)} — 회랑 중심선 ±${(CL_HW - 0.3).toFixed(1)} 안`)
   ok(phi > CL_PHI0 && phi < CL_PHI1,
     `${id} φ=${(phi * DEG).toFixed(1)}° ∈ 회랑 호(${(CL_PHI0 * DEG).toFixed(1)}~${(CL_PHI1 * DEG).toFixed(1)}°)`)
@@ -560,7 +575,7 @@ for (const id of ['cloister', 'lamp']) {
 }
 ok(W('lamp').pitch > 1.0, `등불 pitch=${W('lamp').pitch.toFixed(2)} — 관→리브 시선 안내선을 올려다봄`)
 {
-  const d = W('door'), r = Math.hypot(d.x, d.z), phi = Math.atan2(d.z, d.x)
+  const d = WU('door'), r = Math.hypot(d.x, d.z), phi = Math.atan2(d.z, d.x)
   ok(Math.abs(phi - ST_PHI) < 1e-9, `문 φ=${(phi * DEG).toFixed(2)}° = 스텁 축 ${(ST_PHI * DEG).toFixed(2)}°`)
   ok(r > PASS_X_END && r < CL_R - CL_HW,
     `문 r=${r.toFixed(1)} ∈ 스텁(끝벽 ${PASS_X_END.toFixed(1)} ~ 회랑 안벽 ${(CL_R - CL_HW).toFixed(1)})`)
@@ -570,10 +585,66 @@ ok(W('lamp').pitch > 1.0, `등불 pitch=${W('lamp').pitch.toFixed(2)} — 관→
 
 console.log('\n— F. 테라스 —')
 {
-  const t = W('terrace'), r = Math.hypot(t.x, t.z)
+  const t = WU('terrace'), r = Math.hypot(t.x, t.z)
   ok(r > TERRACE_RIN && r < TERRACE_ROUT, `테라스 r=${r.toFixed(1)} ∈ 고리(${TERRACE_RIN}~${TERRACE_ROUT})`)
   ok(Math.abs(t.y - TERRACE_Y) < 1e-9, `테라스 y=${t.y.toFixed(2)} = 테라스 판`)
   ok(t.pitch > 0, `테라스 pitch=${t.pitch.toFixed(2)} — 리브·렌즈를 약간 올려봄`)
+}
+
+console.log('\n— H. ★61 리브 갈아타기 — 횡단·자립 나선·아가리 —')
+if (!RIB_XFER_ON) {
+  ok(true, '★61 꺼짐 — 검사 생략(구 단일 리브 여정)')
+} else {
+  const dc = destCut(), fr = freeSplitRange(), ns = freeNewelSpec()
+  ok(dc && dc.k === RIB_DEST_K, `목적지 절단 스펙 존재 — #+${RIB_DEST_K} yTop ${r2(dc.yTop)}`)
+  {   // 횡단 — 지점이 현(#0 발치 → 목적지 발치) 위에 정확히 있는가 · 방 안인가
+    const c = W('cross')
+    ok(Math.abs(c.y - FR_FLOOR_Y) < 1e-9, `횡단 y=${r2(c.y)} = 방 바닥 — 걸어서 읽는 자리`)
+    ok(Math.abs(c.z) < TEMPLE_HZ - 2, `횡단 z=${r2(c.z)} — 방 옆벽(±${TEMPLE_HZ}) 안`)
+    //  현 위 판정: P0 = #0 발치(방 바닥 높이 축, φ=0) · P2 = 그 점의 +XPHI 회전. 선분 이탈 < 1e-6.
+    let P0 = null                               // 곡선 위 y=FR_FLOOR_Y 점 탐색(rOf 파생)
+    for (let i = 0; i <= 4000; i++) { const u = i / 4000 * 0.3; if (Math.abs(u * H - FR_FLOOR_Y) < 0.15) { P0 = [rOf(u), 0]; break } }
+    if (P0) {
+      const cph = Math.cos(XPHI), sph = Math.sin(XPHI)
+      const P2 = [P0[0] * cph, P0[0] * sph]
+      const dx = P2[0] - P0[0], dz = P2[1] - P0[1], L2 = dx * dx + dz * dz
+      const t = ((c.x - P0[0]) * dx + (c.z - P0[1]) * dz) / L2
+      const dev = Math.hypot(c.x - (P0[0] + dx * t), c.z - (P0[1] + dz * t))
+      ok(t > -0.01 && t < 1.01 && dev < 0.05,
+        `횡단 지점이 현 위 — t=${r2(t)}(노브 STELE7_F 추종) · 이탈 ${r2(dev)} < 0.05`)
+    } else ok(false, '현 유도 실패(곡선에서 방 바닥 높이 점을 못 찾음)')
+    ok(c.pitch >= 0, `횡단 pitch=${c.pitch} ≥ 0 — 비석(선 자리)을 본다`)
+  }
+  {   // 자립 구간 — 역회전하면 φ=0 리브 축 위. 어휘(★62-2)에 따라 상한이 갈린다.
+    const f = WU('freevice')
+    const yTopFree = ns ? ns.y1 : dc.yTop - FREE_MOUTH_CLR
+    ok(f.y > FR_FLOOR_Y + 2 && f.y < yTopFree, `자립 중간 y=${r2(f.y)} ∈ (바닥+2, 아가리 여유 ${r2(yTopFree)})`)
+    const d3 = Math.hypot(distToCenterline(f.x, f.y), f.z)
+    ok(d3 < 6.5, `자립 중간 축거리 ${r2(d3)} < 6.5 — ${RIB_FREE_MODE === 'plate' ? '부양 판(헬릭스 위)' : '쐐기(축중심 부채)'}`)
+  }
+  {   // 아가리 — 관 안 첫 판들 · 절단면 바로 위
+    const m = WU('mouth')
+    const d3 = Math.hypot(distToCenterline(m.x, m.y), m.z)
+    ok(d3 < SHELL_RIB_R, `아가리 지점 축거리 ${r2(d3)} < 관 반경 ${SHELL_RIB_R} — 보어 안`)
+    ok(m.y > dc.yTop - 1e-9 && m.y < dc.yTop + 3, `아가리 y=${r2(m.y)} ∈ [절단면 ${r2(dc.yTop)}, +3) — 꿰고 들어간 직후`)
+    ok(m.pitch > 0.5, `아가리 pitch=${m.pitch} — 보어를 올려다봄(1p8 예감)`)
+  }
+  {   // ★63 발코니 — 발코니 판 위에 서고, 난간 안(우물)에 안 서 있는가
+    const b = WAYPOINTS.find(w => w.id === 'balcony')
+    if (b) {
+      const rs = openRimSpec(), c = ribCutSpec().find(v => isOpenRib(v.k) && v.k === (b.label.includes('+') ? 1 : -1))
+      const rr = c ? Math.hypot(b.x - c.bx, b.z - c.bz) : 0
+      ok(rs && rr > rs.rimOut && rr < rs.balOut, `발코니 지점 축거리 ${r2(rr)} ∈ (난간 ${r2(rs.rimOut)}, 판 바깥 ${r2(rs.balOut)}) — 판 위이지 우물 안이 아니다`)
+      ok(Math.abs(b.y - rs.balY1) < 1e-9, `발코니 지점 y=${r2(b.y)} = 판 상면(바닥 +${BAL_STEP}) — 한 단 올라섰다`)
+      ok(b.pitch < 0, `시선 pitch ${b.pitch} < 0 — 내려다본다(우물)`)
+    } else ok(true, '★63 꺼짐 — 발코니 지점 없음')
+  }
+  {   // 순서 — 도착(frieze) → 횡단 → 자립 → 아가리 → 판넬
+    const at = (id) => WAYPOINTS.findIndex(w => w.id === id)
+    ok(at('frieze') < at('cross') && at('cross') < at('freevice')
+      && at('freevice') < at('mouth') && at('mouth') < at('panel'),
+      '★61 순서 = 방 도착 → 횡단(1p7) → 자립 나선 → 아가리 → 관내 여정 재개')
+  }
 }
 
 console.log('\n— G. 여정 순서([ ] 키가 이 순서로 돈다) —')

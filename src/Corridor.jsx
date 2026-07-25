@@ -7,7 +7,7 @@ import { useMemo } from 'react'
 import * as THREE from 'three'
 import { Brush, Evaluator, SUBTRACTION, ADDITION } from 'three-bvh-csg'
 import {
-  COR_WALL_SEG, DOOR_HALF, COR_CX, COR_R, ceilY, domeClipY,
+  COR_WALL_SEG, DOOR_HALF, COR_CX, COR_R, SHELL_RIB_R, ceilY, domeClipY,
   neckBottomY, SKIRT_X0, SKIRT_X1,
   WIN_HALF, WIN_SILL_Y, WIN_TOP_Y,
   RAD_JX, RAD_JDOOR_HW, RAD_DOOR_H,
@@ -15,11 +15,11 @@ import {
   COR_Y0, COR_THICK, COR_FLOOR_HW,
   PLAT_X, PLAT_R, PLAT_Y, PILLAR_R,
   STAIR_TD, STAIR_W, COR_RISE,
-  TEMPLE_MODE, TEMPLE_Y0, TEMPLE_X0, TEMPLE_X1, TEMPLE_HZ, TEMPLE_CLR, TEMPLE_PEDIMENT, TEMPLE_OPEN,
+  TEMPLE_MODE, TEMPLE_Y0, TEMPLE_X0, TEMPLE_X1, TEMPLE_HZ, RIB_HOLE_CLR, TEMPLE_PEDIMENT, TEMPLE_OPEN,
   FRIEZE_ROOM_ON, FR_FLOOR_T, FR_WALL_T, FR_BACK_T, FR_CEIL_T, FR_FLOOR_Y, FR_ANNEX,   // ★55 프리즈 방(1p7)
   CELLA_ON, CELLA_ZHW, CELLA_X1, CELLA_T, CELLA_ROOF_Y0, CELLA_ROOF_Y1, CELLA_ROOF_T, CELLA_BACK_ON, CELLA_BACK_Y1,
   INCA_ON, INCA_COLOR, INCA_W0, INCA_CHAMF, INCA_PANEL_T,
-  CELLA_CLR, CELLA_BITE_R, CELLA_XW, CELLA_COLOR,
+ CELLA_BITE_R, CELLA_XW, CELLA_COLOR,
   CELLA_NICHE, CELLA_NICHE_DEPTH, CELLA_RELIEF_OUT, CELLA_NICHE_Y0, CELLA_NICHE_Y1,
   CELLA_NICHE_WBOT, CELLA_NICHE_WTOP, CELLA_STRATA_N,
   ALTAR_ON, ALTAR_SCOPE, ALTAR_ZHW, ALTAR_X_BACK, ALTAR_STEP1_X, ALTAR_STEP2_X,
@@ -30,9 +30,11 @@ import {
   INTAKE_FUNNEL_DROP, INTAKE_FUNNEL_RB, INTAKE_COLOR, INTAKE_GLOW,
   GAT_SEAT, GAT_CX, GAT_CROWN_R, GAT_CONE_H, GAT_CROWN_H, GAT_SLIT, GAT_FACETS, GAT_POSTS, GAT_POST_R, GAT_LID_T,
   PLAT_DROP, DESC_X0, DESC_X1,
-  SHELL_RIB_R,
 } from './constants'
 import { buildHallStairs, hallDoors, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal, descentSpec, woldaeSpec, drumPierAzimuths, descentPortSpec, portPrismTris, outwardTris } from './corridorStairsGeometry'
+import { ribHoleSolid } from './ribGeometry'   // ★64-2 리브를 따라가는 관통 구멍(watertight 로프트)
+
+
 import {
   HALL_ENTRY, ASC_RISE, ASC_X0, ASC_X1, ASC_SLOPE, BOX_IN_H,
   DESC_HW, DESC_GIRDER, DESC_GIRDER_TOP, DESC_GIRDER_BWF,   // ★㊾·㊿·51 하강로
@@ -486,10 +488,11 @@ export function TempleBeam() {
       acc = ev.evaluate(acc, b, SUBTRACTION)
     }
     const holeTop = ceilY(TEMPLE_X1) + 2
+    //  ★64(2026.07.24): 구멍이 **리브를 따라간다**. 구 수직 원기둥은 문 높이(y74)의 축을 기준으로 서 있어서
+    //   기운 리브가 위로 갈수록 어긋났고(방 천장에서 1.33~1.65), 한쪽엔 최대 2.05 폭 초승달 틈이,
+    //   반대쪽엔 **부재가 리브를 파고드는** 자리가 생겼다. 관으로 파면 여유가 전 구간 균일해진다.
     for (const d of hallDoors()) {
-      const hole = new THREE.CylinderGeometry(SHELL_RIB_R + TEMPLE_CLR, SHELL_RIB_R + TEMPLE_CLR, holeTop - TEMPLE_Y0 + 4, 24)
-      hole.translate(d.cx, (TEMPLE_Y0 + holeTop) / 2, d.cz)
-      const b = new Brush(hole); b.updateMatrixWorld()
+      const b = new Brush(ribHoleSolid(d.k, TEMPLE_Y0 - 2, holeTop + 2, RIB_HOLE_CLR)); b.updateMatrixWorld()
       acc = ev.evaluate(acc, b, SUBTRACTION)
     }
     return acc.geometry
@@ -596,9 +599,8 @@ export function Cella() {
         acc = ev.evaluate(acc, b, SUBTRACTION)
       }
     }
-    for (const d of hallDoors()) {                                 // 리브 관통 구멍 5(지붕만 실질 절제)
-      const hole = new THREE.CylinderGeometry(SHELL_RIB_R + CELLA_CLR, SHELL_RIB_R + CELLA_CLR, yTop + 8, 24)
-      hole.translate(d.cx, (yTop + 4 - 2) / 2, d.cz)
+    for (const d of hallDoors()) {                                 // 리브 관통 구멍 5(지붕만 실질 절제) — ★64 리브 추종
+      const hole = ribHoleSolid(d.k, -2, yTop + 6, RIB_HOLE_CLR)
       const b = new Brush(hole); b.updateMatrixWorld()
       acc = ev.evaluate(acc, b, SUBTRACTION)
     }
@@ -1037,19 +1039,56 @@ export function Corridor() {
       const seat = GAT_SEAT === 'pier' ? PIER_TOP_OVER : 0
       const seal = gatSeal()
       const F = GAT_FACETS, kOut = 1 / Math.cos(Math.PI / F)
-      const rOut = COR_R * kOut, rIn = GAT_CROWN_R          // 안쪽 = 내접(정점 반경 = 크라운 반경)
-      const pos = [], idx = []
-      const PO = (t) => { const x = COR_CX + rOut*Math.cos(t); return [x, ceilY(x) + seat, rOut*Math.sin(t)] }
-      const PI_ = (t) => { const x = GAT_CX + rIn*Math.cos(t)
-        return [x, seal.baseY, rIn*Math.sin(t)] }
+      const rOut = COR_R * kOut, rIn = GAT_CROWN_R          // 바깥 = 드럼 벽에 외접(현도 07.22 원안)
+      const PO = (t) => [COR_CX + rOut*Math.cos(t), ceilY(COR_CX + rOut*Math.cos(t)) + seat, rOut*Math.sin(t)]
+      const PI_ = (t) => [GAT_CX + rIn*Math.cos(t), seal.baseY, rIn*Math.sin(t)]
+      //  ★64-6(현도 07.25 최종): 매끈한 각뿔대(20삼각형)에 **리브 겹치는 부분만** CSG로 제거한다.
+      //   ⚠구멍이 리브 관(반경 6)보다 크면 리브가 못 채우는 틈이 생긴다(스커트 시행착오) → 구멍 =
+      //    리브 관 반경 + 헤어라인 여유만. 각뿔대는 두께 0이라 solid 감산이 안 먹으므로 **얇은 껍질**로
+      //    만들어 뺀다(아래로 SKIN 복제 + 바깥·안쪽 링 옆면 = 닫힌 solid). 각뿔대 전체를 통짜 껍질로
+      //    만들어 CSG 입력이 깔끔 → 삼각형 폭증 최소(구 thickenSurface의 면별 프리즘이 3649조각 낸 것과 대비).
+      const SKIN = 0.5
+      const shellPos = []
+      const tri = (a, b, c) => shellPos.push(a[0],a[1],a[2], b[0],b[1],b[2], c[0],c[1],c[2])
       for (let i = 0; i < F; i++) {
         const t0 = (i/F)*Math.PI*2, t1 = ((i+1)/F)*Math.PI*2
-        const v = [PO(t0), PO(t1), PI_(t1), PI_(t0)]
-        const b = pos.length/3
-        for (const q of v) pos.push(...q)
-        idx.push(b, b+1, b+2, b, b+2, b+3)
+        const o0 = PO(t0), o1 = PO(t1), i0 = PI_(t0), i1 = PI_(t1)
+        //  윗면(사다리꼴 2삼각형) + 아랫면(−SKIN, 감김 반전)
+        tri(o0, o1, i1); tri(o0, i1, i0)
+        const O0=[o0[0],o0[1]-SKIN,o0[2]], O1=[o1[0],o1[1]-SKIN,o1[2]], I0=[i0[0],i0[1]-SKIN,i0[2]], I1=[i1[0],i1[1]-SKIN,i1[2]]
+        tri(O0, I1, O1); tri(O0, I0, I1)
+        //  바깥 링 옆면 + 안쪽 링 옆면
+        tri(o0, O0, O1); tri(o0, O1, o1)
+        tri(i0, i1, I1); tri(i0, I1, I0)
       }
-      g.setAttribute('position', new THREE.Float32BufferAttribute(pos,3)); g.setIndex(idx); g.computeVertexNormals(); return g
+      const shell = new THREE.BufferGeometry()
+      shell.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(shellPos), 3)); shell.computeVertexNormals()
+      const evG = new Evaluator(); evG.attributes = ['position', 'normal']
+      let acc = new Brush(shell); acc.updateMatrixWorld()
+      //  리브 5개 구멍. ⚠**수직 원기둥은 안 된다**(현도 적발 "관 안 초승달"): 리브는 기울어진 경선이고
+      //   각뿔대는 리브 자리에서 y폭이 7이나 되므로, 그 높이차만큼 리브 축이 옆으로 ~1.9 이동한다 →
+      //   수직 구멍은 아래쪽에서 리브를 빗나가 한쪽에 **초승달**을 남긴다(높이별 축거리 판정: 침범 5088).
+      //   → **리브를 따라가는 구멍(ribHoleSolid)**을 쓴다(침범 8 = 헤어라인). 범위는 각뿔대 표면 y폭
+      //   전체를 넉넉히 감싸야 한다(딱 맞추면 462 침범). 리브가 그 구멍을 채우므로 틈은 안 생긴다.
+      const surfY = (d, pick) => {                            // 관 반경 안 각뿔대 표면 y (min/max — 빗면이라 폭 있음)
+        let ym = pick === 'min' ? Infinity : -Infinity
+        for (let a = 0; a < 16; a++) { const th = a/16*Math.PI*2
+          for (const rr of [0, 3, SHELL_RIB_R + 0.5]) {
+            const x = d.cx + rr*Math.cos(th), z = d.cz + rr*Math.sin(th), r = Math.hypot(x - COR_CX, z)
+            const f = Math.min(1, Math.max(0, (rOut - r) / Math.max(rOut - rIn, 1e-6))), rimY = ceilY(x) + seat
+            const y = rimY + (seal.baseY - rimY) * f
+            ym = pick === 'min' ? Math.min(ym, y) : Math.max(ym, y)
+          }
+        }
+        return ym
+      }
+      for (const d of hallDoors()) {
+        const b = new Brush(ribHoleSolid(d.k, surfY(d, 'min') - SKIN - 1, surfY(d, 'max') + 2, RIB_HOLE_CLR))
+        b.updateMatrixWorld()
+        acc = evG.evaluate(acc, b, SUBTRACTION)
+      }
+      acc.geometry.computeVertexNormals()
+      return acc.geometry
     }
     // ★슬릿형: 원판(림) − 구멍들을 삼각분할(ShapeGeometry) 후 빗면으로 올림 — 직선/원호/고리 개구가 정확.
     //  shape 좌표 (X,Y) = 세계 (x,z), y는 ceilY(x)로 파생(천장은 평면이라 어떤 삼각분할도 정합).

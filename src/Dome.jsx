@@ -27,9 +27,12 @@ import {
   RIB_WALL_ON, RIB_WALL_T, RIB_WALL_SCOPE,                   // ★57 리브 벽 두께
   RIB_VICE_ON, RIB_NEWEL_R, RIB_POLE_ON, ribCenter, spiralU,  // ★58 중세 나선(vice)
   FR_SILL_MAT, TEMPLE_COLOR,                                  // ★60 문지방(나선↔프리즈 방 매듭)
+  RIB_XFER_ON, RIB_DEST_K, RIB_DEST_PHI, RIB_FREE_MODE, FR_FLOOR_Y,          // ★61 리브 갈아타기
+  STELE7_ON, STELE7_F, STELE7_OFF,
 } from './constants'
 import { hallDoors, ribCutSpec } from './corridorStairsGeometry'
-import { buildRibShell, buildViceWedge, viceSplitIndex, newelSpec, buildSill } from './ribGeometry'
+import { buildRibShell, buildViceWedge, viceSplitIndex, newelSpec, buildSill, buildFloorCollar, buildFloorLanding, freeNewelSpec, freeSplitRange, buildOpenRim, isOpenRib } from './ribGeometry'
+import { PropStele } from './Steles'
 
 export function Ground() {
   return (
@@ -55,16 +58,20 @@ const RIB_MAT = { color: '#bb8a4e', roughness: 0.7, metalness: 0 }   // 두 컴�
 //    거의 정원이 되고, 다섯이 같은 어법으로 잘린 것이 읽힌다. 법선 절단은 다섯이 제각각 기울어 어수선하다.
 //  ②막기 = 절단면 캡(구 폴 절단 '평면 캡' 어휘). 안 막으면 뚫린 파이프 아가리 = 보어가 통째로 열린다.
 //   캡은 남는 쪽으로 두께만큼 뻗고 간극 쪽으로 0.02만 물린다 → 경계 일치로 인한 헤어라인 없이 봉인.
-//  ★★#0에는 캡을 달지 않는다 — **보어가 길이다.** 실측(2026.07.24): 윗 절단면 y184.05에 디딤판
-//   i313~315가 축거리 3.3으로 지나므로 반경 6.12 캡은 나선을 정면으로 막는다. 이건 1-③C에서
-//   '착지 디스크가 나선 꼭대기를 덮은 뚜껑' 사고와 **같은 사고**다(그때 디스크를 폐치해 해결했다).
+//  ★★여정 리브 둘(#0·#+2)에는 캡을 달지 않는다 — ★61로 근거가 갱신됨(2026.07.24):
+//   · #+2(목적지): **보어가 길이다.** 아가리 평면을 얇은 판 1~2칸이 실제로 꿰고 지나므로 캡은 나선을
+//     정면으로 막는다(1-③C '뚜껑' 사고와 같은 사고 — 검증 R10이 수치로 못박음).
+//   · #0: 나선이 문지방(★60)에서 방으로 나가므로 윗 절단면을 지나는 판은 이제 없다. 그래도 안 막는
+//     이유 = ★57 살 있는 관의 절단면은 저절로 고리(annulus)고, 그 열린 고리가 '들고 나는 관'의
+//     서명이기 때문(우연이 아니라 동선의 표식). ⚠맹관 보어가 방에서 올려다보임 — 열린 판정(현도).
 //   ⚠LOCKED 안전: 이 비대칭은 형태 차별화가 아니라 **문·아치와 같은 기능 배당**이다(§1 "문 = 형태가
 //   아니라 접근 지점"). #0은 걸어 지나는 관이라 막을 수 없고, 나머지 넷은 보어가 죽은 공간이라 막는다.
 //   그리고 이 차이는 프리즈 방 안에서만 보인다 = LOCKED 예외 #2의 조건(다른 시점 불가시)을 벗어나지 않는다.
 // ── ★57 리브 벽 두께 — 이 리브가 '살 있는 몸'인가(§1 LOCKED: 바깥면은 절대 불변) ──
 //  두께가 있으면 관이 **닫힌 솔리드**가 되므로 개구는 HOLLOW_SUBTRACTION이 아니라 **SUBTRACTION**으로 뚫는다.
 //  그래야 문·아치·절단면에 벽의 살이 인방·문선(reveal)으로 드러난다 — 종잇장 모서리가 사라지는 지점이 여기다.
-const wallOf = (k) => (RIB_WALL_ON && (RIB_WALL_SCOPE === 'cut5' || k === 0)) ? RIB_WALL_T : 0
+//  ★61: 'explore' = 여정 리브 = #0 + 목적지(#+2). 살 있는 관의 절단면 = 고리 = 아가리(캡 불요).
+const wallOf = (k) => (RIB_WALL_ON && (RIB_WALL_SCOPE === 'cut5' || k === 0 || (RIB_XFER_ON && k === RIB_DEST_K))) ? RIB_WALL_T : 0
 const ribCutBrush = (c) => {
   const g = new THREE.BoxGeometry(RIB_CUT_BOX_HW * 2, c.gap, RIB_CUT_BOX_HW * 2)
   const yM = (c.yBot + c.yTop) / 2, rM = rOf(yM / H)
@@ -72,18 +79,38 @@ const ribCutBrush = (c) => {
   return g
 }
 //  캡 두 장(아래 = 아랫토막을 막음 · 위 = 떠 있는 윗토막을 막음). 재질은 리브와 완전 동일.
-function RibCutCaps({ cuts, top = true }) {
+function RibCutCaps({ cuts }) {
+  //  ★61: 윗캡은 리브별 — 살 있는 관은 절단면이 저절로 고리라 캡 불요(= 아가리), 살 없는 관만 막는다.
+  //  ★63(2026.07.24): `RIB_WALL_SCOPE='cut5'`로 다섯 다 살이 붙으면서 **윗캡이 전부 사라진다**
+  //   — 셋이 위로 뚫린다(현도 "위아래가 막혀 있다"의 절반). 조건식은 안 고쳤다: 규칙이 이미 옳았다.
+  //  ★63 아래: 셋(#−2·#−1·#+1)은 원판 대신 **우물 발코니**(난간+단)를 두른다. 난간의 발이
+  //   바닥 관통 구멍(r6.4)의 마개를 넘겨받으므로 봉인은 유지된다. #+2는 발판이라 원판 유지(현도 명시).
+  const rim = useMemo(() => buildOpenRim(), [])
   return (
     <>
       {cuts.flatMap((c, i) => ([
-        //  ★60: 'floor' 모드에서 아랫캡은 **밟는 면**이다 — 방 바닥 관통 구멍(r6.4)의 마개이므로
-        //   walkable을 안 달면 1-④에서 지름 12.8 구멍 넷이 열린다(2026.07.24 실측 적발).
-        //   'stub'에선 그루터기 꼭대기라 밟을 일이 없으나, 밟혀도 무해하므로 모드 분기 없이 단다.
-        <mesh key={`b${i}`} position={[c.bx, c.yBot + 0.02 - RIB_CUT_CAP_T / 2, c.bz]} userData={{ walkable: true }}>
-          <cylinderGeometry args={[c.capB, c.capB, RIB_CUT_CAP_T, 32]} />
-          <meshStandardMaterial {...RIB_MAT} onBeforeCompile={ribTintOBC} />
-        </mesh>,
-        top ? (
+        //  ★60: 'floor' 모드에서 아랫캡은 **밟는 면**이다 — walkable을 안 달면 1-④에서 구멍이 열린다.
+        isOpenRib(c.k) ? null : (
+          <mesh key={`b${i}`} position={[c.bx, c.yBot + 0.02 - RIB_CUT_CAP_T / 2, c.bz]} userData={{ walkable: true }}>
+            <cylinderGeometry args={[c.capB, c.capB, RIB_CUT_CAP_T, 32]} />
+            <meshStandardMaterial {...RIB_MAT} onBeforeCompile={ribTintOBC} />
+          </mesh>
+        ),
+        //  ★63 우물 발코니 — ① 난간(발이 바닥 살에 묻혀 봉인 겸함) ② 한 단 올라선 발코니 판.
+        //   ⚠속 찬 고리다(난간 동자 금지 = §2-C) · 윗토막에 안 닿는다(1p7 '받쳐지지 않음' 보존).
+        (rim && isOpenRib(c.k)) ? (
+          <group key={`r${i}`} position={[c.bx, 0, c.bz]}>
+            <mesh position={[0, rim.spec.rimY1, 0]} userData={{ walkable: false }}>
+              <primitive object={rim.rim.geometry} attach="geometry" />
+              <meshStandardMaterial color={TEMPLE_COLOR} roughness={0.9} />
+            </mesh>
+            <mesh position={[0, rim.spec.balY1, 0]} userData={{ walkable: true }}>
+              <primitive object={rim.bal.geometry} attach="geometry" />
+              <meshStandardMaterial color={TEMPLE_COLOR} roughness={0.9} />
+            </mesh>
+          </group>
+        ) : null,
+        wallOf(c.k) === 0 ? (
           <mesh key={`t${i}`} position={[c.tx, c.yTop - 0.02 + RIB_CUT_CAP_T / 2, c.tz]}>
             <cylinderGeometry args={[c.capT, c.capT, RIB_CUT_CAP_T, 32]} />
             <meshStandardMaterial {...RIB_MAT} onBeforeCompile={ribTintOBC} />
@@ -182,8 +209,13 @@ export function ExplorationRib() {
       const b1 = new Brush(doorCut); b1.updateMatrixWorld()
       step1 = ev.evaluate(ribBrush, b1, OP)
     }
-    const b2 = new Brush(archCut); b2.updateMatrixWorld()
-    let acc = ev.evaluate(step1, b2, OP)                       // ⚠㊴: 구 entablature 클립 제거(프리즈가 가림)
+    //  ★61: 아치(갈림 하강로 출구)는 상부 여정과 함께 **목적지 리브(#+2)로 이관** — #0 상부 보어는
+    //   이제 아무도 안 지나는 맹관(blind shaft)이라 뚫을 이유가 없다(뚫린 채 두면 누출 검증 대상만 는다).
+    let acc = step1
+    if (!RIB_XFER_ON) {
+      const b2 = new Brush(archCut); b2.updateMatrixWorld()
+      acc = ev.evaluate(step1, b2, OP)                         // ⚠㊴: 구 entablature 클립 제거(프리즈가 가림)
+    }
     // ③ ★56 절단(1p7) — 프리즈 방 안에서 끊는다. 나선은 그대로 간극을 건넌다(현도 ⓔ).
     if (RIB_CUT_ON) {
       const c = ribCutSpec().find(v => v.k === 0)
@@ -207,16 +239,29 @@ export function HallDoorRibs() {
   const geos = useMemo(() => {
     const ev = new Evaluator(); ev.attributes = ['position', 'normal']
     return hallDoors().filter(d => d.k !== 0).map(d => {
-      const t = wallOf(d.k)                            // ★57 — 'cut5'면 넷도 살을 갖는다
+      const t = wallOf(d.k)                            // ★57 — 'cut5'면 넷도 살을 갖는다 · ★61: 목적지도 살
       const { geometry: tube } = buildRibShell(makeRibCurve(), t)
       tube.rotateY(-d.phi)                             // rotateY(a) → 방위각 −a. 방위각 +φ에 놓으려면 −φ
-      if (!HALL_DOORS_ON) return tube                  // ★㊶-3 임시 소등: 문 컷 없이 매끈한 관(형태 = 나머지 리브와 동일)
+      const OP = t > 0 ? SUBTRACTION : HOLLOW_SUBTRACTION
+      let acc = tube
+      //  ★61 목적지 리브(#+2): 아치(갈림 하강로 출구)가 #0에서 이관돼 온다 — 상부 여정 그룹이
+      //   rotation-y=−RIB_DEST_PHI로 돌므로 아치 자르개도 같은 회전으로 놓는다(translate 후 rotateY —
+      //   원점 기준 회전이라 순서가 곧 '월드 위치를 돌린다'가 된다).
+      if (RIB_XFER_ON && d.k === RIB_DEST_K) {
+        const archCut = new THREE.BoxGeometry(ARCH_X1 - ARCH_X0, ARCH_Y1 - ARCH_Y0, ARCH_Z1 - ARCH_Z0)
+        archCut.translate((ARCH_X0 + ARCH_X1) / 2, (ARCH_Y0 + ARCH_Y1) / 2, (ARCH_Z0 + ARCH_Z1) / 2)
+        archCut.rotateY(-RIB_DEST_PHI)
+        const rb0 = new Brush(acc); rb0.updateMatrixWorld()
+        const ab = new Brush(archCut); ab.updateMatrixWorld()
+        acc = ev.evaluate(rb0, ab, OP).geometry
+      }
+      if (!HALL_DOORS_ON) return acc                   // ★㊶-3 임시 소등: 문 컷 없이(아치는 위에서 유지 — ★61)
       const cut = new THREE.BoxGeometry(SHELL_RIB_R, DOOR_H, DOOR_W)
       cut.rotateY(Math.atan2(-d.dhat[1], d.dhat[0]))   // 로컬 +x(깊이축)를 문 법선 d̂에 정렬
       cut.translate(d.cx + d.dhat[0] * SHELL_RIB_R, d.sill + DOOR_H / 2, d.cz + d.dhat[1] * SHELL_RIB_R)
-      const rb = new Brush(tube); rb.updateMatrixWorld()
+      const rb = new Brush(acc); rb.updateMatrixWorld()
       const cb = new Brush(cut); cb.updateMatrixWorld()
-      return ev.evaluate(rb, cb, t > 0 ? SUBTRACTION : HOLLOW_SUBTRACTION).geometry   // ⚠㊴: entablature 클립 제거
+      return ev.evaluate(rb, cb, OP).geometry          // ⚠㊴: entablature 클립 제거
     })
   }, [])
   // ★56 절단(1p7) — 문 소등 여부와 무관하게 적용(문은 '접근 지점', 절단은 '존재의 진술'로 서로 독립).
@@ -232,10 +277,9 @@ export function HallDoorRibs() {
       return ev.evaluate(rb, cb, wallOf(c.k) > 0 ? SUBTRACTION : HOLLOW_SUBTRACTION).geometry
     })
   }, [geos])
-  //  ★57: 살이 있으면 절단면이 저절로 '고리 단면'이 된다 → 윗캡(원판)은 끈다.
+  //  ★57·61: 살이 있으면 절단면이 저절로 '고리 단면' → 윗캡(원판)은 끈다(리브별 — RibCutCaps 내부 판정).
   //   ⚠아랫캡은 유지 — 'floor' 모드에서 그건 리브 부재가 아니라 **바닥 관통 구멍의 마개**다(R6 [128]).
   const cuts = useMemo(() => (RIB_CUT_ON ? ribCutSpec().filter(v => v.k !== 0) : []), [])
-  const capTop = wallOf(1) === 0
   return (
     <group>
       {cut.map((g, i) => (
@@ -243,7 +287,7 @@ export function HallDoorRibs() {
           <meshStandardMaterial {...RIB_MAT} side={THREE.DoubleSide} onBeforeCompile={ribTintOBC} />
         </mesh>
       ))}
-      <RibCutCaps cuts={cuts} top={capTop} />
+      <RibCutCaps cuts={cuts} />
     </group>
   )
 }
@@ -267,35 +311,60 @@ export function Apex() {
 //    위로는 받치는 게 아무것도 없으므로 계단도 얇은 판으로 되돌아간다(§2-B '부양 판 라임' = 1p7 증명된 뜸).
 //   ⚠쐐기는 축을 중심으로 놓는다(구 디딤판은 헬릭스 위에 놓였다) — 부채의 각중심이 로컬 +x,
 //    rotation.y=−θ가 그걸 진행 방위로 돌린다(구판과 같은 규약). 상면은 판 상면과 같은 높이로 맞춘다.
+//  ★61 재편(2026.07.24) + ★62-2 어휘 통일(같은 날, 현도 판정 "2개가 섞여 있잖아?"):
+//   [0, split)      #0 vice — 문(74)→방 바닥(166). 기둥+쐐기, ★62 바닥 매듭이 출구.
+//   [split, END)    ★부양 판 하나로 — 방 허공(받치는 것 없음) → 아가리를 꿰고 → 목적지 보어 안까지
+//                   **끊김 없는 한 어휘**. `RIB_FREE_MODE='vice'`로 되돌리면 ★61 원안(기둥+쐐기) 복귀.
+//   ★한 줄 규칙이 그대로 산다: 판 종류는 **기둥의 유무**로 갈린다 — 자립 구간엔 기둥이 없으므로 판이다.
+//  회전 = 방위각 +RIB_DEST_PHI: 위치 (x,z)→(x·cosφ−z·sinφ, x·sinφ+z·cosφ) · 자세 −θ→−θ−φ
+//  (상부 여정 그룹의 rotation-y=−RIB_DEST_PHI와 같은 변환을 인스턴스 행렬에 직접 편입).
 export function RibStair() {
   const wedgeRef = useRef(), plateRef = useRef()
   const split = RIB_VICE_ON ? viceSplitIndex() : 0
-  const nPlate = STAIR_STEPS - split
-  const wedge = useMemo(() => (split > 0 ? buildViceWedge().geometry : null), [split])
+  const freeR = useMemo(() => (RIB_XFER_ON ? freeSplitRange() : null), [])
+  //  ★62-2: 쐐기는 기둥이 있는 구간까지만. 'plate'면 자립 구간도 판이므로 쐐기는 #0에서 끝난다.
+  const freeEnd = (freeR && RIB_FREE_MODE === 'vice') ? freeR.end : split
+  const nWedge = freeEnd                                         // #0 쐐기 + 자립 쐐기(같은 지오메트리 인스턴싱)
+  const nPlate = STAIR_STEPS - freeEnd
+  const wedge = useMemo(() => (nWedge > 0 ? buildViceWedge().geometry : null), [nWedge])
   const newel = useMemo(() => (RIB_VICE_ON ? newelSpec() : null), [])
+  const freeNewel = useMemo(() => (RIB_XFER_ON ? freeNewelSpec() : null), [])
   const sill  = useMemo(() => buildSill(), [])
+  const collar = useMemo(() => buildFloorCollar(), [])    // ★62 고리 칼라(봉인)
+  const landing = useMemo(() => buildFloorLanding(), [])  // ★62 반원 착지판(착지)
   const newelC = useMemo(() => (newel ? ribCenter(newel.cy / H) : null), [newel])
+  const freeNewelC = useMemo(() => {                             // 자립 기둥 축 = 목적지 리브 중심(회전)
+    if (!freeNewel) return null
+    const c = ribCenter(freeNewel.cy / H)
+    const cs = Math.cos(RIB_DEST_PHI), sn = Math.sin(RIB_DEST_PHI)
+    return { x: c.x * cs - c.z * sn, z: c.x * sn + c.z * cs }
+  }, [freeNewel])
   useLayoutEffect(() => {
     const dum = new THREE.Object3D()
+    const cs = Math.cos(RIB_DEST_PHI), sn = Math.sin(RIB_DEST_PHI)
+    const toDest = (x, z) => [x * cs - z * sn, x * sn + z * cs]
     for (let i = 0; i < STAIR_STEPS; i++) {
       const f = (i + 0.5) / STAIR_STEPS
       const { pos, theta } = spiralPoint(f)
-      if (i < split) {
+      const onDest = RIB_XFER_ON && i >= split                   // 자립 나선·관내 판 = 목적지 방위
+      if (i < freeEnd) {
         const c = ribCenter(spiralU(f))                          // 쐐기 = 축 중심
-        dum.position.set(c.x, c.y + TREAD_THICK / 2, c.z)        // 상면을 판 상면과 정렬
-        dum.rotation.set(0, -theta, 0)
+        const [px, pz] = onDest ? toDest(c.x, c.z) : [c.x, c.z]
+        dum.position.set(px, c.y + TREAD_THICK / 2, pz)          // 상면을 판 상면과 정렬
+        dum.rotation.set(0, -theta - (onDest ? RIB_DEST_PHI : 0), 0)
         dum.updateMatrix()
         wedgeRef.current.setMatrixAt(i, dum.matrix)
       } else {
-        dum.position.copy(pos)
-        dum.rotation.set(0, -theta, 0)                           // 디딤판 장축(x=TREAD_DEPTH)이 방사 방향 — 구판 문법 유지
+        const [px, pz] = onDest ? toDest(pos.x, pos.z) : [pos.x, pos.z]
+        dum.position.set(px, pos.y, pz)
+        dum.rotation.set(0, -theta - (onDest ? RIB_DEST_PHI : 0), 0)   // 장축 방사 방향 — 구판 문법 유지
         dum.updateMatrix()
-        plateRef.current.setMatrixAt(i - split, dum.matrix)
+        plateRef.current.setMatrixAt(i - freeEnd, dum.matrix)
       }
     }
     if (wedgeRef.current) wedgeRef.current.instanceMatrix.needsUpdate = true
     plateRef.current.instanceMatrix.needsUpdate = true
-  }, [split])
+  }, [split, freeEnd])
   return (
     <>
       {newel && (
@@ -305,13 +374,47 @@ export function RibStair() {
         </mesh>
       )}
       {wedge && (
-        <instancedMesh ref={wedgeRef} args={[undefined, undefined, split]} userData={{ walkable: true }}>
+        <instancedMesh ref={wedgeRef} args={[undefined, undefined, nWedge]} userData={{ walkable: true }}>
           <primitive object={wedge} attach="geometry" />
           <meshStandardMaterial {...TREAD_MAT} />
         </instancedMesh>
       )}
-      {/* ★60 문지방 — 마지막 쐐기의 방위에서 프리즈 방 바닥까지 뻗는 한 장(§2-D ③ 매듭).
-          이게 없으면 나선과 방 바닥 사이에 0.85의 환형 허공이 남아 방에 내려설 수 없다. */}
+      {/* ★61 자립 나선 기둥 — 방 바닥(목적지 절단면 캡 위)에 접지, 아가리 직전(−FREE_MOUTH_CLR)에서 끝.
+          ★58과 같은 어휘(곧음·고립·접지·같은 반경) — 이 위로 판이 아가리를 꿰고 들어간다(한 줄 규칙). */}
+      {freeNewel && freeNewelC && (
+        <mesh position={[freeNewelC.x, freeNewel.cy, freeNewelC.z]} userData={{ walkable: false }}>
+          <cylinderGeometry args={[freeNewel.r, freeNewel.r, freeNewel.h, 24]} />
+          <meshStandardMaterial {...RIB_MAT} onBeforeCompile={ribTintOBC} />
+        </mesh>
+      )}
+      {/* ★62 고리 칼라 — 관 바깥면(6.00)~바닥 구멍(6.40)의 링 슬롯을 360° 봉인한다.
+          #0만 아랫캡이 없어(나선이 지난다) 이 링이 홀까지 뚫려 있었다 = 현도 "리브와 방 사이 틈". */}
+      {collar && (
+        <mesh
+          geometry={collar.geometry}
+          position={[collar.spec.cx, collar.spec.yTop, collar.spec.cz]}
+          userData={{ walkable: true }}
+        >
+          {FR_SILL_MAT === 'floor'
+            ? <meshStandardMaterial color={TEMPLE_COLOR} roughness={0.9} />
+            : <meshStandardMaterial {...TREAD_MAT} />}
+        </mesh>
+      )}
+      {/* ★62 반원 착지판 — 우물의 절반(도착 쪽)을 덮는다. 나머지 반은 열어 두어 올라온 나선이
+          그대로 내려다보인다(현도 확정). 방향은 기하가 정함 = 마지막 쐐기의 진행 쪽 모서리부터. */}
+      {landing && (
+        <mesh
+          geometry={landing.geometry}
+          position={[landing.spec.cx, landing.spec.yTop, landing.spec.cz]}
+          rotation-y={-landing.spec.land.thMid}
+          userData={{ walkable: true }}
+        >
+          {FR_SILL_MAT === 'floor'
+            ? <meshStandardMaterial color={TEMPLE_COLOR} roughness={0.9} />
+            : <meshStandardMaterial {...TREAD_MAT} />}
+        </mesh>
+      )}
+      {/* ★60 문지방(⚠★62가 흡수 — FR_SILL_ON=false, 되돌릴 때만 산다) */}
       {sill && (
         <mesh
           geometry={sill.geometry}
@@ -336,6 +439,35 @@ export function RibStair() {
         </mesh>
       )}
     </>
+  )
+}
+
+// ── ★61 횡단 + 1p7 비석 — 프리즈 방 바닥, #0 출구 → 목적지(#+2) 발치의 길 위 ──
+//  ⚠자리 미정(현도 07.24): STELE7_F 노브로 세 자리(출발 곁 0 / 한가운데 0.5 / 도착 발치 1)를 로컬 왕복.
+//  비석은 경로 중심선에서 서쪽(−x 안쪽)으로 STELE7_OFF 비켜 서고, 얼굴은 경로를 향한다(걷다 읽는다).
+//  담체 = 기존 PropStele 기계 그대로(P3 비석 11기 확장 때 디자인 재작업 — ★59 유보 묶음 ①).
+export function FriezeCrossing() {
+  const spec = useMemo(() => {
+    if (!RIB_XFER_ON || !STELE7_ON) return null
+    const c0 = ribCenter(FR_FLOOR_Y / H)                          // #0 발치(방 바닥 높이의 리브 축)
+    const cs = Math.cos(RIB_DEST_PHI), sn = Math.sin(RIB_DEST_PHI)
+    const p0 = [c0.x, c0.z], p2 = [c0.x * cs - c0.z * sn, c0.x * sn + c0.z * cs]
+    const dx = p2[0] - p0[0], dz = p2[1] - p0[1], L = Math.hypot(dx, dz)
+    const ch = [dx / L, dz / L]                                   // 횡단 방향
+    let nx = ch[1], nz = -ch[0]                                   // 법선 후보 — 안쪽(서·돔 중심)을 고른다
+    const mx = p0[0] + dx * 0.5, mz = p0[1] + dz * 0.5
+    if (nx * mx + nz * mz > 0) { nx = -nx; nz = -nz }
+    const px = p0[0] + dx * STELE7_F + nx * STELE7_OFF
+    const pz = p0[1] + dz * STELE7_F + nz * STELE7_OFF
+    //  PropStele 얼굴 = 로컬 −x. 로컬 +x가 n̂(비켜선 방향)을 향하게 → 얼굴이 경로 쪽(−n̂).
+    //  rotY(a): +x → (cos a, −sin a) ⇒ a = atan2(−nz, nx)
+    return { px, pz, yRot: Math.atan2(-nz, nx), L }
+  }, [])
+  if (!spec) return null
+  return (
+    <group position={[spec.px, 0, spec.pz]} rotation-y={spec.yRot}>
+      <PropStele id="1p7" x={0} z={0} faceY={FR_FLOOR_Y} near={7} far={42} />
+    </group>
   )
 }
 

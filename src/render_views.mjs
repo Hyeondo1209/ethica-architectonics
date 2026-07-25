@@ -11,7 +11,7 @@ import * as C from './constants.js'
 import { descentSpec, woldaeSpec, incaStairSpec, incaBladesSpec, drumPierAzimuths, descentPortSpec, portPrismTris, outwardTris, ribCutSpec } from './corridorStairsGeometry.js'
 import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg'
 import { WAYPOINTS, EYE } from './waypoints.js'
-import { buildViceWedge, viceSplitIndex, buildSill } from './ribGeometry.js'   // ★60 매듭 검수
+import { buildViceWedge, viceSplitIndex, buildSill, buildFloorCollar, buildFloorLanding, freeSplitRange, freeNewelSpec, destCut, openRimSpec, isOpenRib } from './ribGeometry.js'   // ★60 매듭 · ★61 자립 나선 · ★62 바닥 매듭
 
 const tris = []
 function addGeo(geo, color) {
@@ -188,14 +188,22 @@ for (const k of [-2, -1, 0, 1, 2]) {
       for (let j = 0; j < S; j++) quad(prev[j], prev[(j + 1) % S], cur[(j + 1) % S], cur[j], [204, 186, 146])
     prev = cur
   }
-  //  절단면 캡(#0 제외 — 보어가 길이라 안 막는다)
-  if (cut && k !== 0) for (const [yy, rr] of [[cut.yBot, cut.capB], [cut.yTop, cut.capT]]) {
-    const cx = C.rOf(yy / C.H) * Math.cos(phi), cz = C.rOf(yy / C.H) * Math.sin(phi), NC = 20
-    for (let j = 0; j < NC; j++) {
-      const a0 = j / NC * Math.PI * 2, a1 = (j + 1) / NC * Math.PI * 2
-      tris.push({ v: [[cx, yy, cz], [cx + rr * Math.cos(a0), yy, cz + rr * Math.sin(a0)],
-                      [cx + rr * Math.cos(a1), yy, cz + rr * Math.sin(a1)]], c: [178, 158, 120] })
+  //  ★64-3: 실제 앱(RibCutCaps)과 **같은 규칙**으로 그린다 — 이게 어긋나 있어서 셀프 렌더가
+  //   위아래 원판을 그리고 나는 그걸 보고 '괜찮다'고 오판했다(현도 반복 적발). 규칙:
+  //   · 아랫캡: isOpenRib면 없음(발코니가 대신) · #0 없음(우물) · 그 외(#+2)만 원판
+  //   · 윗캡: wallOf>0(살 있는 관 = 다섯 전부 'cut5')이면 없음(절단면이 저절로 고리 = 아가리)
+  const wallOfK = (kk) => (C.RIB_WALL_ON && (C.RIB_WALL_SCOPE === 'cut5' || kk === 0 || (C.RIB_XFER_ON && kk === C.RIB_DEST_K))) ? C.RIB_WALL_T : 0
+  if (cut) {
+    const drawCap = (yy, rr) => {
+      const cx = C.rOf(yy / C.H) * Math.cos(phi), cz = C.rOf(yy / C.H) * Math.sin(phi), NC = 20
+      for (let j = 0; j < NC; j++) {
+        const a0 = j / NC * Math.PI * 2, a1 = (j + 1) / NC * Math.PI * 2
+        tris.push({ v: [[cx, yy, cz], [cx + rr * Math.cos(a0), yy, cz + rr * Math.sin(a0)],
+                        [cx + rr * Math.cos(a1), yy, cz + rr * Math.sin(a1)]], c: [178, 158, 120] })
+      }
     }
+    if (!isOpenRib(k) && k !== 0) drawCap(cut.yBot, cut.capB)   // 아랫캡: #+2만(발판)
+    if (wallOfK(k) === 0) drawCap(cut.yTop, cut.capT)           // 윗캡: 살 없는 관만(현 상태엔 없음)
   }
 }
 // ── ★56 노출 나선(#0 간극 구간) — §2-D ① '의도된 부양'(1p7 증명된 뜸). 여기가 검수의 핵심이다 ──
@@ -216,7 +224,7 @@ for (const k of [-2, -1, 0, 1, 2]) {
 {
   const rx0 = C.TEMPLE_X0 + C.FR_WALL_T, rx1 = C.TEMPLE_X1 + C.FR_ANNEX - C.FR_BACK_T
   const rzh = C.TEMPLE_HZ - C.FR_WALL_T, fy = C.FR_FLOOR_Y
-  const holes = CUTS.map(c => ({ x: c.bx, z: c.bz, r: C.SHELL_RIB_R + C.TEMPLE_CLR }))
+  const holes = CUTS.map(c => ({ x: c.bx, z: c.bz, r: C.SHELL_RIB_R + C.RIB_HOLE_CLR }))   // ★64-2 헤어라인 여유
   const NX = 44, NZ = 66
   for (let i = 0; i < NX; i++) for (let j = 0; j < NZ; j++) {
     const x0 = rx0 + (rx1 - rx0) * i / NX, x1 = rx0 + (rx1 - rx0) * (i + 1) / NX
@@ -225,8 +233,24 @@ for (const k of [-2, -1, 0, 1, 2]) {
     if (holes.some(h => Math.hypot(cx - h.x, cz - h.z) < h.r)) continue
     quad([x0, fy, z0], [x1, fy, z0], [x1, fy, z1], [x0, fy, z1], [186, 160, 112])
   }
-  //  아랫캡 넷(= 바닥 구멍의 마개, 끊긴 자리가 바닥 무늬가 된다)
-  for (const c of CUTS) if (c.k !== 0) {
+  //  ★63 우물 발코니 — 뚫린 셋의 테두리(난간 + 한 단 올라선 판)
+  const rimS = openRimSpec()
+  if (rimS) for (const c of CUTS) if (isOpenRib(c.k)) {
+    const ring = (r0, r1, y0, y1, col) => {
+      const N = 32
+      for (let a = 0; a < N; a++) {
+        const t0 = a / N * Math.PI * 2, t1 = (a + 1) / N * Math.PI * 2
+        const P = (r, t, y) => [c.bx + r * Math.cos(t), y, c.bz + r * Math.sin(t)]
+        quad(P(r0, t0, y1), P(r1, t0, y1), P(r1, t1, y1), P(r0, t1, y1), col)          // 상면
+        quad(P(r0, t0, y0), P(r0, t0, y1), P(r0, t1, y1), P(r0, t1, y0), col)          // 안쪽면
+        quad(P(r1, t0, y0), P(r1, t0, y1), P(r1, t1, y1), P(r1, t1, y0), col)          // 바깥면
+      }
+    }
+    ring(rimS.rimIn, rimS.rimOut, rimS.rimY0, rimS.rimY1, [150, 122, 80])
+    ring(rimS.balIn, rimS.balOut, rimS.balY0, rimS.balY1, [163, 133, 88])
+  }
+  //  아랫캡(= 바닥 구멍의 마개) — ★63으로 뚫린 셋은 제외
+  for (const c of CUTS) if (c.k !== 0 && !isOpenRib(c.k)) {
     const NC = 24
     for (let j = 0; j < NC; j++) {
       const a0 = j / NC * Math.PI * 2, a1 = (j + 1) / NC * Math.PI * 2, yy = c.yBot + 0.02
@@ -242,10 +266,60 @@ for (const k of [-2, -1, 0, 1, 2]) {
     const g = wg.clone(); g.rotateY(-theta); g.translate(cc.x, cc.y + C.TREAD_THICK / 2, cc.z)
     addGeo(g, [214, 171, 104])
   }
-  //  ★60 문지방 — 색을 일부러 갈라 둔다(검수에서 어디가 매듭인지 즉시 보이게)
+  //  ★60 문지방 / ★62 칼라·착지판 — 색을 일부러 갈라 둔다(검수에서 어디가 매듭인지 즉시 보이게)
   const sb = buildSill()
   if (sb) { const g = sb.geometry.clone(); g.rotateY(-sb.spec.theta); g.translate(sb.spec.cx, sb.spec.yTop, sb.spec.cz)
     addGeo(g, [150, 122, 80]) }
+  const cb = buildFloorCollar()
+  if (cb) { const g = cb.geometry.clone(); g.translate(cb.spec.cx, cb.spec.yTop, cb.spec.cz); addGeo(g, [150, 122, 80]) }
+  const lb = buildFloorLanding()
+  if (lb) { const g = lb.geometry.clone(); g.rotateY(-lb.spec.land.thMid); g.translate(lb.spec.cx, lb.spec.yTop, lb.spec.cz)
+    addGeo(g, [163, 133, 88]) }
+  //  ★61 — 자립 나선(쐐기 회전 배치) + 기둥 + 목적지 아가리 토막 + 1p7 비석(사각지대 예방: ★60 교훈)
+  if (C.RIB_XFER_ON) {
+    const fr = freeSplitRange(), ns = freeNewelSpec(), dc = destCut()
+    if (fr && dc) {
+      const cs = Math.cos(C.RIB_DEST_PHI), sn = Math.sin(C.RIB_DEST_PHI)
+      const rot = (x, z) => [x * cs - z * sn, x * sn + z * cs]
+      for (let i = fr.start; i < fr.end; i++) {
+        const f = (i + 0.5) / C.STAIR_STEPS, { pos, theta } = C.spiralPoint(f)
+        if (C.RIB_FREE_MODE === 'vice') {                       // ★61 원안 = 쐐기(축 중심)
+          const cc = C.ribCenter(C.spiralU(f))
+          const [px, pz] = rot(cc.x, cc.z)
+          const g = wg.clone(); g.rotateY(-theta - C.RIB_DEST_PHI); g.translate(px, cc.y + C.TREAD_THICK / 2, pz)
+          addGeo(g, [214, 171, 104])
+        } else {                                                 // ★62-2 통일 = 부양 판(헬릭스 위)
+          const [px, pz] = rot(pos.x, pos.z)
+          const g = new THREE.BoxGeometry(C.TREAD_DEPTH, C.TREAD_THICK, C.TREAD_WIDTH)
+          g.rotateY(-theta - C.RIB_DEST_PHI); g.translate(px, pos.y, pz)
+          addGeo(g, [214, 171, 104])
+        }
+      }
+      if (ns) {   // 자립 기둥('vice' 어휘일 때만)
+        const mc = C.ribCenter(ns.cy / C.H); const [px, pz] = rot(mc.x, mc.z)
+        const g = new THREE.CylinderGeometry(ns.r, ns.r, ns.h, 20); g.translate(px, ns.cy, pz)
+        addGeo(g, [187, 138, 78])
+      }
+      {   // 목적지 윗토막 하부 8m(아가리) — 절단면 위에서 시작하는 관 토막(고리는 근사: 겉면만)
+        const pts = []
+        for (let i = 0; i <= 24; i++) { const y = dc.yTop + i / 24 * 8; pts.push(new THREE.Vector3(C.rOf(y / C.H), y, 0)) }
+        const g = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, C.SHELL_RIB_R, 12, false)
+        g.rotateY(-C.RIB_DEST_PHI)
+        addGeo(g, [187, 138, 78])
+      }
+      if (C.STELE7_ON) {   // 1p7 비석(슬랩 근사 — ⚠현도 07.24 소등, 자리 재판정 후 복귀)
+        const c0 = C.ribCenter(C.FR_FLOOR_Y / C.H)
+        const [qx, qz] = rot(c0.x, c0.z)
+        const dx = qx - c0.x, dz = qz - c0.z
+        let nx = dz, nz = -dx; const nl = Math.hypot(nx, nz); nx /= nl; nz /= nl
+        if (nx * (c0.x + dx / 2) + nz * (c0.z + dz / 2) > 0) { nx = -nx; nz = -nz }
+        const bx = c0.x + dx * C.STELE7_F + nx * C.STELE7_OFF, bz = c0.z + dz * C.STELE7_F + nz * C.STELE7_OFF
+        const g = new THREE.BoxGeometry(0.5, 5.5, 4.4)
+        g.rotateY(Math.atan2(-nz, nx)); g.translate(bx, C.FR_FLOOR_Y + 3.0, bz)
+        addGeo(g, [106, 97, 82])
+      }
+    }
+  }
 }
 
 function render(eye, yaw, pitch, W, H, name) {

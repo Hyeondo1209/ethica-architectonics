@@ -1,10 +1,10 @@
 import { Canvas } from '@react-three/fiber'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import GraphScaffold from './GraphScaffold'
-import { SCALE } from './constants'
+import { SCALE, RIB_XFER_ON, RIB_DEST_PHI } from './constants'
 import { FirstPersonControls } from './FirstPersonControls'
 import { WAYPOINTS, WP_GROUPS, SPAWN_ID, DEV_TELEPORT, wpIndexOf } from './waypoints'
-import { Ground, DomeRibs, ExplorationRib, HallDoorRibs, RibStair, KneeWalk, RibJunction, Lookout, RevealPassage, CloisterLamps, Terrace } from './Dome'
+import { Ground, DomeRibs, ExplorationRib, HallDoorRibs, RibStair, KneeWalk, RibJunction, Lookout, RevealPassage, CloisterLamps, Terrace, FriezeCrossing } from './Dome'
 import { ApexLens } from './Lens'
 import { DefAxiomRoom } from './Room'
 import { Corridor } from './Corridor'
@@ -72,12 +72,18 @@ export default function App() {
               <RadialEvents />
               <ApexLens />
               <RibStair />
-              <KneeWalk />
-              <RibJunction />
-              <Lookout />
-              <RevealPassage />
-              <CloisterLamps />
-              <Terrace />
+              <FriezeCrossing />
+              {/* ★61 상부 여정 그룹 — 목적지 리브(#+2, +10°)로 통째 회전. 10° = 리브 간격의 정확히
+                  2배라 리브 격자가 자기 위로 겹침(회랑↔리브 상대기하 불변 · k 라벨만 +2).
+                  RibStair는 자립·판 인스턴스에 같은 회전을 행렬로 편입하므로 이 그룹 밖(§Dome 주석). */}
+              <group rotation-y={RIB_XFER_ON ? -RIB_DEST_PHI : 0}>
+                <KneeWalk />
+                <RibJunction />
+                <Lookout />
+                <RevealPassage />
+                <CloisterLamps />
+                <Terrace />
+              </group>
             </group>
             <FirstPersonControls />
           </>
