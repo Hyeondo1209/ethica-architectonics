@@ -123,7 +123,11 @@ export function prismGeometry() {
 //   그건 곡선과 종단 분할의 함수다. 같은 인자로 부르면 정점이 1:1로 같으므로 위상 문제가 **소멸**한다.
 //  ⚠범위는 무릎길이 쓰는 u 구간 + 여유만(★64-5 교훈 — 넘치면 관벽이 유령으로 남는다. 여기선 교차라
 //   유령은 안 남지만 삼각형만 낭비된다).
-export function innerTubeSolid() {
+//  ★70(2026.07.25): x 범위를 **인자로 열었다.** 무릎길은 그대로(무인자 = 구 동작) 쓰고,
+//   정션 권역(`junctionGeometry.js`)이 자기 발자국을 명시해 부른다.
+//   ⚠구판은 정션 판(x 184.5~190.5)을 링 격자 스냅의 **우연**으로 덮고 있었다(실측 솔리드 183.62~292.31,
+//    선언 범위는 188.01~285.19). 우연에 기대면 무릎길 노브를 만지는 순간 조용히 벗어난다 — 명시로 바꾼다.
+export function innerTubeSolid(xLoArg, xHiArg) {
   const r = RIB_WALL_ON ? SHELL_RIB_R - RIB_WALL_T : SHELL_RIB_R
   const curve = makeRibCurve()
   const geo = new THREE.TubeGeometry(curve, RIB_TUB_SEG, r, RIB_RADIAL_SEG, false)
@@ -135,7 +139,8 @@ export function innerTubeSolid() {
   const ctrAt = (i) => curve.getPointAt(i / RIB_TUB_SEG)
   //  ⚠u→i 변환도 같은 이유로 못 쓴다(u는 원 파라미터). 범위는 **실제 링 중심 x**로 고른다.
   const S = kneeBodySamples()
-  const xLo = Math.min(...S.map(s => s.x)) - 2, xHi = Math.max(...S.map(s => s.x)) + 2
+  const xLo = xLoArg ?? (Math.min(...S.map(s => s.x)) - 2)
+  const xHi = xHiArg ?? (Math.max(...S.map(s => s.x)) + 2)
   let i0 = 0, i1 = RIB_TUB_SEG
   for (let i = 0; i <= RIB_TUB_SEG; i++) {                  // 링 중심 x는 i에 대해 단조 감소(리브가 위로 갈수록 안으로)
     const cx = ctrAt(i).x

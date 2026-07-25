@@ -12,9 +12,9 @@ import {
   DOOR_W, DOOR_H, DOOR_SILL_Y, HALL_DOORS_ON,
   U_KNEE_END, KW_TREAD_W, LAND_R, LAND_T, X_LAND_LO, X_LAND_HI, Z_LAND,
   JCT_UP_Z, JCT_DN_Z, LOOKOUT_MAX_SLOPE, U_LOOKOUT_END, LK_STEPS, LK_PLAT_R, LK_DISC_LIFT,
-  LK_DISC_HALF, LK_DISC_DX, LK_DISC_DY, LK_DISC_DZ, LK_DISC_ROT,
+  LK_DISC_HALF, LK_DISC_DX, LK_DISC_DY, LK_DISC_DZ, LK_DISC_ROT, LK_DISC_T, SHAFT_ON,
   DESC_SLOPE, DESC_STEPS, X_DESC0, PASS_FLOOR_Y,
-  PASS_HW, PASS_T, PASS_X_DEEP, PASS_X_CHEEK, CHEEK_TOP_NZ, CHEEK_TOP_PZ,
+  PASS_HW, PASS_T, PASS_X_DEEP, PASS_X_CHEEK, CHEEK_TOP_NZ, CHEEK_TOP_PZ, RM_ROOF_OV_PX,
   ARCH_X0, ARCH_X1, ARCH_Y0, ARCH_Y1, ARCH_Z0, ARCH_Z1,
   PASS_DOOR_W, PASS_DOOR_H,
   PASS_X_END, CL_R, CL_HW, CL_PHI0, CL_PHI1, CL_ROOF, CL_SILL, CL_HEAD, CL_OP_P0, CL_OP_P1,
@@ -33,6 +33,7 @@ import {
 import { hallDoors, ribCutSpec } from './corridorStairsGeometry'
 import { buildRibShell, makeRibCurve, buildViceWedge, viceSplitIndex, newelSpec, buildSill, buildFloorCollar, buildFloorLanding, freeNewelSpec, freeSplitRange, buildOpenRim, isOpenRib } from './ribGeometry'
 import { buildKneeBody, buildKneePlinth } from './kneeBodyGeometry'
+import { buildJunctionKnot, buildLightShaft, shaftCutSolid, lightShaftSpec, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek } from './junctionGeometry'   // ★70 매듭 · ★71 빛 기둥
 import { kneeTreads, kneeStairSpec } from './kneeStair'   // ★66 계단 규격·참
 import { PropStele } from './Steles'
 
@@ -259,6 +260,20 @@ export function HallDoorRibs() {
         const rb0 = new Brush(acc); rb0.updateMatrixWorld()
         const ab = new Brush(archCut); ab.updateMatrixWorld()
         acc = ev.evaluate(rb0, ab, OP).geometry
+        //  ★★71 LOCKED 예외 #4 — 빛 기둥이 목적지 리브 껍질을 뚫는다(현도 승인 2026.07.25).
+        //   근거 = 예외 #1·#2와 **같은 형식**: "갈림길 권역의 리브는 1p11 공개 이전 어느 시점에서도
+        //   밖에서 보이지 않는다"(현도). ⚠★59에서 '리브 창'이 폐기된 지점과 같으므로, 이 예외는
+        //   **불가시가 실측으로 유지되는 한에서만** 유효하다 — 검증 U절이 상시 확인한다.
+        //   자르개는 상부 여정 그룹과 같은 −RIB_DEST_PHI 회전으로 놓는다(아치와 동일 수법).
+        if (SHAFT_ON) {
+          const s = lightShaftSpec()
+          //  범위 = 껍질을 지나는 대역만(★64-5: 넘치면 관벽이 유령 구조로 남는다)
+          const shaftCut = shaftCutSolid(s.roofTop, s.discBot)
+          shaftCut.rotateY(-RIB_DEST_PHI)
+          const rb1 = new Brush(acc); rb1.updateMatrixWorld()
+          const sb = new Brush(shaftCut); sb.updateMatrixWorld()
+          acc = ev.evaluate(rb1, sb, OP).geometry
+        }
       }
       if (!HALL_DOORS_ON) return acc                   // ★㊶-3 임시 소등: 문 컷 없이(아치는 위에서 유지 — ★61)
       const cut = new THREE.BoxGeometry(SHELL_RIB_R, DOOR_H, DOOR_W)
@@ -478,12 +493,26 @@ export function FriezeCrossing() {
 
 // ── 착지 디스크(전망 플랫폼): 부양 판(방 디딤판 어휘). 온전한 원판, topLift로 높이 조정 ──
 //  (갈림 디스크는 무릎길 슬롯이 필요해 아래 JunctionDisc가 따로 담당.)
-function LandingDisc({ u, topLift = 0.1, r = LAND_R, dx = 0, dz = 0, half = false, rotY = 0 }) {
+function LandingDisc({ u, topLift = 0.1, r = LAND_R, dx = 0, dz = 0, half = false, rotY = 0, t = LAND_T, bore = false }) {
   const cx = rOf(u) + dx, topY = u * H + topLift
-  const geoArgs = half ? [r, r, LAND_T, 40, 1, false, Math.PI, Math.PI] : [r, r, LAND_T, 40]  // 반원 = thetaLength π · thetaStart π → 평평한 면(지름변)이 +x 향(램프 쪽), 곡면은 −x(돔 중심)쪽
+  //  ★71: 빛 기둥이 판을 뚫는다 — 판 윗면에 관 아가리가 드러난다(현도 "윗면이 판에 딱 맞도록").
+  //   ⚠자르개는 회전 **전** 로컬 좌표에서 빼고, 결과를 mesh의 rotation-y가 함께 돌린다(구멍도 같이 돈다).
+  const geo = useMemo(() => {
+    //  ★71-2b(현도 적발): `cylinderGeometry`는 thetaLength<2π일 때 **부채꼴 평면을 안 만든다** →
+    //   위·아래 캡만 있는 종잇장으로 보인다. `discSolid`(Shape+Extrude)는 윤곽이 닫혀 옆면이 생긴다.
+    const g = discSolid(r, t, half)
+    g.translate(cx, topY - t, dz)
+    if (!(bore && SHAFT_ON)) return g
+    const cut = shaftCutSolid(topY - t - 0.5, topY + 0.5)
+    const ev = new Evaluator(); ev.attributes = ['position', 'normal']
+    const a = new Brush(g), b = new Brush(cut)
+    a.updateMatrixWorld(); b.updateMatrixWorld()
+    const out = ev.evaluate(a, b, SUBTRACTION)
+    g.dispose(); cut.dispose()
+    return out.geometry
+  }, [cx, topY, t, r, half, dz, bore])
   return (
-    <mesh position={[cx, topY - LAND_T / 2, dz]} rotation-y={rotY} userData={{ walkable: true }}>
-      <cylinderGeometry args={geoArgs} />
+    <mesh geometry={geo} rotation-y={rotY} userData={{ walkable: true }}>
       <meshStandardMaterial {...TREAD_MAT} />
     </mesh>
   )
@@ -492,13 +521,26 @@ function LandingDisc({ u, topLift = 0.1, r = LAND_R, dx = 0, dz = 0, half = fals
 // ── 갈림 착지장(JunctionLanding, ★②-재설계 v3 2026.07.06): 사각 판. 세 계단이 판 가장자리에서 시작(관통 없음).
 //  무릎길은 +x 변(X_LAND_HI=xB)에 도착 · 전망(z−2.4)·하강(z+1.75)은 −x 변(X_LAND_LO)에서 밖으로 나감(위/아래).
 //  전망을 '곧은 램프'로 바꾼 것과 짝(리브곡면 따라 판 위로 가로지르던 문제 소멸). 단순 박스.
+//  ★70(2026.07.25) 매듭 부착 — §2-D ③ 두께 위계를 정션에서 세운다.
+//   무릎길이 0.20 < 1.60 < 2.60 세 단을 세워 놓았는데 판 하나 건너 여기가 **0.35**였다:
+//   여정에서 세 갈래가 만나는 가장 큰 마디가 가장 얇았던 것.
+//   ★67 수법 그대로 — 걷는 면(LAND_T)은 손대지 않고 **밑에** 매스를 단다.
+//   (LAND_T를 키우면 LK_DISC_LIFT가 물려 있어 1p8 전망 디스크가 따라 올라간다.)
 function JunctionLanding() {
-  const w = X_LAND_HI - X_LAND_LO
+  const knotGeo = useMemo(() => buildJunctionKnot(), [])
+  const plateGeo = useMemo(() => buildJunctionPlate(), [])
   return (
-    <mesh position={[(X_LAND_LO + X_LAND_HI) / 2, U_KNEE_END * H + 0.1 - LAND_T / 2, 0]} userData={{ walkable: true }}>
-      <boxGeometry args={[w, LAND_T, 2 * Z_LAND]} />
-      <meshStandardMaterial {...TREAD_MAT} />
-    </mesh>
+    <>
+      {knotGeo && (
+        <mesh geometry={knotGeo}>
+          <meshStandardMaterial {...KNEE_BODY_MAT} />
+        </mesh>
+      )}
+      {/* ★72 판 윤곽 — 'bore'면 관 단면을 따라 벽에 닿는다(뜬 모서리 소멸) · 'rect'면 구판 사각 */}
+      <mesh geometry={plateGeo} userData={{ walkable: true }}>
+        <meshStandardMaterial {...TREAD_MAT} />
+      </mesh>
+    </>
   )
 }
 
@@ -630,7 +672,8 @@ export function Lookout() {
       </instancedMesh>
       {/* ★반원 디스크 + 노브(2026.07.07): 램프가 지름변에 맞닿게 LK_DISC_ROT로 평평한 변을 램프 쪽으로 돌려 맞춤. */}
       <LandingDisc u={U_LOOKOUT_END} r={LK_PLAT_R} topLift={LK_DISC_LIFT + LK_DISC_DY}
-        dx={LK_DISC_DX} dz={LK_DISC_DZ} half={LK_DISC_HALF} rotY={LK_DISC_ROT} />
+        dx={LK_DISC_DX} dz={LK_DISC_DZ} half={LK_DISC_HALF} rotY={LK_DISC_ROT}
+        t={LK_DISC_T} bore />{/* ★71 두께 분리 + 빛 기둥 관통 */}
     </>
   )
 }
@@ -653,7 +696,8 @@ export function RevealPassage() {
   //    측벽 2(구 볼벽: −z 상단 255.4 = 정션 판 하면 아래 · +z 상단 257.5/깊이 PASS_X_DEEP — 검증 ㉛)
   slab((RM_X1 + PASS_X_DEEP) / 2, floor - t / 2, zc, PASS_X_DEEP - RM_X1, t, 2 * PASS_HW + 2 * t)
   wall((RM_X1 + PASS_X_CHEEK) / 2, (floor + CHEEK_TOP_NZ) / 2, zc - zw, PASS_X_CHEEK - RM_X1, CHEEK_TOP_NZ - floor, t)
-  wall((RM_X1 + PASS_X_DEEP) / 2, (floor + CHEEK_TOP_PZ) / 2, zc + zw, PASS_X_DEEP - RM_X1, CHEEK_TOP_PZ - floor, t)
+  //  ★74 +z 볼벽은 박스가 아니라 **레이크 프로파일**(정본 = junctionGeometry.buildPzCheek).
+  //   상단이 x에 따라 변하므로 박스로는 못 만든다 — 아래 렌더에서 별도 mesh로 나간다.
 
   // B. 방: 바닥 + 4벽 + 지붕. +x벽 입(하강 — 구 린텔 개구 치수 2zw×5.2) · +z벽 입(회랑 폭×CL_ROOF)
   //  ★바닥은 +z로 0.6 더 뻗어 회랑 바닥 링 시작(z≈5.2~5.4, φ0 방사변)에 겹침 — 직육면체↔원호 이음매 바닥 틈(줄무늬) 봉인.
@@ -672,7 +716,15 @@ export function RevealPassage() {
   // 회랑 입 위 트랜섬/소핏: 방 천장(RM_ROOF)↔회랑 천장(CL_ROOF) 단차를 막음. ★CL_ROOF>RM_ROOF면 상승 소핏,
   //  반대면 구 헤더 — Math.abs로 양쪽 안전(음수 붕괴 방지). 낮은 천장서 시작해 높은 천장 위로 +t 물림(틈 봉인).
   wall((mX0 + mX1) / 2, floor + (RM_ROOF + CL_ROOF + t) / 2, RM_Z1 + t / 2, mX1 - mX0, Math.abs(CL_ROOF - RM_ROOF) + t, t)
-  wall((RM_X0 + RM_X1) / 2, floor + RM_ROOF + t / 2, (RM_Z0 + RM_Z1) / 2, RM_X1 - RM_X0 + 2 * t, t, RM_Z1 - RM_Z0 + 2 * t)
+  //  ★71 지붕 = 빛 기둥이 뚫고 지나는 유일한 면 → 자르개로 구멍을 낸다(아래 렌더에서 CSG).
+  //   ⚠밀폐(스포 3중 ③)는 **관 자신이 마개를 겸해** 유지된다 — 구멍이 관보다 SHAFT_FUSE만큼 작아 융착된다.
+  //  ★73 +x 오버행 절삭 — 벽 바깥면에 맞춘다(구판은 0.3 더 나와 하강 도중 보였다).
+  //   ⚠다른 세 변(−x·±z)은 그대로 — 거긴 안 보이고 봉인에 기여한다.
+  {
+    const rx0 = RM_X0 - t, rx1 = RM_X1 + RM_ROOF_OV_PX
+    B.push({ p: [(rx0 + rx1) / 2, floor + RM_ROOF + t / 2, (RM_Z0 + RM_Z1) / 2],
+             s: [rx1 - rx0, t, RM_Z1 - RM_Z0 + 2 * t], walk: false, bore: true })
+  }
 
   // C. 회랑(원호, ★스캔·레이캐스트 판정 — constants 주석): 바닥·지붕 = 링 섹터 / 벽 = 실린더 섹터 / 끝캡·스텁 = 회전 박스.
   //   좌표 변환: φ = atan2(z,x). ringGeometry(rot-x −π/2): θ = −φ → thetaStart −φ1. cylinderGeometry: θ = π/2 − φ.
@@ -738,12 +790,73 @@ export function RevealPassage() {
       </group>
       {/* A(하강 채널) + B(방) 박스 대장 — 위 수식으로 채워진 B[] 일괄 렌더 */}
       {B.map((b, i) => (
+        b.bore && SHAFT_ON ? (
+          <BoredBox key={i} p={b.p} s={b.s} />
+        ) : (
         <mesh key={i} position={b.p} userData={b.walk ? { walkable: true } : undefined}>
           <boxGeometry args={b.s} />
           <meshStandardMaterial {...(b.walk ? FLOOR_MAT : SHELL_MAT)} side={THREE.DoubleSide} />
         </mesh>
+        )
       ))}
+      {/* ★74 +z 볼벽(레이크 상단) — 갈림판 윗면을 뚫고 올라오던 1.4를 걷어냈다 */}
+      <PzCheek />
+      {/* ★71 빛 기둥 — 전망 반원 판 → 이 방. 리브 껍질·지붕·판 셋을 같은 자르개로 뚫는다. */}
+      <LightShaft />
     </group>
+  )
+}
+
+// ── ★71 지붕 구멍: 상자에서 관 자르개를 뺀다 ──
+//  ⚠상자를 두께 0 셸로 두면 감산이 안 먹는다(★64-4 전례) — boxGeometry는 닫힌 솔리드라 정식 SUBTRACTION이 통한다.
+function BoredBox({ p, s }) {
+  const geo = useMemo(() => {
+    const box = new THREE.BoxGeometry(...s)
+    box.translate(...p)
+    //  자르개 범위 = 지붕 두께 ± 여유만(★64-5 교훈: 넘치면 관벽이 유령으로 남는다)
+    const cut = shaftCutSolid(p[1] - s[1] / 2 - 0.5, p[1] + s[1] / 2 + 0.5)
+    const ev = new Evaluator(); ev.attributes = ['position', 'normal']
+    const a = new Brush(box), b = new Brush(cut)
+    a.updateMatrixWorld(); b.updateMatrixWorld()
+    const out = ev.evaluate(a, b, SUBTRACTION)
+    box.dispose(); cut.dispose()
+    return out.geometry
+  }, [])
+  return (
+    <mesh geometry={geo}>
+      <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+    </mesh>
+  )
+}
+
+// ── ★74 +z 볼벽(레이크 상단) ──
+function PzCheek() {
+  const geo = useMemo(() => buildPzCheek(), [])
+  return (
+    <mesh geometry={geo}>
+      <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+    </mesh>
+  )
+}
+
+// ── ★71 빛 기둥 본체 ──
+function LightShaft() {
+  const geo = useMemo(() => buildLightShaft(), [])
+  //  ★71-4 격자 체 — 판의 구멍을 덮어 **밟을 수 있게** 하면서 빛은 통과시킨다(현도 제안).
+  const grate = useMemo(() => buildShaftGrate(), [])
+  return (
+    <>
+      {geo && (
+        <mesh geometry={geo} userData={{ walkable: false }}>
+          <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+        </mesh>
+      )}
+      {grate && (
+        <mesh geometry={grate} userData={{ walkable: true }}>
+          <meshStandardMaterial {...TREAD_MAT} />
+        </mesh>
+      )}
+    </>
   )
 }
 

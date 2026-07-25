@@ -47,12 +47,17 @@ import {
   INCA_PANEL_L, INCA_PANEL_W, INCA_PANEL_T, INCA_ARCH_X0, INCA_ARCH_Y1, INCA_FACETS,
   INCA_NEXUS_R, INCA_TIP_Y1, INCA_TIP_Y2, INCA_GAP, INCA_TIP_T, INCA_EMBED,
   CL_SILL, CL_R, PASS_FLOOR_Y, TERRACE_RIN, TERRACE_ROUT, TERRACE_Y,
+  JCT_KNOT_TOP, LK_DISC_T, LK_PLAT_R, LK_DISC_DX, LK_DISC_LIFT, LK_TOPSTEP_TOP, U_LOOKOUT_END, RM_X1, RM_Z0, RM_Z1,
+  SHAFT_GRATE_ON, SHAFT_GRATE_BAR, SHAFT_GRATE_GAP, SHAFT_GRATE_T,
+  JCT_PLATE_MODE, JCT_PLATE_SEG, JCT_UP_Z, JCT_DN_Z,
+  RM_ROOF_OV_PX, CHEEK_TOP_PZ, CHEEK_TOP_NZ, PASS_T,
 } from './constants.js'
 import { hallDoors, buildHallStairs, PLAT_TOP, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal, ribCutSpec } from './corridorStairsGeometry.js'
 import * as THREE from 'three'                                                   // ★56 CSG 스모크(check_radial 전례)
 import { Brush, Evaluator, HOLLOW_SUBTRACTION, SUBTRACTION } from 'three-bvh-csg'
 import { kneeBodySamples, kneeBodySpec, kneeWalkY, kneeBodyHalfWidth, prismGeometry, innerTubeSolid, buildKneeBody, buildKneePlinth, kneeWallHalfAt } from './kneeBodyGeometry.js'
 import { kneeStairSpec, kneeTreads, kneeTreadW, kneeSurfaceY, kneeSpineY, kneeHeadroom, KNEE_NOSE, KNEE_SX, KNEE_XA, KNEE_XB, KNEE_YA, KNEE_YB, KNEE_RUN, KNEE_CLIMB } from './kneeStair.js'   // ★66   // ★65 무릎길 몸
+import { buildJunctionKnot, junctionKnotSpec, buildLightShaft, lightShaftSpec, shaftCutSolid, buildShaftGrate, discSolid, buildJunctionPlate, junctionPlateOutline, plateMaxHalf, JCT_PLATE_TOP, buildPzCheek, pzCheekProfile, cheekTopPzAt } from './junctionGeometry.js'   // ★70 매듭 · ★71 빛 기둥
 import { buildRibShell, makeRibCurve, shellVolumeApprox, signedVolume, buildViceWedge, viceSplitIndex, newelSpec, viceBottomY, VICE_DTHETA, sillSpec, buildSill, freeSplitRange, freeNewelSpec, destCut, floorKnotSpec, buildFloorCollar, buildFloorLanding, openRimSpec, isOpenRib, ribHoleSolid } from './ribGeometry.js'
 
 let n = 0, fail = 0
@@ -2391,6 +2396,205 @@ console.log('\n— T. ★66 무릎길 계단 규격 (골판 → 계단 + 참) �
     ok(jump <= 1.6, `도입 참 폭 ${r2(e2 ? e2.z1 - e2.z0 : 0)} ÷ 수로 폭 ${r2(chan)} = ${r2(jump)}배 ≤ 1.6 (★67-3 시절 4.0배)`)
   }
   console.log(`     └ ★66 실측: ${s.N}단(구 435) · R ${r2(s.R)} · G ${r2(s.G)} · flight ${s.slopeDeg.toFixed(1)}° · flight ${s.flights.length}개 · 참 ${s.landings.length}개(총 ${r2(s.landTotal)}) · 층고 ${r2(minHR)}~${r2(Math.max(...[0.05, 0.2, 0.4].map(f => kneeHeadroom(KNEE_XA - KNEE_RUN * f))))}`)
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════
+console.log('\n— U. ★70 정션 매듭 + ★71 빛 기둥 (LOCKED 예외 #4) —')
+// ══════════════════════════════════════════════════════════════════════════
+{
+  const K = junctionKnotSpec(), S = lightShaftSpec()
+  const vol = (g0) => { const g = g0.index ? g0.toNonIndexed() : g0, p = g.attributes.position; let v = 0
+    for (let i = 0; i < p.count; i += 3) { const ax=p.getX(i),ay=p.getY(i),az=p.getZ(i),bx=p.getX(i+1),by=p.getY(i+1),bz=p.getZ(i+1),cx=p.getX(i+2),cy=p.getY(i+2),cz=p.getZ(i+2)
+      v += (ax*(by*cz-bz*cy) - ay*(bx*cz-bz*cx) + az*(bx*cy-by*cx)) / 6 } return v }
+  const finite = (g0) => { const g = g0.index ? g0.toNonIndexed() : g0, p = g.attributes.position
+    for (let i = 0; i < p.count; i++) if (![p.getX(i),p.getY(i),p.getZ(i)].every(Number.isFinite)) return false; return true }
+  const axisDist = (x, y, z) => { let b = 1e9
+    for (let u = 0.15; u < 0.40; u += 0.0002) b = Math.min(b, Math.hypot(rOf(u)-x, u*H-y, z)); return b }
+
+  // ── ★70 매듭: 두께 위계가 정션에서 바로 서는가 ──
+  ok(TREAD_THICK < KW_BODY_D && KW_BODY_D < KW_KNOT_D,
+     `두께 위계(§2-D ③) 걷는 것 ${TREAD_THICK} < 받치는 것 ${KW_BODY_D} < 매듭 ${KW_KNOT_D}`)
+  ok(!K.on || K.depth >= KW_KNOT_D,
+     `정션 매듭 ${K.depth} ≥ 무릎길 매듭 ${KW_KNOT_D} — 여정 최대 마디가 가장 얇던 결함(LAND_T ${LAND_T})의 해소`)
+  if (K.on) {
+    const kg = buildJunctionKnot()
+    ok(kg && finite(kg), '정션 매듭 CSG 실행·정점 유한')
+    ok(vol(kg) > 0, `매듭 부호 부피 ${r2(vol(kg))} > 0 — 감김 일관(★53·★65 교훈: 닫힘만으로는 부족)`)
+    //  교차로 지었으므로 관 밖 누출은 원리적으로 불가 — 그래도 **잰다**(구성의 보증을 검사가 사후 봉인)
+    const g = kg.index ? kg.toNonIndexed() : kg, p = g.attributes.position
+    let worst = -1e9
+    for (let i = 0; i < p.count; i += 7) worst = Math.max(worst, axisDist(p.getX(i), p.getY(i), p.getZ(i)) - K.innerR)
+    ok(worst <= 0.05, `매듭 전 정점이 관 안 — 내벽 최대 초과 ${r2(worst)}`)
+    ok(Math.abs(K.yTop - (K.plateBot + JCT_KNOT_TOP)) < 1e-9,
+       `매듭 상면이 판 밑면보다 ${JCT_KNOT_TOP} 높다 — 판이 파묻혀 판 밑 틈이 구조적으로 없다(㊿ ②)`)
+  }
+
+  // ── ★72 정션 판 윤곽 (사각 → 관 단면 추종) ──
+  {
+    const O = junctionPlateOutline()
+    const innerR = K.innerR, yP = JCT_PLATE_TOP
+    const dAt = (x, z) => { let b = 1e9
+      for (let u = 0.15; u < 0.40; u += 0.0002) b = Math.min(b, Math.hypot(rOf(u) - x, u * H - yP, z)); return b }
+    ok(O.length === JCT_PLATE_SEG + 1, `윤곽 표본 ${O.length}개 — x 범위는 불변(${r2(X_LAND_LO)}~${r2(X_LAND_HI)})`)
+    if (JCT_PLATE_MODE === 'bore') {
+      //  ① 판이 벽에 **닿는다** — 뜬 모서리 소멸이 이 수정의 목적이다
+      let minPen = 1e9, maxPen = -1e9
+      for (const q of O) { const pen = dAt(q.x, q.h) - innerR; minPen = Math.min(minPen, pen); maxPen = Math.max(maxPen, pen) }
+      ok(minPen > 0, `판 가장자리가 전 구간 관 내벽 **밖**(파고듦 ${r2(minPen)}~${r2(maxPen)}) — 뜬 모서리 0`)
+      //  ② 그러나 살은 안 뚫는다 — 융착이지 관통이 아니다
+      ok(maxPen < RIB_WALL_T, `파고듦 최대 ${r2(maxPen)} < 살 두께 ${RIB_WALL_T} — 바깥면 무손상(LOCKED 무관)`)
+      //  ③ 사각 시절보다 넓어졌는가(같으면 수정이 안 먹은 것)
+      ok(Math.min(...O.map(q => q.h)) > Z_LAND,
+         `최소 반폭 ${r2(Math.min(...O.map(q => q.h)))} > 구 사각 ${Z_LAND} — 판이 벽까지 벌어졌다`)
+    }
+    //  ④ 세 갈래가 여전히 판 위인가 — 윤곽을 바꿔도 커플링이 안 깨졌다는 증명
+    const hAt = (x) => { let best = O[0].h, bd = 1e9
+      for (const q of O) { const d = Math.abs(q.x - x); if (d < bd) { bd = d; best = q.h } } return best }
+    for (const [nm, z] of [['무릎길', 0], ['전망', JCT_UP_Z], ['하강', JCT_DN_Z]])
+      ok(Math.abs(z) + 1 < hAt((X_LAND_LO + X_LAND_HI) / 2), `${nm} 갈래(z=${z}) ±1 폭이 판 안 — 커플링 무손상`)
+    //  ⑤ 판·매듭이 같은 윤곽을 쓰는가(따로 계산하면 판 밑에 턱이 생긴다)
+    ok(!K.on || JCT_PLATE_MODE !== 'bore' || Math.abs(plateMaxHalf() - Math.max(...O.map(q => q.h))) < 1e-9,
+       `판·매듭이 같은 윤곽 정본(최대 반폭 ${r2(plateMaxHalf())}) — 사본 없음`)
+    //  ⑥ 판 솔리드 검산
+    const pg = buildJunctionPlate()
+    ok(finite(pg) && Math.abs(vol(pg)) > 0, `판 솔리드 부피 ${r2(Math.abs(vol(pg)))} > 0 (구 사각판 ${r2((X_LAND_HI-X_LAND_LO)*LAND_T*2*Z_LAND)})`)
+  }
+
+  // ── ★71 빛 기둥 ──
+  if (S.on) {
+    //  ⚠위치: 반원의 '중간'은 중심점이 아니다(thetaStart π → 중심에서 −x 절반만 채운다)
+    const centroid = rOf(U_LOOKOUT_END) + LK_DISC_DX - 4 * LK_PLAT_R / (3 * Math.PI)
+    ok(Math.abs(S.x - centroid) < 1e-6,
+       `기둥 x ${r2(S.x)} = 반원 **도심**(중심점 ${r2(rOf(U_LOOKOUT_END)+LK_DISC_DX)}이 아님 — 중심점은 램프가 닿는 가장자리)`)
+    ok(S.x - S.rBot > rOf(U_LOOKOUT_END) + LK_DISC_DX - LK_PLAT_R && S.x + S.rBot < rOf(U_LOOKOUT_END) + LK_DISC_DX,
+       `기둥이 반원 판 발자국 안 — 판 재질이 관을 사방에서 문다`)
+    //  방 안 통행: 하강 도착 입에서 들어와 회랑 입(+z)으로 나가는 동선이 살아 있는가
+    const gapMouth = (RM_X1 - S.x) - S.rBot, gapNz = (S.z - RM_Z0) - S.rBot, gapPz = (RM_Z1 - S.z) - S.rBot
+    ok(Math.min(gapMouth, gapNz, gapPz) >= 1.2,
+       `방 안 통행 여유 — 하강 입 ${r2(gapMouth)} · −z벽 ${r2(gapNz)} · +z벽 ${r2(gapPz)} (하한 1.2)`)
+    //  ★71-3 현도 판정: 바닥이 아니라 **방 천장에 닿아 끝난다** → 방에서는 천장에 뚫린 눈으로 보인다
+    ok(Math.abs(S.yBot - S.roofBot) < 1e-9,
+       `기둥 아랫끝 ${r2(S.yBot)} = 방 천장 아랫면 ${r2(S.roofBot)} — 방 안에 기둥이 서지 않는다(현도 판정)`)
+    ok(S.yBot < S.roofTop && S.roofTop < S.discBot,
+       `관이 지붕 두께(${r2(S.roofTop - S.yBot)})만 관통 — 그 위로 판 밑면까지 ${r2(S.discBot - S.roofTop)}`)
+
+    const sg = buildLightShaft()
+    ok(sg && finite(sg), '빛 기둥 CSG 실행·정점 유한')
+    const expect = Math.PI * (S.rBot ** 2 - Math.max(0.1, S.rBot - S.wallT) ** 2) * (S.yTop - S.yBot)
+    ok(!S.hollow || Math.abs(vol(sg) - expect) / expect < 0.05,
+       `관 부피 ${r2(vol(sg))} ≈ 고리 단면 × 길이 ${r2(expect)} (±5%) — 속이 실제로 비었다`)
+
+    // ── ★★LOCKED 예외 #4 경계 — 검사가 예외를 가둔다 ──
+    const t = RIB_WALL_T
+    const { geometry: tube } = buildRibShell(makeRibCurve(), t)
+    tube.rotateY(-RIB_DEST_PHI)
+    const cutg = shaftCutSolid(S.roofTop, S.discBot); cutg.rotateY(-RIB_DEST_PHI)
+    const evU = new Evaluator(); evU.attributes = ['position', 'normal']
+    const ba = new Brush(tube), bb = new Brush(cutg)
+    ba.updateMatrixWorld(); bb.updateMatrixWorld()
+    const holed = evU.evaluate(ba, bb, SUBTRACTION).geometry
+    //  ① 진짜 뚫렸는가 — **광선으로 잰다**(★64-4 교훈: 정점 스캔은 큰 면을 놓친다)
+    const mesh = new THREE.Mesh(holed.index ? holed.toNonIndexed() : holed); mesh.updateMatrixWorld()
+    const rc = new THREE.Raycaster()
+    const cs = Math.cos(RIB_DEST_PHI), sn = Math.sin(RIB_DEST_PHI)
+    const wx = S.x * cs - S.z * sn, wz = S.x * sn + S.z * cs
+    let blocked = 0, tested = 0
+    for (const dx of [-0.9, -0.45, 0, 0.45, 0.9]) for (const dz of [-0.9, -0.45, 0, 0.45, 0.9]) {
+      if (Math.hypot(dx, dz) > 1.0) continue
+      tested++
+      rc.set(new THREE.Vector3(wx + dx, S.discBot - 0.5, wz + dz), new THREE.Vector3(0, -1, 0))
+      rc.far = S.discBot - S.roofTop
+      if (rc.intersectObject(mesh, false).length) blocked++
+    }
+    ok(blocked === 0, `리브 껍질 관통 — 관 안쪽 광선 ${tested}개 전부 통과(막힘 ${blocked})`)
+    //  ② 국소적인가 — 예외가 '구멍 하나'를 넘어 리브를 갉아먹지 않는다
+    const removed = vol(tube) - vol(holed)
+    ok(removed > 0 && removed / vol(tube) < 0.02,
+       `제거 ${r2(removed)} = 껍질 부피의 ${r2(removed / vol(tube) * 100)}% — 국소 구멍(상한 2%)`)
+    //  ③ 대상이 목적지 리브 **하나뿐**인가 — 자르개가 이웃 리브 방위와 안 겹친다
+    const nb = 2 * Math.PI / MERIDIANS
+    ok(Math.hypot(S.x, S.z) * nb > 2 * S.rBot,
+       `이웃 리브 무손상 — 방위 간격 ${r2(nb * DEG)}° = 호길이 ${r2(Math.hypot(S.x,S.z)*nb)} > 구멍 폭 ${r2(2*(S.rBot+S.clr))}`)
+    //  ④ 봉인 — 여유가 헤어라인인가(★64: 넉넉한 여유는 봉인이 아니라 틈이 된다)
+    //  ★71-3 **부호 반전**: 여유가 아니라 융착이다(현도 로컬 적발 "미세한 틈이 보인다")
+    ok(S.fuse > 0, `구멍이 관보다 ${S.fuse} 작다 = 융착 — 여유(구 0.08)는 헤어라인이라도 **틈으로 보인다**`)
+    {
+      const rHole = S.rBot - S.fuse
+      ok(rHole < S.rBot, `구멍 반경 ${r2(rHole)} < 관 반경 ${S.rBot} — 관이 파고들어 이음매가 원리적으로 없다`)
+    }
+    //  ⑤ 구멍 대역이 리브 껍질 두께만 지나는가(★64-5: 자르개가 넘치면 관벽이 유령으로 남는다)
+    ok(S.discBot - S.roofTop < 14, `자르개 세로 ${r2(S.discBot - S.roofTop)} = 판 밑면~지붕 윗면만 — 필요 범위 밖으로 안 넘친다`)
+  }
+
+  // ── ★71-4 격자 체 ──
+  {
+    const gr = buildShaftGrate()
+    if (SHAFT_GRATE_ON && S.on) {
+      ok(gr !== null, '격자 체 생성 — 판 구멍을 덮어 밟을 수 있게 한다(현도 제안)')
+      const p = gr.attributes.position
+      const R = S.rTop - S.wallT
+      let outMax = -1e9, yLo = 1e9, yHi = -1e9
+      for (let i = 0; i < p.count; i++) {
+        outMax = Math.max(outMax, Math.hypot(p.getX(i) - S.x, p.getZ(i) - S.z) - R)
+        yLo = Math.min(yLo, p.getY(i)); yHi = Math.max(yHi, p.getY(i))
+      }
+      ok(outMax <= SHAFT_GRATE_BAR, `살이 보어(${r2(R)}) 밖으로 ${r2(outMax)} 이내 — 판 위로 안 튀어나온다`)
+      ok(Math.abs(yHi - S.yTop) < 1e-3 && yLo >= S.yTop - SHAFT_GRATE_T - 1e-3,   // float32 정밀도(3e-6)
+         `살 윗면 = 판 윗면 ${r2(yHi)} · 두께 ${SHAFT_GRATE_T} — 걷는 면과 같은 높이(턱 없음)`)
+      ok(SHAFT_GRATE_GAP < 0.5, `살 간격 ${SHAFT_GRATE_GAP} < 0.5 — 발이 안 빠진다`)
+    }
+  }
+
+  // ── ★71-2b 반원 판이 닫힌 솔리드인가(옆면 있음) ──
+  {
+    const d = discSolid(LK_PLAT_R, LK_DISC_T, true)
+    const dv = vol(d)
+    const expect = 0.5 * Math.PI * LK_PLAT_R ** 2 * LK_DISC_T
+    ok(Math.abs(dv) > 0 && Math.abs(Math.abs(dv) - expect) / expect < 0.05,
+       `반원 판 부피 ${r2(Math.abs(dv))} ≈ 반원 넓이×두께 ${r2(expect)} — **닫힌 솔리드**(구 cylinderGeometry는 부채꼴 평면을 안 만들어 종잇장이었다)`)
+  }
+
+  // ── ★73 방 지붕 +x 오버행 + ⚠봉인 부재 대장(검사 공백 메우기) ──
+  //  ★★이번 세션의 발견: 볼벽 상단(CHEEK_TOP_*)을 강제하는 검사가 **하나도 없었다.**
+  //   ㉙ 시절 21·22항이 이후 재편에서 사라졌고, 그래서 "줄여도 되나"를 물었을 때 답해 줄 것이 없었다.
+  //   완전한 봉인 재현은 별건이므로(㊼ gatSeal 급 작업), 여기서는 **값이 조용히 바뀌는 것을 막는 잠금**을 건다.
+  {
+    ok(Math.abs(RM_ROOF_OV_PX - PASS_T / 2) < 1e-9,
+       `방 지붕 +x 오버행 ${r2(RM_ROOF_OV_PX)} = 벽 바깥면(${r2(RM_X1 + PASS_T / 2)})에 정합 — 구판 ${PASS_T}는 0.3 더 나와 하강 도중 보였다`)
+    ok(RM_ROOF_OV_PX >= 0, `오버행 ≥ 0 — 음수면 지붕이 벽 안으로 후퇴해 이음매가 열린다`)
+    //  ⚠봉인 부재는 **줄이면 안 된다**(차분 광선 실측 2026.07.25: +z 0.7 낮춤 → 누출 +67 · −z 0.43 낮춤 → +34).
+    //   아래 두 항은 상한이 아니라 **하한 잠금**이다 — 다음 세션이 "튀어나와 보인다"고 낮추는 것을 막는다.
+    //  ★74 재측정으로 하한이 내려갔다 — 근거는 ★72가 판을 넓혀 볼벽 z 4.35를 덮게 된 것.
+    //   ⚠255.5부터 누출(+6) 실측 → 하한은 판 윗면. 여기서 더 낮추면 관 밖 구간(칸 12~)이 열린다.
+    ok(CHEEK_TOP_PZ >= JCT_PLATE_TOP - 1e-9,
+       `+z 볼벽 상단 ${r2(CHEEK_TOP_PZ)} ≥ 판 윗면 ${r2(JCT_PLATE_TOP)} — 봉인 하한(255.5부터 누출 실측)`)
+    ok(CHEEK_TOP_PZ <= JCT_PLATE_TOP + 0.05,
+       `+z 볼벽 낮은 끝이 판 위로 안 솟는다 — 구판은 1.4 솟아 바닥을 뚫고 올라와 있었다(현도 적발)`)
+    //  ★74 레이크 — 단차 대신 경사로 잇는다. 관 밖 구간(x ≲ 181)은 구 높이를 **남겨야** 한다.
+    {
+      const P = pzCheekProfile()
+      ok(P.hi > P.lo, `레이크 성립: 높은 끝 ${r2(P.hi)} > 낮은 끝 ${r2(P.lo)} (낙차 ${r2(P.hi - P.lo)})`)
+      ok(P.rx0 < P.rx1 && P.rx0 >= P.x0, `레이크 구간 x ${r2(P.rx0)}~${r2(P.rx1)} ⊂ 벽 범위 ${r2(P.x0)}~${r2(P.x1)}`)
+      //  ⚠관 밖 구간에서 구 높이 보존 — 여기서 낮추면 고도 60° 광선이 샌다(실측 3개)
+      ok(cheekTopPzAt(178) >= P.hi - 1e-9,
+         `관 밖 구간(x 178)은 구 높이 ${r2(cheekTopPzAt(178))} 보존 — 여기가 유일한 차폐다`)
+      ok(Math.abs(cheekTopPzAt(P.rx1) - JCT_PLATE_TOP) < 1e-9,
+         `판 −x변(x ${r2(P.rx1)})에서 판 윗면 ${r2(JCT_PLATE_TOP)}에 정확히 닿는다 — 판이 상단을 삼킨다`)
+      const slope = (P.hi - P.lo) / (P.rx1 - P.rx0)
+      ok(slope < 0.6, `레이크 경사 ${r2(slope)} < 0.6 — 단차가 아니라 경사로 읽힌다`)
+      const g = buildPzCheek()
+      ok(finite(g) && Math.abs(vol(g)) > 0, `+z 볼벽 솔리드 부피 ${r2(Math.abs(vol(g)))} > 0`)
+    }
+    ok(CHEEK_TOP_NZ >= JCT_PLATE_TOP - 0.9,
+       `−z 볼벽 상단 ${r2(CHEEK_TOP_NZ)} ≥ 판 윗면 − 0.9 — 봉인 하한(낮추면 하강 우측 시선 누출)`)
+  }
+
+  // ── ★71 전망 판 두께 분리 ──
+  ok(LK_DISC_T > LAND_T, `전망 판 두께 ${LK_DISC_T} > 정션 판 ${LAND_T} — 상수 분리(구판은 공유라 종잇장)`)
+  ok(2 * LK_PLAT_R / LK_DISC_T < 12, `판 지름 ${2*LK_PLAT_R} : 두께 ${LK_DISC_T} = 1:${r2(2*LK_PLAT_R/LK_DISC_T)} < 1:12 — 종잇장 탈출`)
+  ok(Math.abs(LK_DISC_LIFT - Math.max(0.1, LK_TOPSTEP_TOP + 0.05 + LK_DISC_T - U_LOOKOUT_END * H)) < 1e-9,
+     `판 들림이 두께의 파생 — 두께를 키우면 램프가 저절로 따라온다(사본 없음)`)
 }
 
 console.log(fail === 0 ? `\n전부 통과 (${n}항)` : `\n실패 ${fail}/${n}`)

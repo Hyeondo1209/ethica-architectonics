@@ -12,7 +12,8 @@ import { descentSpec, woldaeSpec, incaStairSpec, incaBladesSpec, drumPierAzimuth
 import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg'
 import { WAYPOINTS, EYE } from './waypoints.js'
 import { buildViceWedge, viceSplitIndex, buildSill, buildFloorCollar, buildFloorLanding, freeSplitRange, freeNewelSpec, destCut, openRimSpec, isOpenRib } from './ribGeometry.js'
-import { buildKneeBody, innerTubeSolid, kneeWalkY } from './kneeBodyGeometry.js'   // ★65 무릎길 몸
+import { buildKneeBody, innerTubeSolid, kneeWalkY } from './kneeBodyGeometry.js'
+import { buildJunctionKnot, buildLightShaft, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek } from './junctionGeometry.js'                           // ★70 정션 매듭   // ★65 무릎길 몸
 import { kneeTreads, kneeStairSpec } from './kneeStair.js'                          // ★66 계단 규격·참   // ★60 매듭 · ★61 자립 나선 · ★62 바닥 매듭
 
 const tris = []
@@ -423,10 +424,88 @@ function render(eye, yaw, pitch, W, H, name) {
 
   //  ④ 정션 착지장(구 착지 판넬은 ★67로 폐기 — 도입 참이 대신한다)
   {
-    const [px, pz] = rot((C.X_LAND_LO + C.X_LAND_HI) / 2, 0)
-    const g = new THREE.BoxGeometry(C.X_LAND_HI - C.X_LAND_LO, C.LAND_T, 2 * C.Z_LAND)
-    g.rotateY(-phi); g.translate(px, C.U_KNEE_END * C.H + 0.1 - C.LAND_T / 2, pz)
+    //  ★72 판 윤곽 — 'bore'면 관 단면을 따라 벽에 닿는다(정본 = junctionGeometry, 사본 금지)
+    const g = buildJunctionPlate(); g.rotateY(-phi)
     addGeo(g, [163, 133, 88])
+  }
+
+  //  ④-2 ★70 정션 매듭 — 판 밑 받침 매스(§2-D ③ 두께 위계)
+  if (C.JCT_KNOT_ON) {
+    const k = buildJunctionKnot()
+    if (k) { const g = k.clone(); g.rotateY(-phi); addGeo(g, [150, 124, 82]) }
+  }
+
+  //  ④-3 하강 갈래(RibJunction의 23칸) — ⚠구판 렌더는 이 갈래를 통째로 빠뜨렸다.
+  //   정션 '형태'를 보려면 세 갈래가 다 있어야 한다(판만 굽고 판단할 수는 없다).
+  {
+    const yT = C.U_KNEE_END * C.H
+    for (let i = 0; i < C.DESC_STEPS; i++) {
+      const y = yT - (i + 0.5) * C.STEP_RISE
+      const [px, pz] = rot(C.X_DESC0 - (yT - y) / C.DESC_SLOPE, C.JCT_DN_Z)
+      const g = new THREE.BoxGeometry(C.TREAD_DEPTH, C.TREAD_THICK, C.TREAD_WIDTH * 2)
+      g.rotateY(-phi); g.translate(px, y, pz)
+      addGeo(g, [196, 150, 96])
+    }
+  }
+
+  //  ④-4 전망 갈래(Lookout 램프 + 반원 디스크) — Dome.Lookout과 동일 구축(사본이 아니라 같은 식)
+  {
+    const dX = C.rOf(C.U_LOOKOUT_END) + C.LK_DISC_DX
+    const dY = C.U_LOOKOUT_END * C.H + C.LK_DISC_LIFT + C.LK_DISC_DY
+    const sX = C.X_LAND_LO, sY = C.U_KNEE_END * C.H, sZ = C.JCT_UP_Z
+    const eY = dY - C.TREAD_THICK / 2
+    const nS = Math.max(6, Math.round((eY - sY) / C.STEP_RISE))
+    for (let i = 0; i < nS; i++) {
+      const t = (i + 1) / nS
+      const [px, pz] = rot(sX + (dX - sX) * t, sZ + (C.LK_DISC_DZ - sZ) * t)
+      const g = new THREE.BoxGeometry(C.TREAD_DEPTH, C.TREAD_THICK, C.TREAD_WIDTH * 2)
+      g.rotateY(-phi); g.translate(px, sY + (eY - sY) * t, pz)
+      addGeo(g, [214, 171, 104])
+    }
+    const [px, pz] = rot(dX, C.LK_DISC_DZ)
+    //  ★71-2b 반원 판 = 닫힌 솔리드(구 cylinderGeometry는 부채꼴 평면을 안 만들어 종잇장)
+    const gd = discSolid(C.LK_PLAT_R, C.LK_DISC_T, C.LK_DISC_HALF)
+    gd.translate(0, -C.LK_DISC_T, 0)
+    gd.rotateY(C.LK_DISC_ROT - phi); gd.translate(px, dY, pz)
+    addGeo(gd, [163, 133, 88])
+  }
+
+  //  ⑤ ★73 통로 권역(방·볼벽·봉인 슬랩) — ⚠구판 렌더는 이걸 **통째로** 빠뜨렸다.
+  //   현도가 하강 도중 보는 것이 바로 여기라, 이게 없으면 "무엇이 튀어나왔나"를 도구가 영영 못 본다.
+  //   ★진단 모드: `DIAG_PASS=1` 이면 부재마다 색을 갈라 굽는다(현도가 색으로 지목할 수 있게).
+  {
+    const DIAG = process.env.DIAG_PASS === '1'
+    const t = C.PASS_T, floor = C.PASS_FLOOR_Y, zc = C.JCT_DN_Z, zw = C.PASS_HW + t / 2
+    const NEU = [150, 128, 92]
+    const box = (cx, cy, cz, sx, sy, sz, col) => {
+      const g = new THREE.BoxGeometry(sx, sy, sz)
+      const [px, pz] = rot(cx, cz)
+      g.rotateY(-phi); g.translate(px, cy, pz)
+      addGeo(g, DIAG ? col : NEU)
+    }
+    // ⓐ 봉인 슬랩 (자주)
+    box((C.RM_X1 + C.PASS_X_DEEP) / 2, floor - t / 2, zc, C.PASS_X_DEEP - C.RM_X1, t, 2 * C.PASS_HW + 2 * t, [150, 90, 170])
+    // ⓑ −z 볼벽 (초록) — 하강 진행 기준 **오른편**
+    box((C.RM_X1 + C.PASS_X_CHEEK) / 2, (floor + C.CHEEK_TOP_NZ) / 2, zc - zw, C.PASS_X_CHEEK - C.RM_X1, C.CHEEK_TOP_NZ - floor, t, [90, 170, 110])
+    // ⓒ +z 볼벽 (파랑) — ★74 레이크 상단(정본 = junctionGeometry, 사본 금지)
+    { const g = buildPzCheek(); const [px, pz] = rot(0, 0); g.rotateY(-phi); addGeo(g, DIAG ? [80, 120, 200] : NEU) }
+    // ⓓ 방 지붕 (빨강) — ★73으로 +x 0.3 절삭한 것
+    {
+      const rx0 = C.RM_X0 - t, rx1 = C.RM_X1 + C.RM_ROOF_OV_PX
+      box((rx0 + rx1) / 2, floor + C.RM_ROOF + t / 2, (C.RM_Z0 + C.RM_Z1) / 2, rx1 - rx0, t, C.RM_Z1 - C.RM_Z0 + 2 * t, [200, 80, 80])
+    }
+    // ⓔ 방 바닥·벽 (중립 회색)
+    box((C.RM_X0 + C.RM_X1) / 2, floor - t / 2, (C.RM_Z0 + C.RM_Z1 + 0.6) / 2, C.RM_X1 - C.RM_X0, t, C.RM_Z1 - C.RM_Z0 + 0.6, [130, 120, 108])
+    box(C.RM_X0 - t / 2, floor + C.RM_ROOF / 2, (C.RM_Z0 + C.RM_Z1) / 2, t, C.RM_ROOF + 2 * t, C.RM_Z1 - C.RM_Z0 + 2 * t, [130, 120, 108])
+    box((C.RM_X0 + C.RM_X1) / 2, floor + C.RM_ROOF / 2, C.RM_Z0 - t / 2, C.RM_X1 - C.RM_X0 + 2 * t, C.RM_ROOF + 2 * t, t, [130, 120, 108])
+  }
+
+  //  ④-5 ★71 빛 기둥 — 전망 판 → 전실 방. ⚠전실 방 자체는 이 도구가 안 굽는다(드럼 권역 근사).
+  if (C.SHAFT_ON) {
+    const sh = buildLightShaft()
+    if (sh) { const g = sh.clone(); g.rotateY(-phi); addGeo(g, [198, 168, 118]) }
+    const gr = buildShaftGrate()
+    if (gr) { const g = gr.clone(); g.rotateY(-phi); addGeo(g, [214, 171, 104]) }
   }
 }
 
