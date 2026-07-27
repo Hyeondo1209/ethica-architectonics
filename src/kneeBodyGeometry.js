@@ -28,7 +28,7 @@ import {
   KW_BODY_ON, KW_BODY_MODE, KW_BODY_HW, KW_BODY_D, KW_BODY_BWF,
   KW_BODY_TOP, KW_BODY_EXT, KW_BODY_SEG, KW_BODY_TAPER, KW_MIN_HALFW,
   KW_ENTRY_ON, KW_ENTRY_L, KW_KNOT_D,   // ★67 도입 참
-  KW_RAIL_ON, KW_RAIL_H, KW_PLINTH_T, KW_PLINTH_GAP,   // ★69-2 가장자리 추종 난간 매듭
+  JCT_PLATE_XHI, KW_RAIL_ON, KW_RAIL_H, KW_PLINTH_T, KW_PLINTH_GAP,   // ★69-2 가장자리 추종 난간 매듭
   SHELL_RIB_R, RIB_RADIAL_SEG, RIB_WALL_ON, RIB_WALL_T,
 } from './constants.js'
 import { makeRibCurve, signedVolume } from './ribGeometry.js'
@@ -225,7 +225,12 @@ export function kneeWallHalfAt(x, y) {
 
 export function buildKneePlinth() {
   if (!KW_RAIL_ON) return null
-  const S = kneeBodySamples().filter(s => s.x <= KNEE_XA && s.x >= KNEE_XB)
+  //  ⚠★75(2026.07.26 현도 적발 "갈림판에 있는 저 난간은 왜 안 지웠어"): 판이 동쪽으로 2.39 늘어나면서
+  //   난간의 서쪽 끝 구간이 **판 위로 올라타** 굽은 벽 토막 둘로 남았다(판보다 0.70 솟음).
+  //   난간은 무릎길의 부재이지 갈림판의 부재가 아니다 → **판이 시작되는 곳에서 끝낸다.**
+  //   ⚠`KNEE_XB`(무릎길 도착)는 그대로 두고 여기서만 자른다 — 무릎길 수학·몸은 무손상.
+  const railEnd = Math.max(KNEE_XB, JCT_PLATE_XHI)
+  const S = kneeBodySamples().filter(s => s.x <= KNEE_XA && s.x >= railEnd)
   const vTop = -TREAD_THICK / 2 + KW_BODY_TOP
   //  ★69-2(2026.07.25, 현도): *"난간이 좀 **남는 부분**이 있잖아? 차라리 **끝에 딱 붙이고**, 꼭 직선이
   //   아니어도 되니까, **끊기지만 않게**."* → 상수 |z|(★69)를 버리고 다시 **가장자리 추종**으로.

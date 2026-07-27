@@ -17,7 +17,7 @@
 import * as THREE from 'three'
 import { Brush, Evaluator, INTERSECTION, SUBTRACTION } from 'three-bvh-csg'
 import {
-  X_LAND_LO, X_LAND_HI, Z_LAND, LAND_T, U_KNEE_END, H,
+  X_LAND_LO, X_LAND_HI, JCT_PLATE_XHI, Z_LAND, LAND_T, U_KNEE_END, H,
   JCT_KNOT_ON, JCT_KNOT_MODE, JCT_KNOT_D, JCT_KNOT_TOP, JCT_KNOT_INSET,
   JCT_PLATE_MODE, JCT_PLATE_FUSE, JCT_PLATE_SEG, rOf as rOfC,
   SHELL_RIB_R, RIB_WALL_ON, RIB_WALL_T,
@@ -25,8 +25,15 @@ import {
   SHAFT_GRATE_ON, SHAFT_GRATE_BAR, SHAFT_GRATE_GAP, SHAFT_GRATE_T,
   SHAFT_X, SHAFT_Z, LK_DISC_T, LK_DISC_LIFT, LK_DISC_DY, LK_PLAT_R, LK_DISC_DZ,
   U_LOOKOUT_END, rOf, PASS_FLOOR_Y, RM_ROOF, PASS_T,
-  JCT_DN_Z, PASS_HW, RM_X1, PASS_X_DEEP, CHEEK_TOP_PZ, CHEEK_TOP_PZ_HI, CHEEK_PZ_RAKE_X0, CHEEK_PZ_RAKE_X1,
+  JCT_DN_Z, PASS_HW, RM_X1, PASS_X_DEEP, PASS_X_CHEEK, CHEEK_TOP_PZ, CHEEK_TOP_PZ_HI, CHEEK_PZ_RAKE_X0, CHEEK_PZ_RAKE_X1,
+  uOfX, WSTAIR_ON, WSTAIR_X0, WSTAIR_X1, WSTAIR_Y0, WSTAIR_Y1, WSTAIR_RUN, WSTAIR_RISE,
+  WSTAIR_N, WSTAIR_R, WSTAIR_G, WSTAIR_BODY_D, WSTAIR_FUSE, WSTAIR_SEG,
+  ARCH_X0, ARCH_X1, ARCH_Y0, ARCH_Y1, ARCH_Z0, ARCH_Z1, ARCH_HEAD, ARCH_ROOM_CROWN,
+  WARCH_ON, WARCH_HW, WARCH_FUSE, JCT_SLOT_MARGIN, CHANNEL_HW, VAULT_HW, CLEAR_HW, WARCH_HEAD, WARCH_CLEAR, WARCH_DROP, WARCH_H_MAX, WARCH_RISE_ABOVE,
+  X_DESC0, X_DESC_END, DESC_SLOPE, PASS_FLOOR_Y as PASS_FLOOR_Y2, TREAD_THICK, KW_BODY_TOP,
+  RM_X1 as RM_X1_G, RM_MOUTH_H, RM_ROOF as RM_ROOF_G, PASS_FUSE, RM_MOUTH_REVEAL,
 } from './constants.js'
+import { kneeStairSpec } from './kneeStair.js'
 import { innerTubeSolid } from './kneeBodyGeometry.js'
 
 //  판 윗면 = JunctionLanding이 쓰는 값과 **같은 식**(사본 금지 — 판을 옮기면 매듭이 따라온다)
@@ -38,7 +45,7 @@ export function junctionKnotSpec() {
   return {
     on: JCT_KNOT_ON,
     mode: JCT_KNOT_MODE,
-    x0: X_LAND_LO + i, x1: X_LAND_HI - i,
+    x0: X_LAND_LO + i, x1: JCT_PLATE_XHI - i,   // ★75: 매듭도 늘어난 판을 따라간다(판이 뜨지 않게)
     z0: -Z_LAND + i, z1: Z_LAND - i,
     plateTop: JCT_PLATE_TOP,
     plateBot: JCT_PLATE_TOP - LAND_T,
@@ -83,7 +90,7 @@ export function buildJunctionKnot() {
   a.updateMatrixWorld(); b.updateMatrixWorld()
   const out = ev.evaluate(a, b, INTERSECTION)
   prism.dispose(); tube.dispose()
-  return out.geometry
+  return WSTAIR_ON ? cutWithSlot(out.geometry) : out.geometry    // ★75: 하강 계단우물
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -224,7 +231,7 @@ export function discSolid(r, t, half) {
 //   그래서 무릎길 도착(X_LAND_HI)·하강 시작(X_DESC0)·전망 시작(X_LAND_LO) 커플링이 무손상이다.
 
 //  판 높이에서 리브 중심선까지의 거리(관 안쪽 판정용) — 검증·렌더가 같은 식을 소비한다
-function axisDistAt(x, y, z) {
+export function axisDistAt(x, y, z) {   // ★75: 검사가 리브 구멍 정합을 재려면 필요
   let best = 1e9
   for (let u = 0.15; u < 0.40; u += 0.0002) best = Math.min(best, Math.hypot(rOfC(u) - x, u * H - y, z))
   return best
@@ -236,7 +243,7 @@ export function junctionPlateOutline() {
   const innerR = RIB_WALL_ON ? SHELL_RIB_R - RIB_WALL_T : SHELL_RIB_R
   const pts = []
   for (let i = 0; i <= JCT_PLATE_SEG; i++) {
-    const x = X_LAND_LO + (X_LAND_HI - X_LAND_LO) * i / JCT_PLATE_SEG
+    const x = X_LAND_LO + (JCT_PLATE_XHI - X_LAND_LO) * i / JCT_PLATE_SEG   // ★75: 판 끝은 무릎길 도착과 분리
     if (JCT_PLATE_MODE !== 'bore') { pts.push({ x, h: Z_LAND }); continue }
     //  이분법으로 관 내벽 z를 찾는다(스캔보다 정확·빠름)
     let lo = 0, hi = 14
@@ -258,6 +265,33 @@ export function plateMaxHalf() {
 // ── 판 솔리드 = 윤곽 압출 ──
 //  ⚠좌표: rotateX(−π/2)는 (x,y,z)→(x, z, −y). shape의 y가 월드 −z, 압출 깊이가 월드 +y.
 //   윤곽이 z에 대칭이라 부호 반전은 무해하다.
+// ── ★75-b 하강 슬롯 — 판·매듭을 관통하는 계단우물 ──
+//  ⚠★75가 하강 시작을 판 −x변(184.71)에서 **판 위**(188.05)로 옮겼다. 계단 발치 밑으로 지나가려면
+//   거기서부터 내려가 있어야 하기 때문이다. 그런데 판에 구멍이 없으면 **하강 첫 구간이 판 속에 파묻힌다**
+//   (실측: x186에서 판 밑면까지 머리 1.24 — 못 지나간다).
+//  → 판·매듭을 같은 자르개로 뚫는다. 여정으로 읽으면: 무릎길에서 올라서면 **발 앞에 계단우물이 열려 있고**,
+//   그 너머로 큰 계단이 솟는다 — 갈림이 위·아래가 된다는 것의 물리적 형태다.
+//  ⚠자르개는 딱 필요한 범위만(★64-5): x는 하강 시작~판 −x변, 폭은 채널 정합(2×PASS_HW).
+export function descSlotSolid() {
+  //  ★75-k 볼트보다 JCT_SLOT_MARGIN만큼 넓게 — 같으면 판이 볼트 안에 날개로 남는다(실측 0.04 두께)
+  const hw = CLEAR_HW
+  const x0 = X_LAND_LO - 0.5, x1 = X_DESC0 + 0.05      // 판 −x변 너머까지(마구리가 판 밖에서 닫히게)
+  const yTop = JCT_PLATE_TOP + 1.0
+  const yBot = JCT_PLATE_TOP - JCT_KNOT_D - 1.0        // 매듭 밑면 아래까지
+  const g = new THREE.BoxGeometry(x1 - x0, yTop - yBot, 2 * hw)
+  g.translate((x0 + x1) / 2, (yTop + yBot) / 2, JCT_DN_Z)
+  return g.toNonIndexed()
+}
+function cutWithSlot(geo) {
+  const slot = descSlotSolid()
+  const ev = new Evaluator(); ev.attributes = ['position', 'normal']
+  const a = new Brush(geo.index ? geo.toNonIndexed() : geo), b = new Brush(slot)
+  a.updateMatrixWorld(); b.updateMatrixWorld()
+  const out = ev.evaluate(a, b, SUBTRACTION).geometry
+  slot.dispose()
+  return out
+}
+
 export function buildJunctionPlate() {
   const O = junctionPlateOutline()
   const sh = new THREE.Shape()
@@ -268,7 +302,7 @@ export function buildJunctionPlate() {
   const g = new THREE.ExtrudeGeometry(sh, { depth: LAND_T, bevelEnabled: false })
   g.rotateX(-Math.PI / 2)
   g.translate(0, JCT_PLATE_TOP - LAND_T, 0)
-  return g
+  return WSTAIR_ON ? cutWithSlot(g) : g            // ★75: 하강 계단우물
 }
 
 // ── ★74 +z 볼벽 = 레이크(경사) 상단 프로파일 (2026.07.25 현도 "파란색이 가장 튀어나온 벽") ──
@@ -280,7 +314,7 @@ export function buildJunctionPlate() {
 export function pzCheekProfile() {
   return {
     z: JCT_DN_Z + PASS_HW + PASS_T / 2, t: PASS_T,
-    x0: RM_X1, x1: PASS_X_DEEP,
+    x0: RM_X1, x1: PASS_X_CHEEK,
     yBot: PASS_FLOOR_Y,
     hi: CHEEK_TOP_PZ_HI, lo: CHEEK_TOP_PZ,
     rx0: CHEEK_PZ_RAKE_X0, rx1: CHEEK_PZ_RAKE_X1,
@@ -305,5 +339,453 @@ export function buildPzCheek() {
   //  ⚠ExtrudeGeometry는 +z로 밀어낸다 — 벽 두께 방향이 곧 z라 회전이 필요 없다.
   const g = new THREE.ExtrudeGeometry(sh, { depth: p.t, bevelEnabled: false })
   g.translate(0, 0, p.z - p.t / 2)
+  return g
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ★75 넓은 상승 계단 + 중앙 아치 (2026.07.26 · 현도 스케치 `갈림길_스케치.jpg`)
+// ════════════════════════════════════════════════════════════════════════════
+//  구 전망 램프는 폭 2짜리 **허공 판 35장**이었다(관이 허용하는 11.4의 17%). ★65가 무릎길에서
+//  걷어낸 435장과 같은 종류의 부채다. 여기서는 처음부터 **한 덩어리 솔리드**로 짓는다:
+//   옆면 프로파일(53단 톱니 상면 + 깎인 밑면)을 z로 압출 → 관 안쪽과 **교차** → 아치를 **감산**.
+//  ★교차이므로 관 밖으로 새는 일이 원리적으로 불가능하고(검사가 아니라 구성으로 보장 — ★56 어법),
+//   옆면·밑면이 관 곡면에 저절로 정합한다(§2-D ② 매스 + 깎인 밑면). 밑면이 곧 터널 천장이다.
+//
+//  ⚠좌표: ExtrudeGeometry는 x–y 평면의 Shape를 **+z로** 밀어낸다 → 옆면 프로파일에는 회전이 필요 없다
+//   (buildPzCheek과 같은 어법). 압출 뒤 z를 반만큼 되돌려 중심을 z=0에 맞춘다.
+
+//  계단 상면(코 끝을 잇는 선) — x는 서쪽(작을수록)이 높다
+export function wstairTopAt(x) {
+  const xx = Math.max(WSTAIR_X1, Math.min(WSTAIR_X0, x))
+  return WSTAIR_Y0 + (WSTAIR_X0 - xx) * (WSTAIR_RISE / WSTAIR_RUN)
+}
+//  하강 보행선(밟는 면) — 계단 밑을 지나는 터널의 바닥
+export function descFloorAt(x) {
+  if (x >= X_DESC0) return WSTAIR_Y0                      // 아직 판 위(평지)
+  if (x <= X_DESC_END) return PASS_FLOOR_Y2
+  return WSTAIR_Y0 - (X_DESC0 - x) * DESC_SLOPE
+}
+
+export function wideStairSpec() {
+  return {
+    on: WSTAIR_ON, x0: WSTAIR_X0, x1: WSTAIR_X1, y0: WSTAIR_Y0, y1: WSTAIR_Y1,
+    n: WSTAIR_N, r: WSTAIR_R, g: WSTAIR_G, depth: WSTAIR_BODY_D,
+    slopeDeg: Math.atan2(WSTAIR_RISE, WSTAIR_RUN) * 180 / Math.PI,
+    blondel: 2 * WSTAIR_R + WSTAIR_G,
+    innerR: RIB_WALL_ON ? SHELL_RIB_R - RIB_WALL_T : SHELL_RIB_R,
+  }
+}
+
+// ── 폭 = 관의 함수(★72 수법 그대로) ──
+//  ⚠판(수평)과 달리 계단은 **높이가 x마다 다르다** → 각 x에서 그 자리의 몸 중심 높이로 재야 한다.
+export function wideStairOutline() {
+  const S = wideStairSpec()
+  const pts = []
+  for (let i = 0; i <= WSTAIR_SEG; i++) {
+    const x = S.x0 + (S.x1 - S.x0) * i / WSTAIR_SEG
+    const y = wstairTopAt(x) - S.depth / 2            // 몸 단면의 한가운데에서 잰다
+    let lo = 0, hi = 14
+    for (let k = 0; k < 40; k++) {
+      const m = (lo + hi) / 2
+      if (axisDistAt(x, y, m) <= S.innerR) lo = m; else hi = m
+    }
+    pts.push({ x, h: lo + WSTAIR_FUSE })              // 살 속으로 융착(★71-3 어법)
+  }
+  return pts
+}
+export function wideStairMaxHalf() { return Math.max(...wideStairOutline().map(p => p.h)) }
+
+// ── ① 몸(매스) 각기둥 — **매끈한 사다리꼴 단면** ──
+//  ⚠1차 구현은 53단 톱니를 통째로 압출해 관과 교차시켰다 → 교차 결과가 **열린 변 1455개**(실측).
+//   106개 얇은 면이 십각 관 면과 만나며 CSG가 감당을 못 했고, 감산까지 가서 부피가 음수로 뒤집혔다.
+//  ★해법은 새 어휘가 아니라 **이미 있는 어휘**다 — 무릎길이 ★65·★66에서 쓰는 **몸 + 디딤판**:
+//   매끈한 몸만 CSG로 깎고(면 수가 두 자릿수), 계단은 그 위에 얹는다(걷는 면은 안 건드린다).
+//   판이 몸에 KW_BODY_TOP만큼 파묻혀 판 밑 틈이 구조적으로 없다(㊿ ②).
+export function wideStairPrism() {
+  const S = wideStairSpec()
+  const half = wideStairMaxHalf() + 0.5               // 관이 깎을 것이므로 넉넉하게(교차가 정리한다)
+  const top = TREAD_THICK - KW_BODY_TOP               // 몸 상면 = 코 선에서 이만큼 아래(판이 파묻힌다)
+  //  ★★몸은 **관 바닥까지 채운다**(2026.07.26 현도 소견 "정면에서 아치로 뚫린 모습이 안 보인다").
+  //   ⛔구현 1차의 두께 1.6짜리 얇은 스트링거는 발치에 **아치를 뚫을 벽면이 없어서**, 아치가 보 밑 슬롯으로만
+  //    보였다. 채우면 발치에서 몸 높이 5.35 · 아치 2.22 · 그 양옆 스팬드럴 2.30씩이 서고,
+  //    안쪽은 x179까지 이어지는 진짜 볼트 터널이 된다(거기서 관을 벗어나며 봉인 채널로 인계).
+  //   ⚠깊이는 관이 정한다 — 여기서는 관 바닥 아래까지 넉넉히 내린 뒤 **교차가 깎게** 둔다(★65 어법).
+  const deep = S.y0 - 9
+  const sh = new THREE.Shape()
+  sh.moveTo(S.x0, S.y0 - top)
+  sh.lineTo(S.x1, S.y1 - top)
+  sh.lineTo(S.x1, deep)
+  sh.lineTo(S.x0, deep)
+  sh.closePath()
+  const g = new THREE.ExtrudeGeometry(sh, { depth: 2 * half, bevelEnabled: false })
+  g.translate(0, 0, -half)                            // 압출은 +z로만 나가므로 중심을 z=0에
+  return g.toNonIndexed()
+}
+
+// ── ①' 디딤판 53장 — 폭은 x마다 관을 따른다(★72 수법) ──
+//  ⚠허공 판이 아니다: 바로 밑이 몸이다(구 램프 35장은 진짜 허공 판이었다 — ★65가 걷어낸 부채와 같은 종류).
+export function wideStairTreads() {
+  const S = wideStairSpec()
+  const O = wideStairOutline()
+  const halfAt = (x) => {
+    let best = O[0].h, bd = 1e9
+    for (const q of O) { const d = Math.abs(q.x - x); if (d < bd) { bd = d; best = q.h } }
+    return best
+  }
+  const AP = archCutProfile().filter(q => q.open)
+  const archTopAt = (x) => { let b = null, bd = 1e9
+    for (const q of AP) { const d = Math.abs(q.x - x); if (d < bd) { bd = d; b = q } }
+    return (b && bd < 0.25) ? b.crown : null }
+  const T = []
+  for (let i = 0; i < S.n; i++) {
+    //  i번째 코 = (x0 − (i+1)·G, y0 + (i+1)·R). 판은 그 디딤을 덮는다.
+    const xN = S.x0 - (i + 1) * S.g, yN = S.y0 + (i + 1) * S.r
+    const xc = xN + S.g / 2                            // 디딤 한가운데
+    //  ⚠아치가 그 단의 중앙을 먹었으면 **판을 둘로 쪼갠다** — 안 쪼개면 허공에 뜬 판이 아치를 가로막는다.
+    const ac = archTopAt(xc)
+    const split = ac != null && ac >= yN - TREAD_THICK
+    if (split) {
+      //  ★75-l 안쪽 모서리는 **CLEAR_HW**다. 볼트 반폭과 같게 두면 두께 0.20짜리 날개가 볼트 옆에
+      //   튀어나온다(현도 적발 2026.07.26 — 오늘 같은 병 세 번째).
+      const outer = halfAt(xc), inner = CLEAR_HW
+      if (outer > inner + 0.1) {
+        const w = outer - inner, zc = (outer + inner) / 2
+        T.push({ x: xc, y: yN - TREAD_THICK / 2, d: S.g * 1.17, w, z: +zc })
+        T.push({ x: xc, y: yN - TREAD_THICK / 2, d: S.g * 1.17, w, z: -zc })
+      }
+    } else {
+      T.push({ x: xc, y: yN - TREAD_THICK / 2, d: S.g * 1.17, w: 2 * halfAt(xc), z: 0 })   // 코 비 1.17(★66 계승)
+    }
+  }
+  return T
+}
+
+//  그 x에서 관 안쪽 바닥(축거리 = 내반경이 되는 가장 낮은 y)
+//  ★75-f 하강이 관 살을 **실제로 뚫고 나가는 x** — 리브 구멍(ARCH)의 정본 좌표.
+//   보행선이 관 바닥 아래로 내려가는 지점. 하강 경사·시작이 바뀌면 여기가 따라 움직인다.
+export function descPierceX() {
+  let lo = 176, hi = 191                       // hi = 관 안 · lo = 관 밖
+  for (let k = 0; k < 60; k++) { const m = (lo + hi) / 2
+    if (descFloorAt(m) < tubeBottomAt(m)) lo = m; else hi = m }
+  return (lo + hi) / 2
+}
+
+//  그 x·z에서 관 **안쪽** 바닥(살을 다 걷어내려면 여기까지 파야 한다)
+export function tubeInnerBottomAt(x, z = 0) {
+  const R0 = RIB_WALL_ON ? SHELL_RIB_R - RIB_WALL_T : SHELL_RIB_R
+  const rr = Math.sqrt(Math.max(0, R0 * R0 - z * z))
+  const yc = H * uOfX(x)
+  let lo = yc - 9, hi = yc
+  for (let k = 0; k < 40; k++) { const m = (lo + hi) / 2; if (axisDistAt(x, m, 0) <= rr) hi = m; else lo = m }
+  return hi
+}
+
+//  ★75-j 리브 구멍의 크라운은 **x마다 다르다**(2026.07.26 현도: "윗부분 좀만 더 막아주면
+//   안으로 파인 부분이 안 보일 것 같다"). 구판은 전 구간 상수 255.03이었는데 그 값은 **동쪽 끝**
+//   (바닥이 높은 곳)의 통과 높이에서 나온 것이라, 바닥이 4.3 낮은 방 쪽에서 그만큼 과하게 파여
+//   껍질 안쪽이 드러났다. → 통과 높이와 살 제거 높이 **둘 중 큰 쪽**을 x마다 따로 구한다.
+export function ribArchCrownAt(x) {
+  const hw = (ARCH_Z1 - ARCH_Z0) / 2 + 0.25
+  //  ⚠**아치의 곡률까지 계산에 넣어야 한다.** 최악 z 하나만 보고 크라운을 잡으면, 아치는 z가 커질수록
+  //   천장이 낮아지므로 중간 z에서 살이 남는다(실측: z=−1.6에서 0.026 모자라 막 48점 잔존).
+  //   각 z에서 아치 천장 = crown − hw(1−√(1−(z/hw)²)) 이므로, 필요한 crown = T(z) + hw(1−√…)의 최댓값.
+  //   ⚠|z|는 볼벽 안쪽(PASS_HW)까지만 본다 — 그 바깥은 볼벽이 가려 보이지 않는다.
+  let need = descFloorAt(x) + ARCH_HEAD
+  for (let z = 0; z <= PASS_HW + 0.1; z += 0.1) {
+    const sq = Math.sqrt(Math.max(0, 1 - (z / hw) * (z / hw)))
+    need = Math.max(need, tubeInnerBottomAt(x, z) + 0.1 + hw * (1 - sq))
+  }
+  const c = need
+  //  ★★방 **안쪽**에서는 문 크라운을 안 넘는다(현도 2026.07.26: "윗부분 좀만 더 막아주면
+  //   안으로 파인 부분이 안 보일 것 같다"). 그 구간은 통행이 아니라 **보이는 면**이고,
+  //   문 위로 더 판 만큼이 그대로 파인 자국으로 드러난다.
+  //  ⚠서쪽에서도 크라운이 높았던 이유는 거기서 관이 위로 올라와 **살을 걷으려면 그만큼 파야** 해서다.
+  //   그 요구는 통행 구간(벽 동쪽)에만 적용한다 — 방 안쪽 살은 어차피 방 지붕 아래 숨는다.
+  //  ⛔문 크라운 클램프 **철회**(2026.07.26). 그 클램프는 "문 위 파인 자국"을 막으려던 것인데,
+  //   ★75-n에서 창의 서쪽 끝을 **문틀 서쪽 면**까지로 당기면서 그 구간을 문틀이 통째로 덮는다.
+  //   → 파인 자국은 애초에 안 보이고, 클램프가 있으면 오히려 살이 0.02~0.11 남아 입술이 된다.
+  //   ⚠교훈: 가림(문틀)으로 풀 문제를 치수(크라운)로 풀려다 두 요구가 0.1 폭에서 충돌했다.
+  return c
+}
+
+export function tubeBottomAt(x) {
+  const R = RIB_WALL_ON ? SHELL_RIB_R - RIB_WALL_T : SHELL_RIB_R
+  //  ⚠구간을 **중심선에서부터** 잡아야 한다. 위쪽 아무 데서나 시작하면 거기도 관 밖이라
+  //   이분법의 불변식이 깨져 상한으로 수렴한다(실측 사고: 볼트가 1.2만 뚫렸다).
+  const yc = H * uOfX(x)
+  let lo = yc - 9, hi = yc                    // lo = 관 밖(아래) · hi = 관 안(중심)
+  for (let k = 0; k < 60; k++) { const m = (lo + hi) / 2; if (axisDistAt(x, m, 0) <= R) hi = m; else lo = m }
+  return hi
+}
+
+export function archCutProfile() {
+  const P = []
+  //  ⚠★64-5: 자르개는 **딱 필요한 범위만**. 서쪽 끝은 하강이 방으로 들어가는 지점까지면 충분하다 —
+  //   거기서 더 가면 계단 매스 아래 허공만 긁는다(구현 1차에서 174.22까지 나갔던 것을 적발·축소).
+  const x0 = WSTAIR_X0 + 0.6                          // 동쪽: 계단 동쪽 면을 확실히 관통
+  //  서쪽: **크라운이 계단 밑면 아래로 내려가는 곳**에서 끝난다 — 그 서쪽은 계단을 안 건드리므로
+  //   더 파봐야 허공만 긁는다(★64-5). 1차 구현은 176.76까지 나가 부피 5626짜리 자르개를 만들었다.
+  //  ⚠몸을 관 바닥까지 채운 뒤로는 기준이 '밑면'이 아니라 **관 바닥**이다.
+  //   하강 보행선이 관을 벗어나면(관 바닥이 보행선 위로 올라오면) 거기서 볼트가 끝나고
+  //   봉인 채널(슬랩 + 볼벽 둘)이 인계한다 — 그보다 서쪽을 더 파면 허공만 긁는다(★64-5).
+  let x1 = WSTAIR_X1
+  for (let x = WSTAIR_X0; x >= WSTAIR_X1; x -= 0.02) {
+    const cr = Math.min(wstairTopAt(x) - WARCH_HEAD, descFloorAt(x) + WARCH_H_MAX)
+    if (cr < tubeBottomAt(x) + 0.1) { x1 = x - 0.6; break }   // 0.6 = 마구리가 매스 밖에서 닫히도록
+  }
+  const NSEG = 96
+  for (let i = 0; i <= NSEG; i++) {
+    const x = x0 + (x1 - x0) * i / NSEG
+    const floor = descFloorAt(x) - WARCH_DROP
+    //  ★크라운은 계단을 따라 오르되, **판 위 WARCH_RISE_ABOVE 아래로는 안 내려간다.**
+    //   발치 근처에서는 이 하한이 계단 상면을 넘어서므로 첫 단들의 중앙이 실제로 깎여 나간다 =
+    //   정면에서 아치로 읽히는 유일한 방법이다(그러지 않으면 아치가 판 밑에만 존재한다 — 실측).
+    const crown = Math.min(
+      Math.max(wstairTopAt(x) - WARCH_HEAD, WSTAIR_Y0 + WARCH_RISE_ABOVE),
+      descFloorAt(x) + WARCH_H_MAX)
+    P.push({ x, floor, crown, open: crown > floor + 0.05 })
+  }
+  return P
+}
+
+// ── 아치 단면 = 반원 볼트 ──
+//  ⚠1차 구현은 x–y 프로파일을 z로 압출했다 → 단면이 **사각형**이라 아치가 아니었다.
+//   아치는 z–y 단면의 성질이므로 **수평 단면을 적층(로프트)** 해야 한다(★64-2 `ribHoleSolid`와 같은 수법 —
+//   로프트로 처음부터 watertight하게 짓는다. 열린 셸을 이어 붙이면 비다양체가 되어 감산이 파탄한다 ★64-1).
+//  스프링라인 = 크라운 − 반폭. 크라운이 낮은 구간에서는 스프링라인이 바닥으로 눌려 **세그멘탈 아치**가 된다.
+const ARCH_RING_N = 18
+function archRing(q, hw) {
+  //  ⚠**최소 직선부를 강제한다.** spring이 floor와 같아지면 고리 첫 점과 아치 첫 점이 겹쳐 퇴화 삼각형이
+  //   생기고, 그 변이 4~6회 공유되는 **비다양체**가 된다(★64-1과 같은 병 — 실측 4개 링).
+  const spring = Math.max(q.floor + 0.05, q.crown - hw)
+  //  ★고리는 **닫힌 폴리곤**이다(바닥 현까지 포함) — 옆면 루프 하나가 전부를 덮게 해서
+  //   '바닥 띠'를 따로 짜다 감김이 어긋나는 것을 원천 차단한다.
+  const pts = [[-hw, q.floor]]
+  for (let k = 0; k <= ARCH_RING_N; k++) {            // 반원 볼트: 좌 스프링 → 정수리 → 우 스프링
+    const th = Math.PI - Math.PI * k / ARCH_RING_N
+    pts.push([hw * Math.cos(th), spring + (q.crown - spring) * Math.sin(th)])
+  }
+  pts.push([hw, q.floor])
+  return pts
+}
+export function archCutSolid() {
+  const P = archCutProfile().filter(q => q.open)
+  if (P.length < 2) return null
+  const hw = WARCH_HW + WARCH_FUSE
+  const R = P.map(q => archRing(q, hw))
+  const M = R[0].length
+  //  각 고리의 도심(단면 평면 안) — 면마다 바깥쪽을 판정하는 기준점
+  const C = R.map(r => {
+    let z = 0, y = 0
+    for (const q of r) { z += q[0]; y += q[1] }
+    return [z / r.length, y / r.length]
+  })
+  const V = (i, j) => [P[i].x, R[i][j][1], JCT_DN_Z + R[i][j][0]]
+  const pos = []
+  //  ★면마다 개별 정렬(★53 교훈). 전역 반전은 감김이 **이미 일관될 때만** 통한다 —
+  //   스윕 솔리드는 볼록이 아니므로 전역 중심 기준 정렬도 못 쓴다. 단면 도심 기준이 정확하다.
+  const push = (A, B2, Cc, outward) => {
+    const ux = B2[0]-A[0], uy = B2[1]-A[1], uz = B2[2]-A[2]
+    const vx = Cc[0]-A[0], vy = Cc[1]-A[1], vz = Cc[2]-A[2]
+    const nx = uy*vz-uz*vy, ny = uz*vx-ux*vz, nz = ux*vy-uy*vx
+    const flip = (nx*outward[0] + ny*outward[1] + nz*outward[2]) < 0
+    const T = flip ? [A, Cc, B2] : [A, B2, Cc]
+    for (const q of T) pos.push(q[0], q[1], q[2])
+  }
+  //  옆면 — 바깥 = 단면 도심에서 면 중점으로(진행축 성분 제거)
+  for (let i = 0; i < P.length - 1; i++) {
+    for (let j = 0; j < M; j++) {
+      const j2 = (j + 1) % M
+      const A = V(i, j), B2 = V(i + 1, j), Cc = V(i + 1, j2), D = V(i, j2)
+      const cy = (C[i][1] + C[i+1][1]) / 2, cz = JCT_DN_Z + (C[i][0] + C[i+1][0]) / 2
+      const mid = [0, (A[1]+B2[1]+Cc[1]+D[1])/4, (A[2]+B2[2]+Cc[2]+D[2])/4]
+      const out = [0, mid[1] - cy, mid[2] - cz]
+      push(A, B2, Cc, out); push(A, Cc, D, out)
+    }
+  }
+  //  마구리 두 장 — 바깥은 진행축 방향(동쪽 끝 = +x · 서쪽 끝 = −x)
+  for (const [i, ax] of [[0, +1], [P.length - 1, -1]])
+    for (let j = 1; j < M - 1; j++) push(V(i, 0), V(i, j), V(i, j + 1), [ax, 0, 0])
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  g.computeVertexNormals()
+  return g
+}
+
+// ── ③ 조립: (각기둥 ∩ 관 안쪽) − 아치 ──
+export function buildWideStair() {
+  if (!WSTAIR_ON) return null
+  const S = wideStairSpec()
+  const prism = wideStairPrism()
+  const tube = innerTubeSolid(S.x1 - 3, S.x0 + 3)
+  const ev = new Evaluator(); ev.attributes = ['position', 'normal']
+  const a = new Brush(prism), b = new Brush(tube)
+  a.updateMatrixWorld(); b.updateMatrixWorld()
+  let out = ev.evaluate(a, b, INTERSECTION).geometry
+  prism.dispose(); tube.dispose()
+  if (WARCH_ON) {
+    const cut = archCutSolid()
+    if (cut) {
+      //  ⚠CSG 결과는 indexed다(★64 교훈 ⓐ) — 다음 브러시에 넣기 전에 풀어 준다
+      const bo = new Brush(out.index ? out.toNonIndexed() : out), bc = new Brush(cut)
+      bo.updateMatrixWorld(); bc.updateMatrixWorld()
+      const ev2 = new Evaluator(); ev2.attributes = ['position', 'normal']
+      out = ev2.evaluate(bo, bc, SUBTRACTION).geometry
+      cut.dispose()
+    }
+  }
+  return out
+}
+
+//  ── 터널 머리 여유 프로파일 — 검증·진단이 같은 정본을 소비한다 ──
+//  천장 = 아치가 뚫린 구간에선 아치 크라운, 그 밖에선 계단 밑면.
+export function tunnelHeadroom() {
+  //  ⚠계단이 **있는 구간만** 잰다. 자르개는 발치보다 0.6 동쪽까지 나가지만 거기엔 계단이 없다
+  //   (하강은 발치 동쪽 3.54를 하늘 아래 평지·계단으로 내려온다) — 그 구간을 '천장'으로 세면 허위 실패다.
+  const P = archCutProfile().filter(q => q.x <= WSTAIR_X0 + 1e-9)
+  return P.map(q => {
+    const ceil = q.open ? q.crown : wstairTopAt(q.x)   // 안 뚫린 곳은 매스가 꽉 찼다(= 통행 불가)
+    return { x: q.x, floor: descFloorAt(q.x), ceil, head: ceil - descFloorAt(q.x) }
+  })
+}
+
+
+// ⛔★75-c 갈림판 '아래 단(段)'은 **폐기**(2026.07.26 현도: "왜 하나의 판이 아니며 단차가 있는가").
+//  무릎길 마지막 참을 관 폭으로 넓혀 두 단으로 만들었으나, 단차 자체가 거슬린다는 판정.
+//  → 대신 판(`JCT_PLATE_XHI`)을 동쪽으로 2.39 늘려 **하나의 평면 8.39**로 만들었다.
+//  ⚠늘릴 수 있는 근거: `X_LAND_HI`(무릎길 목표)를 안 건드리므로 무릎길이 재유도되지 않는다.
+//   상한은 판 위 층고 — x192.90에서 2.23, x193.50에서 1.94(실측).
+//  ★무릎길에서 판으로 오르는 0.48은 판의 **동쪽 문턱**에 한 곳만 남는다(㊄-d).
+export function apronSpec() {
+  const K = kneeStairSpec()
+  const L = K.landings[K.landings.length - 1]
+  return { y: L.y, rise: JCT_PLATE_TOP - L.y, xThresh: JCT_PLATE_XHI }
+}
+//  문턱 계단 — 무릎길 참(폭 2)에서 판(폭 11)으로 오르는 한 자리. 폭은 판을 따른다.
+export function apronSteps() {
+  const A = apronSpec()
+  if (A.rise <= 0.05) return []
+  const n = Math.max(1, Math.round(A.rise / 0.19))          // R ≈ 무릎길과 같은 단높이
+  const O = junctionPlateOutline()
+  const half = O[O.length - 1].h
+  const run = n * 0.24
+  const T = []
+  for (let i = 0; i < n; i++) {
+    T.push({ x: A.xThresh + run - (i + 0.5) * (run / n), y: A.y + (i + 1) * (A.rise / n) - TREAD_THICK / 2,
+             d: (run / n) * 1.17, w: 2 * half })
+  }
+  return T
+}
+export function buildJunctionApron() { return null }        // ⛔폐기 — 판이 흡수했다
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ★75-h 방 입구를 **아치**로 (2026.07.26 현도: "아치 끝 출구가 직사각형이라 어색하다")
+// ════════════════════════════════════════════════════════════════════════════
+//  ⚠구판은 +x벽을 좌·우 조각 + 린텔 세 박스로 짜서 개구가 직사각이었다. 볼트를 지나온 몸이
+//   마지막에 각진 문틀을 만나 어휘가 끊긴다.
+//  ★모양이 어긋날 수 없게 **볼트와 같은 `archRing`을 쓴다** — 반지름·스프링라인 규칙이 한 곳에만 있다.
+//   (치수를 따로 적어 두면 한쪽만 고쳐져 또 어긋난다 — 오늘 리브 구멍이 그렇게 어긋났다.)
+export function roomMouthArch() {
+  const floor = PASS_FLOOR_Y2
+  //  ★75-m 문 크라운은 **살 밑면보다 낮을 수 없다.** 낮으면 그 차이만큼 살이 안 잘려
+  //   문 안쪽 상단 모서리에 날개로 남는다(현도 적발 2026.07.26 — 실측 0.01~0.11).
+  //   ⚠`RM_MOUTH_H`는 하한이지 확정값이 아니다. 기하가 더 요구하면 기하를 따른다.
+  const crown = Math.max(floor + RM_MOUTH_H, ARCH_ROOM_CROWN)
+  return { floor, crown, hw: PASS_HW + PASS_FUSE }
+}
+//  개구 자르개 — +x벽을 관통하는 아치 프리즘
+export function roomMouthCutSolid() {
+  const A = roomMouthArch()
+  const ring = archRing({ floor: A.floor - 0.4, crown: A.crown }, A.hw)   // 바닥은 슬랩 속으로 물린다
+  //  ⚠rotateY(+90°)는 (x,y,z) → (z, y, −x). 즉 **압출 깊이축이 새 x**가 되고 **Shape의 x가 새 z(부호 반전)**다.
+  //   그래서 Shape에는 원하는 world z의 **음수**를 넣어야 한다. 1차 구현은 이걸 놓쳐 자르개가 벽에서
+  //   1.2 벗어났고 감산이 아무것도 안 했다(결과 정점 36 = 순수 박스 — 부피만 보면 못 잡는다).
+  const sh = new THREE.Shape()
+  sh.moveTo(-(JCT_DN_Z + ring[0][0]), ring[0][1])
+  for (const q of ring) sh.lineTo(-(JCT_DN_Z + q[0]), q[1])
+  sh.closePath()
+  const depth = (PASS_T + RM_MOUTH_REVEAL) * 3
+  const g = new THREE.ExtrudeGeometry(sh, { depth, bevelEnabled: false })
+  g.rotateY(Math.PI / 2)
+  g.translate(RM_X1_G - PASS_T - RM_MOUTH_REVEAL, 0, 0)          // x ∈ [RM_X1−t, RM_X1−t+4t] → 벽(RM_X1~RM_X1+t)을 확실히 관통
+  return g.toNonIndexed()
+}
+//  +x벽(입 구간 패널) — 한 장으로 짓고 아치를 감산한다
+export function buildRoomMouthWall() {
+  const A = roomMouthArch()
+  const floor = PASS_FLOOR_Y2
+  const zw = PASS_HW + PASS_T
+  //  ★75-n 서쪽으로 RM_MOUTH_REVEAL만큼 두꺼워진다 — 문 위 리브 입술을 벽 안에 넣기 위함
+  const th = PASS_T + RM_MOUTH_REVEAL
+  const g = new THREE.BoxGeometry(th, RM_ROOF_G + 2 * PASS_T, 2 * zw)
+  g.translate(RM_X1_G + PASS_T / 2 - RM_MOUTH_REVEAL / 2, floor + RM_ROOF_G / 2, JCT_DN_Z)
+  const cut = roomMouthCutSolid()
+  const ev = new Evaluator(); ev.attributes = ['position', 'normal']
+  const a = new Brush(g.toNonIndexed()), b = new Brush(cut)
+  a.updateMatrixWorld(); b.updateMatrixWorld()
+  const out = ev.evaluate(a, b, SUBTRACTION).geometry
+  g.dispose(); cut.dispose()
+  return out
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ★75-i 리브 구멍을 **아치 단면**으로 (2026.07.26 현도)
+// ════════════════════════════════════════════════════════════════════════════
+//  ⚠구판은 축정렬 **상자**였다. 곡면 껍질에 각진 사각 구멍이 남아, 방에서 돌아보면 껍질 잔재가
+//   이상하게 잘린 판때기로 보였다(현도: "리브가 저 이상하게 잘린 부분을 감쌀 정도로만 뚫렸으면").
+//  ★같은 `archRing`으로 자른다 — 남는 껍질 가장자리가 **문과 동심인 아치**가 된다.
+//   ⚠상자보다 덜 파므로 살 막이 되살아날 수 있다 → `ARCH_*` 상한을 그대로 크라운으로 쓰고,
+//    반폭에 여유(`ARCH_MARGIN`)를 준 뒤 **막 검사([413])로 확인**한다.
+//  ★자르개의 **포함 판정** — 검사는 반드시 이걸 써야 한다. 박스로 재면 아치가 덜 파는데도 통과한다
+//   (실제로 ★75-i에서 상자→아치로 바꾼 뒤 막 검사가 무효가 될 뻔했다).
+export function inRibArchCut(x, y, z) {
+  if (x < ARCH_X0 || x > ARCH_X1) return false
+  const hw = (ARCH_Z1 - ARCH_Z0) / 2 + 0.25
+  const crown = ribArchCrownAt(x)                    // ★x마다 다르다(★75-j)
+  const spring = Math.max(ARCH_Y0 + 0.05, crown - hw)
+  const zz = (z - JCT_DN_Z) / hw
+  if (Math.abs(zz) > 1) return false
+  if (y < ARCH_Y0) return false
+  if (y <= spring) return true                       // 수직 벽 구간
+  const yy = (y - spring) / (crown - spring)
+  return yy <= 1 && zz * zz + yy * yy <= 1           // 볼트 구간(타원)
+}
+
+export function ribArchCutSolid() {
+  const hw = (ARCH_Z1 - ARCH_Z0) / 2 + 0.25          // 창 반폭 + 여유
+  const N = 40
+  const P = []
+  for (let i = 0; i <= N; i++) {
+    const x = ARCH_X0 + (ARCH_X1 - ARCH_X0) * i / N
+    P.push({ x, floor: ARCH_Y0, crown: ribArchCrownAt(x) })   // ★크라운이 x마다 내려온다(★75-j)
+  }
+  const R = P.map(q => archRing(q, hw))
+  const M = R[0].length
+  const C0 = R.map(r => { let z = 0, y = 0; for (const q of r) { z += q[0]; y += q[1] } return [z / r.length, y / r.length] })
+  const V = (i, j) => [P[i].x, R[i][j][1], JCT_DN_Z + R[i][j][0]]
+  const pos = []
+  const push = (A, B2, Cc, out) => {
+    const ux = B2[0]-A[0], uy = B2[1]-A[1], uz = B2[2]-A[2]
+    const vx = Cc[0]-A[0], vy = Cc[1]-A[1], vz = Cc[2]-A[2]
+    const nx = uy*vz-uz*vy, ny = uz*vx-ux*vz, nz = ux*vy-uy*vx
+    const T = (nx*out[0] + ny*out[1] + nz*out[2]) < 0 ? [A, Cc, B2] : [A, B2, Cc]
+    for (const q of T) pos.push(q[0], q[1], q[2])
+  }
+  for (let i = 0; i < P.length - 1; i++) for (let j = 0; j < M; j++) {
+    const j2 = (j + 1) % M
+    const A = V(i, j), B2 = V(i + 1, j), Cc = V(i + 1, j2), D = V(i, j2)
+    const cy = (C0[i][1] + C0[i+1][1]) / 2, cz = JCT_DN_Z + (C0[i][0] + C0[i+1][0]) / 2
+    const mid = [0, (A[1]+B2[1]+Cc[1]+D[1])/4, (A[2]+B2[2]+Cc[2]+D[2])/4]
+    const out = [0, mid[1] - cy, mid[2] - cz]
+    push(A, B2, Cc, out); push(A, Cc, D, out)
+  }
+  for (const [i, ax] of [[0, -1], [P.length - 1, +1]])
+    for (let j = 1; j < M - 1; j++) push(V(i, 0), V(i, j), V(i, j + 1), [ax, 0, 0])
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  g.computeVertexNormals()
   return g
 }

@@ -27,11 +27,12 @@ import {
   CHEEK_TOP_NZ, DESC_STEPS, STEP_RISE, DESC_SLOPE, X_DESC0,
   RM_X0, RM_X1, RM_Z0, RM_Z1, RM_ROOF, RM_MOUTH_H, RM_ROOF_OV_PX,
   ARCH_X0, ARCH_X1, ARCH_Y0, ARCH_Y1, ARCH_Z0, ARCH_Z1,
-  CL_R, CL_HW, JCT_UP_Z, TREAD_DEPTH, TREAD_WIDTH, TREAD_THICK,
+  CL_R, CL_HW, TREAD_THICK, DESC_STEP_R as C_DESC_STEP_R, DESC_TREAD_D as C_DESC_TREAD_D, WARCH_HW as WARCH_HW_L,
   U_LOOKOUT_END, LK_DISC_DX, LK_DISC_DY, LK_DISC_DZ, LK_DISC_LIFT, LK_DISC_T, LK_PLAT_R,
   JCT_KNOT_ON, JCT_KNOT_D, JCT_KNOT_TOP, JCT_KNOT_INSET,
 } from './constants.js'
-import { junctionPlateOutline, plateMaxHalf, cheekTopPzAt, pzCheekProfile, JCT_PLATE_TOP } from './junctionGeometry.js'
+import { junctionPlateOutline, plateMaxHalf, cheekTopPzAt, pzCheekProfile, JCT_PLATE_TOP,
+  wideStairSpec, wideStairOutline, wstairTopAt, archCutProfile } from './junctionGeometry.js'
 
 const DEG = 180 / Math.PI
 const EYE = 1.6
@@ -178,24 +179,37 @@ function inCloister(p) {
 const TREADS = (() => {
   const T = [], yTop = U_KNEE_END * H
   for (let i = 0; i < DESC_STEPS; i++) {
-    const y = yTop - (i + 0.5) * STEP_RISE
+    const y = yTop - (i + 0.5) * C_DESC_STEP_R
     T.push([X_DESC0 - (yTop - y) / DESC_SLOPE, y, zc])
   }
-  const discX = rOf(U_LOOKOUT_END) + LK_DISC_DX
-  const discY = U_LOOKOUT_END * H + LK_DISC_LIFT + LK_DISC_DY
-  const eX = discX, eZ = LK_DISC_DZ, eY = discY - TREAD_THICK / 2
-  const sX = X_LAND_LO, sY = yTop, sZ = JCT_UP_Z
-  const n = Math.max(6, Math.round((eY - sY) / STEP_RISE))
-  for (let i = 0; i < n; i++) { const u = (i + 1) / n
-    T.push([sX + (eX - sX) * u, sY + (eY - sY) * u, sZ + (eZ - sZ) * u]) }
   return T
 })()
 const inTread = (p) => {
   for (const c of TREADS)
-    if (Math.abs(p[0] - c[0]) <= TREAD_DEPTH / 2 && Math.abs(p[1] - c[1]) <= TREAD_THICK / 2
-        && Math.abs(p[2] - c[2]) <= TREAD_WIDTH) return true
+    if (Math.abs(p[0] - c[0]) <= C_DESC_TREAD_D / 2 && Math.abs(p[1] - c[1]) <= TREAD_THICK / 2
+        && Math.abs(p[2] - c[2]) <= PASS_HW) return true
   return false
 }
+//  ⑨' ★75 넓은 상승 계단 매스 — 구 램프(허공 판 35장)를 대신한다.
+//   ★이게 이번 조형의 봉인 기여다: 관 폭을 채운 매스가 하강 위를 덮는다.
+const WS = wideStairSpec()
+const WSO = wideStairOutline()
+const wsHalf = (x) => { let b = WSO[0].h, bd = 1e9
+  for (const q of WSO) { const d = Math.abs(q.x - x); if (d < bd) { bd = d; b = q.h } } return b }
+const ARCHP = archCutProfile().filter(q => q.open)
+const archAt = (x) => { let b = null, bd = 1e9
+  for (const q of ARCHP) { const d = Math.abs(q.x - x); if (d < bd) { bd = d; b = q } }
+  return (b && bd < 0.2) ? b : null }
+function inWideStair(p) {
+  if (p[0] < WS.x1 || p[0] > WS.x0) return false
+  const top = wstairTopAt(p[0])
+  if (p[1] > top || p[1] < top - WS.depth - 0.2) return false
+  if (Math.abs(p[2]) > wsHalf(p[0])) return false
+  const A = archAt(p[0])                       // 아치가 뚫린 곳은 비어 있다
+  if (A && Math.abs(p[2]) <= WARCH_HW_L && p[1] >= A.floor && p[1] <= A.crown) return false
+  return true
+}
+
 //  ⑩ 전망 반원 판(★71-2 두께 1.2 · 지름변 +x · 곡면 −x)
 function inLkDisc(p) {
   const cx = rOf(U_LOOKOUT_END) + LK_DISC_DX, cz = LK_DISC_DZ
@@ -207,7 +221,7 @@ function inLkDisc(p) {
 
 const OCCLUDERS = [
   ['살', inRibWall], ['슬랩', inSlab], ['−z볼벽', inCheekNz], ['+z볼벽', inCheekPz],
-  ['판', inPlate], ['매듭', inKnot], ['방', inRoom], ['회랑', inCloister], ['계단판', inTread], ['전망판', inLkDisc],
+  ['판', inPlate], ['매듭', inKnot], ['방', inRoom], ['회랑', inCloister], ['하강판', inTread], ['넓은계단', inWideStair], ['전망판', inLkDisc],
 ]
 
 function blockedBy(p) {

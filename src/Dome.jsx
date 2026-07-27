@@ -9,6 +9,7 @@ import { Brush, Evaluator, HOLLOW_SUBTRACTION, SUBTRACTION } from 'three-bvh-csg
 import {
   rOf, spiralPoint, SCALE, H, R_BASE, MERIDIANS, SHELL_RIB_R, RIB_RADIAL_SEG,
   STAIR_STEPS, STEP_RISE, TREAD_DEPTH, TREAD_WIDTH, TREAD_THICK, POLE_R, Y_POLE_CUT, U_DOOR,
+  DESC_STEP_R, DESC_TREAD_D,   // ★75 하강 규격 재유도(블롱델)
   DOOR_W, DOOR_H, DOOR_SILL_Y, HALL_DOORS_ON,
   U_KNEE_END, KW_TREAD_W, LAND_R, LAND_T, X_LAND_LO, X_LAND_HI, Z_LAND,
   JCT_UP_Z, JCT_DN_Z, LOOKOUT_MAX_SLOPE, U_LOOKOUT_END, LK_STEPS, LK_PLAT_R, LK_DISC_LIFT,
@@ -18,7 +19,7 @@ import {
   ARCH_X0, ARCH_X1, ARCH_Y0, ARCH_Y1, ARCH_Z0, ARCH_Z1,
   PASS_DOOR_W, PASS_DOOR_H,
   PASS_X_END, CL_R, CL_HW, CL_PHI0, CL_PHI1, CL_ROOF, CL_SILL, CL_HEAD, CL_OP_P0, CL_OP_P1,
-  RM_X0, RM_X1, RM_Z0, RM_Z1, RM_ROOF, RM_MOUTH_H,
+  RM_X0, RM_X1, RM_Z0, RM_Z1, RM_ROOF, RM_MOUTH_H, PASS_FUSE,
   ST_PHI, ST_HW, ST_ROOF,
   LAMP_RIBS, LAMP_R, LAMP_TUBE_R, LAMP_ENTRY_Y, LAMP_TOP_Y, LAMP_MOUTH_Y0, LAMP_MOUTH_Y1, LAMP_FUNNEL_H, LAMP_MOUTH_R, LAMP_POOL_R,
   TERRACE_Y, TERRACE_RIN, TERRACE_ROUT, TERRACE_ARC,
@@ -33,7 +34,7 @@ import {
 import { hallDoors, ribCutSpec } from './corridorStairsGeometry'
 import { buildRibShell, makeRibCurve, buildViceWedge, viceSplitIndex, newelSpec, buildSill, buildFloorCollar, buildFloorLanding, freeNewelSpec, freeSplitRange, buildOpenRim, isOpenRib } from './ribGeometry'
 import { buildKneeBody, buildKneePlinth } from './kneeBodyGeometry'
-import { buildJunctionKnot, buildLightShaft, shaftCutSolid, lightShaftSpec, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek } from './junctionGeometry'   // ★70 매듭 · ★71 빛 기둥
+import { buildJunctionKnot, buildLightShaft, shaftCutSolid, lightShaftSpec, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, apronSteps, buildRoomMouthWall, ribArchCutSolid } from './junctionGeometry'   // ★70 매듭 · ★71 빛 기둥 · ★75 넓은 계단
 import { kneeTreads, kneeStairSpec } from './kneeStair'   // ★66 계단 규격·참
 import { PropStele } from './Steles'
 
@@ -207,8 +208,8 @@ export function ExplorationRib() {
     doorCut.translate(wallX, DOOR_SILL_Y + DOOR_H / 2, 0)
     // ② 아치 자르개: 축정렬 상자(constants ARCH_*) — 하강 보행자 발–머리 대각 띠를 덮는 최소 창.
     //   y 상한(갈림+0.2)을 넘기면 남은 벽이 줄어 '지붕 위 시선' 누출 — 채널 측벽 상단(CHEEK_TOP_*)·정션 판과 짝(검증 21·22항).
-    const archCut = new THREE.BoxGeometry(ARCH_X1 - ARCH_X0, ARCH_Y1 - ARCH_Y0, ARCH_Z1 - ARCH_Z0)
-    archCut.translate((ARCH_X0 + ARCH_X1) / 2, (ARCH_Y0 + ARCH_Y1) / 2, (ARCH_Z0 + ARCH_Z1) / 2)
+    //  ★75-i 상자 → **아치 단면**(현도: 방에서 돌아보면 껍질 잔재가 각지게 잘려 보였다)
+    const archCut = ribArchCutSolid()
     const ribBrush = new Brush(tube); ribBrush.updateMatrixWorld()
     let step1 = ribBrush
     if (HALL_DOORS_ON) {                                          // ★㊶-3: 문 개구만 스위치 — 끄면 문 컷 skip(아치는 아래서 유지)
@@ -254,8 +255,7 @@ export function HallDoorRibs() {
       //   rotation-y=−RIB_DEST_PHI로 돌므로 아치 자르개도 같은 회전으로 놓는다(translate 후 rotateY —
       //   원점 기준 회전이라 순서가 곧 '월드 위치를 돌린다'가 된다).
       if (RIB_XFER_ON && d.k === RIB_DEST_K) {
-        const archCut = new THREE.BoxGeometry(ARCH_X1 - ARCH_X0, ARCH_Y1 - ARCH_Y0, ARCH_Z1 - ARCH_Z0)
-        archCut.translate((ARCH_X0 + ARCH_X1) / 2, (ARCH_Y0 + ARCH_Y1) / 2, (ARCH_Z0 + ARCH_Z1) / 2)
+        const archCut = ribArchCutSolid()
         archCut.rotateY(-RIB_DEST_PHI)
         const rb0 = new Brush(acc); rb0.updateMatrixWorld()
         const ab = new Brush(archCut); ab.updateMatrixWorld()
@@ -529,6 +529,21 @@ function LandingDisc({ u, topLift = 0.1, r = LAND_R, dx = 0, dz = 0, half = fals
 function JunctionLanding() {
   const knotGeo = useMemo(() => buildJunctionKnot(), [])
   const plateGeo = useMemo(() => buildJunctionPlate(), [])
+  //  ★75-d 판의 **동쪽 문턱** — 무릎길 참(폭 2)에서 늘어난 판(폭 10.2)으로 오르는 0.48, 한 자리만.
+  //   ⛔아래 단(두 단 구성)은 폐기됐다 — 현도: "왜 하나의 판이 아니며 단차가 있는가".
+  const apronT   = useMemo(() => apronSteps(), [])
+  const apronRef = useRef()
+  useLayoutEffect(() => {
+    if (!apronRef.current || !apronT.length) return
+    const dum = new THREE.Object3D()
+    apronT.forEach((t, i) => {
+      dum.position.set(t.x, t.y, 0)
+      dum.scale.set(t.d, TREAD_THICK, t.w)
+      dum.updateMatrix()
+      apronRef.current.setMatrixAt(i, dum.matrix)
+    })
+    apronRef.current.instanceMatrix.needsUpdate = true
+  }, [apronT])
   return (
     <>
       {knotGeo && (
@@ -540,6 +555,13 @@ function JunctionLanding() {
       <mesh geometry={plateGeo} userData={{ walkable: true }}>
         <meshStandardMaterial {...TREAD_MAT} />
       </mesh>
+      {/* ★75-d 동쪽 문턱 — 판이 하나의 평면(8.39)이 되고, 오르는 단차는 여기 한 곳만 남는다 */}
+      {apronT.length > 0 && (
+        <instancedMesh ref={apronRef} args={[undefined, undefined, apronT.length]} userData={{ walkable: true }}>
+          <boxGeometry args={[1, 1, 1]} />
+          <meshStandardMaterial {...TREAD_MAT} />
+        </instancedMesh>
+      )}
     </>
   )
 }
@@ -565,7 +587,7 @@ export function KneeWalk() {
   useLayoutEffect(() => {
     const dum = new THREE.Object3D()
     treads.forEach((t, i) => {
-      dum.position.set(t.x, t.y, 0)                                     // z=0 중앙(드리프트 폐기, 1-③G)
+      dum.position.set(t.x, t.y, t.z ?? 0)                                     // z=0 중앙(드리프트 폐기, 1-③G)
       dum.scale.set(t.d / spec.G, 1, t.w / KW_TREAD_W)                  // 깊이 = G×코 · z폭 = ★67-3 폭 전이
       dum.updateMatrix()
       ref.current.setMatrixAt(i, dum.matrix)
@@ -618,8 +640,10 @@ export function RibJunction() {
   useLayoutEffect(() => {
     const dum = new THREE.Object3D()
     const yTop = U_KNEE_END * H
+    //  ★75 규격 재유도: 구판은 `STEP_RISE` 0.35(폐기 기하의 유산)로 23칸 · 2R+G = 1.00 = 통례의 157%였고,
+    //   디딤 1.5가 G 0.30씩 전진해 판이 **4.93배 겹친** 톱니 경사면이었다. 이제 블롱델에서 유도한다.
     for (let i = 0; i < DESC_STEPS; i++) {
-      const y = yTop - (i + 0.5) * STEP_RISE
+      const y = yTop - (i + 0.5) * DESC_STEP_R
       dum.position.set(X_DESC0 - (yTop - y) / DESC_SLOPE, y, JCT_DN_Z)
       dum.updateMatrix()
       ref.current.setMatrixAt(i, dum.matrix)
@@ -631,46 +655,55 @@ export function RibJunction() {
       {/* ★②-재설계: 타원 착지장(JunctionLanding). 무릎길이 +x끝에 닿음(도랑 폐기) + 전망·하강은 판 위/가장자리서 갈라짐. */}
       <JunctionLanding />
       <instancedMesh ref={ref} args={[undefined, undefined, DESC_STEPS]} userData={{ walkable: true }}>
-        <boxGeometry args={[TREAD_DEPTH, TREAD_THICK, TREAD_WIDTH * 2]} />
+        {/* ★75 디딤 깊이도 G의 파생(코 비 1.17, ★66 계승) — 구 1.5는 6배 겹침 = 톱니의 정체 */}
+        {/* ⚠반폭을 정확히 PASS_HW(1.70)로 두면 볼벽 안쪽 면과 **동일 평면**이라 z-fighting이 난다
+            (현도 적발 2026.07.26 "판 겹침으로 인한 우글우글"). 살 속으로 물려 면을 겹치지 않게 한다. */}
+        <boxGeometry args={[DESC_TREAD_D, TREAD_THICK, (PASS_HW + PASS_FUSE) * 2]} />
         <meshStandardMaterial {...TREAD_MAT} />
       </instancedMesh>
     </>
   )
 }
 
-// ── 1p8 전망(Lookout, ★1-③B · ②-재설계 v3): 갈림 착지장 −x 변에서 '곧은 램프'로 상행(z=JCT_UP_Z) → 플랫폼(막다름).
-//  ★②v3: 리브곡면 따라(x=rOf) 상행하던 걸 곧은 램프(X_LAND_LO서 −x·경사 LOOKOUT_MAX_SLOPE)로 교체 —
-//  곡면 상행은 첫 칸이 리브 중심선(x≈186)서 시작해 사각 판 위로 가로질렀음. 곧은 램프는 판 −x 가장자리서
-//  밖으로 곧게 올라가 판을 안 지남. 플랫폼(z=0 보어 올려다보기)·높이·칸수는 그대로.
+// ── 1p8 전망(Lookout) — ★75 넓은 상승 계단(2026.07.26) ──
+//  연혁: ★1-③B 리브곡면 상행 → ②v3 곧은 램프(폭 2·허공 판) → **★75 관 폭을 채우는 계단 매스**.
 export function Lookout() {
+  //  ★75(2026.07.26): 폭 2짜리 **허공 판 35장**의 곧은 램프를 폐기하고,
+  //   관 폭을 채우는 **넓은 상승 계단**(53단 · 전폭 11.8)으로 교체한다.
+  //   ★65가 무릎길에서 걷어낸 435장과 같은 종류의 부채였다.
+  //  ★구성은 새 어휘가 아니라 무릎길의 것(★65·★66) — **몸(매스) + 디딤판**:
+  //   몸 = 매끈한 사다리꼴 각기둥 ∩ 관 안쪽 − 중앙 아치. 디딤판은 그 위에 0.06 파묻혀 앉는다.
+  //   ⚠53단 톱니를 통째로 압출해 관과 교차시킨 1차 구현은 CSG가 파탄했다(열린 변 1455·부피 음수).
+  //  ★그 밑을 하강이 아치로 뚫고 지나간다 = 갈림이 좌우(z 분리)에서 **위·아래**로 바뀐다.
+  //   크고 당당한 계단이 막다름(1p8)이고, 갈 길은 그 바닥에 뚫린 문이다(현도 스케치 2026.07.25).
+  //  ⚠경사 50.85°는 튜닝이 아니라 **리브가 정한 바닥**이다(판을 물리거나 낮추면 관 밖으로 나간다 — 실측).
+  const geo = useMemo(() => buildWideStair(), [])
+  const T = useMemo(() => wideStairTreads(), [])
   const ref = useRef()
-  // 디스크 위치(노브 반영). discY = 디스크 윗면
-  const discX = rOf(U_LOOKOUT_END) + LK_DISC_DX
-  const discY = U_LOOKOUT_END * H + LK_DISC_LIFT + LK_DISC_DY
-  const discZ = LK_DISC_DZ
-  // 램프 도착 = 디스크 '중심' = 반원 지름변의 중점. 지름변은 반원 회전(LK_DISC_ROT)과 무관하게 항상 중심을 지나므로,
-  //  어떤 튜닝값(위치·회전)이든 램프가 항상 지름변에 닿는다(불변식 — 튜닝값 무관하게 일정).
-  const endX = discX, endZ = discZ
-  const endY = discY - TREAD_THICK / 2                            // 램프 끝 윗면 ≈ 디스크 윗면(나란히 올라섬)
-  const startX = X_LAND_LO, startY = U_KNEE_END * H, startZ = JCT_UP_Z
-  const nSteps = Math.max(6, Math.round((endY - startY) / STEP_RISE))
   useLayoutEffect(() => {
+    if (!ref.current) return
     const dum = new THREE.Object3D()
-    for (let i = 0; i < nSteps; i++) {
-      const t = (i + 1) / nSteps                                  // 판(시작) → 디스크 지름변(도착) 3D 직선 계단
-      dum.position.set(startX + (endX - startX) * t, startY + (endY - startY) * t, startZ + (endZ - startZ) * t)
+    T.forEach((t, i) => {
+      //  단위 상자를 인스턴스마다 **비율로** 늘린다 — 폭이 x마다 관을 따르므로(★72 수법) 형상이 다르다
+      dum.position.set(t.x, t.y, t.z ?? 0)
+      dum.scale.set(t.d, TREAD_THICK, t.w)
       dum.updateMatrix()
       ref.current.setMatrixAt(i, dum.matrix)
-    }
+    })
     ref.current.instanceMatrix.needsUpdate = true
-  }, [nSteps, endX, endY, endZ])
+  }, [T])
   return (
     <>
-      <instancedMesh ref={ref} args={[undefined, undefined, nSteps]} userData={{ walkable: true }}>
-        <boxGeometry args={[TREAD_DEPTH, TREAD_THICK, TREAD_WIDTH * 2]} />
+      {geo && (
+        <mesh geometry={geo} castShadow receiveShadow>
+          <meshStandardMaterial {...SHELL_MAT} />
+        </mesh>
+      )}
+      <instancedMesh ref={ref} args={[undefined, undefined, T.length]} userData={{ walkable: true }}>
+        <boxGeometry args={[1, 1, 1]} />
         <meshStandardMaterial {...TREAD_MAT} />
       </instancedMesh>
-      {/* ★반원 디스크 + 노브(2026.07.07): 램프가 지름변에 맞닿게 LK_DISC_ROT로 평평한 변을 램프 쪽으로 돌려 맞춤. */}
+      {/* ★반원 디스크 = 1p8 도달점(막다름). ★75에서도 위치·크기·두께 무변경(브리프 ⑤ · 현도 확정) */}
       <LandingDisc u={U_LOOKOUT_END} r={LK_PLAT_R} topLift={LK_DISC_LIFT + LK_DISC_DY}
         dx={LK_DISC_DX} dz={LK_DISC_DZ} half={LK_DISC_HALF} rotY={LK_DISC_ROT}
         t={LK_DISC_T} bore />{/* ★71 두께 분리 + 빛 기둥 관통 */}
@@ -694,7 +727,8 @@ export function RevealPassage() {
 
   // A. 하강 채널(검증치 계승 — 불변): 봉인 슬랩(리브 하부 물림 PASS_X_DEEP까지, 검증 ㉙) +
   //    측벽 2(구 볼벽: −z 상단 255.4 = 정션 판 하면 아래 · +z 상단 257.5/깊이 PASS_X_DEEP — 검증 ㉛)
-  slab((RM_X1 + PASS_X_DEEP) / 2, floor - t / 2, zc, PASS_X_DEEP - RM_X1, t, 2 * PASS_HW + 2 * t)
+  //  ★75: 슬랩도 볼벽과 같은 깊은 끝을 쓴다(구판은 슬랩 189.54 / −z벽 190.41로 어긋나 홈이 보였다)
+  slab((RM_X1 + PASS_X_CHEEK) / 2, floor - t / 2, zc, PASS_X_CHEEK - RM_X1, t, 2 * PASS_HW + 2 * t)
   wall((RM_X1 + PASS_X_CHEEK) / 2, (floor + CHEEK_TOP_NZ) / 2, zc - zw, PASS_X_CHEEK - RM_X1, CHEEK_TOP_NZ - floor, t)
   //  ★74 +z 볼벽은 박스가 아니라 **레이크 프로파일**(정본 = junctionGeometry.buildPzCheek).
   //   상단이 x에 따라 변하므로 박스로는 못 만든다 — 아래 렌더에서 별도 mesh로 나간다.
@@ -707,7 +741,10 @@ export function RevealPassage() {
   wall((RM_X0 + RM_X1) / 2, floor + RM_ROOF / 2, RM_Z0 - t / 2, RM_X1 - RM_X0 + 2 * t, RM_ROOF + 2 * t, t)
   wall(RM_X1 + t / 2, floor + RM_ROOF / 2, (RM_Z0 - t + zc - zw) / 2, t, RM_ROOF + 2 * t, (zc - zw) - (RM_Z0 - t))
   wall(RM_X1 + t / 2, floor + RM_ROOF / 2, (zc + zw + RM_Z1 + t) / 2, t, RM_ROOF + 2 * t, (RM_Z1 + t) - (zc + zw))
-  wall(RM_X1 + t / 2, (2 * floor + RM_MOUTH_H + RM_ROOF + t) / 2, zc, t, RM_ROOF + t - RM_MOUTH_H, 2 * zw)
+  //  ⛔★75-h 구 직사각 린텔 폐기(2026.07.26 현도: "아치 끝 출구가 아치와 달리 직사각형이라 어색하다").
+  //   → 입 구간 +x벽을 **한 장으로 짓고 아치를 감산**한다(정본 = junctionGeometry.buildRoomMouthWall).
+  //   ★모양이 어긋날 수 없게 볼트와 **같은 `archRing`**을 쓴다 — 치수를 따로 적으면 한쪽만 고쳐진다
+  //    (오늘 리브 구멍이 정확히 그렇게 어긋났다).
   // ★입(mouth) x경계 = 회랑 단면보다 0.3 안쪽(rIn+0.3 ~ rOut−0.3) — 방 벽(좌우 조각)이 회랑 벽 시작(rIn/rOut, φ0)을
   //  0.3씩 덮어 직육면체↔원호 옆 이음매 봉인. 구 −0.4(입이 더 넓음)는 벽 너머 빈 공간 노출 → 반전. 통행폭 4.6(회랑 5.2보다 좁은 문틀).
   const mX0 = CL_R - CL_HW + 0.3, mX1 = CL_R + CL_HW - 0.3
@@ -716,6 +753,7 @@ export function RevealPassage() {
   // 회랑 입 위 트랜섬/소핏: 방 천장(RM_ROOF)↔회랑 천장(CL_ROOF) 단차를 막음. ★CL_ROOF>RM_ROOF면 상승 소핏,
   //  반대면 구 헤더 — Math.abs로 양쪽 안전(음수 붕괴 방지). 낮은 천장서 시작해 높은 천장 위로 +t 물림(틈 봉인).
   wall((mX0 + mX1) / 2, floor + (RM_ROOF + CL_ROOF + t) / 2, RM_Z1 + t / 2, mX1 - mX0, Math.abs(CL_ROOF - RM_ROOF) + t, t)
+  //  ★75-h 입 구간 +x벽 = 아치 감산 패널(박스 배열 B가 아니라 별도 mesh — CSG가 필요하다)
   //  ★71 지붕 = 빛 기둥이 뚫고 지나는 유일한 면 → 자르개로 구멍을 낸다(아래 렌더에서 CSG).
   //   ⚠밀폐(스포 3중 ③)는 **관 자신이 마개를 겸해** 유지된다 — 구멍이 관보다 SHAFT_FUSE만큼 작아 융착된다.
   //  ★73 +x 오버행 절삭 — 벽 바깥면에 맞춘다(구판은 0.3 더 나와 하강 도중 보였다).
@@ -799,7 +837,9 @@ export function RevealPassage() {
         </mesh>
         )
       ))}
-      {/* ★74 +z 볼벽(레이크 상단) — 갈림판 윗면을 뚫고 올라오던 1.4를 걷어냈다 */}
+      {/* ★75-h 방 입구 = **아치** — 볼트를 지나온 몸이 각진 문틀을 만나지 않게(현도 2026.07.26) */}
+      <MouthWall />
+      {/* ★74 +z 볼벽 — ★75에서 레이크를 걷어내고 −z와 같은 높이로 대칭화했다 */}
       <PzCheek />
       {/* ★71 빛 기둥 — 전망 반원 판 → 이 방. 리브 껍질·지붕·판 셋을 같은 자르개로 뚫는다. */}
       <LightShaft />
@@ -830,6 +870,16 @@ function BoredBox({ p, s }) {
 }
 
 // ── ★74 +z 볼벽(레이크 상단) ──
+function MouthWall() {
+  //  ⚠박스 배열 B가 아니라 별도 mesh다 — CSG(아치 감산)가 필요하기 때문.
+  const geo = useMemo(() => buildRoomMouthWall(), [])
+  return geo ? (
+    <mesh geometry={geo}>
+      <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+    </mesh>
+  ) : null
+}
+
 function PzCheek() {
   const geo = useMemo(() => buildPzCheek(), [])
   return (

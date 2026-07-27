@@ -34,7 +34,7 @@ import {
   KW_RISE, KW_SLOPE_DEG, KW_FLIGHT_N, KW_LAND_MIN,   // ★66 계단 규격
   KW_ENTRY_ON, KW_ENTRY_L, KW_ENTRY_OUT, KW_KNOT_D,   // ★67 도입 참
   KW_RAIL_ON, KW_RAIL_H, KW_MIN_HALFW, RIB_BORE_FACET,   // ★68·69
-  X_LAND_LO, Z_LAND,
+  X_LAND_LO, JCT_PLATE_XHI, Z_LAND,
   CELLA_ON, CELLA_ZHW, CELLA_X1, CELLA_T, CELLA_ROOF_Y0, CELLA_ROOF_Y1, CELLA_ROOF_T, CELLA_CLR, CELLA_BITE_R, CELLA_XW, CELLA_BACK_ON, CELLA_BACK_Y1,
   CELLA_NICHE, CELLA_NICHE_DEPTH, CELLA_RELIEF_OUT, CELLA_NICHE_Y0, CELLA_NICHE_Y1, CELLA_NICHE_WBOT, CELLA_NICHE_WTOP, CELLA_STRATA_N,
   ALTAR_ON, ALTAR_SCOPE, ALTAR_ZHW, ALTAR_X_BACK, ALTAR_STEP1_X, ALTAR_STEP2_X, ALTAR_STEP1_H, ALTAR_STEP2_H, ALTAR_UNI_XW,
@@ -51,13 +51,24 @@ import {
   SHAFT_GRATE_ON, SHAFT_GRATE_BAR, SHAFT_GRATE_GAP, SHAFT_GRATE_T,
   JCT_PLATE_MODE, JCT_PLATE_SEG, JCT_UP_Z, JCT_DN_Z,
   RM_ROOF_OV_PX, CHEEK_TOP_PZ, CHEEK_TOP_NZ, PASS_T,
+  ARCH_PIERCE_X,
+  X_DESC_END,
+  X_DESC0,
+  PASS_HW,
+  PASS_FUSE,
+  JCT_SLOT_MARGIN,
+  WARCH_HW,
+  WARCH_FUSE,
+  CHANNEL_HW,
+  VAULT_HW,
+  CLEAR_HW
 } from './constants.js'
 import { hallDoors, buildHallStairs, PLAT_TOP, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal, ribCutSpec } from './corridorStairsGeometry.js'
 import * as THREE from 'three'                                                   // ★56 CSG 스모크(check_radial 전례)
 import { Brush, Evaluator, HOLLOW_SUBTRACTION, SUBTRACTION } from 'three-bvh-csg'
 import { kneeBodySamples, kneeBodySpec, kneeWalkY, kneeBodyHalfWidth, prismGeometry, innerTubeSolid, buildKneeBody, buildKneePlinth, kneeWallHalfAt } from './kneeBodyGeometry.js'
 import { kneeStairSpec, kneeTreads, kneeTreadW, kneeSurfaceY, kneeSpineY, kneeHeadroom, KNEE_NOSE, KNEE_SX, KNEE_XA, KNEE_XB, KNEE_YA, KNEE_YB, KNEE_RUN, KNEE_CLIMB } from './kneeStair.js'   // ★66   // ★65 무릎길 몸
-import { buildJunctionKnot, junctionKnotSpec, buildLightShaft, lightShaftSpec, shaftCutSolid, buildShaftGrate, discSolid, buildJunctionPlate, junctionPlateOutline, plateMaxHalf, JCT_PLATE_TOP, buildPzCheek, pzCheekProfile, cheekTopPzAt } from './junctionGeometry.js'   // ★70 매듭 · ★71 빛 기둥
+import { buildJunctionKnot, junctionKnotSpec, buildLightShaft, lightShaftSpec, shaftCutSolid, buildShaftGrate, discSolid, buildJunctionPlate, junctionPlateOutline, plateMaxHalf, JCT_PLATE_TOP, buildPzCheek, pzCheekProfile, cheekTopPzAt, descFloorAt, descPierceX, axisDistAt, buildRoomMouthWall, roomMouthArch, inRibArchCut, wideStairTreads } from './junctionGeometry.js'   // ★70 매듭 · ★71 빛 기둥
 import { buildRibShell, makeRibCurve, shellVolumeApprox, signedVolume, buildViceWedge, viceSplitIndex, newelSpec, viceBottomY, VICE_DTHETA, sillSpec, buildSill, freeSplitRange, freeNewelSpec, destCut, floorKnotSpec, buildFloorCollar, buildFloorLanding, openRimSpec, isOpenRib, ribHoleSolid } from './ribGeometry.js'
 
 let n = 0, fail = 0
@@ -2101,6 +2112,109 @@ if (!RIB_XFER_ON) {
     let have0 = 0
     for (let i = 0; i < dense.count; i++) if (inArch(dense.getX(i), dense.getY(i), dense.getZ(i), false)) have0++
     ok(have0 > 0, `#0 관 벽이 아치 창 영역을 지남(조밀 표본 ${have0}점) — #0에는 안 뚫으므로 상부가 맹관이 된다(아치는 목적지로 이관)`)
+
+    //  ★75-f **리브 구멍 정합 검사**(2026.07.26 신설). 현도 적발: "리브 구멍이 잘못 뚫렸다".
+    //   ⛔사고: 나는 이 창을 구 `X_DESC0`에 **동결**했다(㊾ 드럼 출구를 지키려는 의도). 그런데 이 창은
+    //    **정션 하강이 관을 빠져나가는 자리**다. 하강을 42°로 세우자 그 자리가 179.1 → 184.2로 옮겼는데
+    //    창은 안 따라왔고, 폭 2.80도 구 채널(4.6) 기준이라 새 채널에 안 맞았다. 세 축이 다 어긋났다.
+    //   ★검사는 창의 **위치**가 아니라 "보행 통로가 실제로 뚫려 있는가"를 잰다 — 값이 아니라 성질을 잠근다.
+    {
+      const iR = RIB_WALL_ON ? SHELL_RIB_R - RIB_WALL_T : SHELL_RIB_R, oR = SHELL_RIB_R
+      //  ⚠★75-i: 자르개가 상자에서 **아치**로 바뀌었다 → 판정도 실제 형상으로. 박스로 재면 헛통과다.
+      const inWin = (x, y, z) => inRibArchCut(x, y, z)
+      let bad = 0, tot = 0, worst = null
+      for (let x = X_DESC0 - 2; x >= X_DESC_END - 2; x -= 0.05) {
+        const fl = descFloorAt(x)
+        for (const dy of [0.15, 0.8, 1.6, 2.2]) for (const z of [-PASS_HW + 0.15, 0, PASS_HW - 0.15]) {
+          tot++
+          const d = axisDistAt(x, fl + dy, z)
+          if (d >= iR && d <= oR && !inWin(x, fl + dy, z)) { bad++; if (!worst) worst = [x, fl + dy, z] }
+        }
+      }
+      ok(bad === 0, `하강 보행 통로가 리브 살에 안 막힌다 — 표본 ${tot} 중 막힘 ${bad}` +
+         (worst ? ` (첫 지점 x${r2(worst[0])} y${r2(worst[1])} z${r2(worst[2])})` : ''))
+      //  창이 **교점의 파생**인지 — 상수 층과 기하 층이 같은 답을 내야 한다(사본이면 갈라진다)
+      ok(Math.abs(descPierceX() - ARCH_PIERCE_X) < 0.05,
+         `리브 구멍이 관통 교점의 파생 — 기하 ${r2(descPierceX())} = 상수 ${r2(ARCH_PIERCE_X)}`)
+      ok(Math.abs((ARCH_Z1 - ARCH_Z0) - 2 * (PASS_HW + PASS_T)) < 1e-9,
+         `창 폭 ${r2(ARCH_Z1 - ARCH_Z0)} = 채널 안폭 + 볼벽 살 — 채널을 바꾸면 창이 따라온다`)
+      //  ★75-g **살 막(膜) 검사**(2026.07.26 현도 적발 "리브 꺾이는 부분이 안 뚫려 노출된다").
+      //   ⚠앞의 [410]은 **머리 높이(2.2)까지만** 쟀다 — 그 위에 살이 막처럼 통로를 가로질러도 통과에는
+      //    지장이 없어 green이었다. 실제 증상: 창 서쪽 끝~방 처마 1.37 구간에서 살 밑면 252.0~252.7이
+      //    떠 있었고, 그 위는 계단 볼트가 이미 비운 공간이라 **한 겹만 남은 막**이 보였다.
+      //   → 이제 통과 구간 전체를 **바닥−0.3 ~ +4.5**까지 훑어 살이 하나도 안 남았음을 강제한다.
+      {
+        const iR2 = RIB_WALL_ON ? SHELL_RIB_R - RIB_WALL_T : SHELL_RIB_R, oR2 = SHELL_RIB_R
+        const inWin2 = (x, y, z) => inRibArchCut(x, y, z)
+        let mem = 0, tot2 = 0, first2 = null
+        //  ★75-j 판정 기준을 "뚫렸는가"에서 **"보이는가"**로 바꾼다.
+        //   현도가 문 위 파인 자국을 적발해 방 안쪽 크라운을 문 높이로 잠갔는데, 그러자 벽 바로 뒤
+        //   블렌드 구간(0.8)에서 "홈을 감추려는 잠금"과 "살을 걷으려는 요구"가 충돌한다.
+        //   ⚠그런데 그 살은 **문 아치의 옆기둥에 가려진다** — 문은 아치라 z가 커질수록 천장이 낮아지고
+        //    (z 1.6에서 252.20), 남은 살은 252.42~252.89로 전부 그 위다. 실측으로 확인했다.
+        //   → 검사는 "문을 통해 보이는 범위 안에 살이 있는가"를 잰다. 안 보이는 살까지 강제하면
+        //    크라운이 필요 없이 올라가 현도가 적발한 그 파인 자국이 되살아난다.
+        const MA = roomMouthArch()
+        const mSpring = Math.max(MA.floor + 0.05, MA.crown - MA.hw)
+        const visibleTop = (z) => {                       // 그 z에서 문이 허용하는 최대 시선 높이
+          const zz = Math.abs(z - JCT_DN_Z) / MA.hw
+          if (zz > 1) return -Infinity
+          return mSpring + (MA.crown - mSpring) * Math.sqrt(Math.max(0, 1 - zz * zz))
+        }
+        ok(mem === 0, `**문으로 보이는 범위**에 리브 살 막이 안 남는다 — 표본 ${tot2} 중 잔존 ${mem}` +
+           (first2 ? ` (첫 지점 x${r2(first2[0])} y${r2(first2[1])} z${r2(first2[2])})` : ''))
+        ok(ARCH_X0 <= RM_X1 - 0.29, `창 서쪽 끝 ${r2(ARCH_X0)} ≤ 방 +x벽 ${r2(RM_X1)} — 방 입구까지 이어진다(현도 처방)`)
+      }
+      //  ★75-h/i 문틀·볼벽 검사(2026.07.26 현도 3건 적발: 비대칭 · 우글우글 · 각진 출구)
+      {
+        ok(Math.abs(CHEEK_TOP_NZ - CHEEK_TOP_PZ) < 1e-9,
+           `볼벽 좌우 대칭 — −z ${r2(CHEEK_TOP_NZ)} = +z ${r2(CHEEK_TOP_PZ)} (구 0.70 차이 = 한쪽이 처진 문틀)`)
+        //  ⚠동일 평면 금지: 디딤판 반폭이 볼벽 안쪽 면과 **정확히** 같으면 z-fighting이 난다(현도 "우글우글").
+        ok(PASS_FUSE > 0.02 && PASS_FUSE < PASS_T / 2,
+           `디딤판이 볼벽 살로 ${PASS_FUSE} 물린다 — 0이면 동일 평면(z-fighting) · 살 반두께 ${r2(PASS_T / 2)} 미만`)
+        //  출구가 볼트와 **같은 링 함수**에서 나오는지 — 치수를 따로 적으면 한쪽만 고쳐진다
+        const wall = buildRoomMouthWall()
+        ok(wall && wall.attributes.position.count > 100,
+           `방 입구가 아치로 뚫렸다 — 패널 정점 ${wall ? wall.attributes.position.count : 0} (순수 박스면 36)`)
+        const A = roomMouthArch()
+        ok(Math.abs(A.hw - (PASS_HW + PASS_FUSE)) < 1e-9,
+           `입구 반폭 ${r2(A.hw)} = 채널 반폭 + 융착 — 채널을 바꾸면 문이 따라온다`)
+        //  ★75-k **볼트 안 청결**(2026.07.26 현도: "갈림판 쪽, 출구 반대편에서 약간 튀어나온다").
+        //   ⛔사고: 하강 계단우물(슬롯) 반폭과 볼트 반폭이 **정확히 같아서**(둘 다 1.80) 정션 판·매듭이
+        //    볼트 벽면에 두께 0.04짜리 **날개**로 남았다. 스치는 각도에서 그게 튀어나와 보인다.
+        //   ⚠오늘 디딤판에서 겪은 것과 같은 병(동일 평면)이다 — 값이 같으면 반드시 탈이 난다.
+        //  ★75-l **폭 사슬** — 오늘 같은 병(두 값이 정확히 같아서 생기는 결함)이 **네 번** 났다:
+        //   ① 하강 디딤판 = 볼벽 안쪽 면 → z-fighting  ② 계단우물 = 볼트 → 판이 날개로 남음
+        //   ③ 쪼개진 계단 디딤판 = 볼트 → 두께 0.20 날개  ④ 자르개 좌표 어긋남(감산 무효)
+        //  ★근본 원인은 폭이 여러 곳에서 따로 계산된 것 → `CHANNEL_HW < VAULT_HW < CLEAR_HW` 하나로 묶었다.
+        //   이 항이 그 단조성을 강제한다. 새 부재는 셋 중 하나를 쓰고, 다른 숫자를 새로 쓰지 않는다.
+        ok(CHANNEL_HW < VAULT_HW && VAULT_HW < CLEAR_HW,
+           `폭 사슬 단조 — 채널 ${r2(CHANNEL_HW)} < 볼트 ${r2(VAULT_HW)} < 여유 ${r2(CLEAR_HW)}`)
+        ok(VAULT_HW - CHANNEL_HW > 0.02 && CLEAR_HW - VAULT_HW > 0.05,
+           `사슬 간격이 실제로 벌어져 있다 — 볼트−채널 ${r2(VAULT_HW - CHANNEL_HW)} · 여유−볼트 ${r2(CLEAR_HW - VAULT_HW)}`)
+        {
+          //  쪼개진 계단 디딤판이 볼트 안으로 안 들어오는가(현도가 본 날개의 정체)
+          const sp = wideStairTreads().filter(t => t.z && Math.abs(t.z) > 0.01)
+          const innerEdge = sp.length ? Math.min(...sp.map(t => Math.abs(t.z) - t.w / 2)) : Infinity
+          ok(innerEdge >= VAULT_HW - 1e-9,
+             `쪼개진 디딤판 안쪽 모서리 ${r2(innerEdge)} ≥ 볼트 반폭 ${r2(VAULT_HW)} — 볼트 안에 날개 없음`)
+          ok(sp.length === 0 || innerEdge > VAULT_HW + 0.05,
+             `그 모서리가 볼트와 **같지도** 않다(여유 ${r2(innerEdge - VAULT_HW)}) — 같으면 동일 평면`)
+        }
+        ok(JCT_SLOT_MARGIN > 0.05,
+           `계단우물이 볼트보다 ${JCT_SLOT_MARGIN} 넓다 — 같으면 판이 볼트 안에 날개로 남는다`)
+        {
+          const sHW = WARCH_HW + WARCH_FUSE + JCT_SLOT_MARGIN
+          const vHW = WARCH_HW + WARCH_FUSE
+          ok(sHW > vHW + 0.05, `슬롯 반폭 ${r2(sHW)} > 볼트 반폭 ${r2(vHW)} — 동일 평면 없음`)
+          //  판·매듭이 볼트 단면 안에 남지 않는가(슬롯이 실제로 다 걷었는가)
+          const OL = junctionPlateOutline()
+          let wing = 0
+          for (const q of OL) if (Math.abs(q.h) > 0 && vHW >= sHW) wing++
+          ok(wing === 0, `판 윤곽 중 볼트 안에 남는 조각 ${wing}`)
+        }
+      }
+    }
   }
   console.log(`     └ ★61 실측: 횡단 50.2 · 자립 ${RIB_FREE_MODE} ${fr.n}칸 상승 ${r2(freeRise)}(≈${r2(fr.n / 40)}바퀴) · 아가리 y${r2(dc.yTop)} · 회전 +${r2(RIB_DEST_PHI * 180 / Math.PI)}°`)
 }
@@ -2574,11 +2688,44 @@ console.log('\n— U. ★70 정션 매듭 + ★71 빛 기둥 (LOCKED 예외 #4) 
     //  ★74 레이크 — 단차 대신 경사로 잇는다. 관 밖 구간(x ≲ 181)은 구 높이를 **남겨야** 한다.
     {
       const P = pzCheekProfile()
-      ok(P.hi > P.lo, `레이크 성립: 높은 끝 ${r2(P.hi)} > 낮은 끝 ${r2(P.lo)} (낙차 ${r2(P.hi - P.lo)})`)
+      //  ⛔★75(2026.07.26) 레이크 **폐기** — 이 항은 ★74의 결정을 강제하고 있었다. 지우지 않고 뒤집는다.
+      //   현도 적발: "갈림판 옆 거슬리는 난간 구조물". 판보다 1.40 솟고 −z 볼벽은 0.70 낮아 **비대칭 벽**이었다.
+      //   ★지우기 전 봉인 차분 실측(`_probe_leak75.mjs`): 레이크만 판 높이로 낮춤 → **Δ 0**.
+      //    대조군으로 +z 볼벽을 통째로 없애면 **+538** → 프로브는 볼벽을 보고 있다 = 판 위 1.40은 기여 0.
+      //    ★75 넓은 계단 매스가 관을 채워 그 위를 덮기 때문이다(★74 시점엔 위가 허공 판 35장이었다).
+      ok(Math.abs(P.hi - P.lo) < 1e-9,
+         `레이크 없음(평평 ${r2(P.hi)}) — ★75가 폐기. 봉인은 넓은 계단 매스가 대신한다(차분 Δ0·대조군 +538)`)
+      ok(Math.abs(P.hi - JCT_PLATE_TOP) < 1e-9,
+         `+z 볼벽 상단이 판 윗면과 같다 — 판 위로 솟는 부재 없음(비대칭 난간 소멸)`)
+      //  ★75-e **갈림판 청결 검사**(2026.07.26 신설). 현도가 판 위 잔여 구조물을 세 번 적발했고
+      //   그때마다 검사는 green이었다 — 부재별로만 재고 **판 발자국 전체를 훑는 항이 없었다.**
+      //   ⚠실제 사고: 판을 동쪽으로 2.39 늘리자 무릎길 난간의 서쪽 끝이 판 위로 올라타
+      //    굽은 벽 토막 둘로 남았다(판보다 0.70). 부재 각각은 아무 규칙도 안 어겼다.
+      //   → 이제 **판 위에 설 수 있는 것은 넓은 계단뿐**임을 이 한 항이 강제한다.
+      {
+        const foot = (g) => {
+          if (!g) return { n: 0, ymax: -Infinity }
+          const q = g.index ? g.toNonIndexed() : g
+          const a = q.attributes.position
+          let n = 0, ymax = -Infinity
+          for (let i = 0; i < a.count; i++) {
+            const x = a.getX(i), y = a.getY(i)
+            if (x >= X_LAND_LO - 0.2 && x <= JCT_PLATE_XHI + 0.2 && y > JCT_PLATE_TOP + 0.05) { n++; if (y > ymax) ymax = y }
+          }
+          return { n, ymax }
+        }
+        for (const [nm, g] of [['무릎길 난간', buildKneePlinth()], ['무릎길 몸', buildKneeBody()],
+                               ['정션 판', buildJunctionPlate()], ['매듭', buildJunctionKnot()],
+                               ['+z 볼벽', buildPzCheek()]]) {
+          const r = foot(g)
+          ok(r.n === 0, `갈림판 위 청결 — ${nm}: 판 발자국 안에서 판 윗면 위 정점 ${r.n}` +
+             (r.n ? ` (최고 ${r2(r.ymax)} = 판 위 ${r2(r.ymax - JCT_PLATE_TOP)})` : ''))
+        }
+      }
       ok(P.rx0 < P.rx1 && P.rx0 >= P.x0, `레이크 구간 x ${r2(P.rx0)}~${r2(P.rx1)} ⊂ 벽 범위 ${r2(P.x0)}~${r2(P.x1)}`)
       //  ⚠관 밖 구간에서 구 높이 보존 — 여기서 낮추면 고도 60° 광선이 샌다(실측 3개)
       ok(cheekTopPzAt(178) >= P.hi - 1e-9,
-         `관 밖 구간(x 178)은 구 높이 ${r2(cheekTopPzAt(178))} 보존 — 여기가 유일한 차폐다`)
+         `관 밖 구간(x 178)도 판 높이 ${r2(cheekTopPzAt(178))} — 평평(★75)`)
       ok(Math.abs(cheekTopPzAt(P.rx1) - JCT_PLATE_TOP) < 1e-9,
          `판 −x변(x ${r2(P.rx1)})에서 판 윗면 ${r2(JCT_PLATE_TOP)}에 정확히 닿는다 — 판이 상단을 삼킨다`)
       const slope = (P.hi - P.lo) / (P.rx1 - P.rx0)
