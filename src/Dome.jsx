@@ -33,6 +33,7 @@ import {
   RM10_EXIT_TH, RM10_EXIT_DHTH, RM10_EXIT_TH0, RM10_EXIT_TH1, RM10_EXIT_RIN, RM10_EXIT_ROUT,   // ★79-5 출구 통로
   RM10_EXIT_FLOOR_Y, RM10_EXIT_ROOF_Y, RM10_TERR_TH, RM10_TERR_DHTH,
   RM10_EXIT_W, RM10_EXIT_DOOR_W, RM10_STR_L, RM10_STR_END, RM10_TERR_DOOR_W, RM10_CONE_T,   // ★79-6/7
+  RM10_FLARE_ON, RM10_ARC_TH1,                                                                // ★80 나팔 · 반원호 연장
   RIB_TINT_COL, RIB_TINT_AMT, RIB_TINT_EMIS, RIB_TINT_Y0, RIB_TINT_Y1,
   RIB_CUT_ON, RIB_CUT_MODE, RIB_CUT_BOX_HW, RIB_CUT_CAP_T,   // ★56 리브 절단(1p7)
   RIB_WALL_ON, RIB_WALL_T, RIB_WALL_SCOPE,                   // ★57 리브 벽 두께
@@ -46,6 +47,7 @@ import { buildRibShell, makeRibCurve, buildViceWedge, viceSplitIndex, newelSpec,
 import { buildKneeBody, buildKneePlinth } from './kneeBodyGeometry'
 import { buildJunctionKnot, buildLightShaft, shaftCutSolid, lightShaftSpec, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, apronSteps, buildRoomMouthWall, ribArchCutSolid, radialPlate } from './junctionGeometry'   // ★70 매듭 · ★71 빛 기둥 · ★75 넓은 계단
 import { kneeTreads, kneeStairSpec } from './kneeStair'   // ★66 계단 규격·참
+import { buildFlareShell } from './exitFlareGeometry'   // ★80 S자 나팔
 import { PropStele } from './Steles'
 
 export function Ground() {
@@ -1244,7 +1246,9 @@ export function LampRoom() {
              바깥벽에도 두께를 줘 문이 '종이 구멍'이 아니라 살을 가진 개구가 되게 한다(★78-4 어법). */}
         {(() => {
           const t2 = PASS_T, y0 = RM10_EXIT_FLOOR_Y, y1 = RM10_EXIT_ROOF_Y
-          const b0 = RM10_EXIT_TH0, b1 = RM10_EXIT_TH1
+          const FL = RM10_FLARE_ON                                  // ★80 나팔이 뒤를 이어받는가
+          //  ★80 5차: 반원호를 230°까지 **더 감는다**(현도) — 그래야 통로가 회랑 외벽까지 나간다
+          const b0 = RM10_EXIT_TH0, b1 = FL ? RM10_ARC_TH1 : RM10_EXIT_TH1
           const RI = RM10_EXIT_RIN, RO = RM10_EXIT_ROUT
           const iH = RM10_EXIT_DHTH                                 // ★79-7 방 쪽 문 = 원뿔 벽의 그 문 하나(각반폭 공유)
           const i0 = RM10_EXIT_TH - iH, i1 = RM10_EXIT_TH + iH
@@ -1288,14 +1292,15 @@ export function LampRoom() {
                   셀프 렌더는 **제 사본**에 벽이 남아 있어서 0% 누출로 보고했다. 두 벌로 적힌 기하의 대가. */}
               {[RO, RO + t2].map((r, k) => (
                 <group key={'xo' + k}>
-                  {cyl('xoa' + k, r, y0 - t2, y1, b0, o0)}
-                  {cyl('xob' + k, r, y0 - t2, y1, o1, b1)}
+                  {/* ★80 나팔이면 테라스 문이 없다 — 벽이 b0~180°까지 통째로 이어지고, 그 끝에서 나팔이 받는다 */}
+                  {FL ? cyl('xoa' + k, r, y0 - t2, y1, b0, b1)
+                      : <>{cyl('xoa' + k, r, y0 - t2, y1, b0, o0)}{cyl('xob' + k, r, y0 - t2, y1, o1, b1)}</>}
                 </group>
               ))}
               {/* 직선 구간이 지나는 개구의 문선 둘 */}
-              {[o0, o1].map((th, k) => rbx('xoj' + k, RO + t2 / 2, th, (y0 + y1) / 2, t2, y1 - y0, t2))}
+              {FL ? null : [o0, o1].map((th, k) => rbx('xoj' + k, RO + t2 / 2, th, (y0 + y1) / 2, t2, y1 - y0, t2))}
               {/* 끝캡 둘 — 여기가 뚫리면 밖이 보인다. 안쪽 변이 원뿔을 따르는 **사다리꼴** */}
-              {[b0, b1].map((th, k) => (
+              {(FL ? [b0] : [b0, b1]).map((th, k) => (
                 <mesh key={'xc' + k} geometry={radialPlate([
                   [rm10R(y0 - t2) + RM10_CONE_T - t2, y0 - t2], [RO + t2, y0 - t2],
                   [RO + t2, y1 + t2], [rm10R(y1 + t2) + RM10_CONE_T - t2, y1 + t2],
@@ -1311,15 +1316,26 @@ export function LampRoom() {
                   높이는 두 이웃보다 0.02 아래 — 위에서 덮이므로 z-파이팅이 없다(방↔회랑 이음매와 같은 규약). */}
               {ring('xth', rm10Tiers()[0].r1 - t2, rm10R(y0) + RM10_CONE_T, y0 - 0.04, i0, i1, true)}
 
-              {/* ── ★79-6 직선 구간(좌회전 뒤 몇 걸음) — 로컬 −x 방향 = 돔 중심 ── */}
-              {/* ⚠★79-9: 바닥·지붕을 0.02 어긋냈다. 구판은 원호 링과 **완전 공면**이라(겹침 반경 1.2)
-                  또 하나의 우글우글이었다 — 현도가 신고하기 전에 실측으로 잡았다. */}
-              {box('sf', (xs + xe) / 2, y0 - 0.04 - t2 / 2, 0, xs - xe, t2, RM10_EXIT_W + 2 * t2)}
-              {box('sr', (xs + xe) / 2, y1 + 0.02 + t2 / 2, 0, xs - xe, t2, RM10_EXIT_W + 2 * t2)}
-              {[-1, 1].map((sg) => box('sw' + sg, (xs + xe) / 2, (y0 + y1) / 2, sg * (hw + t2 / 2), xs - xe, y1 - y0 + 2 * t2, t2))}
-              {/* 끝벽 = 테라스 쪽 문(문선 좌우 + 인방 위) */}
-              {[-1, 1].map((sg) => box('se' + sg, xe + t2 / 2, (y0 + y1) / 2, sg * (dw + (hw - dw) / 2), t2, y1 - y0 + 2 * t2, hw - dw))}
-              {box('sl', xe + t2 / 2, (y0 + PASS_DOOR_H + y1) / 2, 0, t2, y1 - (y0 + PASS_DOOR_H), 2 * dw)}
+              {/* ── ★80 S자 나팔 ─────────────────────────────────────────────────
+                  구 ★79-6 직선 8(좌회전 뒤 몇 걸음)을 **이 곡선이 흡수했다.**
+                  현도 진단: 클라이막스가 싱겁다 — 반전에 빌드업이 없다.
+                  · 곡률을 뒤집어 안쪽으로 휘고, 걷는 내내 단면이 커진다(3→24 · 5→15).
+                  · 회전각은 노브가 아니라 **정조준 조건이 정한다**(cos s = R/(rCL+R−AX) → 110.8°).
+                    구 직선이 하던 '나서는 방향 못 박기'를 곡선의 마지막 20°가 대신한다.
+                  · 총 39.5 → 108.8(6.6초 → 18.1초). 회랑 22.7초에 준하는 다리가 생긴다. */}
+              {FL ? buildFlareShell().map((m) => (
+                <mesh key={m.key} geometry={m.geo} userData={m.walk ? { walkable: true } : undefined}>
+                  <meshStandardMaterial {...(m.walk ? FLOOR_MAT : SHELL_MAT)} side={THREE.DoubleSide} />
+                </mesh>
+              )) : (
+                <>
+                  {box('sf', (xs + xe) / 2, y0 - 0.04 - t2 / 2, 0, xs - xe, t2, RM10_EXIT_W + 2 * t2)}
+                  {box('sr', (xs + xe) / 2, y1 + 0.02 + t2 / 2, 0, xs - xe, t2, RM10_EXIT_W + 2 * t2)}
+                  {[-1, 1].map((sg) => box('sw' + sg, (xs + xe) / 2, (y0 + y1) / 2, sg * (hw + t2 / 2), xs - xe, y1 - y0 + 2 * t2, t2))}
+                  {[-1, 1].map((sg) => box('se' + sg, xe + t2 / 2, (y0 + y1) / 2, sg * (dw + (hw - dw) / 2), t2, y1 - y0 + 2 * t2, hw - dw))}
+                  {box('sl', xe + t2 / 2, (y0 + PASS_DOOR_H + y1) / 2, 0, t2, y1 - (y0 + PASS_DOOR_H), 2 * dw)}
+                </>
+              )}
             </group>
           )
         })()}

@@ -38,6 +38,7 @@ import { INCA_ON, INCA_GAP, FRIEZE_ROOM_ON, FR_FLOOR_Y, FR_WALL_T, TEMPLE_X0 } f
 import { RIB_XFER_ON, RIB_DEST_PHI, STELE7_F, STAIR_STEPS, spiralU, RIB_FREE_MODE, RIB_OPEN_ON } from './constants.js'
 import { ST_ON, RM10_ON, RM10_PHI, RM10_AX_R, RM10_FLOOR_Y, RM10_FLOOR_OPEN_R, RM10_ENTRY_TH, RM10_DOOR_HTH, RM10_TURN, RM10_CCW } from './constants.js'   // ★79 등불 방
 import { RM10_EXIT_RIN, RM10_EXIT_ROUT, RM10_EXIT_TH, RM10_TERR_TH, RM10_EXIT_FLOOR_Y, RM10_STR_END } from './constants.js'   // ★79-5/6 출구 통로
+import { RM10_FLARE_ON, RM10_FLARE_MX, RM10_FLARE_MZ, TERRACE_ON } from './constants.js'   // ★80 S자 나팔
 import { openRimSpec, isOpenRib } from './ribGeometry.js'                                              // ★63 우물 발코니
 import { ribCutSpec } from './corridorStairsGeometry.js'                                               // ★63 리브별 절단 좌표  // ★61 리브 갈아타기
 import { freeSplitRange, destCut } from './ribGeometry.js'                               // ★61 자립 나선(정본 파생)
@@ -340,13 +341,19 @@ export const WAYPOINTS = [
       const z = AZ + lx * Math.sin(RM10_PHI) + lz * Math.cos(RM10_PHI)
       return [x, z]
     }
+    //  ★80 나팔 입은 극좌표가 아니라 **로컬 직교**로 나온다 — 같은 회전의 직교판
+    const LC = (lx, lz) => [
+      AX + lx * Math.cos(RM10_PHI) - lz * Math.sin(RM10_PHI),
+      AZ + lx * Math.sin(RM10_PHI) + lz * Math.cos(RM10_PHI),
+    ]
     const s2 = RM10_CCW ? 1 : -1
     const thEnd = RM10_ENTRY_TH + s2 * (RM10_DOOR_HTH + RM10_TURN)   // 계단이 바닥에 닿는 방위
     const [ex, ez] = L(RM10_FLOOR_OPEN_R * 0.55, thEnd)
     //  ★79-5 통로 = 1p11의 집. 테라스 쪽 문 바로 안에서 **돔 중심을 향해** 선다(클라이막스 직전).
     const rm = (RM10_EXIT_RIN + RM10_EXIT_ROUT) / 2
-    //  ★79-6 공개 지점 = **직선 구간 끝**(곡선 끝이 아니다) — 나서는 방향이 흔들리지 않는다
-    const [gx, gz] = L(RM10_STR_END - 1.2, RM10_TERR_TH)
+    //  ★80 공개 지점 = **나팔 입**. 구 직선 끝을 대체한다 — 조준은 곡선이 만든다(cos s = R/(rCL+R−AX)).
+    //   ⚠좌표는 constants 파생(RM10_FLARE_MX/MZ)이라 R·확대 노브를 돌리면 자동 추종한다.
+    const [gx, gz] = RM10_FLARE_ON ? LC(RM10_FLARE_MX, RM10_FLARE_MZ) : L(RM10_STR_END - 1.2, RM10_TERR_TH)
     const [ix, iz] = L(rm, RM10_EXIT_TH)
     //  돔 중심 방향 = 월드 원점 쪽. 로컬 θ=180°에서 나가는 방향과 같다.
     return [
@@ -356,15 +363,15 @@ export const WAYPOINTS = [
       { id: 'exitpass', group: '등불 방 (1p10)', label: '출구 통로 — 방 벽을 돈다(밀폐)', prop: '—',
         x: rX(ix, iz), y: RM10_EXIT_FLOOR_Y, z: rZ(ix, iz),
         yaw: rYaw(yawTo(gx - ix, gz - iz)), pitch: 0 },
-      { id: 'reveal', group: '등불 방 (1p10)', label: '테라스 문 — 직선 끝, 공개 직전(돔 중심 향)', prop: '1p11',
+      { id: 'reveal', group: '등불 방 (1p10)', label: RM10_FLARE_ON ? '나팔 입 — 정조준 공개 지점' : '테라스 문 — 직선 끝, 공개 직전(돔 중심 향)', prop: '1p11',
         x: rX(gx, gz), y: RM10_EXIT_FLOOR_Y, z: rZ(gx, gz),
         yaw: rYaw(yawTo(-gx, -gz)), pitch: 0.15 },
     ]
   })() : []),
 
-  { id: 'terrace', group: '테라스 (1p12~15)', label: '테라스 — 무한 리브 · 정점 렌즈', prop: '1p12~15',
+  ...(TERRACE_ON ? [{ id: 'terrace', group: '테라스 (1p12~15)', label: '테라스 — 무한 리브 · 정점 렌즈', prop: '1p12~15',
     x: rX((TERRACE_RIN + TERRACE_ROUT) / 2, 0), y: TERRACE_Y, z: rZ((TERRACE_RIN + TERRACE_ROUT) / 2, 0),
-    yaw: rYaw(FACE_NX), pitch: 0.25 },
+    yaw: rYaw(FACE_NX), pitch: 0.25 }] : []),
 ]
 
 export const wpIndexOf = (id) => WAYPOINTS.findIndex(w => w.id === id)

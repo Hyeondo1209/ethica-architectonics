@@ -18,6 +18,7 @@ import { WAYPOINTS, EYE } from './waypoints.js'
 import { buildViceWedge, viceSplitIndex, buildSill, buildFloorCollar, buildFloorLanding, freeSplitRange, freeNewelSpec, destCut, openRimSpec, isOpenRib, ribHoleSolid } from './ribGeometry.js'
 import { buildKneeBody, innerTubeSolid, kneeWalkY } from './kneeBodyGeometry.js'
 import { buildJunctionKnot, buildLightShaft, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, radialPlate } from './junctionGeometry.js'
+import { buildFlareShell } from './exitFlareGeometry.js'   // ★80 — 사본이 아니라 정본을 부른다
 import { kneeTreads, kneeStairSpec } from './kneeStair.js'                          // ★66 계단 규격·참   // ★60 매듭 · ★61 자립 나선 · ★62 바닥 매듭
 
 const tris = []
@@ -718,7 +719,8 @@ function render(eye, yaw, pitch, W, H, name, quiet = false) {
       //  ★79-5/6 출구 통로 — 원호 90° + 좌회전 직선. Dome.LampRoom과 같은 규칙.
       {
         const t2 = C.PASS_T, y0 = C.RM10_EXIT_FLOOR_Y, y1 = C.RM10_EXIT_ROOF_Y
-        const b0 = C.RM10_EXIT_TH0, b1 = C.RM10_EXIT_TH1
+        const FL = C.RM10_FLARE_ON
+        const b0 = C.RM10_EXIT_TH0, b1 = FL ? C.RM10_ARC_TH1 : C.RM10_EXIT_TH1
         const RI = C.RM10_EXIT_RIN, RO = C.RM10_EXIT_ROUT
         const iH = C.RM10_EXIT_DHTH
         const i0 = C.RM10_EXIT_TH - iH, i1 = C.RM10_EXIT_TH + iH
@@ -744,19 +746,23 @@ function render(eye, yaw, pitch, W, H, name, quiet = false) {
           [C.rm10R(y0) + C.RM10_CONE_T, y0], [C.rm10R(y0), y0],
           [C.rm10R(yH), yH], [C.rm10R(yH) + C.RM10_CONE_T, yH]], t2, th)), SHELL)
         lring(C.rm10R(yH), C.rm10R(yH) + C.RM10_CONE_T, yH, i0, i1, SHELL)
-        for (const th of [b0, b1]) addGeo(place(radialPlate([
+        for (const th of (FL ? [b0] : [b0, b1])) addGeo(place(radialPlate([
           [C.rm10R(y0 - t2) + C.RM10_CONE_T - t2, y0 - t2], [RO + t2, y0 - t2],
           [RO + t2, y1 + t2], [C.rm10R(y1 + t2) + C.RM10_CONE_T - t2, y1 + t2]], t2, th)), SHELL)
-        //  직선 구간
         const xs = -(RO - t2), xe = -(RO + C.RM10_STR_L)
         const hw = C.RM10_EXIT_W / 2, dw = C.RM10_TERR_DOOR_W / 2
-        //  ★79-9 문지방 + 직선 바닥·지붕 0.02 어긋냄(공면 해소)
-        lring(C.rm10Tiers()[0].r1 - t2, C.rm10R(y0) + C.RM10_CONE_T, y0 - 0.04, i0, i1, FLOOR)
-        lbox((xs + xe) / 2, y0 - 0.04 - t2 / 2, 0, xs - xe, t2, C.RM10_EXIT_W + 2 * t2, FLOOR)
-        lbox((xs + xe) / 2, y1 + 0.02 + t2 / 2, 0, xs - xe, t2, C.RM10_EXIT_W + 2 * t2, SHELL)
-        for (const sg of [-1, 1]) lbox((xs + xe) / 2, (y0 + y1) / 2, sg * (hw + t2 / 2), xs - xe, y1 - y0 + 2 * t2, t2, SHELL)
-        for (const sg of [-1, 1]) lbox(xe + t2 / 2, (y0 + y1) / 2, sg * (dw + (hw - dw) / 2), t2, y1 - y0 + 2 * t2, hw - dw, SHELL)
-        lbox(xe + t2 / 2, (y0 + C.PASS_DOOR_H + y1) / 2, 0, t2, y1 - (y0 + C.PASS_DOOR_H), 2 * dw, SHELL)
+        lring(C.rm10Tiers()[0].r1 - t2, C.rm10R(y0) + C.RM10_CONE_T, y0 - 0.04, i0, i1, FLOOR)   // ★79-9 문지방
+        if (FL) {
+          //  ★80 S자 나팔 — ⚠**빌더를 직접 부른다(사본 금지).** 구판은 직선 통로를 제 손으로 다시
+          //   그렸고, ★80이 그걸 폐기한 뒤에도 계속 그렸을 것이다 = 도구가 거짓말한다(★79-7 전례).
+          for (const m of buildFlareShell()) addGeo(place(m.geo), m.walk ? FLOOR : SHELL)
+        } else {
+          lbox((xs + xe) / 2, y0 - 0.04 - t2 / 2, 0, xs - xe, t2, C.RM10_EXIT_W + 2 * t2, FLOOR)
+          lbox((xs + xe) / 2, y1 + 0.02 + t2 / 2, 0, xs - xe, t2, C.RM10_EXIT_W + 2 * t2, SHELL)
+          for (const sg of [-1, 1]) lbox((xs + xe) / 2, (y0 + y1) / 2, sg * (hw + t2 / 2), xs - xe, y1 - y0 + 2 * t2, t2, SHELL)
+          for (const sg of [-1, 1]) lbox(xe + t2 / 2, (y0 + y1) / 2, sg * (dw + (hw - dw) / 2), t2, y1 - y0 + 2 * t2, hw - dw, SHELL)
+          lbox(xe + t2 / 2, (y0 + C.PASS_DOOR_H + y1) / 2, 0, t2, y1 - (y0 + C.PASS_DOOR_H), 2 * dw, SHELL)
+        }
       }
       //  중앙 등불 — 관 + 갓
       {
@@ -783,6 +789,10 @@ const COV_KNOWN = {
   room: '정의·공리 방(Room.jsx) — 이 도구는 드럼 홀 권역만 근사한다(파일 머리 명시). 범위 밖.',
   p2:   '방사 4방(Radial.jsx) — 위와 같음. 범위 밖.',
   p3:   '방사 4방(Radial.jsx) — 위와 같음. 범위 밖.',
+  reveal: '⚠★80 신규: 나팔 입에서 앞을 보면 **열린 돔**뿐인데 이 도구는 드럼 홀 권역만 근사한다(파일 머리). ' +
+          '즉 **클라이막스 시점은 원리적으로 자기 검증이 안 된다** — 통로 후반부(진행 ~70% 이후)의 형태·비례는 ' +
+          '현도의 로컬 확인이 유일한 판정기다. lookout과 같은 뿌리(카메라별 굽기 부재)이나, 여기선 그리는 범위 자체의 문제라 ' +
+          '카메라별 굽기로도 안 풀린다. 통로 **안쪽**은 free 카메라로 볼 수 있다(진행 5%·45% 확인함).',
   lookout: '⚠★미해결: 1p8 전망에서 **보어 올려다보기**가 이 도구엔 안 보인다. 관 셸을 보행선 위로 안 굽기 ' +
            '때문(무릎길 가림 회피 — 파일 머리 참조). 삼각형 한 벌을 모든 카메라가 공유하는 구조의 한계라, ' +
            '고치려면 **카메라별 굽기**가 필요하다. 1p8 권역의 핵심 시점이므로 우선순위 있음.',

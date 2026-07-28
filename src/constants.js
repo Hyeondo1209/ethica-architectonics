@@ -1095,6 +1095,128 @@ export const TERRACE_Y    = RM10_EXIT_FLOOR_Y
 export const RM10_STR_END = RM10_EXIT_ROUT + RM10_STR_L            // 직선 구간 끝(방 축에서)
 export const TERRACE_ROUT = RM10_AX_R - RM10_STR_END + PASS_T
 
+// ══ ★80 출구 통로 = 감아 오르는 나팔 (2026.07.28 현도 스케치 · 5차) ═════════════
+//  현도 5차: "통로에 **상승**을 넣고, 방을 따라 회전하는 부분을 **더 회전**시켜서
+//   통로의 돔 바깥쪽 벽이 **회랑 외벽에 붙게**. 사선 말고 **정조준**으로 돔 내부를 보게.
+//   길이는 받아들이되, 공간 확장을 **후반부에 드라마틱하게**."
+//  전체 의도(3차부터 불변): 등불 방 + 이 통로 = **하나의 소라게 껍질**. 방이 몸통, 통로가 아가리.
+//
+//  ★★상승이 미학이 아니라 **필요조건**이다(실측 발견).
+//   회랑 외벽에 붙으려면 통로가 회랑 발자국(r167.4~174.1) 안으로 든다. 그런데 통로 바닥에서
+//   회랑 밑판(237.83)까지 수직 여유가 **11.40**뿐이라 층고 18짜리 통로는 **밑을 못 지난다.**
+//   ⇒ 올라가는 수밖에 없고, **12.00을 올리면 통로 바닥 = 회랑 바닥(238.43)**으로 딱 떨어진다.
+//   그 위는 회랑 밖이라 층고가 자유로워진다. 즉 현도의 '상승'이 '외벽 부착'을 가능케 한 열쇠다.
+//
+//  ★계단 = 회랑 어법 **그대로 계승**(§2-D ④ 합격작에서만 계승): 5단 × 단높이 0.24 = 한 참 1.2.
+//   12.00 ÷ 1.2 = **정확히 10참**. 회랑이 9.6을 8참에 내려온 것과 같은 리듬 → 둘이 한 계통으로 읽힌다.
+//
+//  ★★정조준 회전각은 닫힌 식으로 유도된다(θb·R에서 파생 — 하드코딩 금지):
+//     A·cos φ + B·sin φ = −R,  C = (rCL+R)(cos θb, sin θb),  A = AX+Cx,  B = Cy
+//     φ = atan2(B,A) ± acos(−R/M),  M = √(A²+B²),  sweep = θb + π − φ  (양수 최소해)
+//   ⚠반원호를 더 감을수록 머리가 **반대로** 돌아가 있어 되돌리는 회전이 커진다 —
+//    θb 230°·R30이면 sweep 166°다(총 회전 306°, 거의 한 바퀴). 그게 소라 껍질의 대가다.
+//
+//  ⛔보류된 이전 판(스위치로 복귀 가능): 4차 = θb180·R70·sweep55°·사선22°·평지(16.4초, "애매").
+//   3차 = 동심 R152.85(25.3초, "너무 길다"). 2차 = R40 정조준(최소반경 73, "너무 튀어나온다").
+export const RM10_FLARE_ON    = true
+export const RM10_FLARE_RCL   = (RM10_EXIT_RIN + RM10_EXIT_ROUT) / 2      // 반원호 보행 중심선 17.16
+//  ★반원호 연장 — 구 187° → 230°. 상한 249°(입구 문 각반폭 18°가 막는다).
+export const RM10_ARC_TH1     = 230 * Math.PI / 180
+export const RM10_ARC_TH_MAX  = 1.5 * Math.PI - RM10_DOOR_HTH - 0.05     // 입구 문(θ270°) 앞 한계 ≈249°
+export const RM10_FLARE_R     = 30      // ★노브 뒤집기 반경(작을수록 짧고 깊이 감긴다)
+//  ★★두 구간 체제(5차 확정) — 회랑이 뚜껑이라 이 형태가 **강요된다**:
+//   ⓐ 낮은 구간(t ≤ TB): 통로가 회랑 **밑을** 지난다. 총 높이 상한 11.40(= 회랑 밑판 − 통로 바닥).
+//     여기서는 오를 수도, 커질 수도 없다. 확대·상승 지수를 7조합으로 검산했으나 전부 회랑을 뚫었다.
+//     ⇒ 바깥벽이 회랑 외벽을 **아래로 연장**한다 = 현도의 '외벽 부착'이 **수직 적층**으로 성립.
+//     압축 어법 계승(1p5 홀 박스 압축 = 내부고 7 → 수직 해방). 상한에서 2.8을 남긴다 —
+//     공면이면 아티팩트(같은 버그 4회 전례).
+//   ⓑ 터짐(t > TB): 회랑을 벗어나는 순간 계단이 시작되고 동시에 단면이 폭발한다.
+//     ★검산이 맞아떨어진 것: 50단 × 디딤 0.416 = 주행 20.8 · 상승 12.0 → 경사 **정확히 30.0°**
+//     = 회랑 계단 경사와 같다. 남은 1.9는 위아래 참. 면적 6×8 → 34×24 = **17배**.
+//  ★★프로파일 3종(6차 — 현도 "초중반이 균일해서 기대감이 덜하다"). **셋 다 짓고 검사도 셋을 다 잰다.**
+//   한 줄 교체로 로컬 비교. 구속 둘만 지키면 나머지는 취향이다:
+//    ⓐ 낮은 구간 층고 ≤ 10.80(회랑 밑판) — 여유 1.0 이상 남길 것(공면 아티팩트 4회 전례)
+//    ⓑ 낮은 구간 폭이 커지면 TB가 뒤로 밀려 **계단 20.78이 안 들어간다**(LO_W 16이면 여유 1.2로 빠듯)
+//   ⚠등불 방은 구속이 아니다 — 이음매에서 여유 0으로 시작해 t=0.7이면 50까지 벌어진다(실측).
+//   대가: 낮은 구간을 키울수록 **터짐의 배율이 준다.** 그래서 변형마다 끝 단면도 같이 키웠다.
+export const RM10_FLARE_PROFILE = 'swell'   // 'compress'(5차·최대 대비) | 'swell'(권장) | 'early'(가장 이름)
+const _FP = {
+  //             LO_W  LO_H  ease   W1   H1      낮은구간 끝 면적 → 끝 면적
+  compress:  [   6,   8.0,  1.00,  34,  24 ],   //  48 → 816  (17배) — 균일하게 참았다 터진다
+  swell:     [  12,   9.8,  0.85,  40,  26 ],   // 118 → 1040 (8.8배) — 서서히 커지다 더 커진다
+  early:     [  14,   9.8,  0.70,  44,  28 ],   // 137 → 1232 (9배)  — t 0.2에 이미 42% 자란다
+}[RM10_FLARE_PROFILE]
+export const RM10_FLARE_LO_W  = _FP[0]  // 낮은 구간 끝 폭
+export const RM10_FLARE_LO_H  = _FP[1]  // 낮은 구간 끝 층고
+export const RM10_FLARE_EASE  = _FP[2]  // 낮은 구간 확대 곡선(<1 = 앞에서 빨리 자란다)
+export const RM10_FLARE_W1    = _FP[3]  // 터짐 끝 폭
+export const RM10_FLARE_H1    = _FP[4]  // 터짐 끝 층고
+export const RM10_FLARE_EASE_HI = 1.0   // 터짐 구간 확대 곡선
+export const RM10_FLARE_SKEW  = 0       // ★5차: 사선 아가리 폐기(현도 "정조준으로") — 0 = 수직 아가리
+export const RM10_FLARE_RISE  = 12.0    // ★상승 = CL_FLOOR_END − RM10_EXIT_FLOOR_Y 와 같은 값(아래 검산)
+export const RM10_FLARE_SEG   = 72
+//  ── 계단(회랑 어법 계승) ──
+export const RM10_FLARE_FLIGHTS = Math.round(RM10_FLARE_RISE / (CL_STEP_N * CL_STEP_RISE))   // 10참
+export const RM10_FLARE_STEPS   = RM10_FLARE_FLIGHTS * CL_STEP_N                             // 50단
+//  ── 파생: 정조준 회전각 ──
+export const RM10_FLARE_C = [
+  (RM10_FLARE_RCL + RM10_FLARE_R) * Math.cos(RM10_ARC_TH1),
+  (RM10_FLARE_RCL + RM10_FLARE_R) * Math.sin(RM10_ARC_TH1),
+]
+export const RM10_FLARE_SWEEP = (() => {
+  const A = RM10_AX_R + RM10_FLARE_C[0], B = RM10_FLARE_C[1], M = Math.hypot(A, B)
+  if (RM10_FLARE_R > M) return Math.PI / 2                       // 조준 불가 시 가드
+  const al = Math.atan2(B, A), best = []
+  for (const sg of [1, -1]) {
+    let s = RM10_ARC_TH1 + Math.PI - (al + sg * Math.acos(-RM10_FLARE_R / M))
+    while (s <= 1e-6) s += 2 * Math.PI
+    while (s > 2 * Math.PI) s -= 2 * Math.PI
+    //  '향한다'만 채택(정반대 해 배제)
+    const f = RM10_ARC_TH1 + Math.PI - s
+    const x = RM10_FLARE_C[0] + RM10_FLARE_R * Math.cos(f), z = RM10_FLARE_C[1] + RM10_FLARE_R * Math.sin(f)
+    const dx = -RM10_AX_R - x, dz = -z, dn = Math.hypot(dx, dz)
+    if ((Math.sin(f) * dx - Math.cos(f) * dz) / dn > 0.9999) best.push(s)
+  }
+  return best.length ? Math.min(...best) : Math.PI / 2
+})()
+export const RM10_FLARE_LEN   = RM10_FLARE_R * RM10_FLARE_SWEEP
+//  ★TB = 통로가 회랑 띠(r·방위)를 벗어나는 진행. **하드코딩 금지** — 노브를 돌리면 따라온다.
+//   낮은 구간의 바깥 모서리(반폭 LO_W/2 + 두께)로 잰다(그 구간은 설계상 좁다).
+export const RM10_FLARE_TB = (() => {
+  const hw = RM10_FLARE_LO_W / 2 + PASS_T
+  const clA = CL_R - CL_HW, clB = CL_R + CL_HW + CL_WALL_T
+  const cp = Math.cos(RM10_PHI), sp = Math.sin(RM10_PHI)
+  let last = 0
+  for (let i = 0; i <= 800; i++) {
+    const t = i / 800, f = RM10_ARC_TH1 + Math.PI - RM10_FLARE_SWEEP * t
+    const px = RM10_FLARE_C[0] + RM10_FLARE_R * Math.cos(f), pz = RM10_FLARE_C[1] + RM10_FLARE_R * Math.sin(f)
+    const nx = -Math.cos(f), nz = -Math.sin(f)
+    for (const off of [hw, -hw]) {
+      const lx = px + off * nx, lz = pz + off * nz
+      const wx = RM10_AX_R * cp + lx * cp - lz * sp, wz = RM10_AX_R * sp + lx * sp + lz * cp
+      const r = Math.hypot(wx, wz), az = Math.atan2(wz, wx)
+      if (r > clA && r < clB && az >= CL_PHI0 && az <= CL_PHI1) last = t
+    }
+  }
+  return Math.min(0.9, last + 0.005)
+})()
+export const RM10_FLARE_BURST_RUN = RM10_FLARE_LEN * (1 - RM10_FLARE_TB)
+//  경로 반경(돔 중심 기준) — 노브를 돌리면 검사·웨이포인트가 자동 추종
+export const rm10FlareR = (s) => {
+  const f = RM10_ARC_TH1 + Math.PI - s
+  return Math.hypot(RM10_AX_R + RM10_FLARE_C[0] + RM10_FLARE_R * Math.cos(f),
+                    RM10_FLARE_C[1] + RM10_FLARE_R * Math.sin(f))
+}
+//  천장 안쪽(−N) 모서리 시작값 = 방 원뿔면 추종(수직이면 이음매가 벌어진다 — ★79-6 전례)
+export const RM10_FLARE_B1_0  = RM10_FLARE_RCL - (rm10R(RM10_EXIT_ROOF_Y) + RM10_CONE_T)
+export const RM10_FLARE_TPLUS = Math.max(0, 1 - RM10_FLARE_SKEW / RM10_FLARE_SWEEP)   // 0 = 수직 아가리
+//  입(mouth) — 로컬 직교. 웨이포인트·검사가 읽는 파생 좌표
+export const RM10_FLARE_MX = RM10_FLARE_C[0] + RM10_FLARE_R * Math.cos(RM10_ARC_TH1 + Math.PI - RM10_FLARE_SWEEP)
+export const RM10_FLARE_MZ = RM10_FLARE_C[1] + RM10_FLARE_R * Math.sin(RM10_ARC_TH1 + Math.PI - RM10_FLARE_SWEEP)
+export const RM10_FLARE_MY = RM10_EXIT_FLOOR_Y + RM10_FLARE_RISE
+//  ⚠★80 임시 소등 — 재설계 대기(1p12~15 선언된 빚)
+export const TERRACE_ON       = !RM10_FLARE_ON
+
 // ── 통로 위치: 단면(COR_R·천장)은 동결, 원기둥이 크기 유지한 채 돔 따라 바깥으로 이동 ──
 export const COR_X1     = R_BASE                    // 바깥 끝 = 탐험경선 #0 밑동(③에서 288)
 export const COR_CYL_X0 = R_BASE - 2 * COR_R        // ③에서 120 (⚠맨 박스 노출 ~29 = §7 열린 결정 — 통로 만질 때)

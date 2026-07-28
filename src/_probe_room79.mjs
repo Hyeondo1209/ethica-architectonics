@@ -184,8 +184,14 @@ ok(C.RM10_FLOOR_R > C.RM10_RHO, `바닥 반지름 ${C.RM10_FLOOR_R.toFixed(2)} >
     for (const [p, q] of full) { gapMax = Math.max(gapMax, p - cur); cover += q - p; cur = Math.max(cur, q) }
     gapMax = Math.max(gapMax, b1 - cur)
     const doorSpan = d1 - d0
-    ok(Math.abs((b1 - b0) - cover - doorSpan) < 1e-9,
-      `바깥벽 조각들이 통로 각폭 ${((b1 - b0) * 180 / Math.PI).toFixed(1)}°를 **문 ${(doorSpan * 180 / Math.PI).toFixed(1)}° 하나만 남기고** 덮는다(잔여 ${(((b1 - b0) - cover - doorSpan) * 180 / Math.PI).toExponential(1)}°)`)
+    if (C.RM10_FLARE_ON) {
+      //  ★80: 테라스 문이 사라졌다 — 바깥벽이 b0~180°를 **개구 없이** 덮고, 그 끝을 나팔이 받는다.
+      ok(C.RM10_TERR_TH > b0 && C.RM10_TERR_TH <= b1 + 1e-9,
+        `나팔 인계점 180° ∈ 반원호 각폭(${(b0 * 180 / Math.PI).toFixed(1)}~${(b1 * 180 / Math.PI).toFixed(1)}°) — 벽이 개구 없이 거기까지 간다`)
+    } else {
+      ok(Math.abs((b1 - b0) - cover - doorSpan) < 1e-9,
+        `바깥벽 조각들이 통로 각폭 ${((b1 - b0) * 180 / Math.PI).toFixed(1)}°를 **문 ${(doorSpan * 180 / Math.PI).toFixed(1)}° 하나만 남기고** 덮는다(잔여 ${(((b1 - b0) - cover - doorSpan) * 180 / Math.PI).toExponential(1)}°)`)
+    }
     ok(Math.abs(gapMax - doorSpan) < 1e-9, `가장 큰 빈틈 ${(gapMax * 180 / Math.PI).toFixed(1)}° = 문 그 자체 — 다른 구멍이 없다`)
     //  가드 자기 검증: 문을 하나 더 뚫었다 치면 잔여가 생겨 위 검사가 깨진다(같은 식으로 계산해 확인)
     const fake = [[b0, d0 - 0.1], [d0 - 0.05, d0], [d1, b1]]
@@ -234,6 +240,124 @@ ok(C.RM10_FLOOR_R > C.RM10_RHO, `바닥 반지름 ${C.RM10_FLOOR_R.toFixed(2)} >
   }
   //  ★79-9 원호 바닥 ↔ 직선 바닥도 같은 관계(현도 신고 전에 실측으로 잡은 공면)
   ok(Math.abs((y0 - 0.02) - (y0 - 0.04)) >= 0.015, `원호 바닥 ↔ 직선 바닥 높이차 0.020 — 공면 아님(겹침 반경 1.2)`)
+}
+
+
+// ══ ⑯ ★80 S자 나팔 ═══════════════════════════════════════════════════════════
+//  ⚠이 절이 지키는 것: 이 통로는 여전히 **닫힌 관**이고, 유일한 개구는 끝의 입이다.
+//   여기서 새는 순간 여정 전체가 아껴온 1p11 반전이 죽는다(LOCKED §1 시야 차단).
+if (C.RM10_FLARE_ON) {
+  console.log('\n— ⑯ ★80 S자 나팔 —')
+  const { flarePoint, flareSection, flareSpec, buildFlareShell } = await import('./exitFlareGeometry.js')
+  const sp = flareSpec(), st = sp.stations, N = st.length - 1
+  const rCL = C.RM10_FLARE_RCL, AX = C.RM10_AX_R
+
+  //  ── 이음매: 시작 단면이 반원호 끝 단면과 **정확히** 같은가 ──
+  {
+    const p0 = flarePoint(0), s0 = flareSection(0)
+    //  ★θb 일반: 시작점·접선이 반원호의 **끝 그 자리**와 일치하는가(θb를 돌려도 성립해야 한다)
+    const th = C.RM10_ARC_TH1
+    const ax = rCL * Math.cos(th), az2 = rCL * Math.sin(th)          // 반원호 끝 위치
+    const tx = -Math.sin(th), tz = Math.cos(th)                      // 그 접선(θ 증가 방향)
+    ok(Math.hypot(p0.x - ax, p0.z - az2) < 1e-9,
+      `시작점 = 반원호 θ=${(th * 180 / Math.PI).toFixed(0)}° 지점 (${p0.x.toFixed(2)}, ${p0.z.toFixed(2)}) — 위치 연속`)
+    ok(Math.hypot(p0.tx - tx, p0.tz - tz) < 1e-9, '시작 접선이 반원호 끝 접선과 일치 — 접선 연속(곡률만 뒤집힌다)')
+    const inner = rCL - s0.b0, outer = rCL + s0.a0
+    ok(Math.abs(inner - C.RM10_EXIT_RIN) < 1e-9, `바닥 안쪽 모서리 ${inner.toFixed(2)} = RIN ${C.RM10_EXIT_RIN.toFixed(2)} — 무단차`)
+    ok(Math.abs(outer - C.RM10_EXIT_ROUT) < 1e-9, `바닥 바깥 모서리 ${outer.toFixed(2)} = ROUT ${C.RM10_EXIT_ROUT.toFixed(2)} — 무단차`)
+    const topIn = rCL - s0.b1, cone = C.rm10R(C.RM10_EXIT_ROOF_Y) + C.RM10_CONE_T
+    ok(Math.abs(topIn - cone) < 1e-9, `천장 안쪽 모서리 ${topIn.toFixed(2)} = 방 원뿔 ${cone.toFixed(2)} — 기운 벽을 따라간다(수직이면 1.73 벌어진다)`)
+    ok(Math.abs(s0.h - C.RM10_EXIT_ROOF) < 1e-9, `시작 층고 ${s0.h.toFixed(2)} = 현 통로 ${C.RM10_EXIT_ROOF}`)
+  }
+  //  ── 확대: 단조 + 시작 변화율 0 + 끝값 ──
+  {
+    let mono = true
+    for (let i = 1; i <= N; i++) if (st[i].w < st[i - 1].w - 1e-12 || st[i].h < st[i - 1].h - 1e-12) mono = false
+    ok(mono, '폭·층고가 전 구간 단조 증가 — 어디서도 좁아지지 않는다')
+    //  ★6차: 프로파일마다 낮은 구간의 의도가 다르다(compress=참는다 / swell·early=미리 자란다).
+    //   그래서 '완만함'을 못 박지 않고, **접히지 않는가**만 잰다 — 옆으로 벌어지는 속도가
+    //   앞으로 나아가는 속도를 넘으면 스윕면이 자기 위로 접힌다(기하 파탄).
+    let foldMax = 0
+    for (let i = 1; i <= 300; i++) {
+      const t0 = (i - 1) / 300, t1 = i / 300
+      const dw = (flareSection(t1).a0 - flareSection(t0).a0)
+      foldMax = Math.max(foldMax, Math.abs(dw) / (C.RM10_FLARE_LEN / 300))
+    }
+    ok(foldMax < 1, `옆 확장 속도 최대 ${foldMax.toFixed(2)} < 1 — 스윕면이 접히지 않는다`)
+    const gr = (C.RM10_FLARE_LO_W - C.RM10_EXIT_W) / (C.RM10_FLARE_TB * C.RM10_FLARE_LEN)
+    ok(gr >= 0, `[${C.RM10_FLARE_PROFILE}] 낮은 구간 폭 증가율 ${gr.toFixed(3)}/길이 — 10을 걸으면 ${(gr * 10).toFixed(1)} 넓어진다`)
+    const q = flareSection(0.5)
+    ok(q.a0 + q.b0 < (C.RM10_EXIT_W + C.RM10_FLARE_W1) / 2,
+      `중간 폭 ${(q.a0 + q.b0).toFixed(1)} < 산술 중간 ${((C.RM10_EXIT_W + C.RM10_FLARE_W1) / 2).toFixed(1)} — 처음 느리고 나중 빠름(현도)`)
+    ok(Math.abs(st[N].w - C.RM10_FLARE_W1) < 1e-9 && Math.abs(st[N].h - C.RM10_FLARE_H1) < 1e-9,
+      `끝 단면 폭 ${st[N].w.toFixed(1)} · 층고 ${st[N].h.toFixed(1)}`)
+  }
+  //  ── ★5차: 회랑 밑을 지나는가(충돌 없음이 이 설계의 전제) ──
+  {
+    const { floorSmooth } = await import('./exitFlareGeometry.js')
+    const clA = C.CL_R - C.CL_HW, clB = C.CL_R + C.CL_HW + C.CL_WALL_T
+    const cp = Math.cos(C.RM10_PHI), sp2 = Math.sin(C.RM10_PHI)
+    let hit = null, minClear = 1e9
+    for (let i = 0; i <= 600; i++) {
+      const t = i / 600, p = flarePoint(C.RM10_FLARE_SWEEP * t), sec = flareSection(t)
+      const roof = floorSmooth(t) + sec.h + C.PASS_T
+      for (const off of [sec.a0 + C.PASS_T, -(sec.b0 + C.PASS_T)]) {
+        const lx = p.x + off * p.nx, lz = p.z + off * p.nz
+        const wx = C.RM10_AX_R * cp + lx * cp - lz * sp2, wz = C.RM10_AX_R * sp2 + lx * sp2 + lz * cp
+        const r = Math.hypot(wx, wz), az = Math.atan2(wz, wx)
+        const inBand = r > clA && r < clB && az >= C.CL_PHI0 && az <= C.CL_PHI1
+        if (inBand) { minClear = Math.min(minClear, C.CL_WALL_BOT - roof); if (roof > C.CL_WALL_BOT && !hit) hit = { t, r, roof } }
+      }
+    }
+    ok(hit === null, hit ? `⛔ t=${hit.t.toFixed(2)}에서 회랑 관통(지붕 ${hit.roof.toFixed(1)} > 밑판 ${C.CL_WALL_BOT.toFixed(1)})`
+      : `회랑 띠를 지나는 내내 지붕이 밑판 아래 — 최소 여유 ${minClear.toFixed(2)}`)
+    ok(minClear > 0.5, `회랑 밑 여유 ${minClear.toFixed(2)} > 0.5 — 공면 아티팩트 방지(같은 버그 4회 전례)`)
+    ok(C.RM10_FLARE_TB > 0.3 && C.RM10_FLARE_TB < 0.9, `터짐 지점 TB ${C.RM10_FLARE_TB.toFixed(3)} — 파생(회랑 띠 이탈점)이지 노브가 아니다`)
+  }
+  //  ── ★계단 = 회랑 어법 계승 ──
+  {
+    const { stairProfile } = await import('./exitFlareGeometry.js')
+    const st = stairProfile()
+    ok(Math.abs(st.totalRise - C.RM10_FLARE_RISE) < 1e-9, `총 상승 ${st.totalRise.toFixed(2)} = ${C.RM10_FLARE_RISE}`)
+    ok(Math.abs((C.RM10_EXIT_FLOOR_Y + st.totalRise) - C.CL_FLOOR_END) < 1e-9,
+      `도착 바닥 ${(C.RM10_EXIT_FLOOR_Y + st.totalRise).toFixed(2)} = 회랑 바닥 ${C.CL_FLOOR_END.toFixed(2)} — 같은 레벨로 올라선다`)
+    const slope = Math.atan2(st.totalRise, st.stairRun) * 180 / Math.PI
+    ok(Math.abs(slope - C.CL_STEP_SLOPE_DEG) < 0.5,
+      `계단 경사 ${slope.toFixed(1)}° = 회랑 계단 ${C.CL_STEP_SLOPE_DEG}° — 어휘 계승(§2-D ④)`)
+    ok(st.land > 0.5, `계단 위아래 참 ${st.land.toFixed(2)} — 시작·끝을 매듭으로 맺는다(§2-D ③)`)
+    ok(C.CL_STEP_RISE < 0.8, `단높이 ${C.CL_STEP_RISE} < STEP_UP 0.8 — 되돌아 내려올 수 있다`)
+  }
+  //  ── ★압축 → 터짐 대비 ──
+  {
+    const lo = flareSection(C.RM10_FLARE_TB), hi = flareSection(1)
+    const aLo = (lo.a0 + lo.b0) * lo.h, aHi = (hi.a0 + hi.b0) * hi.h
+    ok(aHi / aLo > 8, `단면적 ${aLo.toFixed(0)} → ${aHi.toFixed(0)} = ${(aHi / aLo).toFixed(0)}배 — 현도 "드라마틱하게"`)
+    ok(lo.h + C.PASS_T < C.CL_WALL_BOT - C.RM10_EXIT_FLOOR_Y,
+      `압축 구간 층고 ${lo.h} + 두께 < 상한 ${(C.CL_WALL_BOT - C.RM10_EXIT_FLOOR_Y).toFixed(2)}`)
+    let mono = true
+    for (let i = 1; i <= 200; i++) if (flareSection(i / 200).h < flareSection((i - 1) / 200).h - 1e-9) mono = false
+    ok(mono, '층고가 전 구간 단조 증가 — 어디서도 낮아지지 않는다')
+  }
+  //  ── ★정조준(5차: 사선 폐기) ──
+  {
+    ok(C.RM10_FLARE_SKEW === 0, '사선 아가리 폐기 — 아가리가 진행에 수직(현도 5차)')
+    const e = flarePoint(C.RM10_FLARE_SWEEP)
+    const dx = -AX - e.x, dz = -e.z, dn = Math.hypot(dx, dz)
+    const off = Math.acos(Math.max(-1, Math.min(1, (e.tx * dx + e.tz * dz) / dn))) * 180 / Math.PI
+    ok(off < 0.01, `입에서 진행 방향이 돔 중심을 문다 — 각차 ${off.toFixed(4)}° (닫힌 식에서 유도된 sweep ${(C.RM10_FLARE_SWEEP * 180 / Math.PI).toFixed(1)}°)`)
+    ok(C.RM10_ARC_TH1 < C.RM10_ARC_TH_MAX, `반원호 ${(C.RM10_ARC_TH1 * 180 / Math.PI).toFixed(0)}° < 입구 문 앞 한계 ${(C.RM10_ARC_TH_MAX * 180 / Math.PI).toFixed(0)}°`)
+  }
+  //  ── 밀폐: 껍질이 닫혀 있는가(면 넷 안팎 + 테두리 둘) ──
+  {
+    const sh = buildFlareShell()
+    ok(sh.length === 10, `껍질 부재 ${sh.length}종 = 안 4 + 밖 4 + 입 테두리 + 시작 테두리`)
+    ok(sh.filter((m) => m.walk).length === 1, '밟는 면은 바닥 하나뿐(walkable 태그)')
+    let nan = 0
+    for (const m of sh) { const a = m.geo.attributes.position.array; for (let i = 0; i < a.length; i++) if (!Number.isFinite(a[i])) nan++ }
+    ok(nan === 0, `정점 좌표 NaN/Inf ${nan}개`)
+    const mouth = sh.find((m) => m.key === 'flrim')
+    ok(mouth != null, '입 테두리가 있다 — 클라이막스에서 종잇장 모서리가 안 보인다(두께 = PASS_T)')
+  }
 }
 
 console.log(`\n${bad ? '✗ ' + bad + '항 실패' : '전부 통과'} (${n}항)`)

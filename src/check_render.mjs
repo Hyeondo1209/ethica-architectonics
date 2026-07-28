@@ -15,6 +15,7 @@ import { execSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { RM10_FLARE_ON } from './constants.js'   // ★80 나팔 체제 스위치
 
 let n = 0, fail = 0
 const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
@@ -132,16 +133,21 @@ console.log(JSON.stringify({ called, bad, noted, keys }))
 //   "있어야 할 부재가 있는가"를 묻는다. 값이 틀린 것은 다른 스위트가 잡지만, **통째로 사라진 것**은
 //   여기서만 잡힌다. 새 부재를 지으면 이 목록에 키를 추가할 것(추가를 잊으면 보호가 안 된다).
 {
+  //  ★80: 나팔이 켜지면 통로 뒷부분의 부재 구성이 통째로 바뀐다 —
+  //   테라스 문(xob*/xoj*/xc1)과 직선(s*)이 사라지고, 대신 나팔 껍질 10종이 선다.
+  //   ⚠두 체제 **모두**를 대장에 적어 둔다. 스위치를 되돌렸을 때 보호가 같이 돌아오게.
   const REQUIRED = {
     LampRoom: [
       'xf', 'xr',                     // 통로 바닥·지붕
-      'xoa0', 'xoa1', 'xob0', 'xob1', // ★통로 바깥벽 안팎 두 겹 × 개구 앞뒤 — ★79-7에서 지워졌던 것
-      'xoj0', 'xoj1',                 // 개구 문선
+      'xoa0', 'xoa1',                 // ★통로 바깥벽 안팎 두 겹 — ★79-7에서 지워졌던 것
       'xij0', 'xij1', 'xih',          // 방 쪽 문 문선·인방
-      'xc0', 'xc1',                   // 끝캡 둘
-      'sf', 'sr', 'sw-1', 'sw1',      // 직선 바닥·지붕·측벽
-      'se-1', 'se1', 'sl',            // 직선 끝벽·인방
+      'xc0',                          // 방 쪽 끝캡
       'ld', 'xth',                    // 입구 층계참 · ★79-9 문지방
+      ...(RM10_FLARE_ON
+        ? ['flifloor', 'flefloor', 'fliwOuter', 'flewOuter', 'fliroof', 'fleroof',
+           'fliwDome', 'flewDome', 'flrim', 'flcap']      // ★80 나팔 껍질(안4·밖4·사선 아가리·시작 테두리)
+        : ['xob0', 'xob1', 'xoj0', 'xoj1', 'xc1',         // 구 테라스 문
+           'sf', 'sr', 'sw-1', 'sw1', 'se-1', 'se1', 'sl']),  // 구 직선
     ],
   }
   for (const [comp, need] of Object.entries(REQUIRED)) {

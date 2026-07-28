@@ -29,6 +29,7 @@ import {
   ST_ON, RM10_ON, RM10_PHI, RM10_AX_R, RM10_RHO, RM10_FLOOR_Y, RM10_FLOOR_OPEN_R, RM10_DROP,   // ★79 등불 방
   RM10_EXIT_RIN, RM10_EXIT_ROUT, RM10_EXIT_FLOOR_Y, RM10_STR_END,   // ★79-5/6 출구 통로
 } from './constants.js'
+import { RM10_FLARE_ON, RM10_FLARE_MX, RM10_FLARE_MZ, RM10_FLARE_SWEEP, RM10_FLARE_R, RM10_ARC_TH1, TERRACE_ON } from './constants.js'   // ★80
 import { p1HeightAt } from './radialEventsGeometry.js'
 const r2 = (v) => Math.round(v * 100) / 100   // ★㊾ (check_corridor와 같은 보조자)
 import { descentSpec, woldaeSpec, gatSeal, incaStairSpec, incaBladesSpec, descentPortSpec, portPrismTris, drumPierAzimuths, outwardTris, signedVolume, windingConsistent } from './corridorStairsGeometry.js'   // ★㊾·53·54
@@ -96,11 +97,13 @@ for (let i = 1; i <= 15; i++) if (!covered.has(i)) missing.push(i)
 //   결번을 영영 못 본다. DoD-1·DoD-2·DoD-3이 지금 전부 이 한 줄에 걸려 있다.
 //  ✅★79-5(2026.07.28): **1p11 결번 해소.** 등불 방 출구 통로의 테라스 쪽 문이 '공개'의 집이 됐다
 //   (`reveal` 웨이포인트). ★79-2에서 진 빚을 같은 세션 안에서 갚았다 — DoD-2(완주)·DoD-3(공개) 복구.
-const UNASSIGNED = [6]                    // 정리 번호(숫자) — missing과 같은 형식이어야 한다
+//  ★80: 테라스 임시 소등 중엔 1p12~15도 집이 없다 — **선언된 빚**(재설계 대기).
+//   ⚠이 확장은 TERRACE_ON에 묶여 있다. 새 테라스가 서면 스위치 하나로 자동 복귀한다.
+const UNASSIGNED = TERRACE_ON ? [6] : [6, 12, 13, 14, 15]   // 정리 번호(숫자) — missing과 같은 형식이어야 한다
 const miss = missing.join(','), decl = UNASSIGNED.join(',')
 ok(miss === decl,
   missing.length === 0 ? '1p1~15 전부 웨이포인트 있음'
-    : `미배정 = ${missing.map(n => '1p' + n).join(',')} — ⚠DoD-1 미충족(선언된 결번): 1p6 재배치 대기`)
+    : `미배정 = ${missing.map(n => '1p' + n).join(',')} — ⚠DoD-1 미충족(선언된 결번): 1p6 재배치${TERRACE_ON ? '' : ' + ★80 테라스 임시 소등(1p12~15)'} 대기`)
 
 console.log('\n— B. 지상·방사 —')
 {
@@ -614,8 +617,21 @@ if (RM10_ON) {
   const g = WU('reveal'), x2 = WU('exitpass')
   const dg = Math.hypot(g.x - AX, g.z - AZ), dx = Math.hypot(x2.x - AX, x2.z - AZ)
   ok(dx > RM10_EXIT_RIN && dx < RM10_EXIT_ROUT, `exitpass 방 축에서 ${dx.toFixed(2)} ∈ 원호 띠(${RM10_EXIT_RIN.toFixed(2)}~${RM10_EXIT_ROUT.toFixed(2)})`)
-  //  ★79-6 공개 지점은 원호가 아니라 **직선 구간 끝**에 있다
-  ok(dg > RM10_EXIT_ROUT && dg <= RM10_STR_END, `reveal 방 축에서 ${dg.toFixed(2)} ∈ 직선 구간(${RM10_EXIT_ROUT.toFixed(2)}~${RM10_STR_END.toFixed(2)})`)
+  //  ★80 공개 지점 = **나팔 입**(구 직선 끝을 대체). 방 축에서 훨씬 멀고, 돔 중심에는 훨씬 가깝다.
+  if (RM10_FLARE_ON) {
+    const mouthAx = Math.hypot(RM10_FLARE_MX, RM10_FLARE_MZ)
+    ok(Math.abs(dg - mouthAx) < 1e-6, `reveal = 나팔 입 — 방 축에서 ${dg.toFixed(2)}(파생 ${mouthAx.toFixed(2)})`)
+    //  ★조준의 주체는 R 다이얼이 정한다 — R↓이면 진행 방향이, R↑이면 벽 법선이 돔 중심을 문다.
+    //   현행 R=70은 그 사이. 특정 값을 박지 않고 **범위와 실측치**를 보고한다(노브 추종).
+    const hx = -Math.sin(RM10_FLARE_SWEEP), hz = -Math.cos(RM10_FLARE_SWEEP)
+    const dx = -RM10_AX_R - RM10_FLARE_MX, dz = -RM10_FLARE_MZ, dn = Math.hypot(dx, dz)
+    const off = Math.acos(Math.max(-1, Math.min(1, (hx * dx + hz * dz) / dn))) * 180 / Math.PI
+    ok(off > 0 && off < 90, `입에서 진행 방향 ↔ 돔 중심 = ${off.toFixed(0)}° (0=정조준 · 90=회랑 평행)`)
+    ok(dn > TERRACE_RIN && dn < TERRACE_ROUT,
+       `입의 돔 중심 반경 ${dn.toFixed(1)} ∈ 옛 테라스 링(${TERRACE_RIN}~${TERRACE_ROUT.toFixed(0)}) — 새 테라스가 받을 자리`)
+  } else {
+    ok(dg > RM10_EXIT_ROUT && dg <= RM10_STR_END, `reveal 방 축에서 ${dg.toFixed(2)} ∈ 직선 구간(${RM10_EXIT_ROUT.toFixed(2)}~${RM10_STR_END.toFixed(2)})`)
+  }
   ok(Math.abs(g.y - RM10_EXIT_FLOOR_Y) < 1e-9 && Math.abs(x2.y - RM10_EXIT_FLOOR_Y) < 1e-9,
     `통로 두 지점 y = ${RM10_EXIT_FLOOR_Y.toFixed(2)} = 테라스와 같은 높이(무단차 도착)`)
   //  ★현도 요구: "나왔을 때 방향은 돔 중심부, 클라이막스를 목격하는 방향"
@@ -631,10 +647,17 @@ if (RM10_ON) {
 
 console.log('\n— F. 테라스 —')
 {
-  const t = WU('terrace'), r = Math.hypot(t.x, t.z)
-  ok(r > TERRACE_RIN && r < TERRACE_ROUT, `테라스 r=${r.toFixed(1)} ∈ 고리(${TERRACE_RIN}~${TERRACE_ROUT})`)
-  ok(Math.abs(t.y - TERRACE_Y) < 1e-9, `테라스 y=${t.y.toFixed(2)} = 테라스 판`)
-  ok(t.pitch > 0, `테라스 pitch=${t.pitch.toFixed(2)} — 리브·렌즈를 약간 올려봄`)
+  //  ⚠★80: 테라스 임시 소등(TERRACE_ON=false) — S자 나팔이 옛 링을 24 지나 안쪽에서 끝나기 때문.
+  //   재설계 대기이며 그동안 1p12~15는 집이 없다(선언된 빚). 소등 중엔 '없다'를 검사한다.
+  if (!TERRACE_ON) {
+    ok(WAYPOINTS.every((w) => w.id !== 'terrace'), '테라스 소등 중 — 웨이포인트도 함께 내려갔다(유령 좌표 금지)')
+    ok(true, '⚠선언된 빚: 1p12~15는 새 테라스가 설 때까지 집이 없다(DoD-2·3 일시 미충족)')
+  } else {
+    const t = WU('terrace'), r = Math.hypot(t.x, t.z)
+    ok(r > TERRACE_RIN && r < TERRACE_ROUT, `테라스 r=${r.toFixed(1)} ∈ 고리(${TERRACE_RIN}~${TERRACE_ROUT})`)
+    ok(Math.abs(t.y - TERRACE_Y) < 1e-9, `테라스 y=${t.y.toFixed(2)} = 테라스 판`)
+    ok(t.pitch > 0, `테라스 pitch=${t.pitch.toFixed(2)} — 리브·렌즈를 약간 올려봄`)
+  }
 }
 
 console.log('\n— H. ★61 리브 갈아타기 — 횡단·자립 나선·아가리 —')
@@ -706,7 +729,7 @@ console.log('  ' + WP_GROUPS.map(g => `${g.name}(${g.items.length})`).join('  �
     //   테라스는 아직 판 위에 있지만 걸어서 닿을 길이 없다(선언된 빚 — UNASSIGNED 1p11).
     && (ST_ON ? at('lamp') < at('door') && at('door') < at('terrace')
               : at('lamp') < at('lamproom') && at('lamproom') < at('exitpass')
-                && at('exitpass') < at('reveal') && at('reveal') < at('terrace')),
+                && at('exitpass') < at('reveal') && (!TERRACE_ON || at('reveal') < at('terrace'))),
     `순서 = 관람 동선(지상 → 허브 → 꽃잎4 → 통로 → 리브 → 갈림·전망 → 전실 → 회랑 → 등불 → ${ST_ON ? '문' : '등불 방 → 출구 통로 → 공개'} → 테라스)`)
 }
 
