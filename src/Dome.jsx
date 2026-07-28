@@ -19,6 +19,9 @@ import {
   ARCH_X0, ARCH_X1, ARCH_Y0, ARCH_Y1, ARCH_Z0, ARCH_Z1,
   PASS_DOOR_W, PASS_DOOR_H,
   PASS_X_END, CL_R, CL_HW, CL_PHI0, CL_PHI1, CL_ROOF, CL_SILL, CL_HEAD, CL_OP_P0, CL_OP_P1,
+  CL_ROOF_Y, CL_HEAD_Y, CL_WALL_BOT, CL_FLOOR_END, CL_STAIR_MID, CL_STAIR_HPHI,   // ★78-2 계단 바닥
+  CL_STEP_RISE, clLandingY, clFloorSegments, clSillBands, CL_WIN_MODE, clSillSlopeY,   // ★78-3
+  CL_WALL_T, CL_R_IN2, CL_R_OUT2, CL_SEG_DROP, clSillY,   // ★78-4 벽 두께
   RM_X0, RM_X1, RM_Z0, RM_Z1, RM_ROOF, RM_MOUTH_H, PASS_FUSE,
   ST_PHI, ST_HW, ST_ROOF,
   LAMP_RIBS, LAMP_R, LAMP_TUBE_R, LAMP_ENTRY_Y, LAMP_TOP_Y, LAMP_MOUTH_Y0, LAMP_MOUTH_Y1, LAMP_FUNNEL_H, LAMP_MOUTH_R, LAMP_POOL_R,
@@ -711,6 +714,37 @@ export function Lookout() {
   )
 }
 
+// ── ★78-3 경사 창턱(`CL_WIN_MODE='slope'`): 원통 위의 한 줄 = 실제로는 나선 ──
+//  실린더 섹터로는 못 만든다(위끝이 φ에 따라 변함) → 띠 하나를 직접 짠다.
+//  ⚠**법선을 직접 준다.** computeVertexNormals를 부르면 인덱스 없는 삼각형 수프에서 평면 법선이 나와
+//   '각진 연필' 음영이 된다(전례). 원통 띠의 법선은 해석적으로 (cosφ, 0, sinφ)로 정확하다.
+function SlopedParapet({ p0, p1 }) {
+  //  ★78-4: 두께가 생겨 면이 셋이다 — 안면(rOut) · 바깥면(rOut2) · **윗면(인방 창턱)**.
+  //   윗면이 곧 현도가 말한 "자연스러운 창"의 실체다(종이 구멍 ↔ 살을 가진 개구).
+  const geo = useMemo(() => {
+    const N = 256, rA = CL_R + CL_HW, rB = CL_R_OUT2
+    const pos = [], nor = [], idx = []
+    const strip = (rs, re, yFn0, yFn1, nx) => {         // 두 줄 정점 × N 구간
+      const base = pos.length / 3
+      for (let i = 0; i <= N; i++) {
+        const phi = p0 + (p1 - p0) * (i / N), c = Math.cos(phi), z = Math.sin(phi)
+        pos.push(rs * c, yFn0(phi), rs * z, re * c, yFn1(phi), re * z)
+        if (nx) { nor.push(c, 0, z, c, 0, z) } else { nor.push(0, 1, 0, 0, 1, 0) }
+      }
+      for (let i = 0; i < N; i++) { const a = base + i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3) }
+    }
+    strip(rA, rA, () => CL_WALL_BOT, clSillSlopeY, true)   // 안면
+    strip(rB, rB, () => CL_WALL_BOT, clSillSlopeY, true)   // 바깥면
+    strip(rA, rB, clSillSlopeY, clSillSlopeY, false)       // 윗면 = 인방 창턱
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3))
+    g.setIndex(idx)
+    return g
+  }, [p0, p1])
+  return <mesh geometry={geo}><meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} /></mesh>
+}
+
 // ── 회랑판(RevealPassage, ★신규 기하 2026.07.07): 하강 채널 → 방 → +z 회랑(클로이스터 개구) → 스텁 → 문 ──
 //  '하나에서 여럿으로'(게루 1p9·10 이행): 회랑을 걷는 동안 개구 밖 정면 리브가 #0→#4로 순차 교체(누적 5),
 //  동시 노출 ≤3(스포 안전 — 레이캐스트 검증). 1p8(하나 안) → 1p9(여럿 조짐) → 1p11(무한) 점층.
@@ -783,45 +817,97 @@ export function RevealPassage() {
       <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
     </mesh>
   )
+  // ★78-2 바닥·파라펫 조각 = constants의 정본 생성기(검사와 같은 출처)
+  const { segs: clFloorSegs, risers: clRisers } = clFloorSegments()
+  const clSillBandList = clSillBands()
   return (
     <group>
-      {ring('fl', rIn - t, rOut + t, floor - 0.02, CL_PHI0, CL_PHI1, true)}
-      {ring('rf', rIn - t, rOut + t, floor + CL_ROOF, CL_PHI0, CL_PHI1, false)}
-      {cyl('i0', rIn, floor - t, floor + CL_ROOF, CL_PHI0, ST_PHI - mPhi)}
-      {cyl('i1', rIn, floor - t, floor + CL_ROOF, ST_PHI + mPhi, CL_PHI1)}
-      {cyl('ih', rIn, floor + ST_ROOF, floor + CL_ROOF, ST_PHI - mPhi, ST_PHI + mPhi)}
-      {cyl('o0', rOut, floor - t, floor + CL_ROOF, CL_PHI0, CL_OP_P0)}
-      {cyl('o1', rOut, floor - t, floor + CL_ROOF, CL_OP_P1, CL_PHI1)}
-      {cyl('op', rOut, floor - t, floor + CL_SILL, CL_OP_P0, CL_OP_P1)}
-      {cyl('oh', rOut, floor + CL_HEAD, floor + CL_ROOF, CL_OP_P0, CL_OP_P1)}
-      {/* 끝캡(φ1 방사 평면) — 로컬 x = 반경 방향(rotation-y = −φ) */}
-      <mesh position={[CL_R * Math.cos(CL_PHI1), floor + CL_ROOF / 2, CL_R * Math.sin(CL_PHI1)]} rotation-y={-CL_PHI1}>
-        <boxGeometry args={[2 * CL_HW + 2 * t, CL_ROOF + 2 * t, t]} />
+      {/* ★78-2 바닥 = 층계참 9 + 계단 8(각 5단) — 평평한 링 하나를 계단 프로필로 교체 */}
+      {clFloorSegs.map((f, i) => ring('fl' + i, rIn - t, rOut + t, f.y - 0.02, f.p0, f.p1, true))}
+      {/* 챌판(riser): φ 고정 방사면 = 끝캡과 같은 어휘(회전 박스). 윗면은 디딤판과 같은 높이,
+          밑으로 t 더 뻗어 두께 0 디딤판과의 이음매를 봉인한다(★75 폭 사슬: 같은 평면 금지) */}
+      {clRisers.map((r, i) => (
+        <mesh key={'rs' + i} position={[CL_R * Math.cos(r.phi), r.top - (CL_STEP_RISE + t) / 2, CL_R * Math.sin(r.phi)]} rotation-y={-r.phi}>
+          <boxGeometry args={[2 * CL_HW + 2 * t, CL_STEP_RISE + t, t]} />
+          <meshStandardMaterial {...FLOOR_MAT} side={THREE.DoubleSide} />
+        </mesh>
+      ))}
+      {/* ★78-2 밑판(soffit): 벽이 최저 바닥까지 내려오면서 **계단 밑에 공동이 생긴다** — 한 장으로 닫는다.
+          구판은 바닥 링 자체가 밑면이라 공동이 없었다. 봉인 규율: 새 볼륨을 만들었으면 그 밑을 막는다. */}
+      {ring('sf', CL_R_IN2, CL_R_OUT2, CL_WALL_BOT, CL_PHI0, CL_PHI1, false)}
+      {/* ★78-2 지붕·창 위턱은 절대 높이(CL_ROOF_Y·CL_HEAD_Y) — 바닥만 내려가고 천장은 안 움직인다 */}
+      {ring('rf', CL_R_IN2, CL_R_OUT2, CL_ROOF_Y, CL_PHI0, CL_PHI1, false)}
+      {cyl('i0', rIn, CL_WALL_BOT, CL_ROOF_Y, CL_PHI0, ST_PHI - mPhi)}
+      {cyl('i1', rIn, CL_WALL_BOT, CL_ROOF_Y, ST_PHI + mPhi, CL_PHI1)}
+      {cyl('ih', rIn, CL_FLOOR_END + ST_ROOF, CL_ROOF_Y, ST_PHI - mPhi, ST_PHI + mPhi)}
+      {cyl('o0', rOut, CL_WALL_BOT, CL_ROOF_Y, CL_PHI0, CL_OP_P0)}
+      {cyl('o1', rOut, CL_WALL_BOT, CL_ROOF_Y, CL_OP_P1, CL_PHI1)}
+      {/* ★78-2 파라펫 = **계단식 띠**. 창턱이 국소 바닥 +CL_SILL을 따라가되 계단 밑에서 강하한다 */}
+      {CL_WIN_MODE === 'slope'
+        ? <SlopedParapet p0={CL_OP_P0} p1={CL_OP_P1} />
+        : <>
+            {clSillBandList.map((b, i) => (
+              <group key={'ob' + i}>
+                {cyl('op' + i, rOut, CL_WALL_BOT, b.y, b.p0, b.p1)}
+                {cyl('oP' + i, CL_R_OUT2, CL_WALL_BOT, b.y, b.p0, b.p1)}
+                {ring('ot' + i, rOut, CL_R_OUT2, b.y, b.p0, b.p1, false)}
+                {/* 창턱이 한 칸 내려앉는 자리의 세로 면(인방 안의 단) */}
+                {i > 0 && (
+                  <mesh position={[(rOut + CL_R_OUT2) / 2 * Math.cos(b.p0), b.y + CL_SEG_DROP / 2, (rOut + CL_R_OUT2) / 2 * Math.sin(b.p0)]} rotation-y={-b.p0}>
+                    <boxGeometry args={[CL_WALL_T, CL_SEG_DROP, t]} />
+                    <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+                  </mesh>
+                )}
+              </group>
+            ))}
+          </>}
+      {cyl('oh', rOut, CL_HEAD_Y, CL_ROOF_Y, CL_OP_P0, CL_OP_P1)}
+      {/* ★78-4 벽 두께: 바깥면(rOut2)·안벽 안쪽면(rIn2) 한 겹씩 더. 지붕·밑판이 위아래를 덮는다. */}
+      {cyl('I0', CL_R_IN2, CL_WALL_BOT, CL_ROOF_Y, CL_PHI0, ST_PHI - mPhi)}
+      {cyl('I1', CL_R_IN2, CL_WALL_BOT, CL_ROOF_Y, ST_PHI + mPhi, CL_PHI1)}
+      {cyl('Ih', CL_R_IN2, CL_FLOOR_END + ST_ROOF, CL_ROOF_Y, ST_PHI - mPhi, ST_PHI + mPhi)}
+      {cyl('O0', CL_R_OUT2, CL_WALL_BOT, CL_ROOF_Y, CL_PHI0, CL_OP_P0)}
+      {cyl('O1', CL_R_OUT2, CL_WALL_BOT, CL_ROOF_Y, CL_OP_P1, CL_PHI1)}
+      {cyl('Oh', CL_R_OUT2, CL_HEAD_Y, CL_ROOF_Y, CL_OP_P0, CL_OP_P1)}
+      {/* ★78-4 창 인방(reveal): 위턱 밑면 + 좌우 문선. 창턱 윗면은 어법별로 아래에서. */}
+      {ring('rvh', rOut, CL_R_OUT2, CL_HEAD_Y, CL_OP_P0, CL_OP_P1, false)}
+      {[CL_OP_P0, CL_OP_P1].map((ph, i) => {
+        const sy = CL_WIN_MODE === 'slope' ? clSillSlopeY(ph) : clSillY(ph)
+        return (
+          <mesh key={'rvj' + i} position={[(rOut + CL_R_OUT2) / 2 * Math.cos(ph), (sy + CL_HEAD_Y) / 2, (rOut + CL_R_OUT2) / 2 * Math.sin(ph)]} rotation-y={-ph}>
+            <boxGeometry args={[CL_WALL_T, CL_HEAD_Y - sy, t]} />
+            <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+          </mesh>
+        )
+      })}
+      {/* 끝캡(φ1 방사 평면) — 로컬 x = 반경 방향(rotation-y = −φ). 최저 바닥~지붕 전 높이 */}
+      <mesh position={[CL_R * Math.cos(CL_PHI1), (CL_WALL_BOT + CL_ROOF_Y) / 2, CL_R * Math.sin(CL_PHI1)]} rotation-y={-CL_PHI1}>
+        <boxGeometry args={[CL_R_OUT2 - CL_R_IN2, CL_ROOF_Y - CL_WALL_BOT + 2 * t, t]} />
         <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
       </mesh>
       {/* D. 스텁(1p10 자리표시자, φ=ST_PHI 방사 방향): 바닥(top −0.05)·측벽·지붕·문벽(문 = 1p11 물리 지점) */}
       <group rotation-y={-ST_PHI}>
-        <mesh position={[(PASS_X_END - 0.6 + stX1) / 2, floor - 0.05 - t / 2, 0]} userData={{ walkable: true }}>
+        <mesh position={[(PASS_X_END - 0.6 + stX1) / 2, CL_FLOOR_END - 0.05 - t / 2, 0]} userData={{ walkable: true }}>
           <boxGeometry args={[stL + 1.0, t, 2 * ST_HW + 2 * t]} />
           <meshStandardMaterial {...FLOOR_MAT} side={THREE.DoubleSide} />
         </mesh>
         {[-1, 1].map((s) => (
-          <mesh key={'sw' + s} position={[(PASS_X_END + stX1) / 2, floor + ST_ROOF / 2, s * (ST_HW + t / 2)]}>
+          <mesh key={'sw' + s} position={[(PASS_X_END + stX1) / 2, CL_FLOOR_END + ST_ROOF / 2, s * (ST_HW + t / 2)]}>
             <boxGeometry args={[stL, ST_ROOF + 2 * t, t]} />
             <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
           </mesh>
         ))}
-        <mesh position={[(PASS_X_END + stX1) / 2, floor + ST_ROOF + t / 2, 0]}>
+        <mesh position={[(PASS_X_END + stX1) / 2, CL_FLOOR_END + ST_ROOF + t / 2, 0]}>
           <boxGeometry args={[stL + t, t, 2 * ST_HW + 2 * t]} />
           <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
         </mesh>
         {[-1, 1].map((s) => (
-          <mesh key={'dj' + s} position={[PASS_X_END, floor + ST_ROOF / 2, s * (doorHW2 + sideW / 2)]}>
+          <mesh key={'dj' + s} position={[PASS_X_END, CL_FLOOR_END + ST_ROOF / 2, s * (doorHW2 + sideW / 2)]}>
             <boxGeometry args={[t, ST_ROOF + 2 * t, sideW]} />
             <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
           </mesh>
         ))}
-        <mesh position={[PASS_X_END, (2 * floor + PASS_DOOR_H + ST_ROOF + t) / 2, 0]}>
+        <mesh position={[PASS_X_END, (2 * CL_FLOOR_END + PASS_DOOR_H + ST_ROOF + t) / 2, 0]}>
           <boxGeometry args={[t, ST_ROOF + t - PASS_DOOR_H, PASS_DOOR_W]} />
           <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
         </mesh>
@@ -943,11 +1029,14 @@ function LampRod({ y0, y1 }) {
 }
 
 export function CloisterLamps() {
-  const floor = PASS_FLOOR_Y
+  //  ★78-2: 바닥이 계단으로 내려가므로 **등불마다 제 층계참을 딛는다**(구판은 전부 PASS_FLOOR_Y).
+  //   갓 입 높이·웅덩이가 그 층계참 기준 → '걸을수록 등불이 내려온다'는 국소 관계로 보존된다.
+  //   ⚠부작용(의도됨): 리브 진입고 LAMP_ENTRY_Y는 절대치라 관이 뒤로 갈수록 길어진다(4.5 → 21.4).
   const n = LAMP_RIBS.length
   return (
     <group>
       {LAMP_RIBS.map((k, i) => {
+        const floor = clLandingY(i)                                        // ★78-2 그 등불의 층계참
         const fr = n > 1 ? i / (n - 1) : 0                                  // 진행률(걷는 방향 = 배열 순)
         const mouthY = floor + LAMP_MOUTH_Y0 + (LAMP_MOUTH_Y1 - LAMP_MOUTH_Y0) * fr  // 갓 입(아래끝) — 하강 램프
         const neckY = mouthY + LAMP_FUNNEL_H                                // 갓 목 = 관 시작

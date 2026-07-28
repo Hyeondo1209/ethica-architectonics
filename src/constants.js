@@ -722,7 +722,22 @@ export const CL_R     = 170.0                // ★회랑 중심선 반경 — �
 export const CL_HW    = 2.6                  // 회랑 내부 반폭(반경 방향, 폭 5.2)
 export const CL_Z_START = 5.0                // 방 +z벽 z(= RM_Z1) — 원호는 이 벽 두께 안에서 시작
 export const CL_PHI0  = Math.asin((CL_Z_START + 0.3) / CL_R)   // 시작 φ ≈1.79°(벽 중앙에 캡 물림)
-export const CL_PHI1  = 23.6 * Math.PI / 180   // ★끝 φ=22° → 끝점 z≈63.7·정면 리브 #4(20°) 도달. 23.6°(z68)는 #5 진입 — 노브
+// ★★★78(2026.07.28 현도 "회랑이 너무 짧다 — 거닐 시간을 더 누리고 싶다"): 23.6° → 48.6°.
+//  중심선 호 64.7 → 138.9 · 보행 10.8s → 23.1s(WALK_SPEED 6) · 통과 리브 = 등불 4기 → 9기.
+//  근거 = **이 권역은 회전 대칭**이다(리브 72 동형 · 상부 회전 −10° = 리브 간격 5°의 정확히 2배라
+//  격자가 자기 위로 겹침). 회랑은 CL_PHI0·CL_PHI1의 순수 함수이고 웨이포인트·등불이 뒤따르므로
+//  φ 확장에 새 기하가 없다. 실증: 스크래치에서 45°로 올려 6종 스위트 전량 green(등불 검사 24→32항 자동 확장).
+// ⚠**왜 50.0이 아니라 48.6인가 — 끝캡이 리브 중심선과 공면이 되는 것을 피한다.**
+//  끝캡은 φ1의 방사 평면(두께 COR_THICK)이고, r=CL_R에서 리브 살의 각반폭은 atan(SHELL_RIB_R/CL_R)=2.02°다.
+//  50.0°는 리브 #10(50°)의 **중심을 정통으로** 관통한다 = ★75에서 하루 네 번 난 코플레이너 병의 각도판.
+//  48.6 = 50 − 1.4 로 잡으면 **현행(23.6 = 25 − 1.4)의 끝캡↔리브 관계가 그대로 재현**된다
+//  (마지막 등불 → 끝캡 3.6°, 호 10.7도 현행과 동일).
+//  ⇒ 튜닝 규칙: φ1은 리브 방위(5°의 배수)에서 **1.4° 물러선** 값으로. 43.6 / 48.6 / 53.6 …
+//  비공면은 check_corridor K2가 상시 강제한다(리브 중심에서 0.5° 이내 접근 = 실패).
+// ⚠**상한은 회랑이 아니라 테라스다.** 문은 ST_PHI(=φ1−2.6°)에서 테라스 림에 꽂히는데 테라스 호는
+//  ±TERRACE_ARC/2 = ±68.75°뿐이다. 48.6°면 문 46.0° → 끝까지 22.8° 여유. 더 늘리려면 TERRACE_ARC를
+//  같이 키워야 한다(테라스 형태 = 현도 결정 영역). K2가 그 여유를 매 실행마다 잰다.
+export const CL_PHI1  = 48.6 * Math.PI / 180
 export const CL_ROOF  = 20.0                 // ★회랑 내부고(2026.07.11 상향 9→20) — 11.6 초과 = 리브 상부 관입 체제:
                                              //   리브 밑면이 실내 y≈260.1(바닥 위 12.1)부터 내려옴(보행·개구 띠 1.6~7 무침범, 누수 없음
                                              //   = 상호관입 봉합). 관 진입 장면(y263.4)이 실내화 — 근거·재검: check_lamps.mjs
@@ -757,7 +772,16 @@ export const ST_ROOF  = 5.0                  // 스텁 내부고(압축 유지, 
 //   평행 = 영구 잔류). 1p8 전망대(y≈264.5)가 그 보어를 올려다보므로 이물 노출. #1~4는 보어 밀폐 = 무해.
 //  §2-C 등재: 등불 관 = 리브에 물린 '합의된 기능물'(탐험 문·나선과 동급) — 곧음·매달림(비접지),
 //   리브 어휘(S자·72배열)와 혼동 없음. 근거·재검: check_lamps.mjs
-export const LAMP_RIBS    = [1, 2, 3, 4]           // 대상 리브 인덱스(φ = k·5°) — 회랑 호(1.79~23.6°) 통과분 전부
+// ★78: 손 목록 → **호에서 파생**. 구 `[1,2,3,4]`는 CL_PHI1=23.6°일 때의 손 계산이라, 호를 늘리면
+//  조용히 어긋난다(동기화 사고의 전형 — 결합 설계 원칙 적용). 이제 φ1만 만지면 등불이 따라온다.
+//  #0(탐험 리브) 제외 = k를 1부터 시작하는 것으로 **구조가 보장**한다(구 체제는 손으로 뺐다).
+//  ⚠스텁 입과의 충돌은 파생하지 **않는다** — 파생해 버리면 check_lamps E절이 항진명제가 되어 신호를 잃는다.
+//   선정은 호만 보고 하고, 스텁 충돌은 검사가 잡게 둔다(막는 검사 = ★77 교훈).
+export const LAMP_RIBS    = (() => {
+  const step = 2 * Math.PI / MERIDIANS, out = []
+  for (let k = 1; k * step < CL_PHI1; k++) if (k * step > CL_PHI0) out.push(k)
+  return out
+})()                                               // 대상 리브 인덱스(φ = k·5°) — 회랑 호 통과분 전부
 export const LAMP_R       = CL_R                   // 관의 반경 위치 = 회랑 중심선(리브 상부 수직 기둥 r=168±6 안)
 export const LAMP_TUBE_R  = 0.7                   // 관 굵기(반지름) — 미적 노브
 export const LAMP_ENTRY_Y = 263.4                  // 관이 리브 표면(중심선 거리 6.0)을 뚫는 높이 — 도출: check_lamps.mjs 스캔.
@@ -773,8 +797,139 @@ export const LAMP_FUNNEL_H = 0.9                   // 갓 높이(입→목)
 export const LAMP_MOUTH_R  = 0.7                  // 갓 입 반지름(목 반지름 = LAMP_TUBE_R)
 export const LAMP_POOL_R   = 1.7                   // 바닥 빛 웅덩이 반지름(코어 0.55배 + 헤일로)
 
+// ══ ★★★78-2 회랑 계단 바닥 (2026.07.28 현도 스케치) ═════════════════════════════
+//  "걸으면서 회랑 층고를 계속 확장한다. 천장을 올리는 게 아니라 **바닥을 내린다**."
+//  등불 발치 = 수평 층계참 / 등불 사이 = 짧은 하강 계단. 층고 20 → 29.6, 창 5.4 → 15.0.
+//
+//  ★왜 바닥인가(현도 의도): 천장을 올리면 리브가 매달린 절대 높이(LAMP_ENTRY_Y 263.4)와 어긋난다.
+//   바닥을 내리면 리브·지붕은 그대로 있고 **몸만 가라앉는다** — 걸을수록 위가 커지는 체험.
+//
+//  ⚠**PASS_FLOOR_Y는 못 건드린다.** 하강 채널·전실 방·갈림 판이 전부 그 값을 읽는다.
+//   회랑만 그 아래로 내려가고, 도착점(테라스)이 따라 내려온다.
+export const CL_SEG_DROP  = 1.2                       // ★현도: 등불 한 구간당 하강
+export const CL_STEP_N    = 5                         // ★현도: 구간당 단수
+export const CL_STEP_RISE = CL_SEG_DROP / CL_STEP_N   // 단높이 0.24 (파생 — 둘을 곱으로 묶는다)
+//  ★단너비는 짓지 않고 **무릎길 경사를 물려받는다**(여정 계단 어휘가 둘로 갈리는 것 방지).
+//   KW 0.19/0.22 = 40.8° → 같은 경사에서 단높이 0.24의 단너비.
+//  ★★78-3(2026.07.28 현도 "계단이 약간 짧게 느껴지네"): **단수로는 못 늘린다.**
+//   계단 길이 = N·go = N·(SEG_DROP/N)·(go/rise) = **SEG_DROP / tan(경사)** — N이 약분돼 사라진다.
+//   단수를 늘리면 단높이만 잘게 쪼개지고 길이는 그대로다. 길게 하는 길은 둘뿐:
+//   ⓐ 경사를 눕힌다(하강 유지) ⓑ 구간 하강을 키운다(경사 유지 — 그건 CL_SEG_DROP).
+//   실측표(하강 1.2 기준): 40.82°→1.39 · 35°→1.71 · **30°→2.08(1.5배)** · 25°→2.57 · 20°→3.30
+//   층계참 : 계단 비율 = 1:9.7 → 1:7.7 → **1:6.1** → 1:4.8 → 1:3.5
+//  ⇒ 현도 "약간"으로 30° 채택. 무릎길 40.82°에서 처음 갈라진 값이라 **의도적 이탈임을 여기 적어 둔다**
+//   (K3는 어휘 동일 대신 프로젝트 계단 대역 [20°,45°] 안인지로 재고 두 값을 나란히 보고한다).
+export const CL_STEP_SLOPE_DEG = 30
+export const CL_STEP_GO   = CL_STEP_RISE / Math.tan(CL_STEP_SLOPE_DEG * Math.PI / 180)   // ≈0.416
+export const CL_STEP_RUN  = CL_STEP_N * CL_STEP_GO             // 계단 길이 ≈2.08
+export const CL_STEP_DPHI = CL_STEP_GO / CL_R                  // 한 단의 각너비
+export const CL_LAMP_PHI  = LAMP_RIBS.map((k) => k * 2 * Math.PI / MERIDIANS)
+//  계단은 등불과 등불의 **중점**에 선다 → 층계참이 등불 좌우로 대칭(각 ±(5°−CL_STEP_RUN/CL_R)/2, 호 ≈6.7).
+export const CL_STAIR_MID = CL_LAMP_PHI.slice(0, -1).map((p, i) => (p + CL_LAMP_PHI[i + 1]) / 2)
+export const CL_STAIR_HPHI = CL_STEP_RUN / 2 / CL_R
+export const CL_DROP_TOTAL = CL_SEG_DROP * CL_STAIR_MID.length      // 8구간 → 9.6
+export const CL_FLOOR_END  = PASS_FLOOR_Y - CL_DROP_TOTAL           // ③≈238.43 = 마지막 층계참·스텁·테라스
+//  ★지붕·창 위턱은 **절대 높이로 전환**. 구판은 바닥 상대(floor+CL_ROOF)라 바닥이 내려가면 천장이 따라 내려갔다 —
+//   그건 현도 의도("천장은 그대로")의 정반대다. 시작 지점에서는 구값과 항등(PASS_FLOOR_Y+CL_ROOF).
+export const CL_ROOF_Y     = PASS_FLOOR_Y + CL_ROOF                 // ③≈268.03 고정
+export const CL_HEAD_Y     = PASS_FLOOR_Y + CL_HEAD                 // ③≈255.03 고정(창 위턱)
+export const CL_WALL_BOT   = CL_FLOOR_END - PASS_T                  // 벽 밑단 = 최저 바닥 아래
+export const clLandingY = (j) => PASS_FLOOR_Y - CL_SEG_DROP * j     // j번째 층계참 높이(j=0..8)
+//  바닥: 층계참은 평평, 계단 위는 **디딤판 이산**(연속 경사가 아니다 — 실제 기하와 같은 함수를 검사도 쓴다).
+export function clFloorY(phi) {
+  let y = PASS_FLOOR_Y
+  for (let i = 0; i < CL_STAIR_MID.length; i++) {
+    const s0 = CL_STAIR_MID[i] - CL_STAIR_HPHI, s1 = CL_STAIR_MID[i] + CL_STAIR_HPHI
+    if (phi >= s1) y -= CL_SEG_DROP
+    else if (phi > s0) y -= CL_STEP_RISE * Math.min(CL_STEP_N, Math.floor((phi - s0) / CL_STEP_DPHI) + 1)
+  }
+  return y
+}
+//  ★★파라펫(창턱)은 계단 **밑에서** 내려간다 — 중간에서 내리면 계단 하반부에서 국소 바닥 위 1.0이 되어
+//   눈높이 1.6보다 0.6 낮아진다 = 그 구간만 아래 세계가 열린다(_probe_cloister78이 잡은 결함).
+//   계단 내내 윗 층계참 창턱을 유지 → 파라펫 1.6~2.8, 절대 1.6 밑으로 안 감(하향 시선 차단 구조 보존).
+// ── ★★78-4 회랑 벽 두께(2026.07.28 현도 "양옆 벽에 두께가 없어서 계단이 삐져나온다") ──────
+//  ⚠이건 신기능이 아니라 **결함 수리**다. 회랑 벽은 두께 0 셸(r=rIn·rOut)이었고, 바닥 링·챌판은
+//   원래부터 양쪽으로 PASS_T(0.6)씩 더 뻗어 있었다. 평바닥일 땐 가장자리 한 줄이라 안 보였는데,
+//   ★78-2로 조각이 89장(디딤판 40·층계참 9·챌판 40)이 되자 전부 벽 밖으로 튀어나와 드러났다.
+//   → 벽에 살을 주면 그 0.6이 **물림**으로 뒤집힌다. 바닥 쪽은 손댈 게 없다(DESIGN §9 '두께 0 면' 해소).
+//  ★덤 = 현도가 짚은 대로 창에 **인방 깊이**가 생긴다(★77 프리즈 창의 어휘 — 종이에 낸 구멍이 아니라 개구).
+//  대역: 하한 = 바닥 물림 0.6 + 여유 → **T > 0.9**. 상한 = 창 위턱(255.03)에서 리브 살까지 3.49이므로
+//   여유 1.0을 남기면 **T ≤ 2.5**(그 위로는 창밖 리브가 인방에 닿을 듯이 붙는다).
+//   그 밖의 상한은 느슨하다(안벽: 스텁 길이 8.9 · 테라스 외림까지 9.0).
+//  ⚠상단(y≳260)에서는 벽 두께와 무관하게 리브가 이미 회랑을 관통한다(등불 진입고 263.4 = 체제 b).
+//   두께가 그걸 새로 만들지 않는다 — 다만 리브가 두꺼운 살에서 나오게 된다.
+export const CL_WALL_T = 1.5               // ★노브 — 대역 [0.9, 2.5]. 현도 육안 판정 대상
+export const CL_R_IN2  = CL_R - CL_HW - CL_WALL_T   // 안벽 안쪽면 ③≈165.9
+export const CL_R_OUT2 = CL_R + CL_HW + CL_WALL_T   // 바깥벽 바깥면 ③≈174.1
+//  바닥·챌판이 벽 살 속으로 무는 깊이(구 '오버행'의 재해석 — 값은 안 바뀐다).
+//  ★75 폭 사슬: 물림 < 두께여야 어느 면과도 공면이 아니다. 0이면 z파이팅, 두께 이상이면 관통.
+export const CL_FLOOR_BITE = PASS_T        // 0.6
+
+// ── ★★78-3 창턱 두 어법(현도 "버젼 두가지 만들어서 로컬에서 판정") ────────────────────
+//  'step'  = 계단식 — 창턱이 층계참마다 한 칸씩 내려간다(★78-2 구현분).
+//  'slope' = 경사진 직선 — 창턱이 시작→끝을 잇는 한 줄로 내려간다(원통 위라 실제로는 나선).
+//  ⚠**직선은 그냥 그으면 불변식이 무너진다.** 끝점(시작 바닥 → 끝 바닥)을 잇는 순수 직선은
+//   첫 계단 직전(φ≈7.3°)에서 파라펫이 **0.477**까지 내려간다 — 눈높이 1.6에 1.123 모자라고,
+//   그 구간만 아래 세계가 열린다. 바닥은 계단인데 선은 균일하게 내려가므로 **계단 직전이 항상 최악**이다.
+//   → 직선을 **최저점이 정확히 CL_SILL이 되도록 들어올린다**(들림값은 상수가 아니라 파생 — 바닥이 바뀌면 따라온다).
+//   대가: 창이 전 구간 그만큼 낮아진다(시작 창높이 5.4 → 4.28). 이게 두 어법의 실질 차이다.
+export const CL_WIN_MODE = 'step'          // ★현도 판정 대기 — 'step' | 'slope'
+const clSlopeBase = (phi) => PASS_FLOOR_Y + (CL_FLOOR_END - PASS_FLOOR_Y) * (phi - CL_PHI0) / (CL_PHI1 - CL_PHI0)
+//  ⚠들림값을 **표본으로 구하면 안 된다.** 8000점으로 뽑았더니 20000점으로 재는 검사가 더 낮은 점을
+//   찾아 실패했다(2026.07.28 실제 적발). 최저점은 해석적으로 정해져 있다 —
+//   바닥은 계단(구간마다 상수)이고 선은 단조 감소하므로, **각 평평 조각의 오른쪽 끝**이 그 조각의 최저점이다.
+//   그 유한집합의 min이 정확한 답이다. 표본 밀도와 무관해진다.
+export const CL_WIN_SLOPE_LIFT = (() => {
+  let worst = Infinity
+  for (const g of clFloorSegments().segs) worst = Math.min(worst, clSlopeBase(g.p1) - g.y)
+  return CL_SILL - worst                                        // ③≈2.723
+})()
+export const clSillSlopeY = (phi) => clSlopeBase(phi) + CL_WIN_SLOPE_LIFT
+//  활성 어법의 창턱(둘 중 무엇을 켜든 검사·프로브가 같은 함수를 본다)
+export const clSillActiveY = (phi) => (CL_WIN_MODE === 'slope' ? clSillSlopeY(phi) : clSillY(phi))
+
+//  ★★정본은 이 두 함수다 — Dome.jsx가 그리는 조각도, 검사가 재는 조각도 여기서 나온다.
+//   구판처럼 컴포넌트 안에서 루프를 돌리면 검사가 그 루프를 **다시 적어야** 하고, 두 벌은 반드시 어긋난다.
+//   clFloorY(해석식)는 이것과 독립된 두 번째 표현이며, 둘의 일치를 check_corridor K3가 상시 대조한다.
+export function clFloorSegments() {
+  const segs = [], risers = []
+  let cur = CL_PHI0
+  for (let i = 0; i < CL_STAIR_MID.length; i++) {
+    const s0 = CL_STAIR_MID[i] - CL_STAIR_HPHI, top = clLandingY(i)
+    segs.push({ p0: cur, p1: s0, y: top, kind: 'landing', i })          // 층계참(등불 발치)
+    for (let n = 0; n < CL_STEP_N; n++) {                               // 짧은 하강 계단
+      const a0 = s0 + n * CL_STEP_DPHI
+      segs.push({ p0: a0, p1: a0 + CL_STEP_DPHI, y: top - CL_STEP_RISE * (n + 1), kind: 'tread', i, n })
+      risers.push({ phi: a0, top: top - CL_STEP_RISE * n })
+    }
+    cur = s0 + CL_STEP_N * CL_STEP_DPHI
+  }
+  segs.push({ p0: cur, p1: CL_PHI1, y: clLandingY(CL_STAIR_MID.length), kind: 'landing', i: CL_STAIR_MID.length })
+  return { segs, risers }
+}
+//  파라펫 띠(개구 구간으로 잘라 낸다) — 계단 **밑**에서 한 칸 강하.
+export function clSillBands() {
+  const out = []
+  let c = CL_PHI0
+  for (let i = 0; i <= CL_STAIR_MID.length; i++) {
+    const end = i < CL_STAIR_MID.length ? CL_STAIR_MID[i] + CL_STAIR_HPHI : CL_PHI1
+    const p0 = Math.max(c, CL_OP_P0), p1 = Math.min(end, CL_OP_P1)
+    if (p1 > p0) out.push({ p0, p1, y: clLandingY(i) + CL_SILL })
+    c = end
+  }
+  return out
+}
+export function clSillY(phi) {
+  let y = PASS_FLOOR_Y
+  for (let i = 0; i < CL_STAIR_MID.length; i++) if (phi >= CL_STAIR_MID[i] + CL_STAIR_HPHI) y -= CL_SEG_DROP
+  return y + CL_SILL
+}
+
 // ── 테라스(중앙, 도착) (반지름 ×SCALE · y는 통로에서 파생 — 자유 요소의 접속 해소) ──
-export const TERRACE_Y    = PASS_FLOOR_Y   // ★1-③B: H·KNEE(240) → 통로 바닥(≈248). 문턱 없는 도착(반지름은 위 참조)
+// ★78-2: PASS_FLOOR_Y → **CL_FLOOR_END**. 회랑이 걸으며 9.6 내려가므로 도착점도 같이 내려온다
+//  (현도 ⓐ "테라스도 같이 그냥 내리면 돼"). '문턱 없는 도착' 문법은 **관계가 보존**된다 — 값만 옮겨간다.
+export const TERRACE_Y    = CL_FLOOR_END   // ③≈238.43 (구 248.03)
 
 // ── 통로 위치: 단면(COR_R·천장)은 동결, 원기둥이 크기 유지한 채 돔 따라 바깥으로 이동 ──
 export const COR_X1     = R_BASE                    // 바깥 끝 = 탐험경선 #0 밑동(③에서 288)

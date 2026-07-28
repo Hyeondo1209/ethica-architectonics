@@ -1,0 +1,123 @@
+// check_render.mjs — ★신설 2026.07.28: **"빌드 green인데 흰 화면"을 잡는 검사**
+//  실행: node src/check_render.mjs   (repo 루트에서)
+//
+//  왜 필요한가 — 실제로 당했다(★78-4). `clSillY`를 Dome.jsx가 쓰면서 import를 안 했는데
+//  `vite build`는 통과했다. 번들러에게 자유 식별자는 런타임 전역 후보일 뿐이라 에러가 아니다.
+//  그런데 브라우저에서 컴포넌트가 **렌더될 때** ReferenceError가 나고 React 트리 전체가 죽어 흰 화면이 된다.
+//  기존 스위트는 전부 기하 상수·함수만 import해서 봤기 때문에 이 구멍을 못 봤다.
+//
+//  전략: 컴포넌트를 **실제로 호출한다.** react/three 훅을 얇게 가짜로 물리고(JSX는 기술자 객체만 만들면 됨)
+//  각 export된 컴포넌트 함수를 부른다. 함수 본문의 `.map`·수식·상수 접근이 전부 그 자리에서 평가되므로
+//  누락 import·TDZ·NaN·널 참조가 즉시 터진다.
+//  ⚠한계(정직하게): 자식 컴포넌트(<SlopedParapet/> 같은 것)는 기술자만 만들어지므로 **따로 부른다**(아래 목록).
+//   훅 의존성·상태 전이·GPU 동작은 이 검사의 범위 밖이다.
+import { execSync } from 'node:child_process'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+let n = 0, fail = 0
+const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
+
+//  렌더할 모듈 = 화면을 만드는 것 전부. 새 컴포넌트 파일이 생기면 여기 추가한다.
+const TARGETS = [
+  'src/Dome.jsx', 'src/Corridor.jsx', 'src/Room.jsx', 'src/Radial.jsx',
+  'src/RadialEvents.jsx', 'src/Lens.jsx', 'src/Steles.jsx',
+]
+
+const dir = mkdtempSync(join(tmpdir(), 'ethica-render-'))
+
+//  react / @react-three/fiber 얇은 대역품 — 훅은 즉시 실행, JSX는 기술자 객체.
+writeFileSync(join(dir, 'react.mjs'), `
+export const useMemo = (f) => f()
+export const useRef = (v = null) => ({ current: v })
+export const useState = (v) => [typeof v === 'function' ? v() : v, () => {}]
+export const useEffect = () => {}
+export const useLayoutEffect = () => {}
+export const useCallback = (f) => f
+export const useContext = () => ({})
+export const createContext = () => ({ Provider: () => null })
+export const forwardRef = (f) => f
+export const memo = (f) => f
+export const Fragment = 'Fragment'
+export const createElement = (t, p, ...c) => ({ __el: t, props: { ...p, children: c } })
+export default { useMemo, useRef, useState, useEffect, useLayoutEffect, useCallback, forwardRef, memo, Fragment, createElement }
+`)
+writeFileSync(join(dir, 'jsx-runtime.mjs'), `
+export const Fragment = 'Fragment'
+export const jsx = (t, p, k) => ({ __el: t, props: p, key: k })
+export const jsxs = jsx
+export const jsxDEV = jsx
+`)
+writeFileSync(join(dir, 'fiber.mjs'), `
+export const useFrame = () => {}
+export const useThree = () => ({ camera: { position: { set: () => {} } }, scene: {}, gl: {}, size: { width: 1, height: 1 } })
+export const useLoader = () => ({})
+export const extend = () => {}
+export const Canvas = () => null
+export const invalidate = () => {}
+`)
+
+console.log('— 렌더 스모크: 컴포넌트를 실제로 호출한다 (흰 화면 방지) —')
+for (const t of TARGETS) {
+  const out = join(dir, t.replace(/[/.]/g, '_') + '.mjs')
+  let built = true, msg = ''
+  try {
+    execSync(`npx esbuild ${t} --bundle --format=esm --outfile=${out} --loader:.jsx=jsx --jsx=automatic` +
+      ` --alias:react=${join(dir, 'react.mjs')} --alias:react/jsx-runtime=${join(dir, 'jsx-runtime.mjs')}` +
+      ` --alias:@react-three/fiber=${join(dir, 'fiber.mjs')} --log-level=silent`, { stdio: 'pipe' })
+  } catch (e) { built = false; msg = (e.stderr || e.stdout || '').toString().split('\n').slice(0, 3).join(' | ') }
+  ok(built, `${t} 번들` + (built ? '' : ` — ${msg}`))
+  if (!built) continue
+
+  //  ★핵심: export된 컴포넌트를 하나씩 실제 호출한다.
+  const runner = join(dir, 'run_' + t.replace(/[/.]/g, '_') + '.mjs')
+  writeFileSync(runner, `
+//  ⚠브라우저 API 대역품 — 캔버스 텍스처(비석·정리 글자)는 document를 쓴다. 이건 **버그가 아니므로**
+//   검사가 여기서 실패하면 안 된다. 진짜 예외만 남기려고 얇게 물린다.
+const ctx2d = new Proxy({}, { get: (_, k) =>
+  k === 'measureText' ? (() => ({ width: 10 }))
+  : k === 'createLinearGradient' || k === 'createRadialGradient' ? (() => ({ addColorStop() {} }))
+  : k === 'getImageData' ? (() => ({ data: new Uint8ClampedArray(4) }))
+  : k === 'canvas' ? { width: 1, height: 1 }
+  : (() => {}) })
+globalThis.document = { createElement: (t) => t === 'canvas'
+  ? { width: 0, height: 0, getContext: () => ctx2d, toDataURL: () => '' }
+  : { style: {}, setAttribute() {}, appendChild() {} },
+  body: { appendChild() {} } }
+globalThis.window = globalThis.window || { devicePixelRatio: 1, innerWidth: 1, innerHeight: 1, addEventListener() {} }
+import * as M from '${out}'
+//  ★무엇을 '실패'로 볼 것인가 — 여기서 정직해야 한다.
+//   흰 화면의 원인은 **ReferenceError**(선언 안 된 식별자)다. 그건 무조건 실패다.
+//   반면 props 없이 부른 탓에 나는 TypeError는 **검사 장치의 한계**이지 코드 버그가 아니다
+//   (PropStele은 text를 받아 split한다). 둘을 섞으면 이 검사는 늑대소년이 된다.
+const bad = [], noted = []
+let called = 0
+for (const [k, v] of Object.entries(M)) {
+  if (typeof v !== 'function') continue
+  if (!/^[A-Z]/.test(k)) continue                    // 컴포넌트 관례 = 대문자 시작
+  try { v({}); called++ }
+  catch (e) {
+    if (e instanceof ReferenceError) bad.push(k + ': ' + e.message)
+    else noted.push(k + ': ' + e.message)            // props 미제공 등 — 보고만
+  }
+}
+console.log(JSON.stringify({ called, bad, noted }))
+`)
+  let res = null, err = ''
+  try { res = JSON.parse(execSync(`node ${runner}`, { stdio: 'pipe' }).toString().trim().split('\n').pop()) }
+  catch (e) { err = (e.stderr || '').toString().split('\n')[0] || e.message }
+  ok(res !== null, `${t} 모듈 평가(임포트 시점 예외 없음)` + (res ? '' : ` — ${err}`))
+  if (!res) continue
+  ok(res.bad.length === 0,
+    `${t} 컴포넌트 ${res.called}개 호출 — **ReferenceError 0**(흰 화면의 원인)` +
+    (res.bad.length ? ` — ${res.bad.join(' / ')}` : '') +
+    (res.noted.length ? `  ⓘ props 필요로 건너뜀 ${res.noted.length}개` : ''))
+}
+
+//  자식 컴포넌트(모듈 밖으로 export되지 않는 것)는 위 루프가 못 부른다.
+//  → 부모가 그 기술자를 만들었는지만 확인하고, 실제 호출이 필요한 것은 export해서 이 목록에 올린다.
+console.log('  ⓘ 한계: export 안 된 내부 컴포넌트는 기술자 생성까지만 검증된다(호출 필요 시 export할 것)')
+
+console.log(fail === 0 ? `\n전부 통과 (${n}항)` : `\n실패 ${fail}/${n}`)
+process.exit(fail === 0 ? 0 : 1)

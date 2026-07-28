@@ -26,6 +26,7 @@ import {
   CL_R, CL_PHI0, CL_PHI1, ST_PHI,
   LAMP_RIBS, LAMP_R,
   TERRACE_RIN, TERRACE_ROUT, TERRACE_Y,
+  CL_FLOOR_END, clFloorY,        // ★78-2 계단 바닥
   COR_Y0, COR_THICK, PLAT_X, PLAT_Y, PLAT_R, DESC_X0, DESC_X1, PLAT_DROP,
   HALL_ENTRY, ASC_X0, ASC_X1, ASC_RISE, ORB_CX, ORB_FLOOR_Y,
   ROOM_CX, ROOM_FLOOR_Y, DAIS_H, ROOM_DISC_HOLE, ROOM_LAND_R,
@@ -69,8 +70,9 @@ const FACE_PZ = yawTo(0, 1)     // +z 향
 const HUB_TOP   = COR_Y0 + COR_THICK / 2 + 0.02   // Room.jsx 착지 디스크 윗면(압출 슬랩) ≈49.32
 const PLAT_TOP  = PLAT_Y + COR_THICK / 2          // ★㊴ 낮은 플랫폼 상면 ≈45.8 — corridor 웨이포인트 기준(다리 49.3과 분리)
 const JOINT_TOP = RAD_FLOOR_Y + COR_THICK / 2     // Radial.jsx 접합 패드 = 박스 중심 RAD_FLOOR_Y + 두께/2 ≈49.28
-const CL_FLOOR  = PASS_FLOOR_Y - 0.02             // Dome.jsx 회랑 바닥 = ring 평면(floor − 0.02)
-const ST_FLOOR  = PASS_FLOOR_Y - 0.05             // Dome.jsx 스텁 바닥 = 박스 윗면(floor − 0.05)
+//  ★78-2 회랑 바닥은 φ의 함수다(계단) — 상수 하나로 못 쓴다. 지점마다 clFloorY로 딴다.
+const CL_FLOOR  = (phi) => clFloorY(phi) - 0.02   // Dome.jsx 회랑 바닥 = ring 평면(층계참 − 0.02)
+const ST_FLOOR  = CL_FLOOR_END - 0.05             // ★78-2 스텁 = 마지막 층계참 높이(Dome.jsx와 동일 식)
 
 // ── 리브 나선(f축: 0=문 · 1=나선 끝). 디딤판 윗면 = 중심 y + 두께/2 ──
 const treadTop = (f) => {
@@ -313,11 +315,11 @@ export const WAYPOINTS = [
   { id: 'ante', group: '통로판 (1p9~11)', label: '전실 — 하강 착지 · 회랑 입', prop: '—',
     x: rX((RM_X0 + RM_X1) / 2, 1), y: PASS_FLOOR_Y, z: rZ((RM_X0 + RM_X1) / 2, 1), yaw: rYaw(FACE_PZ), pitch: 0 },
   { id: 'cloister', group: '통로판 (1p9~11)', label: '회랑 시작 — 창밖 리브 누적', prop: '1p9',
-    x: rX(CL_R * Math.cos(CL_PHI), CL_R * Math.sin(CL_PHI)), y: CL_FLOOR,
+    x: rX(CL_R * Math.cos(CL_PHI), CL_R * Math.sin(CL_PHI)), y: CL_FLOOR(CL_PHI),
     z: rZ(CL_R * Math.cos(CL_PHI), CL_R * Math.sin(CL_PHI)),
     yaw: rYaw(yawTo(CL_T[0] + CL_O[0], CL_T[1] + CL_O[1])), pitch: 0 },  // 진행 ↔ 창 사이 45°
   { id: 'lamp', group: '통로판 (1p9~11)', label: `마지막 등불 #${LAMP_K} 밑 — 올려다보기`, prop: '1p10',
-    x: rX(LAMP_R * Math.cos(LAMP_PHI), LAMP_R * Math.sin(LAMP_PHI)), y: CL_FLOOR,
+    x: rX(LAMP_R * Math.cos(LAMP_PHI), LAMP_R * Math.sin(LAMP_PHI)), y: CL_FLOOR(LAMP_PHI),
     z: rZ(LAMP_R * Math.cos(LAMP_PHI), LAMP_R * Math.sin(LAMP_PHI)),
     yaw: rYaw(yawTo(-Math.sin(LAMP_PHI), Math.cos(LAMP_PHI))), pitch: 1.15 },  // 관 → 리브 시선 안내선
   { id: 'door', group: '통로판 (1p9~11)', label: '스텁 끝 문 — 공개 직전', prop: '1p11',

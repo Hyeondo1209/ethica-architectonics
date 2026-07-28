@@ -25,6 +25,7 @@ import {
   WOLDAE_ON, WOLDAE_OUT, WOLDAE_HW, WOLDAE_TIP_T, WOLDAE_ROOT_D, WOLDAE_RIM, WOLDAE_EMBED, COR_RISE,   // ★54 월대
   WOLDAE_NOTCH, WOLDAE_NOTCH_R,   // ★54-2 노치
   WOLDAE_RISE, WOLDAE_RISE_H, BOX_TOP,   // ★54-3 상승단
+  CL_FLOOR_END, clFloorY, CL_SEG_DROP, CL_STEP_RISE, CL_STAIR_MID, CL_STEP_N, CL_DROP_TOTAL, CL_ROOF_Y, clSillY, CL_SILL,   // ★78-2
 } from './constants.js'
 import { p1HeightAt } from './radialEventsGeometry.js'
 const r2 = (v) => Math.round(v * 100) / 100   // ★㊾ (check_corridor와 같은 보조자)
@@ -571,7 +572,8 @@ for (const id of ['cloister', 'lamp']) {
   ok(Math.abs(r - CL_R) < CL_HW - 0.3, `${id} 반경 ${r.toFixed(1)} — 회랑 중심선 ±${(CL_HW - 0.3).toFixed(1)} 안`)
   ok(phi > CL_PHI0 && phi < CL_PHI1,
     `${id} φ=${(phi * DEG).toFixed(1)}° ∈ 회랑 호(${(CL_PHI0 * DEG).toFixed(1)}~${(CL_PHI1 * DEG).toFixed(1)}°)`)
-  ok(Math.abs(w.y - (PASS_FLOOR_Y - 0.02)) < 1e-9, `${id} y=${w.y.toFixed(2)} = 회랑 바닥(ring 평면)`)
+  //  ★78-2: 회랑 바닥은 φ의 함수(계단)다 — 상수 대조에서 **그 지점의 층계참** 대조로 바꾼다.
+  ok(Math.abs(w.y - (clFloorY(phi) - 0.02)) < 1e-9, `${id} y=${w.y.toFixed(2)} = 그 φ의 회랑 바닥 ${(clFloorY(phi) - 0.02).toFixed(2)}(ring 평면)`)
 }
 ok(W('lamp').pitch > 1.0, `등불 pitch=${W('lamp').pitch.toFixed(2)} — 관→리브 시선 안내선을 올려다봄`)
 {
@@ -579,7 +581,7 @@ ok(W('lamp').pitch > 1.0, `등불 pitch=${W('lamp').pitch.toFixed(2)} — 관→
   ok(Math.abs(phi - ST_PHI) < 1e-9, `문 φ=${(phi * DEG).toFixed(2)}° = 스텁 축 ${(ST_PHI * DEG).toFixed(2)}°`)
   ok(r > PASS_X_END && r < CL_R - CL_HW,
     `문 r=${r.toFixed(1)} ∈ 스텁(끝벽 ${PASS_X_END.toFixed(1)} ~ 회랑 안벽 ${(CL_R - CL_HW).toFixed(1)})`)
-  ok(Math.abs(d.y - (PASS_FLOOR_Y - 0.05)) < 1e-9, `문 y=${d.y.toFixed(2)} = 스텁 바닥`)
+  ok(Math.abs(d.y - (CL_FLOOR_END - 0.05)) < 1e-9, `문 y=${d.y.toFixed(2)} = 스텁 바닥 ${(CL_FLOOR_END - 0.05).toFixed(2)}(★78-2로 9.6 강하)`)
   ok(dot2(fwd(d.yaw), [-Math.cos(ST_PHI), -Math.sin(ST_PHI)]) > 0.99, '문 시선 = 스텁 축 −방향(문 → 테라스)')
 }
 

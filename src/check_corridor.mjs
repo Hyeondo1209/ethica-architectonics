@@ -47,6 +47,12 @@ import {
   INCA_PANEL_L, INCA_PANEL_W, INCA_PANEL_T, INCA_ARCH_X0, INCA_ARCH_Y1, INCA_FACETS,
   INCA_NEXUS_R, INCA_TIP_Y1, INCA_TIP_Y2, INCA_GAP, INCA_TIP_T, INCA_EMBED,
   CL_SILL, CL_R, PASS_FLOOR_Y, TERRACE_RIN, TERRACE_ROUT, TERRACE_Y,
+  CL_HW, CL_PHI0, CL_PHI1, ST_PHI, ST_HW, TERRACE_ARC, PASS_X_END, LAMP_RIBS,   // ★78 K2
+  CL_SEG_DROP, CL_STEP_N, CL_STEP_RISE, CL_STEP_GO, CL_STEP_RUN, CL_STAIR_MID, CL_STAIR_HPHI,   // ★78-2 K3
+  CL_DROP_TOTAL, CL_FLOOR_END, CL_ROOF_Y, CL_HEAD_Y, CL_WALL_BOT, CL_ROOF, CL_HEAD, CL_LAMP_PHI,
+  clLandingY, clFloorY, clSillY, clFloorSegments, clSillBands, KW_GO, ST_ROOF, PASS_DOOR_H,
+  CL_STEP_SLOPE_DEG, CL_WIN_MODE, clSillSlopeY, clSillActiveY, CL_WIN_SLOPE_LIFT,   // ★78-3
+  CL_WALL_T, CL_R_IN2, CL_R_OUT2, CL_FLOOR_BITE, LAMP_R,   // ★78-4
   JCT_KNOT_TOP, LK_DISC_T, LK_PLAT_R, LK_DISC_DX, LK_DISC_LIFT, LK_TOPSTEP_TOP, U_LOOKOUT_END, RM_X1, RM_Z0, RM_Z1,
   SHAFT_GRATE_ON, SHAFT_GRATE_BAR, SHAFT_GRATE_GAP, SHAFT_GRATE_T,
   JCT_PLATE_MODE, JCT_PLATE_SEG, JCT_UP_Z, JCT_DN_Z,
@@ -1240,6 +1246,187 @@ console.log('— K. 다른 시점 불가시 (LOCKED 예외의 조건 — E-10) �
     }
   }
   ok(leak === null, `테라스(24점 × 문 5 × 표본 4) → 문 전부 불가시(드럼 천장·벽이 차단)` + (leak ? ` — 누출 (${leak[0]},${leak[1]}) → #${leak[2]}` : ''))
+}
+
+console.log('— K2. ★78 회랑 확장 — 끝캡 비공면 · 문 ↔ 테라스 도착 —')
+{
+  //  ★78(2026.07.28)로 CL_PHI1이 23.6°→48.6°가 되면서 **새로 위험해진 것 둘**을 여기서 잰다.
+  //   ① 끝캡이 리브 중심선과 공면이 될 수 있다(각도판 코플레이너 — 50.0°가 정확히 그 값이었다)
+  //   ② 문이 테라스 호 밖으로 걸어 나갈 수 있다(테라스는 온전한 링이 아니라 ±TERRACE_ARC/2 부채꼴)
+  //  둘 다 이전엔 φ1이 작아 문제가 될 수 없어 아무도 재지 않았다. 호를 더 늘릴 때 이 절이 먼저 운다.
+  const D = 180 / Math.PI, STEP = 360 / MERIDIANS
+  const phi1 = CL_PHI1 * D
+
+  // ① 끝캡 ↔ 리브 중심선 비공면. 끝캡 = φ1의 방사 평면. 리브는 5°마다.
+  const nearRib = Math.round(phi1 / STEP) * STEP
+  const dCap = Math.abs(phi1 - nearRib)
+  ok(dCap > 0.5, `끝캡 φ1=${r2(phi1)}° ↔ 최근접 리브 ${nearRib}° 이격 ${r2(dCap)}° > 0.5 — 공면 금지(★75 코플레이너 병의 각도판)`)
+  //  현행 설계 어휘 = '리브 방위에서 1.4° 물러섬'(23.6=25−1.4, 48.6=50−1.4). 어긋나면 경고만.
+  ok(Math.abs(dCap - 1.4) < 0.35 || dCap > 2.021,
+    `끝캡 물러섬 ${r2(dCap)}° — 어휘(리브 −1.4°) 또는 리브 살(2.02°) 밖`)
+
+  // ② 문(스텁 끝벽) 방위 ± 각반폭이 테라스 부채꼴 안에 온전히 드는가
+  const tHalf = TERRACE_ARC / 2 * D                       // ±68.75°
+  const doorHalf = Math.atan(ST_HW / PASS_X_END) * D      // 문벽 반경에서의 각반폭
+  const stub = ST_PHI * D
+  ok(Math.abs(stub) + doorHalf < tHalf - 1.0,
+    `문 ${r2(stub)}°±${r2(doorHalf)} ⊂ 테라스 호 ±${r2(tHalf)}° — 남은 여유 ${r2(tHalf - Math.abs(stub) - doorHalf)}° (호 ${r2((tHalf - Math.abs(stub) - doorHalf) / D * TERRACE_ROUT)})`)
+  //  문턱 = 테라스 림에 물림(도착 문법: 무단차·물림 0.5). 반경 관계가 깨지면 허공에 내린다.
+  ok(PASS_X_END > TERRACE_ROUT && PASS_X_END - TERRACE_ROUT < 1.2,
+    `문벽 반경 ${r2(PASS_X_END)} = 테라스 외림 ${TERRACE_ROUT} + ${r2(PASS_X_END - TERRACE_ROUT)}(림 물림 ∈ (0,1.2))`)
+  ok(TERRACE_ROUT - TERRACE_RIN > 8, `테라스 폭 ${r2(TERRACE_ROUT - TERRACE_RIN)} > 8 — 문 앞 체류 면적`)
+
+  // ③ 등불이 호에서 파생됐는가(손 목록 잔재 = 호를 늘려도 안 따라오는 사고) — 여기서 다시 유도해 대조
+  const derived = []
+  for (let k = 1; k * STEP < phi1; k++) if (k * STEP > CL_PHI0 * D) derived.push(k)
+  ok(derived.length === LAMP_RIBS.length && derived.every((k, i) => k === LAMP_RIBS[i]),
+    `등불 재유도 = [${derived.join(',')}] = LAMP_RIBS(${LAMP_RIBS.length}기) — 호 파생 동기화`)
+  console.log(`     └ ★78 실측: 중심선 호 ${r2(CL_R * (CL_PHI1 - CL_PHI0))} · 보행 ${r2(CL_R * (CL_PHI1 - CL_PHI0) / 6)}s · 등불 ${LAMP_RIBS.length}기(마지막 ${LAMP_RIBS[LAMP_RIBS.length - 1] * STEP}°) · 마지막등불→끝캡 ${r2(phi1 - LAMP_RIBS[LAMP_RIBS.length - 1] * STEP)}°`)
+}
+
+console.log('— K3. ★78-2 회랑 계단 바닥 — 연속성 · 보행 · 파라펫 · 도착 —')
+{
+  const D = 180 / Math.PI, EYE = 1.6, STEP_UP = 0.8
+  const { segs, risers } = clFloorSegments()
+  const bands = clSillBands()
+
+  // ── ① 바닥 조각의 위상: 층계참 9 + 디딤판 8×5 = 49, 빈틈·겹침 0 ──
+  ok(segs.length === CL_STAIR_MID.length * (CL_STEP_N + 1) + 1,
+    `바닥 조각 ${segs.length} = 층계참 ${CL_STAIR_MID.length + 1} + 디딤판 ${CL_STAIR_MID.length * CL_STEP_N}`)
+  let gap = 0
+  for (let i = 1; i < segs.length; i++) gap = Math.max(gap, Math.abs(segs[i].p0 - segs[i - 1].p1))
+  ok(gap < 1e-12, `조각 이음매 최대 어긋남 ${gap.toExponential(1)} — 빈틈·겹침 없음`)
+  ok(Math.abs(segs[0].p0 - CL_PHI0) < 1e-12 && Math.abs(segs[segs.length - 1].p1 - CL_PHI1) < 1e-12,
+    `바닥이 호 전체(${r2(CL_PHI0 * D)}~${r2(CL_PHI1 * D)}°)를 덮는다`)
+
+  // ── ② 해석식 clFloorY ↔ 실제 조각: 독립한 두 표현의 대조(둘 중 하나만 고치는 사고 방지) ──
+  let worst = 0
+  for (const g of segs) {
+    for (const f of [0.25, 0.5, 0.75]) {
+      const phi = g.p0 + (g.p1 - g.p0) * f
+      worst = Math.max(worst, Math.abs(clFloorY(phi) - g.y))
+    }
+  }
+  ok(worst < 1e-9, `clFloorY(해석) ↔ 조각(기하) 최대 편차 ${worst.toExponential(1)} — 두 표현 일치`)
+
+  // ── ③ 보행: 단높이가 되돌아 오를 수 있는가 · 총 하강이 프로필과 맞는가 ──
+  ok(CL_STEP_RISE <= STEP_UP - 0.2, `단높이 ${CL_STEP_RISE} ≤ STEP_UP(${STEP_UP})−0.2 — 되돌아 오를 수 있다`)
+  let maxJump = 0
+  for (let i = 1; i < segs.length; i++) maxJump = Math.max(maxJump, Math.abs(segs[i].y - segs[i - 1].y))
+  ok(maxJump <= STEP_UP - 0.2, `이웃 조각 최대 단차 ${r2(maxJump)} ≤ ${STEP_UP - 0.2}`)
+  ok(Math.abs((PASS_FLOOR_Y - segs[segs.length - 1].y) - CL_DROP_TOTAL) < 1e-9,
+    `총 하강 ${r2(PASS_FLOOR_Y - segs[segs.length - 1].y)} = CL_DROP_TOTAL ${CL_DROP_TOTAL}`)
+  ok(Math.abs(segs[segs.length - 1].y - CL_FLOOR_END) < 1e-9, `마지막 조각 = CL_FLOOR_END ${r2(CL_FLOOR_END)}`)
+  //  ★78-3 계단 어휘: 무릎길과 **의도적으로 갈라졌다**(현도 "계단이 짧게 느껴진다" → 30°로 눕힘).
+  //   그래서 '동일'이 아니라 '프로젝트 계단 대역 안인가'로 재고 두 값을 나란히 보고한다.
+  const slopeDeg = Math.atan(CL_STEP_RISE / CL_STEP_GO) * D
+  ok(Math.abs(slopeDeg - CL_STEP_SLOPE_DEG) < 1e-9 && slopeDeg >= 20 && slopeDeg <= 45,
+    `계단 경사 ${r2(slopeDeg)}° = 노브 ${CL_STEP_SLOPE_DEG}° · 대역 [20,45] 안 (무릎길 ${r2(Math.atan(KW_RISE / KW_GO) * D)}°에서 의도적 이탈)`)
+  //  ★길이 사슬: 단수 N은 약분돼 사라진다 — 계단 길이는 하강과 경사만의 함수다(현도가 착각하기 쉬운 지점)
+  ok(Math.abs(CL_STEP_RUN - CL_SEG_DROP / Math.tan(CL_STEP_SLOPE_DEG * Math.PI / 180)) < 1e-9,
+    `계단 길이 ${r2(CL_STEP_RUN)} = 하강 ${CL_SEG_DROP} / tan(${CL_STEP_SLOPE_DEG}°) — 단수 무관`)
+  //  챌판이 디딤판 단차를 정확히 메우는가
+  let rBad = null
+  for (const r of risers) if (Math.abs(clFloorY(r.phi - 1e-7) - r.top) > 1e-9) rBad = r
+  ok(rBad === null, `챌판 ${risers.length}장 윗면 = 직전 디딤판 높이` + (rBad ? ` — 어긋남 φ${r2(rBad.phi * D)}°` : ''))
+
+  // ── ④ ★파라펫: 국소 바닥 위 높이가 어디서도 눈높이 밑으로 안 간다 = 하향 시선 차단의 구조적 근거 ──
+  let minPar = 1e9, atPhi = 0
+  for (let i = 0; i <= 20000; i++) {
+    const phi = CL_PHI0 + (CL_PHI1 - CL_PHI0) * i / 20000
+    const h = clSillY(phi) - clFloorY(phi)
+    if (h < minPar) { minPar = h; atPhi = phi }
+  }
+  ok(minPar >= EYE - 1e-9, `파라펫 최소 ${r2(minPar)}(φ${r2(atPhi * D)}°) ≥ 눈높이 ${EYE} — 아래 세계 불가시`)
+  ok(minPar >= CL_SILL - 1e-9, `파라펫이 CL_SILL(${CL_SILL}) 밑으로 안 감 — 계단 밑 강하 규칙의 배당`)
+  //  ⚠계단 **중간**에서 창턱을 내리면 여기서 1.0이 나온다(_probe_cloister78이 잡은 결함의 회귀 방지)
+  ok(bands.length >= 1 && bands.every(b => b.p1 > b.p0), `파라펫 띠 ${bands.length}장 · 전부 양의 폭`)
+  //  ★78-3 창턱 두 어법: **꺼진 쪽도 상시 잰다**(M절 전례 — 비활성 스킴 보전).
+  //   'slope'는 그냥 그으면 첫 계단 직전에 파라펫이 0.477로 무너진다. 들림값이 그걸 막고 있는지 매번 확인.
+  for (const [mode, fn] of [['step', clSillY], ['slope', clSillSlopeY]]) {
+    let mn = 1e9, mx = -1e9, at = 0
+    for (let i = 0; i <= 20000; i++) {
+      const phi = CL_PHI0 + (CL_PHI1 - CL_PHI0) * i / 20000
+      const h = fn(phi) - clFloorY(phi)
+      if (h < mn) { mn = h; at = phi }
+      if (h > mx) mx = h
+    }
+    ok(mn >= EYE - 1e-9,
+      `[${mode}${CL_WIN_MODE === mode ? '·활성' : ''}] 파라펫 ${r2(mn)}~${r2(mx)}(최저 φ${r2(at * D)}°) ≥ 눈높이 ${EYE} · 창높이 ${r2(CL_HEAD_Y - fn(CL_PHI0))}→${r2(CL_HEAD_Y - fn(CL_PHI1))}`)
+  }
+  //  들림값은 상수가 아니라 파생이어야 한다 — 바닥(하강·단수·경사)을 만지면 따라와야 하므로
+  //  ⚠**표본으로 재면 안 된다.** 바닥이 계단(구간 상수)이고 선은 단조 감소하므로 최저점은 각 평평 조각의
+  //   **오른쪽 끝에서 좌극한**으로만 잡힌다 — 어떤 유한 표본도 그 값에 못 닿고 항상 조금 위를 잰다.
+  //   (2026.07.28: 상수를 8000점으로 뽑고 검사를 20000점으로 재서 서로 어긋났다. 둘 다 해석적으로 고쳤다.)
+  const slopeMin = Math.min(...segs.map(g => clSillSlopeY(g.p1) - g.y))
+  ok(Math.abs(slopeMin - CL_SILL) < 1e-9,
+    `경사 창턱 들림 ${r2(CL_WIN_SLOPE_LIFT)} → 최저점(조각 우단 좌극한) ${slopeMin.toFixed(6)} = CL_SILL ${CL_SILL} 정확`)
+  ok(['step', 'slope'].includes(CL_WIN_MODE), `CL_WIN_MODE='${CL_WIN_MODE}' — 두 어법 중 하나`)
+
+  // ── ⑤ 천장·창 위턱은 절대 고정(바닥만 내려간다 = 현도 의도) ──
+  ok(Math.abs(CL_ROOF_Y - (PASS_FLOOR_Y + CL_ROOF)) < 1e-9, `지붕 ${r2(CL_ROOF_Y)} 고정 — 시작 지점에서 구값과 항등`)
+  ok(Math.abs(CL_HEAD_Y - (PASS_FLOOR_Y + CL_HEAD)) < 1e-9, `창 위턱 ${r2(CL_HEAD_Y)} 고정`)
+  ok(CL_ROOF_Y - CL_FLOOR_END > CL_ROOF, `끝 층고 ${r2(CL_ROOF_Y - CL_FLOOR_END)} > 시작 ${CL_ROOF} — 걸을수록 자란다`)
+  ok(CL_WALL_BOT < CL_FLOOR_END, `벽 밑단 ${r2(CL_WALL_BOT)} < 최저 바닥 ${r2(CL_FLOOR_END)} — 벽이 바닥 아래까지 내려와 봉인`)
+
+  // ── ⑥ 등불은 층계참 위에 선다(계단 위에 서면 갓 밑이 기울어 보인다) ──
+  let lampBad = null
+  for (let i = 0; i < CL_LAMP_PHI.length; i++) {
+    const seg = segs.find(g => CL_LAMP_PHI[i] >= g.p0 && CL_LAMP_PHI[i] <= g.p1)
+    if (!seg || seg.kind !== 'landing' || Math.abs(seg.y - clLandingY(i)) > 1e-9) lampBad = i
+  }
+  ok(lampBad === null, `등불 ${CL_LAMP_PHI.length}기 전부 제 층계참 위` + (lampBad !== null ? ` — #${lampBad} 이탈` : ''))
+  //  층계참 여유(등불 좌우로 걸을 자리)
+  const landW = (5 * Math.PI / 180 - CL_STEP_RUN / CL_R) * CL_R
+  ok(landW > 8, `층계참 호 ${r2(landW)} > 8 (등불 좌우 ±${r2(landW / 2)}) — 계단 길이 ${r2(CL_STEP_RUN)}`)
+
+  // ── ⑦ 도착: 스텁이 평평한 마지막 층계참에서 출발하고, 테라스가 따라 내려왔는가 ──
+  const stubSeg = segs.find(g => ST_PHI >= g.p0 && ST_PHI <= g.p1)
+  const mouthHalf = ST_HW / (CL_R - CL_HW)
+  const mouthIn = segs.filter(g => g.p1 > ST_PHI - mouthHalf && g.p0 < ST_PHI + mouthHalf)
+  ok(stubSeg && stubSeg.kind === 'landing' && mouthIn.every(g => g.kind === 'landing' && Math.abs(g.y - CL_FLOOR_END) < 1e-9),
+    `스텁 입(${r2((ST_PHI - mouthHalf) * D)}~${r2((ST_PHI + mouthHalf) * D)}°)이 **평평한** 마지막 층계참 위 — 계단에 안 걸림`)
+  ok(Math.abs(TERRACE_Y - CL_FLOOR_END) < 1e-9,
+    `TERRACE_Y ${r2(TERRACE_Y)} = 회랑 끝 바닥 — '문턱 없는 도착' 관계 보존(값만 9.6 이동)`)
+  ok(TERRACE_Y - 110 > 100, `테라스 ${r2(TERRACE_Y)} − 최고 문 상단 110 = ${r2(TERRACE_Y - 110)} > 100 — 하부 세계는 여전히 한참 아래`)
+  ok(CL_FLOOR_END - 0.05 + PASS_DOOR_H < CL_FLOOR_END + ST_ROOF, `문(${PASS_DOOR_H}) < 스텁 내부고(${ST_ROOF})`)
+  console.log(`     └ ★78-2 실측: 바닥 ${r2(PASS_FLOOR_Y)}→${r2(CL_FLOOR_END)}(−${CL_DROP_TOTAL}) · 층고 ${CL_ROOF}→${r2(CL_ROOF_Y - CL_FLOOR_END)} · 창높이 ${r2(CL_HEAD - CL_SILL)}→${r2(CL_HEAD_Y - (CL_FLOOR_END + CL_SILL))} · 계단 ${CL_STAIR_MID.length}×${CL_STEP_N}단`)
+}
+
+console.log('— K4. ★78-4 회랑 벽 두께 — 돌출 소멸 · 폭 사슬 · 인방 —')
+{
+  const D = 180 / Math.PI
+  const rIn = CL_R - CL_HW, rOut = CL_R + CL_HW
+  //  ── ① 결함 수리 확인: 바닥·챌판이 벽 밖으로 안 나온다 ──
+  //   바닥 링과 챌판 박스는 rIn−BITE ~ rOut+BITE를 덮는다(구 '오버행'). 벽 살이 그걸 삼켜야 한다.
+  const fl0 = rIn - CL_FLOOR_BITE, fl1 = rOut + CL_FLOOR_BITE
+  ok(fl0 > CL_R_IN2 && fl1 < CL_R_OUT2,
+    `바닥·챌판 반경 ${r2(fl0)}~${r2(fl1)} ⊂ 벽 발자국 ${r2(CL_R_IN2)}~${r2(CL_R_OUT2)} — **돌출 0**(89장 전부)`)
+  //  ★75 폭 사슬: 물림이 0이면 공면(z파이팅), 두께 이상이면 관통. 사이여야 한다.
+  ok(CL_FLOOR_BITE > 0 && CL_FLOOR_BITE < CL_WALL_T,
+    `폭 사슬 0 < 물림 ${CL_FLOOR_BITE} < 두께 ${CL_WALL_T} — 어느 벽면과도 공면 아님(여유 안 ${r2(CL_WALL_T - CL_FLOOR_BITE)} / 밖 ${CL_FLOOR_BITE})`)
+  ok(Math.abs((rIn - CL_R_IN2) - CL_WALL_T) < 1e-9 && Math.abs((CL_R_OUT2 - rOut) - CL_WALL_T) < 1e-9,
+    `안·바깥 벽 두께 둘 다 ${CL_WALL_T} — 대칭`)
+
+  //  ── ② 통행 단면은 안 건드렸다(두께는 밖으로만 자란다) ──
+  ok(Math.abs((rOut - rIn) - 2 * CL_HW) < 1e-9, `내부 통행폭 ${r2(2 * CL_HW)} 불변 — 두께는 바깥으로만`)
+  ok(LAMP_R > rIn && LAMP_R < rOut, `등불 관 r=${LAMP_R}이 여전히 통행 단면 안`)
+
+  //  ── ③ 벽 발자국이 이웃을 안 먹는가 ──
+  ok(CL_R_IN2 > TERRACE_ROUT + 1, `안벽 안쪽면 ${r2(CL_R_IN2)} > 테라스 외림 ${TERRACE_ROUT}+1`)
+  ok(CL_R_IN2 - PASS_X_END > 3, `스텁 남은 길이 ${r2(CL_R_IN2 - PASS_X_END)} > 3 — 벽이 스텁을 삼키지 않았다`)
+  ok(ST_ROOF + CL_FLOOR_END > CL_FLOOR_END, `스텁이 안벽을 관통해 뚫린다(측벽 r ${r2(PASS_X_END)}~${r2(rIn + 0.4)} ⊃ 벽 ${r2(CL_R_IN2)}~${r2(rIn)})`)
+
+  //  ── ④ 인방(reveal): 깊이 = 두께. 창밖 리브가 인방에 얼마나 붙는지는 **막지 않고 잰다** ──
+  const dist = (pr, py) => { let b = 1e9; for (let i = 0; i <= 6000; i++) { const u = i / 6000 * 0.5; const d = Math.hypot(rOf(u) - pr, H * u - py); if (d < b) b = d } return b }
+  const clrHead = dist(CL_R_OUT2, CL_HEAD_Y) - SHELL_RIB_R
+  ok(CL_WALL_T > 0.9, `인방 깊이 ${CL_WALL_T} > 0.9(바닥 물림 0.6 + 여유) — 창이 '살을 가진 개구'로 읽힌다`)
+  ok(clrHead > 0, `창 위턱(${r2(CL_HEAD_Y)})에서 바깥면 → 리브 살 여유 ${r2(clrHead)} > 0` +
+    (clrHead < 1 ? ' ⚠1 미만 — 창밖 리브가 인방에 붙는다(두께를 줄이거나 감수)' : ''))
+  //  창 개구 자체는 두께와 무관하게 보존되는가(높이·φ 범위)
+  for (const [mode, fn] of [['step', clSillY], ['slope', clSillSlopeY]])
+    ok(CL_HEAD_Y - fn(CL_PHI1) > 3, `[${mode}] 끝 창높이 ${r2(CL_HEAD_Y - fn(CL_PHI1))} > 3 — 인방이 창을 잡아먹지 않았다`)
+  console.log(`     └ ★78-4 실측: 벽 두께 ${CL_WALL_T} · 발자국 ${r2(CL_R_IN2)}~${r2(CL_R_OUT2)}(전폭 ${r2(CL_R_OUT2 - CL_R_IN2)}) · 통행 ${r2(2 * CL_HW)} · 인방 깊이 ${CL_WALL_T} · 위턱↔리브 ${r2(clrHead)}`)
 }
 
 console.log('— M. 비활성 스킴 스모크(㊴-6→㊴-7 flight/polar) — 두 체계 상시 보전 —')

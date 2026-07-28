@@ -8,12 +8,15 @@ import {
   CL_R, CL_HW, CL_ROOF, CL_SILL, CL_HEAD, CL_PHI0, CL_PHI1, ST_PHI, ST_HW, PASS_FLOOR_Y,
   LAMP_RIBS, LAMP_R, LAMP_TUBE_R, LAMP_ENTRY_Y, LAMP_TOP_Y,
   LAMP_MOUTH_Y0, LAMP_MOUTH_Y1, LAMP_FUNNEL_H, LAMP_MOUTH_R, LAMP_POOL_R,
+  CL_ROOF_Y, CL_FLOOR_END, clLandingY,   // ★78-2 계단 바닥
 } from './constants.js'
 
 let n = 0, fail = 0
 const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
 
-const floor = PASS_FLOOR_Y, roofTop = floor + CL_ROOF
+//  ★78-2: 바닥이 계단으로 내려가므로 '바닥' 하나로 못 쓴다. 지붕은 절대 고정(CL_ROOF_Y),
+//   등불별 바닥은 제 층계참(clLandingY). 헤드룸·갓 검사는 **가장 불리한 쪽**(첫 층계참 = 가장 높은 바닥)으로 잰다.
+const floor = PASS_FLOOR_Y, roofTop = CL_ROOF_Y
 const rIn = CL_R - CL_HW, rOut = CL_R + CL_HW
 
 // 리브 중심선까지 최단거리 — 리브 로컬 평면(반경 r, 높이 y). 모든 리브 동형(LOCKED).
@@ -74,7 +77,11 @@ if (roofTop > 259) {  // 관입 체제에서만 의미
       if (hit) { if (y < yLow) yLow = y; break }
     }
   }
-  ok(yLow - floor >= 4.5, `리브 실내 최저 진입 = 바닥 위 ${(yLow - floor).toFixed(1)} ≥ 4.5 (보행 무침범)`)
+  //  ★78-2: 등불 k의 국소 바닥은 제 층계참 — 리브 진입고는 절대치라 뒤로 갈수록 헤드룸이 커진다.
+  //   최악은 첫 층계참(가장 높은 바닥)이므로 그것으로 잰다.
+  ok(yLow - floor >= 4.5, `리브 실내 최저 진입 = 첫 층계참 위 ${(yLow - floor).toFixed(1)} ≥ 4.5 (보행 무침범)`)
+  ok(yLow - clLandingY(LAMP_RIBS.length - 1) >= 4.5,
+    `마지막 층계참 기준 헤드룸 ${(yLow - clLandingY(LAMP_RIBS.length - 1)).toFixed(1)} (바닥이 ${(floor - CL_FLOOR_END).toFixed(1)} 내려가 여유가 커진다)`)
 } else ok(true, '비관입 체제(지붕 ≤ 259) — 실내 진입 없음')
 // [7] 개구 띠(SILL~HEAD) 리브 무접촉 — 1p9 누적 문법 보존
 let openClean = true
