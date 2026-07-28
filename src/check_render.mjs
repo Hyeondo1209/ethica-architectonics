@@ -26,6 +26,7 @@ const TARGETS = [
 ]
 
 const dir = mkdtempSync(join(tmpdir(), 'ethica-render-'))
+const ALLKEYS = {}   // ★79-8 컴포넌트별 mesh key 대장
 
 //  react / @react-three/fiber 얇은 대역품 — 훅은 즉시 실행, JSX는 기술자 객체.
 writeFileSync(join(dir, 'react.mjs'), `
@@ -92,27 +93,63 @@ import * as M from '${out}'
 //   반면 props 없이 부른 탓에 나는 TypeError는 **검사 장치의 한계**이지 코드 버그가 아니다
 //   (PropStele은 text를 받아 split한다). 둘을 섞으면 이 검사는 늑대소년이 된다.
 const bad = [], noted = []
+//  ★79-8 부재 대장 — 기술자 트리를 훑어 mesh **key**를 모은다.
+//   왜: ★79-7에서 편집 슬라이스가 넘쳐 통로 바깥벽이 통째로 지워졌는데 **어떤 검사도 못 잡았다**
+//   (셀프 렌더는 제 사본에 벽이 남아 0% 누출로 보고했다). 부재가 사라진 것은 '있는가'를 물어야 잡힌다.
+const keys = {}
+const walk = (node, into) => {
+  if (node == null || typeof node !== 'object') return
+  if (Array.isArray(node)) { for (const c of node) walk(c, into); return }
+  if (node.__el === 'mesh' && node.key != null) into.push(String(node.key))
+  const p = node.props
+  if (p) { walk(p.children, into); for (const v of Object.values(p)) if (v && typeof v === 'object') walk(v, into) }
+}
 let called = 0
 for (const [k, v] of Object.entries(M)) {
   if (typeof v !== 'function') continue
   if (!/^[A-Z]/.test(k)) continue                    // 컴포넌트 관례 = 대문자 시작
-  try { v({}); called++ }
+  try { const out = v({}); called++; const acc = []; walk(out, acc); if (acc.length) keys[k] = acc }
   catch (e) {
     if (e instanceof ReferenceError) bad.push(k + ': ' + e.message)
     else noted.push(k + ': ' + e.message)            // props 미제공 등 — 보고만
   }
 }
-console.log(JSON.stringify({ called, bad, noted }))
+console.log(JSON.stringify({ called, bad, noted, keys }))
 `)
   let res = null, err = ''
   try { res = JSON.parse(execSync(`node ${runner}`, { stdio: 'pipe' }).toString().trim().split('\n').pop()) }
   catch (e) { err = (e.stderr || '').toString().split('\n')[0] || e.message }
   ok(res !== null, `${t} 모듈 평가(임포트 시점 예외 없음)` + (res ? '' : ` — ${err}`))
   if (!res) continue
+  Object.assign(ALLKEYS, res.keys || {})
   ok(res.bad.length === 0,
     `${t} 컴포넌트 ${res.called}개 호출 — **ReferenceError 0**(흰 화면의 원인)` +
     (res.bad.length ? ` — ${res.bad.join(' / ')}` : '') +
     (res.noted.length ? `  ⓘ props 필요로 건너뜀 ${res.noted.length}개` : ''))
+}
+
+//  ── ★79-8 부재 대장 대조 ──────────────────────────────────────────────────────
+//   "있어야 할 부재가 있는가"를 묻는다. 값이 틀린 것은 다른 스위트가 잡지만, **통째로 사라진 것**은
+//   여기서만 잡힌다. 새 부재를 지으면 이 목록에 키를 추가할 것(추가를 잊으면 보호가 안 된다).
+{
+  const REQUIRED = {
+    LampRoom: [
+      'xf', 'xr',                     // 통로 바닥·지붕
+      'xoa0', 'xoa1', 'xob0', 'xob1', // ★통로 바깥벽 안팎 두 겹 × 개구 앞뒤 — ★79-7에서 지워졌던 것
+      'xoj0', 'xoj1',                 // 개구 문선
+      'xij0', 'xij1', 'xih',          // 방 쪽 문 문선·인방
+      'xc0', 'xc1',                   // 끝캡 둘
+      'sf', 'sr', 'sw-1', 'sw1',      // 직선 바닥·지붕·측벽
+      'se-1', 'se1', 'sl',            // 직선 끝벽·인방
+      'ld', 'xth',                    // 입구 층계참 · ★79-9 문지방
+    ],
+  }
+  for (const [comp, need] of Object.entries(REQUIRED)) {
+    const have = new Set(ALLKEYS[comp] || [])
+    const miss = need.filter((k) => !have.has(k))
+    ok(miss.length === 0,
+      `${comp} 부재 대장 ${need.length}종 전부 존재` + (miss.length ? ` — ✗누락: ${miss.join(', ')}` : ` (총 mesh ${have.size}종)`))
+  }
 }
 
 //  자식 컴포넌트(모듈 밖으로 export되지 않는 것)는 위 루프가 못 부른다.

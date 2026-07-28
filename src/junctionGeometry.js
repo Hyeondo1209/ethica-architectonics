@@ -789,3 +789,18 @@ export function ribArchCutSolid() {
   g.computeVertexNormals()
   return g
 }
+
+// ── ★79-7 방사 사다리꼴 판(2026.07.28) ─────────────────────────────────────────
+//  왜 필요한가: 등불 방 벽이 **원뿔**이라, 그에 붙는 끝캡·문선이 직사각형이 아니라 **사다리꼴**이다.
+//  박스로 만들면 위쪽 안쪽 모서리가 원뿔과 벌어진다(★79-6에서 실제로 1.73 벌어졌고, 문 자리에선 2.15였다).
+//  corners = [[r,y], …] 을 방위 theta의 방사 평면에 놓고 접선 방향으로 thick 만큼 두껍게 뽑는다.
+export function radialPlate(corners, thick, theta) {
+  const sh = new THREE.Shape()
+  sh.moveTo(corners[0][0], corners[0][1])
+  for (let i = 1; i < corners.length; i++) sh.lineTo(corners[i][0], corners[i][1])
+  sh.closePath()
+  const g = new THREE.ExtrudeGeometry(sh, { depth: thick, bevelEnabled: false })
+  g.translate(0, 0, -thick / 2)          // 접선 방향으로 중심 맞춤
+  g.rotateY(-theta)                      // 로컬 x = 방위 theta의 반경 방향
+  return g
+}

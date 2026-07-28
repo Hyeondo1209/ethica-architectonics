@@ -4,7 +4,7 @@ import GraphScaffold from './GraphScaffold'
 import { SCALE, RIB_XFER_ON, RIB_DEST_PHI } from './constants'
 import { FirstPersonControls } from './FirstPersonControls'
 import { WAYPOINTS, WP_GROUPS, SPAWN_ID, DEV_TELEPORT, wpIndexOf } from './waypoints'
-import { Ground, DomeRibs, ExplorationRib, HallDoorRibs, RibStair, KneeWalk, RibJunction, Lookout, RevealPassage, CloisterLamps, Terrace, FriezeCrossing } from './Dome'
+import { Ground, DomeRibs, ExplorationRib, HallDoorRibs, RibStair, KneeWalk, RibJunction, Lookout, RevealPassage, CloisterLamps, Terrace, LampRoom, FriezeCrossing } from './Dome'
 import { ApexLens } from './Lens'
 import { DefAxiomRoom } from './Room'
 import { Corridor } from './Corridor'
@@ -82,6 +82,7 @@ export default function App() {
                 <Lookout />
                 <RevealPassage />
                 <CloisterLamps />
+                <LampRoom />{/* ★79 1p10의 집 */}
                 <Terrace />
               </group>
             </group>

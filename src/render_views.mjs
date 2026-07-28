@@ -1,8 +1,12 @@
 // ★㊿ render_views.mjs — 셀프 렌더 검수 도구(개발 도구 — 배포·번들 무관, 티켓 무소모·웨이포인트 전례)
 //  실제 소스 모듈의 기하를 웨이포인트 카메라에서 z-버퍼(순수 JS·GL 불필요)로 PNG에 굽는다.
 //  ⚠용도 = 매싱·비례·틈 판단. 조명·재질·분위기 판단은 못 한다(그건 로컬·P2 몫).
-//  ⚠충실도: 드럼 홀 권역 근사(벽 창 트임·프리즈 밴드·셀라 배경·리브 5·잉카·하강로) — CSG 세부(문·벽감·기단·갓) 생략.
+//  ⚠충실도: 드럼 홀 권역 근사(벽 창 트임·프리즈 밴드·셀라 배경·리브 5·잉카·하강로) — CSG 세부(문·벽감·기단) 생략.
+//  ★2026.07.28 정본 교체: ⓐ 전망 갈래가 ★75로 폐기된 **구 램프**를 계속 그리던 것을 넓은 계단으로 교체
+//   ⓑ **회랑·등불·문·테라스 신규 커버** — 이 도구는 갈림 이후 여정 후반을 한 조각도 굽지 않고 있었다.
+//  ⚠남은 사각지대는 `--coverage`가 매번 보고한다(현재 4곳 — 방·방사 2·전망 올려보기).
 //  사용: node src/render_views.mjs [wp-id ...]   (기본: view inca-west)  · 해상도 880×495(토큰 절약)
+//        node src/render_views.mjs --coverage    (전 시점 사각지대 검사 — 새 사각지대면 exit 1)
 //  규율: 수치 스위트 green 이후에만 굽는다 · 형태 세션은 전달 전 셀프 검수 · 세션당 최대 2라운드.
 import fs from 'fs'
 import { PNG } from 'pngjs'
@@ -11,9 +15,9 @@ import * as C from './constants.js'
 import { descentSpec, woldaeSpec, incaStairSpec, incaBladesSpec, drumPierAzimuths, descentPortSpec, portPrismTris, outwardTris, ribCutSpec } from './corridorStairsGeometry.js'
 import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg'
 import { WAYPOINTS, EYE } from './waypoints.js'
-import { buildViceWedge, viceSplitIndex, buildSill, buildFloorCollar, buildFloorLanding, freeSplitRange, freeNewelSpec, destCut, openRimSpec, isOpenRib } from './ribGeometry.js'
+import { buildViceWedge, viceSplitIndex, buildSill, buildFloorCollar, buildFloorLanding, freeSplitRange, freeNewelSpec, destCut, openRimSpec, isOpenRib, ribHoleSolid } from './ribGeometry.js'
 import { buildKneeBody, innerTubeSolid, kneeWalkY } from './kneeBodyGeometry.js'
-import { buildJunctionKnot, buildLightShaft, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek } from './junctionGeometry.js'                           // ★70 정션 매듭   // ★65 무릎길 몸
+import { buildJunctionKnot, buildLightShaft, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, radialPlate } from './junctionGeometry.js'
 import { kneeTreads, kneeStairSpec } from './kneeStair.js'                          // ★66 계단 규격·참   // ★60 매듭 · ★61 자립 나선 · ★62 바닥 매듭
 
 const tris = []
@@ -325,7 +329,7 @@ for (const k of [-2, -1, 0, 1, 2]) {
   }
 }
 
-function render(eye, yaw, pitch, W, H, name) {
+function render(eye, yaw, pitch, W, H, name, quiet = false) {
   const f = [-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch)]
   const zA = [-f[0], -f[1], -f[2]]
   let xA = [zA[2], 0, -zA[0]]; const xl = Math.hypot(...xA); xA = xA.map(v => v / (xl || 1))
@@ -374,7 +378,8 @@ function render(eye, yaw, pitch, W, H, name) {
     }
   }
   const png = new PNG({ width: W, height: H }); img.copy(png.data)
-  fs.writeFileSync(name, PNG.sync.write(png)); console.log('wrote', name, `(${tris.length} tris)`)
+  fs.writeFileSync(name, PNG.sync.write(png))
+  if (!quiet) console.log('wrote', name, `(${tris.length} tris)`)
 }
 
 // ── ★65 무릎길(2026.07.25) — 판 435 + 몸 + 관 하반부(계곡) + 양끝 매듭 판 ──
@@ -448,20 +453,23 @@ function render(eye, yaw, pitch, W, H, name) {
     }
   }
 
-  //  ④-4 전망 갈래(Lookout 램프 + 반원 디스크) — Dome.Lookout과 동일 구축(사본이 아니라 같은 식)
+  //  ④-4 전망 갈래 — ★75 넓은 상승 계단(몸 + 디딤판 68) + 반원 디스크
+  //  ⛔**구판 버그(2026.07.28 적발·수리):** 여기는 ★75(07.26)가 폐기한 **구 램프**(폭 2 허공 판 35장)를
+  //   계속 그리고 있었다 = 셀프 렌더가 **존재하지 않는 기하**를 보여줬다. 조명 판정을 이 도구로 하려면
+  //   도구가 먼저 맞아야 한다(운용계획 v5 §8 P1′ ④).
+  //  ★수리 방식 = 치수를 다시 적지 않고 **정본 함수를 직접 부른다**(buildWideStair·wideStairTreads).
+  //   ★65 무릎길 몸·★70 매듭과 같은 어법이라, 이후 계단이 바뀌어도 도구가 자동으로 따라온다.
   {
-    const dX = C.rOf(C.U_LOOKOUT_END) + C.LK_DISC_DX
-    const dY = C.U_LOOKOUT_END * C.H + C.LK_DISC_LIFT + C.LK_DISC_DY
-    const sX = C.X_LAND_LO, sY = C.U_KNEE_END * C.H, sZ = C.JCT_UP_Z
-    const eY = dY - C.TREAD_THICK / 2
-    const nS = Math.max(6, Math.round((eY - sY) / C.STEP_RISE))
-    for (let i = 0; i < nS; i++) {
-      const t = (i + 1) / nS
-      const [px, pz] = rot(sX + (dX - sX) * t, sZ + (C.LK_DISC_DZ - sZ) * t)
-      const g = new THREE.BoxGeometry(C.TREAD_DEPTH, C.TREAD_THICK, C.TREAD_WIDTH * 2)
-      g.rotateY(-phi); g.translate(px, sY + (eY - sY) * t, pz)
+    const gw = buildWideStair()
+    if (gw) { const g = gw.clone(); g.rotateY(-phi); addGeo(g, [163, 133, 88]) }
+    for (const w of wideStairTreads()) {          // Dome.Lookout의 인스턴스 배치와 같은 식(단위 상자 × 비율)
+      const g = new THREE.BoxGeometry(w.d, C.TREAD_THICK, w.w)
+      const [tx, tz] = rot(w.x, w.z ?? 0)
+      g.rotateY(-phi); g.translate(tx, w.y, tz)
       addGeo(g, [214, 171, 104])
     }
+    const dX = C.rOf(C.U_LOOKOUT_END) + C.LK_DISC_DX
+    const dY = C.U_LOOKOUT_END * C.H + C.LK_DISC_LIFT + C.LK_DISC_DY
     const [px, pz] = rot(dX, C.LK_DISC_DZ)
     //  ★71-2b 반원 판 = 닫힌 솔리드(구 cylinderGeometry는 부채꼴 평면을 안 만들어 종잇장)
     const gd = discSolid(C.LK_PLAT_R, C.LK_DISC_T, C.LK_DISC_HALF)
@@ -507,9 +515,306 @@ function render(eye, yaw, pitch, W, H, name) {
     const gr = buildShaftGrate()
     if (gr) { const g = gr.clone(); g.rotateY(-phi); addGeo(g, [214, 171, 104]) }
   }
+
+  //  ⑥ ★78 회랑 권역(1p9 회랑 · 1p10 등불 · 1p11 문 · 1p12~15 테라스) — ★신설 2026.07.28
+  //  ⛔**구판은 이 권역을 한 조각도 굽지 않았다.** 실측으로 확인했다: `door`·`cloister`·`terrace`
+  //   세 시점을 구판으로 구우면 빈 하늘(또는 드럼·리브만)이 나온다. 일지에 적힌 "옛 평바닥·두께 0 벽을
+  //   그린다"는 **틀린 진단**이었다 — 도구는 거짓말한 게 아니라 **눈이 멀어** 있었다.
+  //   여정 후반 절반(갈림 이후 전부)을 셀프 렌더로 볼 수단이 아예 없었다는 뜻이다.
+  //  ★조각의 정본 = constants 생성기(clFloorSegments·clSillBands·clSillActiveY) — 앱·검사와 같은 출처.
+  //   ⚠남은 중복 = 벽 **목록**(어떤 링/실린더가 있는가)뿐이며, Dome.RevealPassage와 두 벌이다.
+  //   구조적 해소안은 §종료 보고 참조(기술자 트리 순회 렌더러).
+  {
+    const t = C.PASS_T
+    const rIn = C.CL_R - C.CL_HW, rOut = C.CL_R + C.CL_HW
+    const FLOOR = [196, 150, 96], SHELL = [150, 128, 92], STONE = [176, 146, 99]
+    //  Dome의 ring()/cyl()과 **같은 args**를 쓴다(ringGeometry: thetaStart −p1 / cylinder: π/2 − p1).
+    const ring = (r0, r1, y, p0, p1, col) => {
+      const g = new THREE.RingGeometry(r0, r1, 96, 1, -p1, p1 - p0)
+      g.rotateX(-Math.PI / 2); g.translate(0, y, 0); g.rotateY(-phi); addGeo(g, col)
+    }
+    const cyl = (r, y0, y1, p0, p1, col) => {
+      if (!(p1 > p0) || !(y1 > y0)) return
+      const g = new THREE.CylinderGeometry(r, r, y1 - y0, 96, 1, true, Math.PI / 2 - p1, p1 - p0)
+      g.translate(0, (y0 + y1) / 2, 0); g.rotateY(-phi); addGeo(g, col)
+    }
+    //  회전 박스: Dome의 <mesh position rotation-y={ry}> = 로컬 회전 → 이동 → 그룹 회전
+    const rbox = (x, y, z, sx, sy, sz, ry, col) => {
+      const g = new THREE.BoxGeometry(sx, sy, sz)
+      g.rotateY(ry); g.translate(x, y, z); g.rotateY(-phi); addGeo(g, col)
+    }
+
+    // ⓐ 바닥 = 층계참 9 + 계단 8×5단(조각 49) + 챌판 40 — ★78-2 정본 생성기
+    const { segs, risers } = C.clFloorSegments()
+    for (const f of segs) ring(rIn - t, rOut + t, f.y - 0.02, f.p0, f.p1, FLOOR)
+    for (const r of risers)
+      rbox(C.CL_R * Math.cos(r.phi), r.top - (C.CL_STEP_RISE + t) / 2, C.CL_R * Math.sin(r.phi),
+           2 * C.CL_HW + 2 * t, C.CL_STEP_RISE + t, t, -r.phi, FLOOR)
+
+    // ⓑ 밑판 · 지붕(절대 높이 — 바닥만 내려가고 천장은 안 움직인다)
+    ring(C.CL_R_IN2, C.CL_R_OUT2, C.CL_WALL_BOT, C.CL_PHI0, C.CL_PHI1, SHELL)
+    ring(C.CL_R_IN2, C.CL_R_OUT2, C.CL_ROOF_Y, C.CL_PHI0, C.CL_PHI1, SHELL)
+
+    // ⓒ 안벽(스텁 입만큼 끊김) · 바깥벽(개구만큼 끊김) — 안팎 두 겹(★78-4 두께)
+    const mPhi = C.ST_HW / rIn
+    for (const r of [rIn, C.CL_R_IN2]) {
+      if (C.ST_ON) {
+        cyl(r, C.CL_WALL_BOT, C.CL_ROOF_Y, C.CL_PHI0, C.ST_PHI - mPhi, SHELL)
+        cyl(r, C.CL_WALL_BOT, C.CL_ROOF_Y, C.ST_PHI + mPhi, C.CL_PHI1, SHELL)
+        cyl(r, C.CL_FLOOR_END + C.ST_ROOF, C.CL_ROOF_Y, C.ST_PHI - mPhi, C.ST_PHI + mPhi, SHELL)
+      } else cyl(r, C.CL_WALL_BOT, C.CL_ROOF_Y, C.CL_PHI0, C.CL_PHI1, SHELL)
+    }
+    for (const r of [rOut, C.CL_R_OUT2]) {
+      cyl(r, C.CL_WALL_BOT, C.CL_ROOF_Y, C.CL_PHI0, C.CL_OP_P0, SHELL)
+      cyl(r, C.CL_WALL_BOT, C.CL_ROOF_Y, C.CL_OP_P1, C.CL_PHI1, SHELL)
+      cyl(r, C.CL_HEAD_Y, C.CL_ROOF_Y, C.CL_OP_P0, C.CL_OP_P1, SHELL)     // 창 위턱 위
+    }
+
+    // ⓓ 파라펫 — 'step'(계단식 띠 9) / 'slope'(한 줄). 창턱 정본 = clSillActiveY
+    if (C.CL_WIN_MODE === 'slope') {
+      const N = 128
+      for (let i = 0; i < N; i++) {
+        const p0 = C.CL_OP_P0 + (C.CL_OP_P1 - C.CL_OP_P0) * (i / N)
+        const p1 = C.CL_OP_P0 + (C.CL_OP_P1 - C.CL_OP_P0) * ((i + 1) / N)
+        const y = Math.min(C.clSillActiveY(p0), C.clSillActiveY(p1))
+        cyl(rOut, C.CL_WALL_BOT, y, p0, p1, SHELL)
+        cyl(C.CL_R_OUT2, C.CL_WALL_BOT, y, p0, p1, SHELL)
+        ring(rOut, C.CL_R_OUT2, y, p0, p1, SHELL)
+      }
+    } else {
+      const bands = C.clSillBands()
+      bands.forEach((b, i) => {
+        cyl(rOut, C.CL_WALL_BOT, b.y, b.p0, b.p1, SHELL)
+        cyl(C.CL_R_OUT2, C.CL_WALL_BOT, b.y, b.p0, b.p1, SHELL)
+        ring(rOut, C.CL_R_OUT2, b.y, b.p0, b.p1, SHELL)                    // 인방 창턱 윗면
+        if (i > 0) rbox((rOut + C.CL_R_OUT2) / 2 * Math.cos(b.p0), b.y + C.CL_SEG_DROP / 2,
+                        (rOut + C.CL_R_OUT2) / 2 * Math.sin(b.p0),
+                        C.CL_WALL_T, C.CL_SEG_DROP, t, -b.p0, SHELL)       // 창턱 한 칸 강하면
+      })
+    }
+
+    // ⓔ 창 인방(위턱 밑면 + 좌우 문선) · 끝캡
+    ring(rOut, C.CL_R_OUT2, C.CL_HEAD_Y, C.CL_OP_P0, C.CL_OP_P1, SHELL)
+    for (const ph of [C.CL_OP_P0, C.CL_OP_P1]) {
+      const sy = C.clSillActiveY(ph)
+      rbox((rOut + C.CL_R_OUT2) / 2 * Math.cos(ph), (sy + C.CL_HEAD_Y) / 2,
+           (rOut + C.CL_R_OUT2) / 2 * Math.sin(ph), C.CL_WALL_T, C.CL_HEAD_Y - sy, t, -ph, SHELL)
+    }
+    //  ★79-2 끝캡 = 문 뚫린 네 조각(Dome과 같은 규칙)
+    {
+      const cap = (rc, rw, y0, y1) => { if (rw > 1e-6 && y1 - y0 > 1e-6)
+        rbox(rc * Math.cos(C.CL_PHI1), (y0 + y1) / 2, rc * Math.sin(C.CL_PHI1), rw, y1 - y0, t, -C.CL_PHI1, SHELL) }
+      const dR0 = C.CL_R - C.CL_HW, dR1 = C.CL_R + C.CL_HW
+      const yA = C.CL_WALL_BOT - t, yB = C.CL_ROOF_Y + t
+      if (C.RM10_ON) {
+        cap((C.CL_R_IN2 + dR0) / 2, dR0 - C.CL_R_IN2, yA, yB)
+        cap((dR1 + C.CL_R_OUT2) / 2, C.CL_R_OUT2 - dR1, yA, yB)
+        cap(C.CL_R, dR1 - dR0, yA, C.CL_FLOOR_END)
+        cap(C.CL_R, dR1 - dR0, C.CL_FLOOR_END + C.RM10_DOOR_H, yB)
+      } else cap(C.CL_R, C.CL_R_OUT2 - C.CL_R_IN2, yA, yB)
+    }
+
+    // ⓕ 스텁 — ⛔★79-2 소등(ST_ON=false). 구 회랑→테라스 출구.
+    if (C.ST_ON) {
+      const sp = C.ST_PHI, cS = Math.cos(-sp), sS = Math.sin(-sp)
+      const L = (x, z) => [x * cS + z * sS, -x * sS + z * cS]     // 로컬 → 월드(−ST_PHI 회전)
+      const sbox = (lx, y, lz, sx, sy, sz, col) => {
+        const [wx, wz] = L(lx, lz); rbox(wx, y, wz, sx, sy, sz, -sp, col)
+      }
+      const stX1 = rIn + 0.4, stL = stX1 - C.PASS_X_END
+      const dHW = C.PASS_DOOR_W / 2, sideW = C.ST_HW - dHW
+      sbox((C.PASS_X_END - 0.6 + stX1) / 2, C.CL_FLOOR_END - 0.05 - t / 2, 0,
+           stL + 1.0, t, 2 * C.ST_HW + 2 * t, FLOOR)                                   // 바닥
+      for (const s of [-1, 1])
+        sbox((C.PASS_X_END + stX1) / 2, C.CL_FLOOR_END + C.ST_ROOF / 2, s * (C.ST_HW + t / 2),
+             stL, C.ST_ROOF + 2 * t, t, SHELL)                                          // 측벽
+      sbox((C.PASS_X_END + stX1) / 2, C.CL_FLOOR_END + C.ST_ROOF + t / 2, 0,
+           stL + t, t, 2 * C.ST_HW + 2 * t, SHELL)                                      // 지붕
+      for (const s of [-1, 1])
+        sbox(C.PASS_X_END, C.CL_FLOOR_END + C.ST_ROOF / 2, s * (dHW + sideW / 2),
+             t, C.ST_ROOF + 2 * t, sideW, SHELL)                                        // 문선
+      sbox(C.PASS_X_END, (2 * C.CL_FLOOR_END + C.PASS_DOOR_H + C.ST_ROOF + t) / 2, 0,
+           t, C.ST_ROOF + t - C.PASS_DOOR_H, C.PASS_DOOR_W, SHELL)                      // 린텔
+    }
+
+    // ⓖ 테라스(1p12~15) — 무단차 도착. 부채꼴 ±68.75°가 회랑 길이의 진짜 상한이다(★78 K2절)
+    ring(C.TERRACE_RIN, C.TERRACE_ROUT, C.TERRACE_Y, -C.TERRACE_ARC / 2, C.TERRACE_ARC / 2, STONE)
+
+    // ⓗ 등불 9기(1p10) — 관 + 갓. 갓 입 높이가 층계참마다 내려온다(★78-2)
+    {
+      const n = C.LAMP_RIBS.length
+      C.LAMP_RIBS.forEach((k, i) => {
+        const a = -(k / C.MERIDIANS) * Math.PI * 2
+        const [lx, lz] = [C.LAMP_R * Math.cos(a), C.LAMP_R * Math.sin(a)]
+        const floor = C.clLandingY(i), fr = n > 1 ? i / (n - 1) : 0
+        const mouthY = floor + C.LAMP_MOUTH_Y0 + (C.LAMP_MOUTH_Y1 - C.LAMP_MOUTH_Y0) * fr
+        const neckY = mouthY + C.LAMP_FUNNEL_H
+        const rod = new THREE.CylinderGeometry(C.LAMP_TUBE_R, C.LAMP_TUBE_R, C.LAMP_TOP_Y - neckY, 12, 1, true)
+        rod.translate(lx, (neckY + C.LAMP_TOP_Y) / 2, lz); rod.rotateY(-phi); addGeo(rod, [232, 196, 140])
+        const fun = new THREE.CylinderGeometry(C.LAMP_TUBE_R, C.LAMP_MOUTH_R, C.LAMP_FUNNEL_H, 16, 1, true)
+        fun.translate(lx, (mouthY + neckY) / 2, lz); fun.rotateY(-phi); addGeo(fun, [246, 214, 160])
+      })
+    }
+
+    // ⓘ ★79 등불 방(1p10) — Dome.LampRoom과 같은 규칙. 계단 정본 = C.rm10Steps()
+    if (C.RM10_ON) {
+      const AX = C.RM10_AX_R * Math.cos(C.RM10_PHI), AZ = C.RM10_AX_R * Math.sin(C.RM10_PHI)
+      const rO = C.RM10_RHO + C.RM10_WALL_T
+      const dth = C.RM10_DOOR_HTH, a0 = C.RM10_ENTRY_TH - dth, a1 = C.RM10_ENTRY_TH + dth
+      const doorTop = C.CL_FLOOR_END + C.RM10_DOOR_H
+      //  로컬(원점 = 방 축 · x = 반경 바깥 · z = 회랑 진행) → 그룹 회전까지 한 번에
+      const place = (g) => { g.rotateY(-C.RM10_PHI); g.translate(AX, 0, AZ); g.rotateY(-phi); return g }
+      const lring = (r0, r1, y, b0, b1, col) => {
+        const g = new THREE.RingGeometry(r0, r1, 96, 1, -b1, b1 - b0)
+        g.rotateX(-Math.PI / 2); g.translate(0, y, 0); addGeo(place(g), col)
+      }
+      const lcyl = (r, y0, y1, b0, b1, col) => {
+        if (!(b1 > b0) || !(y1 > y0)) return
+        const g = new THREE.CylinderGeometry(r, r, y1 - y0, 96, 1, true, Math.PI / 2 - b1, b1 - b0)
+        g.translate(0, (y0 + y1) / 2, 0); addGeo(place(g), col)
+      }
+      const coneT = C.RM10_WALL_T / Math.cos(C.RM10_CONE_DEG * Math.PI / 180)
+      //  ★79-3 바닥 = 동심원 여러 겹(두 어법 스위치) + 겹 사이 챌판
+      for (const g of C.rm10Tiers()) {
+        lring(g.r0, g.r1, g.top - 0.02, 0, 2 * Math.PI, [214, 171, 104])
+        if (g.i < C.RM10_TIER_N - 1) {
+          const y0 = Math.min(g.top, g.top + C.RM10_TIER_SIGN * C.RM10_TIER_RISE)
+          lcyl(g.r0, y0, y0 + C.RM10_TIER_RISE, 0, 2 * Math.PI, FLOOR)
+        }
+      }
+      lring(0, C.RM10_FLOOR_R + coneT, C.RM10_BOT_Y, 0, 2 * Math.PI, SHELL)
+      //  벽: 층계참 위 = 원기둥 / 아래 = 원뿔대
+      for (const [r, off] of [[C.RM10_RHO, 0], [rO, coneT]]) {
+        lcyl(r, C.RM10_CONE_Y, C.RM10_ROOF_Y, a1, a0 + 2 * Math.PI, SHELL)
+        lcyl(r, doorTop, C.RM10_ROOF_Y, a0, a1, SHELL)
+        //  ★79-5 출구 문 각폭만 비우고 문 위·아래는 다시 채운다
+        const cone = (y0c, y1c, c0, c1) => {
+          if (!(c1 > c0) || !(y1c - y0c > 1e-6)) return
+          const g = new THREE.CylinderGeometry(C.rm10R(y1c) + off, C.rm10R(y0c) + off, y1c - y0c, 96, 1, true, Math.PI / 2 - c1, c1 - c0)
+          g.translate(0, (y0c + y1c) / 2, 0); addGeo(place(g), SHELL)
+        }
+        const e0 = C.RM10_EXIT_TH - C.RM10_EXIT_DHTH, e1 = C.RM10_EXIT_TH + C.RM10_EXIT_DHTH
+        cone(C.RM10_BOT_Y, C.RM10_CONE_Y, e1, e0 + 2 * Math.PI)
+        cone(C.RM10_BOT_Y, C.RM10_FLOOR_Y, e0, e1)
+        cone(C.RM10_FLOOR_Y + C.RM10_DOOR_H, C.RM10_CONE_Y, e0, e1)
+      }
+      lring(C.RM10_RHO, rO, doorTop, a0, a1, SHELL)
+      lring(C.RM10_LAND_RIN, rO, C.RM10_LAND_Y, a0, a1, FLOOR)   // ★79-4 초입 판 + 공면 해소
+      for (const s of C.rm10Steps()) {
+        const [b0, b1] = s.thA < s.thB ? [s.thA, s.thB] : [s.thB, s.thA]
+        lring(s.rIn, s.rOut, s.top, b0, b1, [214, 171, 104])
+      }
+      //  천장 = 원판 − 리브(월드 #RM10_K+RIB_DEST_K). ⚠그룹 회전 되돌리기 한 줄이 정합의 전부다.
+      {
+        const disc = discSolid(rO, t, false); disc.translate(AX, C.RM10_ROOF_Y, AZ)
+        const cut = ribHoleSolid(C.RM10_K + C.RIB_DEST_K, C.RM10_ROOF_Y - 1.0, C.RM10_ROOF_Y + t + 1.0, 0.04)
+        cut.rotateY(phi)
+        const ev = new Evaluator(); ev.attributes = ['position', 'normal']
+        const A2 = new Brush(disc), B2 = new Brush(cut)
+        A2.updateMatrixWorld(); B2.updateMatrixWorld()
+        const g = ev.evaluate(A2, B2, SUBTRACTION).geometry.clone()
+        g.rotateY(-phi); addGeo(g, SHELL)
+      }
+      //  ★79-5/6 출구 통로 — 원호 90° + 좌회전 직선. Dome.LampRoom과 같은 규칙.
+      {
+        const t2 = C.PASS_T, y0 = C.RM10_EXIT_FLOOR_Y, y1 = C.RM10_EXIT_ROOF_Y
+        const b0 = C.RM10_EXIT_TH0, b1 = C.RM10_EXIT_TH1
+        const RI = C.RM10_EXIT_RIN, RO = C.RM10_EXIT_ROUT
+        const iH = C.RM10_EXIT_DHTH
+        const i0 = C.RM10_EXIT_TH - iH, i1 = C.RM10_EXIT_TH + iH
+        const o0 = C.RM10_TERR_TH - C.RM10_TERR_DHTH, o1 = C.RM10_TERR_TH + C.RM10_TERR_DHTH
+        const lbox = (cx, cy, cz, sx, sy, sz, col) => {
+          const g = new THREE.BoxGeometry(sx, sy, sz); g.translate(cx, cy, cz); addGeo(place(g), col)
+        }
+        const lrbx = (r, th, y, sr, sy, st) => {
+          const g = new THREE.BoxGeometry(sr, sy, st); g.rotateY(-th)
+          g.translate(r * Math.cos(th), y, r * Math.sin(th)); addGeo(place(g), SHELL)
+        }
+        //  ★79-7 링 안쪽 반지름 = 그 높이의 원뿔면 − t (고정값이 틈의 원인이었다) · 별도 안벽 없음
+        lring(C.rm10R(y0) + C.RM10_CONE_T - t2, RO + t2, y0 - 0.02, b0, b1, FLOOR)
+        lring(C.rm10R(y1) + C.RM10_CONE_T - t2, RO + t2, y1, b0, b1, SHELL)
+        for (const r of [RO, RO + t2]) {
+          lcyl(r, y0 - t2, y1, b0, o0, SHELL)
+          lcyl(r, y0 - t2, y1, o1, b1, SHELL)
+        }
+        for (const th of [o0, o1]) lrbx(RO + t2 / 2, th, (y0 + y1) / 2, t2, y1 - y0, t2)
+        //  ★79-7 문선·끝캡 = 원뿔을 따르는 사다리꼴 판
+        const yH = y0 + C.RM10_DOOR_H
+        for (const th of [i0, i1]) addGeo(place(radialPlate([
+          [C.rm10R(y0) + C.RM10_CONE_T, y0], [C.rm10R(y0), y0],
+          [C.rm10R(yH), yH], [C.rm10R(yH) + C.RM10_CONE_T, yH]], t2, th)), SHELL)
+        lring(C.rm10R(yH), C.rm10R(yH) + C.RM10_CONE_T, yH, i0, i1, SHELL)
+        for (const th of [b0, b1]) addGeo(place(radialPlate([
+          [C.rm10R(y0 - t2) + C.RM10_CONE_T - t2, y0 - t2], [RO + t2, y0 - t2],
+          [RO + t2, y1 + t2], [C.rm10R(y1 + t2) + C.RM10_CONE_T - t2, y1 + t2]], t2, th)), SHELL)
+        //  직선 구간
+        const xs = -(RO - t2), xe = -(RO + C.RM10_STR_L)
+        const hw = C.RM10_EXIT_W / 2, dw = C.RM10_TERR_DOOR_W / 2
+        //  ★79-9 문지방 + 직선 바닥·지붕 0.02 어긋냄(공면 해소)
+        lring(C.rm10Tiers()[0].r1 - t2, C.rm10R(y0) + C.RM10_CONE_T, y0 - 0.04, i0, i1, FLOOR)
+        lbox((xs + xe) / 2, y0 - 0.04 - t2 / 2, 0, xs - xe, t2, C.RM10_EXIT_W + 2 * t2, FLOOR)
+        lbox((xs + xe) / 2, y1 + 0.02 + t2 / 2, 0, xs - xe, t2, C.RM10_EXIT_W + 2 * t2, SHELL)
+        for (const sg of [-1, 1]) lbox((xs + xe) / 2, (y0 + y1) / 2, sg * (hw + t2 / 2), xs - xe, y1 - y0 + 2 * t2, t2, SHELL)
+        for (const sg of [-1, 1]) lbox(xe + t2 / 2, (y0 + y1) / 2, sg * (dw + (hw - dw) / 2), t2, y1 - y0 + 2 * t2, hw - dw, SHELL)
+        lbox(xe + t2 / 2, (y0 + C.PASS_DOOR_H + y1) / 2, 0, t2, y1 - (y0 + C.PASS_DOOR_H), 2 * dw, SHELL)
+      }
+      //  중앙 등불 — 관 + 갓
+      {
+        const my = C.RM10_CENTER_Y + C.LAMP_MOUTH_Y1, ny = my + C.LAMP_FUNNEL_H
+        const rod = new THREE.CylinderGeometry(C.LAMP_TUBE_R, C.LAMP_TUBE_R, C.LAMP_TOP_Y - ny, 12, 1, true)
+        rod.translate(0, (ny + C.LAMP_TOP_Y) / 2, 0); addGeo(place(rod), [232, 196, 140])
+        const fun = new THREE.CylinderGeometry(C.LAMP_TUBE_R, C.LAMP_MOUTH_R, C.LAMP_FUNNEL_H, 16, 1, true)
+        fun.translate(0, (my + ny) / 2, 0); addGeo(place(fun), [246, 214, 160])
+      }
+    }
+  }
 }
 
 const W = 880, H = 495
+
+//  ── ★사각지대 검사 `node src/render_views.mjs --coverage` (★신설 2026.07.28) ──
+//   왜 있는가: 이 도구는 **회랑 이후 여정 전부를 한 조각도 굽지 않고 있었다.** 그런데 아무도 몰랐다 —
+//   구우면 그림이 나오긴 하니까(하늘·리브만 나와도 PNG는 만들어진다). 검사가 없으면 '눈이 먼 권역'은
+//   영영 안 보인다. ⇒ 웨이포인트마다 저해상도로 구워 **배경 픽셀 비율**을 재고, 사실상 빈 화면이면 보고한다.
+//   ⚠이건 형태가 *맞는가*를 재는 검사가 아니다. 도구가 그 자리에서 *뭔가라도 보는가*만 잰다(정직한 한계).
+//  ★기준선(baseline) = **지금 알고 있는** 사각지대. 새 사각지대만 실패로 본다(회귀 가드).
+//   ⚠기준선은 '괜찮다'는 뜻이 아니라 '적발됐고 아직 안 고쳤다'는 뜻이다. 줄여 나갈 목록이다.
+const COV_KNOWN = {
+  room: '정의·공리 방(Room.jsx) — 이 도구는 드럼 홀 권역만 근사한다(파일 머리 명시). 범위 밖.',
+  p2:   '방사 4방(Radial.jsx) — 위와 같음. 범위 밖.',
+  p3:   '방사 4방(Radial.jsx) — 위와 같음. 범위 밖.',
+  lookout: '⚠★미해결: 1p8 전망에서 **보어 올려다보기**가 이 도구엔 안 보인다. 관 셸을 보행선 위로 안 굽기 ' +
+           '때문(무릎길 가림 회피 — 파일 머리 참조). 삼각형 한 벌을 모든 카메라가 공유하는 구조의 한계라, ' +
+           '고치려면 **카메라별 굽기**가 필요하다. 1p8 권역의 핵심 시점이므로 우선순위 있음.',
+}
+function coverage() {
+  const BG = [222, 216, 203], w = 176, h = 99
+  const rows = [], blind = []
+  for (const wp of WAYPOINTS) {
+    const tmp = `_cov_tmp.png`
+    render([wp.x, wp.y + EYE, wp.z], wp.yaw, wp.pitch, w, h, tmp, true)
+    const px = PNG.sync.read(fs.readFileSync(tmp))
+    let bg = 0
+    for (let i = 0; i < px.data.length; i += 4)
+      if (px.data[i] === BG[0] && px.data[i + 1] === BG[1] && px.data[i + 2] === BG[2]) bg++
+    const frac = bg / (w * h)
+    rows.push([wp.id, frac])
+    if (frac > 0.98) blind.push(wp.id)
+    fs.unlinkSync(tmp)
+  }
+  console.log('— 셀프 렌더 사각지대 검사 (배경 픽셀 비율; 0.98 초과 = 아무것도 안 그려짐) —')
+  for (const [id, f] of rows)
+    console.log(`  ${f > 0.98 ? (COV_KNOWN[id] ? '·' : '✗') : '✓'} ${id.padEnd(12)} 배경 ${(f * 100).toFixed(1)}%`)
+  const fresh = blind.filter(id => !COV_KNOWN[id])
+  const fixed = Object.keys(COV_KNOWN).filter(id => !blind.includes(id))
+  console.log('\n[기준선 — 적발됐으나 미해결]')
+  for (const id of Object.keys(COV_KNOWN)) console.log(`  · ${id}: ${COV_KNOWN[id]}`)
+  if (fixed.length) console.log(`\n✓ 기준선에서 해소됨 — COV_KNOWN에서 지울 것: ${fixed.join(', ')}`)
+  if (fresh.length) { console.error(`\n✗ 새 사각지대 ${fresh.length}곳: ${fresh.join(', ')}`); process.exit(1) }
+  console.log(`\n새 사각지대 없음 (${rows.length}시점 · 삼각형 ${tris.length})`)
+}
+if (process.argv.includes('--coverage')) { coverage(); process.exit(0) }
+
 const cams = process.argv.slice(2).length ? process.argv.slice(2) : ['view', 'inca-west']
 for (const id of cams) {
   if (id.startsWith('free:')) {                        // ★54 자유 카메라: free:x,y,z,yaw,pitch(도)

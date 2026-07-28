@@ -23,9 +23,16 @@ import {
   CL_STEP_RISE, clLandingY, clFloorSegments, clSillBands, CL_WIN_MODE, clSillSlopeY,   // ★78-3
   CL_WALL_T, CL_R_IN2, CL_R_OUT2, CL_SEG_DROP, clSillY,   // ★78-4 벽 두께
   RM_X0, RM_X1, RM_Z0, RM_Z1, RM_ROOF, RM_MOUTH_H, PASS_FUSE,
-  ST_PHI, ST_HW, ST_ROOF,
+  ST_ON, ST_PHI, ST_HW, ST_ROOF,
   LAMP_RIBS, LAMP_R, LAMP_TUBE_R, LAMP_ENTRY_Y, LAMP_TOP_Y, LAMP_MOUTH_Y0, LAMP_MOUTH_Y1, LAMP_FUNNEL_H, LAMP_MOUTH_R, LAMP_POOL_R,
   TERRACE_Y, TERRACE_RIN, TERRACE_ROUT, TERRACE_ARC,
+  RM10_ON, RM10_K, RM10_PHI, RM10_AX_R, RM10_RHO, RM10_WALL_T, RM10_FLOOR_Y, RM10_ROOF_Y,   // ★79 등불 방
+  RM10_DOOR_H, RM10_ENTRY_TH, RM10_DOOR_HTH, RM10_FLOOR_OPEN_R, rm10Steps,
+  RM10_CONE_DEG, RM10_CONE_Y, rm10R, RM10_FLOOR_R, RM10_BOT_Y, RM10_CENTER_Y,   // ★79-3 원뿔대
+  RM10_TIER_N, RM10_TIER_RISE, RM10_TIER_SIGN, rm10Tiers, RM10_LAND_RIN, RM10_LAND_Y,
+  RM10_EXIT_TH, RM10_EXIT_DHTH, RM10_EXIT_TH0, RM10_EXIT_TH1, RM10_EXIT_RIN, RM10_EXIT_ROUT,   // ★79-5 출구 통로
+  RM10_EXIT_FLOOR_Y, RM10_EXIT_ROOF_Y, RM10_TERR_TH, RM10_TERR_DHTH,
+  RM10_EXIT_W, RM10_EXIT_DOOR_W, RM10_STR_L, RM10_STR_END, RM10_TERR_DOOR_W, RM10_CONE_T,   // ★79-6/7
   RIB_TINT_COL, RIB_TINT_AMT, RIB_TINT_EMIS, RIB_TINT_Y0, RIB_TINT_Y1,
   RIB_CUT_ON, RIB_CUT_MODE, RIB_CUT_BOX_HW, RIB_CUT_CAP_T,   // ★56 리브 절단(1p7)
   RIB_WALL_ON, RIB_WALL_T, RIB_WALL_SCOPE,                   // ★57 리브 벽 두께
@@ -35,9 +42,9 @@ import {
   STELE7_ON, STELE7_F, STELE7_OFF,
 } from './constants'
 import { hallDoors, ribCutSpec } from './corridorStairsGeometry'
-import { buildRibShell, makeRibCurve, buildViceWedge, viceSplitIndex, newelSpec, buildSill, buildFloorCollar, buildFloorLanding, freeNewelSpec, freeSplitRange, buildOpenRim, isOpenRib } from './ribGeometry'
+import { buildRibShell, makeRibCurve, buildViceWedge, viceSplitIndex, newelSpec, buildSill, buildFloorCollar, buildFloorLanding, freeNewelSpec, freeSplitRange, buildOpenRim, isOpenRib , ribHoleSolid } from './ribGeometry'
 import { buildKneeBody, buildKneePlinth } from './kneeBodyGeometry'
-import { buildJunctionKnot, buildLightShaft, shaftCutSolid, lightShaftSpec, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, apronSteps, buildRoomMouthWall, ribArchCutSolid } from './junctionGeometry'   // ★70 매듭 · ★71 빛 기둥 · ★75 넓은 계단
+import { buildJunctionKnot, buildLightShaft, shaftCutSolid, lightShaftSpec, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, apronSteps, buildRoomMouthWall, ribArchCutSolid, radialPlate } from './junctionGeometry'   // ★70 매듭 · ★71 빛 기둥 · ★75 넓은 계단
 import { kneeTreads, kneeStairSpec } from './kneeStair'   // ★66 계단 규격·참
 import { PropStele } from './Steles'
 
@@ -837,9 +844,12 @@ export function RevealPassage() {
       {ring('sf', CL_R_IN2, CL_R_OUT2, CL_WALL_BOT, CL_PHI0, CL_PHI1, false)}
       {/* ★78-2 지붕·창 위턱은 절대 높이(CL_ROOF_Y·CL_HEAD_Y) — 바닥만 내려가고 천장은 안 움직인다 */}
       {ring('rf', CL_R_IN2, CL_R_OUT2, CL_ROOF_Y, CL_PHI0, CL_PHI1, false)}
-      {cyl('i0', rIn, CL_WALL_BOT, CL_ROOF_Y, CL_PHI0, ST_PHI - mPhi)}
-      {cyl('i1', rIn, CL_WALL_BOT, CL_ROOF_Y, ST_PHI + mPhi, CL_PHI1)}
-      {cyl('ih', rIn, CL_FLOOR_END + ST_ROOF, CL_ROOF_Y, ST_PHI - mPhi, ST_PHI + mPhi)}
+      {/* ⛔★79-2 ST_ON=false면 스텁 입이 없다 → 안벽은 끊김 없는 한 장(구 i0/i1/ih 대체) */}
+      {ST_ON ? <>
+        {cyl('i0', rIn, CL_WALL_BOT, CL_ROOF_Y, CL_PHI0, ST_PHI - mPhi)}
+        {cyl('i1', rIn, CL_WALL_BOT, CL_ROOF_Y, ST_PHI + mPhi, CL_PHI1)}
+        {cyl('ih', rIn, CL_FLOOR_END + ST_ROOF, CL_ROOF_Y, ST_PHI - mPhi, ST_PHI + mPhi)}
+      </> : cyl('i0', rIn, CL_WALL_BOT, CL_ROOF_Y, CL_PHI0, CL_PHI1)}
       {cyl('o0', rOut, CL_WALL_BOT, CL_ROOF_Y, CL_PHI0, CL_OP_P0)}
       {cyl('o1', rOut, CL_WALL_BOT, CL_ROOF_Y, CL_OP_P1, CL_PHI1)}
       {/* ★78-2 파라펫 = **계단식 띠**. 창턱이 국소 바닥 +CL_SILL을 따라가되 계단 밑에서 강하한다 */}
@@ -863,9 +873,11 @@ export function RevealPassage() {
           </>}
       {cyl('oh', rOut, CL_HEAD_Y, CL_ROOF_Y, CL_OP_P0, CL_OP_P1)}
       {/* ★78-4 벽 두께: 바깥면(rOut2)·안벽 안쪽면(rIn2) 한 겹씩 더. 지붕·밑판이 위아래를 덮는다. */}
-      {cyl('I0', CL_R_IN2, CL_WALL_BOT, CL_ROOF_Y, CL_PHI0, ST_PHI - mPhi)}
-      {cyl('I1', CL_R_IN2, CL_WALL_BOT, CL_ROOF_Y, ST_PHI + mPhi, CL_PHI1)}
-      {cyl('Ih', CL_R_IN2, CL_FLOOR_END + ST_ROOF, CL_ROOF_Y, ST_PHI - mPhi, ST_PHI + mPhi)}
+      {ST_ON ? <>
+        {cyl('I0', CL_R_IN2, CL_WALL_BOT, CL_ROOF_Y, CL_PHI0, ST_PHI - mPhi)}
+        {cyl('I1', CL_R_IN2, CL_WALL_BOT, CL_ROOF_Y, ST_PHI + mPhi, CL_PHI1)}
+        {cyl('Ih', CL_R_IN2, CL_FLOOR_END + ST_ROOF, CL_ROOF_Y, ST_PHI - mPhi, ST_PHI + mPhi)}
+      </> : cyl('I0', CL_R_IN2, CL_WALL_BOT, CL_ROOF_Y, CL_PHI0, CL_PHI1)}
       {cyl('O0', CL_R_OUT2, CL_WALL_BOT, CL_ROOF_Y, CL_PHI0, CL_OP_P0)}
       {cyl('O1', CL_R_OUT2, CL_WALL_BOT, CL_ROOF_Y, CL_OP_P1, CL_PHI1)}
       {cyl('Oh', CL_R_OUT2, CL_HEAD_Y, CL_ROOF_Y, CL_OP_P0, CL_OP_P1)}
@@ -880,13 +892,30 @@ export function RevealPassage() {
           </mesh>
         )
       })}
-      {/* 끝캡(φ1 방사 평면) — 로컬 x = 반경 방향(rotation-y = −φ). 최저 바닥~지붕 전 높이 */}
-      <mesh position={[CL_R * Math.cos(CL_PHI1), (CL_WALL_BOT + CL_ROOF_Y) / 2, CL_R * Math.sin(CL_PHI1)]} rotation-y={-CL_PHI1}>
-        <boxGeometry args={[CL_R_OUT2 - CL_R_IN2, CL_ROOF_Y - CL_WALL_BOT + 2 * t, t]} />
-        <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
-      </mesh>
-      {/* D. 스텁(1p10 자리표시자, φ=ST_PHI 방사 방향): 바닥(top −0.05)·측벽·지붕·문벽(문 = 1p11 물리 지점) */}
-      <group rotation-y={-ST_PHI}>
+      {/* ★79-2 끝캡 = **문 뚫린 네 조각**(현도 적발: "방으로 들어가는 문이 안 뚫려 있음").
+          구판은 통짜 방사 평면이라 방 벽을 비워도 여기가 막고 있었다 — 방 벽만 보고 뚫었다고 착각한 것.
+          문 = 통행폭 5.2 × RM10_DOOR_H, 문턱 = 회랑 최저 바닥. 방 쪽 개구(각반폭 asin(CL_HW/ρ))와
+          현(chord)이 정확히 같아 문틀이 어긋나지 않는다 — 2ρ·sin(asin(CL_HW/ρ)) = 2·CL_HW 항등. */}
+      {(() => {
+        const dR0 = CL_R - CL_HW, dR1 = CL_R + CL_HW
+        const dY0 = CL_FLOOR_END, dY1 = CL_FLOOR_END + RM10_DOOR_H
+        const cap = (key, rc, rw, y0, y1) => (rw > 1e-6 && y1 - y0 > 1e-6) && (
+          <mesh key={key} position={[rc * Math.cos(CL_PHI1), (y0 + y1) / 2, rc * Math.sin(CL_PHI1)]} rotation-y={-CL_PHI1}>
+            <boxGeometry args={[rw, y1 - y0, t]} />
+            <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+          </mesh>
+        )
+        const yA = CL_WALL_BOT - t, yB = CL_ROOF_Y + t
+        return RM10_ON ? [
+          cap('cpI', (CL_R_IN2 + dR0) / 2, dR0 - CL_R_IN2, yA, yB),      // 안쪽 문선
+          cap('cpO', (dR1 + CL_R_OUT2) / 2, CL_R_OUT2 - dR1, yA, yB),    // 바깥 문선
+          cap('cpU', CL_R, dR1 - dR0, yA, dY0),                          // 문턱 밑
+          cap('cpA', CL_R, dR1 - dR0, dY1, yB),                          // 인방 위
+        ] : cap('cp', CL_R, CL_R_OUT2 - CL_R_IN2, yA, yB)
+      })()}
+      {/* D. 스텁 — ⛔★79-2 소등(ST_ON=false). 1p10은 등불 방이 가져갔고, 테라스 출구는 방에서 새로 낸다.
+          지우지 않고 스위치 뒤에 둔다(치수·검증절 보존). */}
+      {ST_ON && <group rotation-y={-ST_PHI}>
         <mesh position={[(PASS_X_END - 0.6 + stX1) / 2, CL_FLOOR_END - 0.05 - t / 2, 0]} userData={{ walkable: true }}>
           <boxGeometry args={[stL + 1.0, t, 2 * ST_HW + 2 * t]} />
           <meshStandardMaterial {...FLOOR_MAT} side={THREE.DoubleSide} />
@@ -911,7 +940,7 @@ export function RevealPassage() {
           <boxGeometry args={[t, ST_ROOF + t - PASS_DOOR_H, PASS_DOOR_W]} />
           <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
         </mesh>
-      </group>
+      </group>}
       {/* A(하강 채널) + B(방) 박스 대장 — 위 수식으로 채워진 B[] 일괄 렌더 */}
       {B.map((b, i) => (
         b.bore && SHAFT_ON ? (
@@ -1088,5 +1117,235 @@ export function Terrace() {
       <ringGeometry args={[TERRACE_RIN, TERRACE_ROUT, 64, 1, -TERRACE_ARC / 2, TERRACE_ARC]} />
       <meshStandardMaterial color="#caa161" roughness={0.85} side={THREE.DoubleSide} />
     </mesh>
+  )
+}
+
+// ── ★79 등불 방(1p10의 집, 2026.07.28 현도 스케치) ────────────────────────────────
+//  회랑 끝에 붙는 원통 방. 중앙에 열 번째 등불, 그 관이 리브 #10(월드 #12) 밑면에 꽂힌다.
+//  ★유도의 근거·불변식은 전부 constants.js RM10_* 블록 머리에 적혀 있다(왜 계단이 벽을 돌고,
+//   왜 바닥을 내리고, 왜 천장이 리브인지). 여기는 그 규칙을 그리기만 한다.
+//  ⚠좌표: 이 컴포넌트는 App의 −RIB_DEST_PHI 그룹 **안**에 있다. 그래서 방 로컬 50°가 월드 60°이고,
+//   천장을 뚫는 리브는 월드 #(RM10_K + RIB_DEST_K) = #12다. ribHoleSolid는 월드 방위로 만들므로
+//   그룹 회전을 되돌리는 rotateY(+XPHI)를 한 번 건다. 이 한 줄을 빠뜨리면 구멍이 10° 어긋난다.
+export function LampRoom() {
+  const XPHI = RIB_XFER_ON ? RIB_DEST_PHI : 0
+  const AX = RM10_AX_R * Math.cos(RM10_PHI), AZ = RM10_AX_R * Math.sin(RM10_PHI)
+  const t = PASS_T, rO = RM10_RHO + RM10_WALL_T
+  //  ★79-3 원뿔 구간의 바깥 살 = 반경으로 t/cosα 만큼 밀어야 **수직 두께**가 t가 된다(비스듬한 면의 두께 함정)
+  const coneT = RM10_WALL_T / Math.cos(RM10_CONE_DEG * Math.PI / 180)
+  const dth = RM10_DOOR_HTH, th0 = RM10_ENTRY_TH - dth, th1 = RM10_ENTRY_TH + dth
+  const doorTop = CL_FLOOR_END + RM10_DOOR_H
+  const steps = rm10Steps()
+
+  //  ★천장 = 원판 − 리브. 구멍의 마개는 리브 자신(★71과 같은 봉인) → 하늘 누출 0.
+  //   자르개 범위는 천장 두께 ±여유만(★64-5 교훈: 넘치면 관벽이 유령으로 남는다).
+  const roofGeo = useMemo(() => {
+    const disc = discSolid(rO, t, false)
+    disc.translate(AX, RM10_ROOF_Y, AZ)
+    const cut = ribHoleSolid(RM10_K + RIB_DEST_K, RM10_ROOF_Y - 1.0, RM10_ROOF_Y + t + 1.0, 0.04)
+    cut.rotateY(XPHI)                                   // ⚠그룹 회전 되돌리기
+    const ev = new Evaluator(); ev.attributes = ['position', 'normal']
+    const a = new Brush(disc), b = new Brush(cut)
+    a.updateMatrixWorld(); b.updateMatrixWorld()
+    const out = ev.evaluate(a, b, SUBTRACTION)
+    disc.dispose(); cut.dispose()
+    return out.geometry
+  }, [AX, AZ, rO, t, XPHI])
+
+  //  로컬 극좌표 헬퍼 — 원점 = 방 축, θ는 +x(반경 바깥)에서 +z(회랑 진행) 쪽으로.
+  //  ringGeometry(rot-x −π/2): θ_ring = −th → thetaStart −thB.  cylinderGeometry: θ_cyl = π/2 − th.
+  const ring = (key, r0, r1, y, a0, a1, walk) => (
+    <mesh key={key} position={[0, y, 0]} rotation-x={-Math.PI / 2} userData={walk ? { walkable: true } : undefined}>
+      <ringGeometry args={[r0, r1, 64, 1, -a1, a1 - a0]} />
+      <meshStandardMaterial {...(walk ? FLOOR_MAT : SHELL_MAT)} side={THREE.DoubleSide} />
+    </mesh>
+  )
+  const cyl = (key, r, y0, y1, a0, a1) => (
+    <mesh key={key} position={[0, (y0 + y1) / 2, 0]}>
+      <cylinderGeometry args={[r, r, y1 - y0, 64, 1, true, Math.PI / 2 - a1, a1 - a0]} />
+      <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+    </mesh>
+  )
+
+  return (
+    <>
+      {/* 방 본체 — 로컬 프레임(원점 = 축, x = 반경 바깥, z = 회랑 진행) */}
+      <group position={[AX, 0, AZ]} rotation-y={-RM10_PHI}>
+        {/* ★79-3 바닥 = 동심원 여러 겹(두 어법 스위치). 정본 = rm10Tiers() */}
+        {rm10Tiers().map((g) => (
+          <group key={'tr' + g.i}>
+            {ring('trt' + g.i, g.r0, g.r1, g.top - 0.02, 0, 2 * Math.PI, true)}
+            {/* 겹 사이 수직면(챌판) — 안쪽 경계 r0에서 이웃 겹까지 */}
+            {g.i < RM10_TIER_N - 1 && (
+              <mesh position={[0, g.top + RM10_TIER_SIGN * RM10_TIER_RISE / 2, 0]}>
+                <cylinderGeometry args={[g.r0, g.r0, RM10_TIER_RISE, 64, 1, true]} />
+                <meshStandardMaterial {...FLOOR_MAT} side={THREE.DoubleSide} />
+              </mesh>
+            )}
+          </group>
+        ))}
+        {/* 밑판 — 방은 허공에 매달린 볼륨이다(테라스보다 12 아래, r170은 테라스 밖) */}
+        {ring('sf', 0, RM10_FLOOR_R + coneT, RM10_BOT_Y, 0, 2 * Math.PI, false)}
+        {/* 벽 안팎 두 겹 — ★79-3 층계참 위는 원기둥, 아래는 원뿔대(cylinderGeometry의 위/아래 반지름 차이) */}
+        {[[RM10_RHO, 0], [rO, coneT]].map(([r, off], j) => (
+          <group key={'w' + j}>
+            {/* 원기둥 구간(층계참 → 천장) — 입구 각폭만 비우고 인방 위는 다시 채운다 */}
+            {cyl('wa' + j, r, RM10_CONE_Y, RM10_ROOF_Y, th1, th0 + 2 * Math.PI)}
+            {cyl('wc' + j, r, doorTop, RM10_ROOF_Y, th0, th1)}
+            {/* 원뿔 구간(밑면 → 층계참) — ★79-5 출구 문 각폭만 비우고 문 위·아래는 다시 채운다.
+                cylinderGeometry는 위/아래 반지름이 달라도 되므로 원뿔 섹터가 그대로 나온다. */}
+            {(() => {
+              const cone = (key, y0, y1, b0, b1) => (b1 > b0 && y1 - y0 > 1e-6) && (
+                <mesh key={key} position={[0, (y0 + y1) / 2, 0]}>
+                  <cylinderGeometry args={[rm10R(y1) + off, rm10R(y0) + off, y1 - y0, 64, 1, true, Math.PI / 2 - b1, b1 - b0]} />
+                  <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+                </mesh>
+              )
+              const e0 = RM10_EXIT_TH - RM10_EXIT_DHTH, e1 = RM10_EXIT_TH + RM10_EXIT_DHTH
+              const dY0 = RM10_FLOOR_Y, dY1 = RM10_FLOOR_Y + RM10_DOOR_H
+              return [
+                cone('wk' + j, RM10_BOT_Y, RM10_CONE_Y, e1, e0 + 2 * Math.PI),   // 문 밖 전 둘레
+                cone('wkU' + j, RM10_BOT_Y, dY0, e0, e1),                         // 문턱 밑
+                cone('wkA' + j, dY1, RM10_CONE_Y, e0, e1),                        // 인방 위
+              ]
+            })()}
+          </group>
+        ))}
+        {/* 입구 인방 밑면 + 좌우 문선(★78-4 회랑 인방과 같은 어법 — 살을 가진 개구) */}
+        {ring('lin', RM10_RHO, rO, doorTop, th0, th1, false)}
+        {[th0, th1].map((a, i) => (
+          <mesh key={'jm' + i} position={[(RM10_RHO + rO) / 2 * Math.cos(a), (CL_FLOOR_END + doorTop) / 2, (RM10_RHO + rO) / 2 * Math.sin(a)]} rotation-y={-a}>
+            <boxGeometry args={[RM10_WALL_T, RM10_DOOR_H, t]} />
+            <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+          </mesh>
+        ))}
+        {/* ★79-4 입구 층계참 = **회랑 바닥과 첫 계단을 잇는 판**(현도 적발: 초입에 발 디딜 곳이 없었다).
+            안쪽 반지름은 원기둥 기준 RM10_LAND_RIN(5.4) — 첫 단 띠 5.51~8.51을 온전히 받는다.
+            높이는 회랑 바닥보다 0.02 아래(RM10_LAND_Y) — 겹치는 띠 2.78에서 회랑이 위를 덮어 z-파이팅이 없다. */}
+        {ring('ld', RM10_LAND_RIN, rO, RM10_LAND_Y, th0, th1, true)}
+        {/* 하강 계단 50단 — 정본 = rm10Steps(). 디딤판 = 링 섹터 / 챌판 = 방사 회전 박스 */}
+        {steps.map((s) => {
+          const [a0, a1] = s.thA < s.thB ? [s.thA, s.thB] : [s.thB, s.thA]
+          return (
+            <group key={'st' + s.i}>
+              {ring('t' + s.i, s.rIn, s.rOut, s.top, a0, a1, true)}
+              <mesh position={[(s.rIn + s.rOut) / 2 * Math.cos(s.thA), s.top - (CL_STEP_RISE + t) / 2, (s.rIn + s.rOut) / 2 * Math.sin(s.thA)]} rotation-y={-s.thA}>
+                <boxGeometry args={[s.rOut - s.rIn, CL_STEP_RISE + t, t]} />
+                <meshStandardMaterial {...FLOOR_MAT} side={THREE.DoubleSide} />
+              </mesh>
+            </group>
+          )
+        })}
+        {/* ★79-5/6 출구 통로(1p11의 집) — 방 벽 바깥을 90° 돌고, 좌회전해 직선 몇 걸음 뒤 테라스로.
+            ⚠**밀폐**가 요구다(현도 "외부가 보이면 안 됨"): 개구는 둘 — 방 쪽 문, 테라스 쪽 문.
+            ★★79-6 마감 수리(현도 "틈이 너무 많다"): 구판은 **방의 원뿔을 통로 안쪽 벽으로 삼았다.**
+             원뿔은 위로 갈수록 물러나므로(바닥 15.65 → 지붕 13.32) 고정 반지름 지붕·끝캡이 **1.73 벌어졌다.**
+             → 통로에 **자기 수직 안벽**을 준다. 그 뒤(원뿔과 안벽 사이)는 닫힌 쐐기 공동이 되어 안 보인다.
+             바깥벽에도 두께를 줘 문이 '종이 구멍'이 아니라 살을 가진 개구가 되게 한다(★78-4 어법). */}
+        {(() => {
+          const t2 = PASS_T, y0 = RM10_EXIT_FLOOR_Y, y1 = RM10_EXIT_ROOF_Y
+          const b0 = RM10_EXIT_TH0, b1 = RM10_EXIT_TH1
+          const RI = RM10_EXIT_RIN, RO = RM10_EXIT_ROUT
+          const iH = RM10_EXIT_DHTH                                 // ★79-7 방 쪽 문 = 원뿔 벽의 그 문 하나(각반폭 공유)
+          const i0 = RM10_EXIT_TH - iH, i1 = RM10_EXIT_TH + iH
+          const o0 = RM10_TERR_TH - RM10_TERR_DHTH, o1 = RM10_TERR_TH + RM10_TERR_DHTH
+          const box = (key, cx, cy, cz, sx, sy, sz) => (
+            <mesh key={key} position={[cx, cy, cz]}>
+              <boxGeometry args={[sx, sy, sz]} />
+              <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+            </mesh>
+          )
+          const rbx = (key, r, th, y, sr, sy, st) => (
+            <mesh key={key} position={[r * Math.cos(th), y, r * Math.sin(th)]} rotation-y={-th}>
+              <boxGeometry args={[sr, sy, st]} />
+              <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+            </mesh>
+          )
+          const xs = -(RO - t2), xe = -(RO + RM10_STR_L)           // 직선 구간(로컬 −x 방향 = 돔 중심 쪽)
+          const hw = RM10_EXIT_W / 2, dw = RM10_TERR_DOOR_W / 2
+          return (
+            <group>
+              {/* ── 원호 구간 ── */}
+              {/* ★79-7 링의 안쪽 반지름은 **그 높이의 원뿔면**에서 t만큼 물려 잡는다(고정값이 틈의 원인이었다) */}
+              {ring('xf', rm10R(y0) + RM10_CONE_T - t2, RO + t2, y0 - 0.02, b0, b1, true)}
+              {ring('xr', rm10R(y1) + RM10_CONE_T - t2, RO + t2, y1, b0, b1, false)}
+              {/* ★★79-7 안벽을 **없앴다**(현도 "문 틈으로 다 보인다"). 구판은 문이 두 겹이었다 —
+                  방 원뿔에 하나, 통로 수직 안벽에 하나. 각반폭도 6.15° vs 5.50°로 달랐고, 그 사이
+                  쐐기 공동이 인방 높이에서 **2.15 열려** 있었다. 문 위로 그게 통째로 보였다.
+                  → 통로의 안쪽 경계 = **방 원뿔 그 자체**. 벽 하나, 문 하나, 두께(1.66)가 곧 인방 깊이다. */}
+              {/* 문선 둘 + 인방 밑면 — 원뿔이므로 **사다리꼴 판**이다(박스로 하면 위가 벌어진다) */}
+              {[i0, i1].map((th, k) => (
+                <mesh key={'xij' + k} geometry={radialPlate([
+                  [rm10R(y0) + RM10_CONE_T, y0], [rm10R(y0), y0],
+                  [rm10R(y0 + RM10_DOOR_H), y0 + RM10_DOOR_H], [rm10R(y0 + RM10_DOOR_H) + RM10_CONE_T, y0 + RM10_DOOR_H],
+                ], t2, th)}>
+                  <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+                </mesh>
+              ))}
+              {ring('xih', rm10R(y0 + RM10_DOOR_H), rm10R(y0 + RM10_DOOR_H) + RM10_CONE_T, y0 + RM10_DOOR_H, i0, i1, false)}
+              {/* ★★79-8 바깥벽 — ⚠★79-7 편집에서 **이 블록이 통째로 지워졌다**(현도 적발: "통로 왼쪽 벽이 사라졌다").
+                  안벽을 걷어내는 수술의 슬라이스 범위가 이웃 블록까지 먹었고, 검사는 하나도 안 잡았다 —
+                  셀프 렌더는 **제 사본**에 벽이 남아 있어서 0% 누출로 보고했다. 두 벌로 적힌 기하의 대가. */}
+              {[RO, RO + t2].map((r, k) => (
+                <group key={'xo' + k}>
+                  {cyl('xoa' + k, r, y0 - t2, y1, b0, o0)}
+                  {cyl('xob' + k, r, y0 - t2, y1, o1, b1)}
+                </group>
+              ))}
+              {/* 직선 구간이 지나는 개구의 문선 둘 */}
+              {[o0, o1].map((th, k) => rbx('xoj' + k, RO + t2 / 2, th, (y0 + y1) / 2, t2, y1 - y0, t2))}
+              {/* 끝캡 둘 — 여기가 뚫리면 밖이 보인다. 안쪽 변이 원뿔을 따르는 **사다리꼴** */}
+              {[b0, b1].map((th, k) => (
+                <mesh key={'xc' + k} geometry={radialPlate([
+                  [rm10R(y0 - t2) + RM10_CONE_T - t2, y0 - t2], [RO + t2, y0 - t2],
+                  [RO + t2, y1 + t2], [rm10R(y1 + t2) + RM10_CONE_T - t2, y1 + t2],
+                ], t2, th)}>
+                  <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+                </mesh>
+              ))}
+
+              {/* ★★79-9 문지방(현도 적발 "문틀 바닥이 뚫려 있다") — 방 바닥과 통로 바닥 **사이**에
+                  아무것도 없었다. 방 바깥 겹은 r14.00에서 끝나고 통로 바닥 링은 r15.05에서 시작하는데,
+                  그 사이 1.06은 **원뿔 벽의 살 자리**다. 벽이 선 곳에서는 안 보이지만 **문 자리에서는 뚫린다**
+                  (밑은 3.60 아래 밑판). → 문 각폭에만 슬래브를 깐다. 양옆 0.6씩 물려 이음매를 봉인하고,
+                  높이는 두 이웃보다 0.02 아래 — 위에서 덮이므로 z-파이팅이 없다(방↔회랑 이음매와 같은 규약). */}
+              {ring('xth', rm10Tiers()[0].r1 - t2, rm10R(y0) + RM10_CONE_T, y0 - 0.04, i0, i1, true)}
+
+              {/* ── ★79-6 직선 구간(좌회전 뒤 몇 걸음) — 로컬 −x 방향 = 돔 중심 ── */}
+              {/* ⚠★79-9: 바닥·지붕을 0.02 어긋냈다. 구판은 원호 링과 **완전 공면**이라(겹침 반경 1.2)
+                  또 하나의 우글우글이었다 — 현도가 신고하기 전에 실측으로 잡았다. */}
+              {box('sf', (xs + xe) / 2, y0 - 0.04 - t2 / 2, 0, xs - xe, t2, RM10_EXIT_W + 2 * t2)}
+              {box('sr', (xs + xe) / 2, y1 + 0.02 + t2 / 2, 0, xs - xe, t2, RM10_EXIT_W + 2 * t2)}
+              {[-1, 1].map((sg) => box('sw' + sg, (xs + xe) / 2, (y0 + y1) / 2, sg * (hw + t2 / 2), xs - xe, y1 - y0 + 2 * t2, t2))}
+              {/* 끝벽 = 테라스 쪽 문(문선 좌우 + 인방 위) */}
+              {[-1, 1].map((sg) => box('se' + sg, xe + t2 / 2, (y0 + y1) / 2, sg * (dw + (hw - dw) / 2), t2, y1 - y0 + 2 * t2, hw - dw))}
+              {box('sl', xe + t2 / 2, (y0 + PASS_DOOR_H + y1) / 2, 0, t2, y1 - (y0 + PASS_DOOR_H), 2 * dw)}
+            </group>
+          )
+        })()}
+        {/* 중앙 등불 — 회랑 등불과 **같은 어법**(관 + 깔때기 갓 + 웅덩이). 다른 건 관이 훨씬 길다는 것뿐 */}
+        <group>
+          <LampRod y0={RM10_CENTER_Y + LAMP_MOUTH_Y1 + LAMP_FUNNEL_H} y1={LAMP_TOP_Y} />
+          <pointLight position={[0, LAMP_ENTRY_Y - 1.2, 0]} color="#ffc27a" intensity={22} distance={15} decay={2} />
+          <mesh position={[0, RM10_CENTER_Y + LAMP_MOUTH_Y1 + LAMP_FUNNEL_H / 2, 0]}>
+            <cylinderGeometry args={[LAMP_TUBE_R, LAMP_MOUTH_R, LAMP_FUNNEL_H, 24, 1, true]} />
+            <meshStandardMaterial color="#caa161" roughness={0.6} emissive="#ffb45c" emissiveIntensity={0.55} side={THREE.DoubleSide} />
+          </mesh>
+          <mesh position={[0, RM10_CENTER_Y + LAMP_MOUTH_Y1 + 0.02, 0]} rotation-x={-Math.PI / 2}>
+            <circleGeometry args={[LAMP_MOUTH_R * 0.82, 24]} />
+            <meshBasicMaterial color="#fff1d4" side={THREE.DoubleSide} />
+          </mesh>
+          <mesh position={[0, RM10_CENTER_Y - 0.005, 0]} rotation-x={-Math.PI / 2}>
+            <circleGeometry args={[LAMP_POOL_R, 32]} />
+            <meshBasicMaterial color="#ffce7d" transparent opacity={0.22} />
+          </mesh>
+          <pointLight position={[0, RM10_CENTER_Y + LAMP_MOUTH_Y1 - 0.25, 0]} color="#ffce8a" intensity={14} distance={11} decay={2} />
+        </group>
+      </group>
+      {/* 천장(월드 좌표로 만든 CSG 결과 — 그룹 밖에서 그대로 놓는다) */}
+      <mesh geometry={roofGeo}>
+        <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+      </mesh>
+    </>
   )
 }

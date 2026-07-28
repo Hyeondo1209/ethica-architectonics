@@ -47,7 +47,8 @@ import {
   INCA_PANEL_L, INCA_PANEL_W, INCA_PANEL_T, INCA_ARCH_X0, INCA_ARCH_Y1, INCA_FACETS,
   INCA_NEXUS_R, INCA_TIP_Y1, INCA_TIP_Y2, INCA_GAP, INCA_TIP_T, INCA_EMBED,
   CL_SILL, CL_R, PASS_FLOOR_Y, TERRACE_RIN, TERRACE_ROUT, TERRACE_Y,
-  CL_HW, CL_PHI0, CL_PHI1, ST_PHI, ST_HW, TERRACE_ARC, PASS_X_END, LAMP_RIBS,   // ★78 K2
+  CL_HW, CL_PHI0, CL_PHI1, ST_ON, ST_PHI, ST_HW, TERRACE_ARC, PASS_X_END, LAMP_RIBS,
+  RM10_EXIT_FLOOR_Y, RM10_EXIT_ROUT, RM10_AX_R, RM10_STR_END,   // ★79-5/6 출구 통로   // ★78 K2
   CL_SEG_DROP, CL_STEP_N, CL_STEP_RISE, CL_STEP_GO, CL_STEP_RUN, CL_STAIR_MID, CL_STAIR_HPHI,   // ★78-2 K3
   CL_DROP_TOTAL, CL_FLOOR_END, CL_ROOF_Y, CL_HEAD_Y, CL_WALL_BOT, CL_ROOF, CL_HEAD, CL_LAMP_PHI,
   clLandingY, clFloorY, clSillY, clFloorSegments, clSillBands, KW_GO, ST_ROOF, PASS_DOOR_H,
@@ -1271,9 +1272,10 @@ console.log('— K2. ★78 회랑 확장 — 끝캡 비공면 · 문 ↔ 테라�
   const stub = ST_PHI * D
   ok(Math.abs(stub) + doorHalf < tHalf - 1.0,
     `문 ${r2(stub)}°±${r2(doorHalf)} ⊂ 테라스 호 ±${r2(tHalf)}° — 남은 여유 ${r2(tHalf - Math.abs(stub) - doorHalf)}° (호 ${r2((tHalf - Math.abs(stub) - doorHalf) / D * TERRACE_ROUT)})`)
-  //  문턱 = 테라스 림에 물림(도착 문법: 무단차·물림 0.5). 반경 관계가 깨지면 허공에 내린다.
-  ok(PASS_X_END > TERRACE_ROUT && PASS_X_END - TERRACE_ROUT < 1.2,
-    `문벽 반경 ${r2(PASS_X_END)} = 테라스 외림 ${TERRACE_ROUT} + ${r2(PASS_X_END - TERRACE_ROUT)}(림 물림 ∈ (0,1.2))`)
+  //  ⛔★79-5: 구 스텁 문↔테라스 림 물림 조항. 테라스가 출구 통로 파생으로 옮겨가 이 관계는 죽었다.
+  //   ST_ON을 되살릴 때만 유효하므로 스위치 뒤로 넣는다(치수 보존 — 지우면 되살릴 근거가 사라진다).
+  if (ST_ON) ok(PASS_X_END > TERRACE_ROUT && PASS_X_END - TERRACE_ROUT < 1.2,
+    `문벽 반경 ${r2(PASS_X_END)} = 테라스 외림 ${r2(TERRACE_ROUT)} + ${r2(PASS_X_END - TERRACE_ROUT)}(림 물림 ∈ (0,1.2))`)
   ok(TERRACE_ROUT - TERRACE_RIN > 8, `테라스 폭 ${r2(TERRACE_ROUT - TERRACE_RIN)} > 8 — 문 앞 체류 면적`)
 
   // ③ 등불이 호에서 파생됐는가(손 목록 잔재 = 호를 늘려도 안 따라오는 사고) — 여기서 다시 유도해 대조
@@ -1386,8 +1388,13 @@ console.log('— K3. ★78-2 회랑 계단 바닥 — 연속성 · 보행 · 파
   const mouthIn = segs.filter(g => g.p1 > ST_PHI - mouthHalf && g.p0 < ST_PHI + mouthHalf)
   ok(stubSeg && stubSeg.kind === 'landing' && mouthIn.every(g => g.kind === 'landing' && Math.abs(g.y - CL_FLOOR_END) < 1e-9),
     `스텁 입(${r2((ST_PHI - mouthHalf) * D)}~${r2((ST_PHI + mouthHalf) * D)}°)이 **평평한** 마지막 층계참 위 — 계단에 안 걸림`)
-  ok(Math.abs(TERRACE_Y - CL_FLOOR_END) < 1e-9,
-    `TERRACE_Y ${r2(TERRACE_Y)} = 회랑 끝 바닥 — '문턱 없는 도착' 관계 보존(값만 9.6 이동)`)
+  //  ★79-5 '문턱 없는 도착'의 **상대가 바뀌었다** — 회랑이 아니라 등불 방의 출구 통로다.
+  //   관계(무단차)는 그대로고 값만 12 더 내려갔다. 어느 쪽에 묶여 있는지를 검사가 못 박는다.
+  ok(Math.abs(TERRACE_Y - RM10_EXIT_FLOOR_Y) < 1e-9,
+    `TERRACE_Y ${r2(TERRACE_Y)} = 출구 통로 바닥 — '문턱 없는 도착' 관계 보존(구 상대 = 회랑 끝 ${r2(CL_FLOOR_END)})`)
+  //  ★79-6 상대가 원호 바깥벽 → **직선 구간 끝**으로 바뀌었다(공개 지점이 직선 끝이므로)
+  ok(TERRACE_ROUT <= RM10_AX_R - RM10_STR_END + PASS_T + 1e-9 && TERRACE_ROUT > RM10_AX_R - RM10_STR_END,
+    `테라스 외림 ${r2(TERRACE_ROUT)} = 직선 끝 ${r2(RM10_AX_R - RM10_STR_END)} + 물림 ${r2(PASS_T)} — 문지방에 틈 없음`)
   ok(TERRACE_Y - 110 > 100, `테라스 ${r2(TERRACE_Y)} − 최고 문 상단 110 = ${r2(TERRACE_Y - 110)} > 100 — 하부 세계는 여전히 한참 아래`)
   ok(CL_FLOOR_END - 0.05 + PASS_DOOR_H < CL_FLOOR_END + ST_ROOF, `문(${PASS_DOOR_H}) < 스텁 내부고(${ST_ROOF})`)
   console.log(`     └ ★78-2 실측: 바닥 ${r2(PASS_FLOOR_Y)}→${r2(CL_FLOOR_END)}(−${CL_DROP_TOTAL}) · 층고 ${CL_ROOF}→${r2(CL_ROOF_Y - CL_FLOOR_END)} · 창높이 ${r2(CL_HEAD - CL_SILL)}→${r2(CL_HEAD_Y - (CL_FLOOR_END + CL_SILL))} · 계단 ${CL_STAIR_MID.length}×${CL_STEP_N}단`)

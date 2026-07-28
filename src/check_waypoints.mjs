@@ -26,6 +26,8 @@ import {
   WOLDAE_NOTCH, WOLDAE_NOTCH_R,   // ★54-2 노치
   WOLDAE_RISE, WOLDAE_RISE_H, BOX_TOP,   // ★54-3 상승단
   CL_FLOOR_END, clFloorY, CL_SEG_DROP, CL_STEP_RISE, CL_STAIR_MID, CL_STEP_N, CL_DROP_TOTAL, CL_ROOF_Y, clSillY, CL_SILL,   // ★78-2
+  ST_ON, RM10_ON, RM10_PHI, RM10_AX_R, RM10_RHO, RM10_FLOOR_Y, RM10_FLOOR_OPEN_R, RM10_DROP,   // ★79 등불 방
+  RM10_EXIT_RIN, RM10_EXIT_ROUT, RM10_EXIT_FLOOR_Y, RM10_STR_END,   // ★79-5/6 출구 통로
 } from './constants.js'
 import { p1HeightAt } from './radialEventsGeometry.js'
 const r2 = (v) => Math.round(v * 100) / 100   // ★㊾ (check_corridor와 같은 보조자)
@@ -88,6 +90,12 @@ for (let i = 1; i <= 15; i++) if (!covered.has(i)) missing.push(i)
 //   1p6은 "프리즈 방 아래 나선 부근"으로 예고만 된 상태 = **의도된 결번**.
 //   숨기면 잊는다 → 결번을 **명시 선언**하고, 선언과 실제가 어긋날 때만 실패시킨다.
 //   ⚠DoD-1(15개 전부 집)은 이 배열이 빌 때까지 미충족이다. 1p6 배치 세션에서 비울 것.
+//  ⛔★79-2(2026.07.28): **1p11 결번 추가.** 구 회랑→테라스 출구(스텁+문)를 껐다 — 등불 방이 회랑의 종점이
+//   됐고, 새 출구는 방에서 낸다(설계 대기). 1p11 = '공개' 순간이라 문이 곧 그 집이다.
+//   ⚠이건 '괜찮다'가 아니라 **선언된 빚**이다. 새 출구가 서면 여기서 11을 지운다 — 안 지우면 이 검사가 통과해
+//   결번을 영영 못 본다. DoD-1·DoD-2·DoD-3이 지금 전부 이 한 줄에 걸려 있다.
+//  ✅★79-5(2026.07.28): **1p11 결번 해소.** 등불 방 출구 통로의 테라스 쪽 문이 '공개'의 집이 됐다
+//   (`reveal` 웨이포인트). ★79-2에서 진 빚을 같은 세션 안에서 갚았다 — DoD-2(완주)·DoD-3(공개) 복구.
 const UNASSIGNED = [6]                    // 정리 번호(숫자) — missing과 같은 형식이어야 한다
 const miss = missing.join(','), decl = UNASSIGNED.join(',')
 ok(miss === decl,
@@ -576,13 +584,49 @@ for (const id of ['cloister', 'lamp']) {
   ok(Math.abs(w.y - (clFloorY(phi) - 0.02)) < 1e-9, `${id} y=${w.y.toFixed(2)} = 그 φ의 회랑 바닥 ${(clFloorY(phi) - 0.02).toFixed(2)}(ring 평면)`)
 }
 ok(W('lamp').pitch > 1.0, `등불 pitch=${W('lamp').pitch.toFixed(2)} — 관→리브 시선 안내선을 올려다봄`)
-{
+if (ST_ON) {
   const d = WU('door'), r = Math.hypot(d.x, d.z), phi = Math.atan2(d.z, d.x)
   ok(Math.abs(phi - ST_PHI) < 1e-9, `문 φ=${(phi * DEG).toFixed(2)}° = 스텁 축 ${(ST_PHI * DEG).toFixed(2)}°`)
   ok(r > PASS_X_END && r < CL_R - CL_HW,
     `문 r=${r.toFixed(1)} ∈ 스텁(끝벽 ${PASS_X_END.toFixed(1)} ~ 회랑 안벽 ${(CL_R - CL_HW).toFixed(1)})`)
   ok(Math.abs(d.y - (CL_FLOOR_END - 0.05)) < 1e-9, `문 y=${d.y.toFixed(2)} = 스텁 바닥 ${(CL_FLOOR_END - 0.05).toFixed(2)}(★78-2로 9.6 강하)`)
   ok(dot2(fwd(d.yaw), [-Math.cos(ST_PHI), -Math.sin(ST_PHI)]) > 0.99, '문 시선 = 스텁 축 −방향(문 → 테라스)')
+}
+
+console.log('\n— E2. ★79 등불 방(1p10) —')
+if (RM10_ON) {
+  const p2 = WU('lamproom')
+  const AX = RM10_AX_R * Math.cos(RM10_PHI), AZ = RM10_AX_R * Math.sin(RM10_PHI)
+  const d = Math.hypot(p2.x - AX, p2.z - AZ)
+  ok(d < RM10_FLOOR_OPEN_R, `등불 방 웨이포인트가 가운데 빈 바닥 안 (축에서 ${d.toFixed(2)} < ${RM10_FLOOR_OPEN_R.toFixed(2)})`)
+  ok(Math.abs(p2.y - RM10_FLOOR_Y) < 1e-9, `y=${p2.y.toFixed(2)} = 방 바닥 ${RM10_FLOOR_Y.toFixed(2)}(계단 50단이 정확히 닿는 높이)`)
+  ok(dot2(fwd(p2.yaw), [(AX - p2.x) / d, (AZ - p2.z) / d]) > 0.99, '시선 = 방 중앙(등불) 향')
+  ok(p2.pitch > 1.0, `pitch=${p2.pitch.toFixed(2)} — 관이 속성에 꽂히는 자리를 올려다봄`)
+  //  ★봉인(현도 의도): 회랑을 걸으며 방 안이 안 보여야 한다 — 눈높이·문턱·하강으로 유도한 가시 개시 거리
+  const far = RM10_RHO + CL_R * (RM10_PHI - CL_PHI1)
+  ok(1.6 * far / RM10_DROP < 3.0,
+    `방 바닥 가시 개시 ${(1.6 * far / RM10_DROP).toFixed(2)} < 3.0 — 문턱 코앞까지 와야 안이 보인다`)
+}
+
+console.log('\n— E3. ★79-5 출구 통로(1p11) —')
+if (RM10_ON) {
+  const AX = RM10_AX_R * Math.cos(RM10_PHI), AZ = RM10_AX_R * Math.sin(RM10_PHI)
+  const g = WU('reveal'), x2 = WU('exitpass')
+  const dg = Math.hypot(g.x - AX, g.z - AZ), dx = Math.hypot(x2.x - AX, x2.z - AZ)
+  ok(dx > RM10_EXIT_RIN && dx < RM10_EXIT_ROUT, `exitpass 방 축에서 ${dx.toFixed(2)} ∈ 원호 띠(${RM10_EXIT_RIN.toFixed(2)}~${RM10_EXIT_ROUT.toFixed(2)})`)
+  //  ★79-6 공개 지점은 원호가 아니라 **직선 구간 끝**에 있다
+  ok(dg > RM10_EXIT_ROUT && dg <= RM10_STR_END, `reveal 방 축에서 ${dg.toFixed(2)} ∈ 직선 구간(${RM10_EXIT_ROUT.toFixed(2)}~${RM10_STR_END.toFixed(2)})`)
+  ok(Math.abs(g.y - RM10_EXIT_FLOOR_Y) < 1e-9 && Math.abs(x2.y - RM10_EXIT_FLOOR_Y) < 1e-9,
+    `통로 두 지점 y = ${RM10_EXIT_FLOOR_Y.toFixed(2)} = 테라스와 같은 높이(무단차 도착)`)
+  //  ★현도 요구: "나왔을 때 방향은 돔 중심부, 클라이막스를 목격하는 방향"
+  const rr = Math.hypot(g.x, g.z)
+  ok(dot2(fwd(g.yaw), [-g.x / rr, -g.z / rr]) > 0.99, '공개 지점 시선 = **돔 중심 향**(클라이막스 방향)')
+  ok(g.pitch > 0, `공개 pitch=${g.pitch.toFixed(2)} — 정점 렌즈를 올려본다`)
+  //  통로가 방 축을 반 바퀴 안쪽으로 돈다 = 나가는 길이 들어온 길과 겹치지 않는다
+  const thG = Math.atan2(g.z - AZ, g.x - AX), thI = Math.atan2(x2.z - AZ, x2.x - AX)
+  //  ⚠각도차는 **감싸서** 잰다 — 안 감싸면 90°가 270°로 보고된다(값 판정은 통과하므로 조용히 거짓말한다)
+  const dth = Math.abs(((thG - thI) * 180 / Math.PI % 360 + 540) % 360 - 180)
+  ok(dth > 30, `통로 회전 ${dth.toFixed(0)}° — 방 쪽 문과 테라스 쪽 문이 겹치지 않는다`)
 }
 
 console.log('\n— F. 테라스 —')
@@ -657,8 +701,13 @@ console.log('  ' + WP_GROUPS.map(g => `${g.name}(${g.items.length})`).join('  �
     && at('joint') < at('corridor') && at('corridor') < at('ribdoor') && at('ribdoor') < at('pole')
     && at('pole') < at('panel') && at('panel') < at('kneewalk') && at('kneewalk') < at('junction')
     && at('junction') < at('lookout') && at('lookout') < at('ante') && at('ante') < at('cloister')
-    && at('cloister') < at('lamp') && at('lamp') < at('door') && at('door') < at('terrace'),
-    '순서 = 관람 동선(지상 → 허브 → 꽃잎4 → 통로 → 리브 → 갈림·전망 → 전실 → 회랑 → 등불 → 문 → 테라스)')
+    && at('cloister') < at('lamp')
+    //  ⛔★79-2: 구 출구(door)가 꺼졌다 → 회랑 다음은 **등불 방**이고 거기서 여정이 끝난다.
+    //   테라스는 아직 판 위에 있지만 걸어서 닿을 길이 없다(선언된 빚 — UNASSIGNED 1p11).
+    && (ST_ON ? at('lamp') < at('door') && at('door') < at('terrace')
+              : at('lamp') < at('lamproom') && at('lamproom') < at('exitpass')
+                && at('exitpass') < at('reveal') && at('reveal') < at('terrace')),
+    `순서 = 관람 동선(지상 → 허브 → 꽃잎4 → 통로 → 리브 → 갈림·전망 → 전실 → 회랑 → 등불 → ${ST_ON ? '문' : '등불 방 → 출구 통로 → 공개'} → 테라스)`)
 }
 
 console.log(fail === 0 ? `\n전부 통과 (${n}항)` : `\n실패 ${fail}/${n}`)

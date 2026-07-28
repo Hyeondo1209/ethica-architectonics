@@ -36,6 +36,8 @@ import { p1HeightAt } from './radialEventsGeometry.js'   // 1p1 볼록 바닥 �
 import { buildHallStairs, incaStairSpec, incaBladesSpec, descentSpec } from './corridorStairsGeometry.js'   // ★㊳ 계단 끝 4곳 + ★㊷ 날 끝 4곳(못 닿음 판정 지점) — 빌더 파생(자동 추종)
 import { INCA_ON, INCA_GAP, FRIEZE_ROOM_ON, FR_FLOOR_Y, FR_WALL_T, TEMPLE_X0 } from './constants.js'   // ★55 프리즈 방
 import { RIB_XFER_ON, RIB_DEST_PHI, STELE7_F, STAIR_STEPS, spiralU, RIB_FREE_MODE, RIB_OPEN_ON } from './constants.js'
+import { ST_ON, RM10_ON, RM10_PHI, RM10_AX_R, RM10_FLOOR_Y, RM10_FLOOR_OPEN_R, RM10_ENTRY_TH, RM10_DOOR_HTH, RM10_TURN, RM10_CCW } from './constants.js'   // ★79 등불 방
+import { RM10_EXIT_RIN, RM10_EXIT_ROUT, RM10_EXIT_TH, RM10_TERR_TH, RM10_EXIT_FLOOR_Y, RM10_STR_END } from './constants.js'   // ★79-5/6 출구 통로
 import { openRimSpec, isOpenRib } from './ribGeometry.js'                                              // ★63 우물 발코니
 import { ribCutSpec } from './corridorStairsGeometry.js'                                               // ★63 리브별 절단 좌표  // ★61 리브 갈아타기
 import { freeSplitRange, destCut } from './ribGeometry.js'                               // ★61 자립 나선(정본 파생)
@@ -322,10 +324,43 @@ export const WAYPOINTS = [
     x: rX(LAMP_R * Math.cos(LAMP_PHI), LAMP_R * Math.sin(LAMP_PHI)), y: CL_FLOOR(LAMP_PHI),
     z: rZ(LAMP_R * Math.cos(LAMP_PHI), LAMP_R * Math.sin(LAMP_PHI)),
     yaw: rYaw(yawTo(-Math.sin(LAMP_PHI), Math.cos(LAMP_PHI))), pitch: 1.15 },  // 관 → 리브 시선 안내선
-  { id: 'door', group: '통로판 (1p9~11)', label: '스텁 끝 문 — 공개 직전', prop: '1p11',
+  //  ⛔★79-2 스텁 소등 → 이 웨이포인트도 같이 꺼진다(ST_ON 스위치 하나가 기하·경로를 함께 움직인다)
+  ...(ST_ON ? [{ id: 'door', group: '통로판 (1p9~11)', label: '스텁 끝 문 — 공개 직전', prop: '1p11',
     x: rX(DOOR_RR * Math.cos(ST_PHI), DOOR_RR * Math.sin(ST_PHI)), y: ST_FLOOR,
     z: rZ(DOOR_RR * Math.cos(ST_PHI), DOOR_RR * Math.sin(ST_PHI)),
-    yaw: rYaw(yawTo(-Math.cos(ST_PHI), -Math.sin(ST_PHI))), pitch: 0 },
+    yaw: rYaw(yawTo(-Math.cos(ST_PHI), -Math.sin(ST_PHI))), pitch: 0 }] : []),
+
+  //  ★79 등불 방(1p10) — 방 축은 회랑 중심선 위 리브 #10 자리. 로컬 극좌표를 월드로 편다.
+  ...(RM10_ON ? (() => {
+    const AX = RM10_AX_R * Math.cos(RM10_PHI), AZ = RM10_AX_R * Math.sin(RM10_PHI)
+    //  로컬 (x=반경 바깥, z=회랑 진행) → 월드: 축 위치 + 회전 −RM10_PHI 을 되돌린 성분
+    const L = (rr, th) => {
+      const lx = rr * Math.cos(th), lz = rr * Math.sin(th)
+      const x = AX + lx * Math.cos(RM10_PHI) - lz * Math.sin(RM10_PHI)
+      const z = AZ + lx * Math.sin(RM10_PHI) + lz * Math.cos(RM10_PHI)
+      return [x, z]
+    }
+    const s2 = RM10_CCW ? 1 : -1
+    const thEnd = RM10_ENTRY_TH + s2 * (RM10_DOOR_HTH + RM10_TURN)   // 계단이 바닥에 닿는 방위
+    const [ex, ez] = L(RM10_FLOOR_OPEN_R * 0.55, thEnd)
+    //  ★79-5 통로 = 1p11의 집. 테라스 쪽 문 바로 안에서 **돔 중심을 향해** 선다(클라이막스 직전).
+    const rm = (RM10_EXIT_RIN + RM10_EXIT_ROUT) / 2
+    //  ★79-6 공개 지점 = **직선 구간 끝**(곡선 끝이 아니다) — 나서는 방향이 흔들리지 않는다
+    const [gx, gz] = L(RM10_STR_END - 1.2, RM10_TERR_TH)
+    const [ix, iz] = L(rm, RM10_EXIT_TH)
+    //  돔 중심 방향 = 월드 원점 쪽. 로컬 θ=180°에서 나가는 방향과 같다.
+    return [
+      { id: 'lamproom', group: '등불 방 (1p10)', label: '등불 방 — 관이 속성에 꽂히는 자리', prop: '1p10',
+        x: rX(ex, ez), y: RM10_FLOOR_Y, z: rZ(ex, ez),
+        yaw: rYaw(yawTo(AX - ex, AZ - ez)), pitch: 1.1 },
+      { id: 'exitpass', group: '등불 방 (1p10)', label: '출구 통로 — 방 벽을 돈다(밀폐)', prop: '—',
+        x: rX(ix, iz), y: RM10_EXIT_FLOOR_Y, z: rZ(ix, iz),
+        yaw: rYaw(yawTo(gx - ix, gz - iz)), pitch: 0 },
+      { id: 'reveal', group: '등불 방 (1p10)', label: '테라스 문 — 직선 끝, 공개 직전(돔 중심 향)', prop: '1p11',
+        x: rX(gx, gz), y: RM10_EXIT_FLOOR_Y, z: rZ(gx, gz),
+        yaw: rYaw(yawTo(-gx, -gz)), pitch: 0.15 },
+    ]
+  })() : []),
 
   { id: 'terrace', group: '테라스 (1p12~15)', label: '테라스 — 무한 리브 · 정점 렌즈', prop: '1p12~15',
     x: rX((TERRACE_RIN + TERRACE_ROUT) / 2, 0), y: TERRACE_Y, z: rZ((TERRACE_RIN + TERRACE_ROUT) / 2, 0),
