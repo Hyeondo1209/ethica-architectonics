@@ -61,9 +61,12 @@ import {
   WARCH_FUSE,
   CHANNEL_HW,
   VAULT_HW,
-  CLEAR_HW
+  CLEAR_HW,
+  FR_WIN_MODE, FR_WIN_ON, FR_WIN_SILL, FR_WIN_HEAD, FR_WIN_HZ, FR_WIN_SEAL_Y,           // ★77 서벽 창
+  FR_WIN_HEAD_MAX, FR_WIN_SILL_MIN, FR_WIN_HZ_MAX,
+  FR_WIN_BAR_ON, FR_WIN_BAR_W, FR_WIN_BAR_SET, FR_WIN_BAR_IN, FR_WIN_BAR_BITE, FR_WIN_BAR_ALIGN,
 } from './constants.js'
-import { hallDoors, buildHallStairs, PLAT_TOP, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal, ribCutSpec } from './corridorStairsGeometry.js'
+import { hallDoors, buildHallStairs, PLAT_TOP, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal, ribCutSpec , friezeWinBarZ } from './corridorStairsGeometry.js'
 import * as THREE from 'three'                                                   // ★56 CSG 스모크(check_radial 전례)
 import { Brush, Evaluator, HOLLOW_SUBTRACTION, SUBTRACTION } from 'three-bvh-csg'
 import { kneeBodySamples, kneeBodySpec, kneeWalkY, kneeBodyHalfWidth, prismGeometry, innerTubeSolid, buildKneeBody, buildKneePlinth, kneeWallHalfAt } from './kneeBodyGeometry.js'
@@ -2742,6 +2745,111 @@ console.log('\n— U. ★70 정션 매듭 + ★71 빛 기둥 (LOCKED 예외 #4) 
   ok(2 * LK_PLAT_R / LK_DISC_T < 12, `판 지름 ${2*LK_PLAT_R} : 두께 ${LK_DISC_T} = 1:${r2(2*LK_PLAT_R/LK_DISC_T)} < 1:12 — 종잇장 탈출`)
   ok(Math.abs(LK_DISC_LIFT - Math.max(0.1, LK_TOPSTEP_TOP + 0.05 + LK_DISC_T - U_LOOKOUT_END * H)) < 1e-9,
      `판 들림이 두께의 파생 — 두께를 키우면 램프가 저절로 따라온다(사본 없음)`)
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════
+console.log('\n— V. ★77 프리즈 방 서벽 창 (1p7의 방에 빛을 들인다) —')
+// ══════════════════════════════════════════════════════════════════════════
+if (!FR_WIN_ON) {
+  ok(true, `서벽 창 꺼짐(FR_WIN_MODE='${FR_WIN_MODE}') — 검사 생략(방 밀폐 복귀)`)
+} else {
+  const rx0 = TEMPLE_X0 + FR_WALL_T
+  const ceilIn = ceilY(rx0) - 0.02 - FR_CEIL_T
+
+  //  ① 개구가 벽 안에 있는가 — 넘기면 창이 아니라 홈·이 빠진 자국이 된다
+  ok(FR_WIN_SILL < FR_WIN_HEAD, `창턱 ${r2(FR_WIN_SILL)} < 상단 ${r2(FR_WIN_HEAD)} — 높이 ${r2(FR_WIN_HEAD - FR_WIN_SILL)}`)
+  ok(FR_WIN_SILL >= FR_WIN_SILL_MIN,
+     `창턱 ${r2(FR_WIN_SILL)} ≥ 하한 ${r2(FR_WIN_SILL_MIN)} — 바닥(${FR_FLOOR_Y}) 살 보존`)
+  ok(FR_WIN_HEAD <= FR_WIN_HEAD_MAX,
+     `상단 ${r2(FR_WIN_HEAD)} ≤ 상한 ${r2(FR_WIN_HEAD_MAX)} — 방 천장(${r2(ceilIn)})을 안 파고든다`)
+  ok(FR_WIN_HZ <= FR_WIN_HZ_MAX,
+     `z 반폭 ${r2(FR_WIN_HZ)} ≤ 상한 ${r2(FR_WIN_HZ_MAX)} — 옆벽 살 보존`)
+  //  아치 크라운(z=0에서 최고 ${TEMPLE_Y0}+${TEMPLE_OPEN})보다 위라야 창이 아치 터널로 안 샌다
+  ok(FR_WIN_SILL > TEMPLE_Y0 + TEMPLE_OPEN,
+     `창턱 ${r2(FR_WIN_SILL)} > 아치 크라운 ${r2(TEMPLE_Y0 + TEMPLE_OPEN)} — 아치 터널로 안 샘`)
+
+  //  ② 리브 관통 구멍과 안 만나는가 — 만나면 창이 리브 구멍으로 이어져 보어가 열린다
+  let ribW = 1e9, ribWho = ''
+  for (const d of hallDoors()) {
+    for (let y = FR_WIN_SILL; y <= FR_WIN_HEAD; y += 0.5) {
+      const cx = rOf(y / H) * Math.cos(d.phi) - (SHELL_RIB_R + RIB_HOLE_CLR)
+      if (cx < ribW) { ribW = cx; ribWho = '#' + d.k }
+    }
+  }
+  ok(ribW > TEMPLE_X0 + FR_WALL_T + 1,
+     `리브 구멍 서쪽 끝 최저 ${r2(ribW)}(${ribWho}) > 자르개 동쪽 끝 ${r2(TEMPLE_X0 + FR_WALL_T + 1)} — 창과 리브 구멍 무접촉`)
+
+  //  ③ 창살 — 세로살만(현도 지정), 개수·간격은 리브 파생. 동일 평면 금지(★75 폭 사슬 교훈)
+  if (!FR_WIN_BAR_ON) {
+    ok(true, '창살 꺼짐 — 검사 생략')
+  } else {
+    const bz = friezeWinBarZ()
+    ok(bz.length === (FR_WIN_BAR_ALIGN === 'between' ? 4 : 5),
+       `창살 ${bz.length}개 — 정렬 '${FR_WIN_BAR_ALIGN}'(리브 다섯에서 파생, 여기서 개수를 안 쓴다)`)
+    ok(bz.every(v => Math.abs(v) + FR_WIN_BAR_W / 2 < FR_WIN_HZ),
+       `창살 전부 개구 안(z ±${r2(FR_WIN_HZ)}) — 가장 바깥 살 ${r2(Math.max(...bz.map(Math.abs)))} + 반폭`)
+    let sep = 1e9
+    const srt = [...bz].sort((a, b) => a - b)
+    for (let i = 1; i < srt.length; i++) sep = Math.min(sep, srt[i] - srt[i - 1])
+    ok(sep > FR_WIN_BAR_W, `살 최소 간격 ${r2(sep)} > 살 폭 ${FR_WIN_BAR_W} — 살끼리 안 붙는다`)
+    //  ★동일 평면 금지 — 0이면 벽 앞/뒷면과 정확히 같은 평면이 되어 아티팩트가 난다
+    ok(FR_WIN_BAR_SET > 0, `살 후퇴 ${FR_WIN_BAR_SET} > 0 — 파사드 면과 동일 평면 아님`)
+    ok(FR_WIN_BAR_IN > 0, `살 내밈 ${FR_WIN_BAR_IN} > 0 — 벽 안쪽면과 동일 평면 아님`)
+    ok(FR_WIN_BAR_SET < FR_WALL_T, `살 후퇴 ${FR_WIN_BAR_SET} < 벽 두께 ${FR_WALL_T} — 살이 인방 안에 남는다`)
+    //  ★물림 — 안 물리면 살이 허공의 막대가 된다(★62 링 슬롯 계열의 병)
+    ok(FR_WIN_SILL - FR_WIN_BAR_BITE > FR_FLOOR_Y,
+       `살 아랫끝 ${r2(FR_WIN_SILL - FR_WIN_BAR_BITE)} > 방 바닥 ${FR_FLOOR_Y} — 아래 물림이 살 속에 든다`)
+    ok(FR_WIN_HEAD + FR_WIN_BAR_BITE < ceilIn,
+       `살 윗끝 ${r2(FR_WIN_HEAD + FR_WIN_BAR_BITE)} < 방 천장 ${r2(ceilIn)} — 위 물림이 살 속에 든다`)
+  }
+
+  //  ④★★봉인 — 홀에서 ★56 절단이 보이는가. **막지 않고 잰다**(현도가 'grand'로 여는 것을 택했다).
+  //   봉인선을 여기서 **다시 유도**해 상수 FR_WIN_SEAL_Y와 대조한다 — 숫자만 남고 근거를 잃는 것 방지.
+  if (RIB_CUT_ON && FRIEZE_ROOM_ON) {
+    const cuts = ribCutSpec()
+    const XW = TEMPLE_X0, rzh = TEMPLE_HZ - FR_WALL_T
+    const cOut = ceilY(XW) - 0.02, cInW = ceilIn
+    const targets = []
+    for (const c of cuts) for (let y = c.yBot; y <= c.yTop + 1e-9; y += 1.0) {
+      const r = rOf(y / H)
+      targets.push({ k: c.k, x: r * Math.cos(c.phi), y, z: r * Math.sin(c.phi) })
+    }
+    let hStar = -Infinity
+    const seen = new Set()
+    for (let vx = COR_CYL_X0 + 2; vx <= 286; vx += 4) {
+      const dz = Math.sqrt(Math.max(0, COR_R * COR_R - (vx - COR_CX) ** 2))
+      for (let vz = -dz + 1; vz <= dz - 1; vz += 4) {
+        for (let vy = 39.9; vy <= 103.001; vy += 4) {
+          for (const g of targets) {
+            if (g.x <= vx) continue
+            const t = (XW - vx) / (g.x - vx)
+            if (t < 0 || t > 1) continue
+            const hy = vy + t * (g.y - vy)
+            if (hy < FR_FLOOR_Y || hy > cOut) continue
+            const hz = vz + t * (g.z - vz)
+            if (Math.abs(hz) > rzh) continue
+            const t2 = (XW + FR_WALL_T - vx) / (g.x - vx)
+            if (vy + t2 * (g.y - vy) > cInW) continue
+            if (hy > hStar) hStar = hy
+            if (hy >= FR_WIN_SILL && hy <= FR_WIN_HEAD) seen.add(g.k)
+          }
+        }
+      }
+    }
+    ok(isFinite(hStar) && Math.abs(hStar - FR_WIN_SEAL_Y) < 1.2,
+       `봉인선 재유도 ${r2(hStar)} ≈ 상수 FR_WIN_SEAL_Y ${FR_WIN_SEAL_Y} (±1.2 · 성긴 표본) — 근거가 살아 있다`)
+    const exposed = [...seen].sort((a, b) => a - b)
+    if (FR_WIN_SILL > FR_WIN_SEAL_Y) {
+      ok(exposed.length === 0,
+         `봉인 유지 — 창턱 ${r2(FR_WIN_SILL)} > 봉인선 ${FR_WIN_SEAL_Y} · 홀에서 절단 노출 0기`)
+    } else {
+      //  ⚠실패가 아니다. 현도가 2026.07.28에 'ㄴ = 봉인을 연다'를 택했다. 비용을 매 실행마다 보고한다.
+      ok(true,
+         `⚠봉인 열림(현도 판정 ㄴ) — 창턱 ${r2(FR_WIN_SILL)} ≤ 봉인선 ${FR_WIN_SEAL_Y} · 홀에서 절단 노출 ${exposed.length}기 [${exposed.map(k => '#' + k).join(' ')}] — 유지/철회는 로컬 육안 판정`)
+      ok(exposed.length <= 5, `노출 리브 ${exposed.length} ≤ 5 — 프리즈 방을 지나는 다섯 밖으로는 안 번진다`)
+    }
+  }
 }
 
 console.log(fail === 0 ? `\n전부 통과 (${n}항)` : `\n실패 ${fail}/${n}`)

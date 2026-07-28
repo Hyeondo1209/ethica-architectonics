@@ -43,6 +43,7 @@ import {
   FRIEZE_ROOM_ON, FR_FLOOR_Y, FR_CEIL_T, TEMPLE_CLR,                                          // ★55 프리즈 방
   RIB_CUT_ON, RIB_CUT_MODE, RIB_CUT_SEED, RIB_CUT_GAP_MIN, RIB_CUT_HEAD,                       // ★56 리브 절단(1p7)
   RIB_CUT_STUB_MIN, RIB_CUT_SEP, RIB_CUT_CAP_T, RIB_CUT_CAP_MG,
+  FR_WIN_ON, FR_WIN_SILL, FR_WIN_HEAD, FR_WIN_BAR_ON, FR_WIN_BAR_ALIGN,                        // ★77 서벽 창
 } from './constants.js'
 
 export const PLAT_TOP = PLAT_Y + COR_THICK / 2   // 계단 출발면 = 깊은 제단 상면 ≈31.3
@@ -862,4 +863,22 @@ export function ribCutSpec() {
       plugsFloorHole: RIB_CUT_MODE === 'floor',
     }
   })
+}
+
+// ── ★77 서벽 창살(세로살)의 z 위치 — **리브에서 파생한다** ──
+//  현도 지정: "창살은 세로살만이고 리브 개수와 간격에 맞게". 그래서 개수도 간격도 여기서 쓰지 않는다 —
+//  hallDoors()의 방위를 창 중간 높이에서 z로 투영해 그대로 쓴다. 리브 방위가 바뀌면 살이 따라온다.
+//  ⚠리브의 z는 높이에 따라 조금 변한다(r이 y를 따라 변하므로) → 대표점 = 창 중간 높이. 창을 위아래로
+//   옮기면 살도 미세하게 움직이는데, 그게 맞다(살은 리브를 가리키는 것이지 절대 좌표가 아니다).
+export function friezeWinBarZ() {
+  if (!FR_WIN_ON || !FR_WIN_BAR_ON) return []
+  const yMid = (FR_WIN_SILL + FR_WIN_HEAD) / 2
+  const r = rOf(yMid / H)
+  const zs = hallDoors().map(d => r * Math.sin(d.phi)).sort((a, b) => a - b)
+  if (FR_WIN_BAR_ALIGN === 'between') {
+    const mid = []
+    for (let i = 1; i < zs.length; i++) mid.push((zs[i] + zs[i - 1]) / 2)
+    return mid
+  }
+  return zs
 }

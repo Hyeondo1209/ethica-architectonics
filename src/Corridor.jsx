@@ -17,6 +17,8 @@ import {
   STAIR_TD, STAIR_W, COR_RISE,
   TEMPLE_MODE, TEMPLE_Y0, TEMPLE_X0, TEMPLE_X1, TEMPLE_HZ, RIB_HOLE_CLR, TEMPLE_PEDIMENT, TEMPLE_OPEN,
   FRIEZE_ROOM_ON, FR_FLOOR_T, FR_WALL_T, FR_BACK_T, FR_CEIL_T, FR_FLOOR_Y, FR_ANNEX,   // ★55 프리즈 방(1p7)
+  FR_WIN_ON, FR_WIN_SILL, FR_WIN_HEAD, FR_WIN_HZ,                                      // ★77 서벽 창
+  FR_WIN_BAR_ON, FR_WIN_BAR_W, FR_WIN_BAR_SET, FR_WIN_BAR_IN, FR_WIN_BAR_BITE,
   CELLA_ON, CELLA_ZHW, CELLA_X1, CELLA_T, CELLA_ROOF_Y0, CELLA_ROOF_Y1, CELLA_ROOF_T, CELLA_BACK_ON, CELLA_BACK_Y1,
   INCA_ON, INCA_COLOR, INCA_W0, INCA_CHAMF, INCA_PANEL_T,
  CELLA_BITE_R, CELLA_XW, CELLA_COLOR,
@@ -31,7 +33,7 @@ import {
   GAT_SEAT, GAT_CX, GAT_CROWN_R, GAT_CONE_H, GAT_CROWN_H, GAT_SLIT, GAT_FACETS, GAT_POSTS, GAT_POST_R, GAT_LID_T,
   PLAT_DROP, DESC_X0, DESC_X1,
 } from './constants'
-import { buildHallStairs, hallDoors, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal, descentSpec, woldaeSpec, drumPierAzimuths, descentPortSpec, portPrismTris, outwardTris } from './corridorStairsGeometry'
+import { buildHallStairs, hallDoors, friezeWinBarZ, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal, descentSpec, woldaeSpec, drumPierAzimuths, descentPortSpec, portPrismTris, outwardTris } from './corridorStairsGeometry'
 import { ribHoleSolid } from './ribGeometry'   // ★64-2 리브를 따라가는 관통 구멍(watertight 로프트)
 
 
@@ -486,6 +488,28 @@ export function TempleBeam() {
       room.computeVertexNormals()
       const b = new Brush(room); b.updateMatrixWorld()
       acc = ev.evaluate(acc, b, SUBTRACTION)
+    }
+    // ── ★77 서벽(드럼 쪽) 창 — 유리 없이 순수 개구. 인방 깊이 = 벽 두께 FR_WALL_T 그대로 ──
+    //  ⚠자르개는 벽 **양면을 넘겨** 뻗는다(±1). 정확히 벽 두께로 맞추면 동일 평면이 생겨
+    //   감산이 무효가 되거나 두께 0 슬리버가 남는다 — ★75 폭 사슬에서 하루에 네 번 겪은 병.
+    if (FRIEZE_ROOM_ON && FR_WIN_ON) {
+      const wx0 = TEMPLE_X0 - 1, wx1 = TEMPLE_X0 + FR_WALL_T + 1
+      const cut = new THREE.BoxGeometry(wx1 - wx0, FR_WIN_HEAD - FR_WIN_SILL, FR_WIN_HZ * 2)
+      cut.translate((wx0 + wx1) / 2, (FR_WIN_SILL + FR_WIN_HEAD) / 2, 0)
+      const bw = new Brush(cut); bw.updateMatrixWorld()
+      acc = ev.evaluate(acc, bw, SUBTRACTION)
+      //  창살 = 세로살만(현도 지정). z는 friezeWinBarZ()가 리브에서 파생 — 여기서 개수·간격을 쓰지 않는다.
+      //  위·아래로 FR_WIN_BAR_BITE만큼 벽에 물려 붙는다(안 물리면 허공의 막대).
+      if (FR_WIN_BAR_ON) {
+        const bx0 = TEMPLE_X0 + FR_WIN_BAR_SET, bx1 = TEMPLE_X0 + FR_WALL_T + FR_WIN_BAR_IN
+        const bh = (FR_WIN_HEAD - FR_WIN_SILL) + 2 * FR_WIN_BAR_BITE
+        for (const bz of friezeWinBarZ()) {
+          const bar = new THREE.BoxGeometry(bx1 - bx0, bh, FR_WIN_BAR_W)
+          bar.translate((bx0 + bx1) / 2, (FR_WIN_SILL + FR_WIN_HEAD) / 2, bz)
+          const bb = new Brush(bar); bb.updateMatrixWorld()
+          acc = ev.evaluate(acc, bb, ADDITION)
+        }
+      }
     }
     const holeTop = ceilY(TEMPLE_X1) + 2
     //  ★64(2026.07.24): 구멍이 **리브를 따라간다**. 구 수직 원기둥은 문 높이(y74)의 축을 기준으로 서 있어서

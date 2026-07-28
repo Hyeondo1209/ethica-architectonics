@@ -859,6 +859,58 @@ export const FR_BACK_T  = 1.5  // ★뒷벽만 따로 — 리브 뒤 여유를 �
 export const FR_CEIL_T  = 3    // 천장 두께(빗면 천장 밑으로) — 돔 쪽 누출 방지
 export const FR_FLOOR_Y = TEMPLE_Y0 + TEMPLE_OPEN + FR_FLOOR_T   // 파생 = 방 바닥 상면(현행 값 y166 — TEMPLE_OPEN 50 기준)
 
+// ══ ★77 프리즈 방 서벽(드럼 쪽) 창 — 1p7의 방에 빛을 들인다 (2026.07.28 · 현도 지시) ══
+//  왜: 방이 완전 밀폐라 빛이 들어올 구멍이 없었다. 서벽은 드럼 창(±43°) 개구 안에 서 있어
+//   그 너머가 곧 홀이다 → 여기에 구멍을 뚫으면 홀의 빛이 방으로 들어온다. **유리 없음 = 순수 개구.**
+//  ⚠**벽 두께는 이미 있다(FR_WALL_T=3).** 두께 0인 것은 드럼 원통 셸이지 이 벽이 아니다(2026.07.28 실측).
+//   그래서 창은 '두께 3의 인방(reveal)을 가진 구멍'이고, 빛이 그 깊이만큼 깎여 들어온다.
+//
+//  ★★봉인 문제(2026.07.28 실측 — 반드시 읽을 것):
+//   홀 안 시점 전수(드럼 내부 전역 × 눈높이 39.9~103, 표본 17.5만) × 리브 다섯의 간극 점으로
+//   광선을 쏴 서벽 바깥면 통과 높이를 다 구했다. **최고 통과 높이 = y180.03**
+//   (구속 시점 = 박스 목 x122·y101.9 = 하강로 시작 / 구속 표적 = 리브 #+2 간극).
+//   → **창턱이 FR_WIN_SEAL_Y 위면 홀에서 절단이 안 보이고, 아래면 보인다.**
+//   창턱별 노출: 166→다섯 전부 · 172→#−1·#+2 · 178→#+2 · 182 이상→없음.
+//  ⚠**현도 판정(2026.07.28): 'grand'는 봉인선 아래로 내려간다 = LOCKED 예외 #2 조건 ②를 연다.**
+//   "일단 봐보자" — 로컬 육안 판정 후 유지/철회를 정한다. 검사는 막지 않고 **노출 리브를 보고**한다
+//   (막으면 판정을 못 한다. 대신 비용이 매 실행마다 눈에 보이게 남는다).
+export const FR_WIN_MODE = 'slit'   // ★'none' | 'slit'(천장 슬릿·봉인 유지) | 'grand'(통창·봉인 열림)
+
+//  ── 안 ① 슬릿(천장 가까이) — 봉인선 위에 갇힌다. 쓸 수 있는 세로는 180.03~187.5 = 7.5뿐 ──
+export const FR_WIN_SLIT_SILL = 183   // 창턱 y (> FR_WIN_SEAL_Y 라야 봉인 유지)
+export const FR_WIN_SLIT_HEAD = 187.9   // 창 상단 y (≤ FR_WIN_HEAD_MAX) — 천장 밑 1.05
+export const FR_WIN_SLIT_HZ   = 55      // z 반폭 (≤ FR_WIN_HZ_MAX — 옆벽 살 보존)
+
+//  ── 안 ② 통창 — 벽을 세로로 가로지른다. 봉인선 아래 ──
+export const FR_WIN_GRAND_SILL = 168.5
+export const FR_WIN_GRAND_HEAD = 187.9
+export const FR_WIN_GRAND_HZ   = 55
+
+//  ── 창살(세로살만 — 현도 지정). 개수·간격은 **리브에서 파생**한다(하드코딩 금지 불변식) ──
+//   ⚠커플링: 리브 방위(hallDoors)가 바뀌면 살도 따라 움직인다. 두 곳에 따로 적으면 반드시 어긋난다.
+export const FR_WIN_BAR_ON    = true
+export const FR_WIN_BAR_ALIGN = 'between'   // 'rib' = 리브 z에 정렬(개수 5) / 'between' = 리브 사이(개수 4)
+export const FR_WIN_BAR_W     = 0.7     // 살 폭(z 방향)
+export const FR_WIN_BAR_SET   = 0.5     // ★파사드 면에서 **후퇴** — 0으로 두면 벽 앞면과 정확히 동일 평면이 된다
+                                        //   (★75 폭 사슬 교훈: 두 값이 정확히 같으면 반드시 아티팩트가 난다)
+export const FR_WIN_BAR_IN    = 0.4     // 방 쪽으로 내민 깊이 — 안쪽면과도 동일 평면이 되지 않게
+export const FR_WIN_BAR_BITE  = 0.4     // 위·아래로 벽에 물리는 깊이(안 물리면 살이 허공에 뜬 막대가 된다)
+
+//  ── 파생·한계 (직접 건드리지 말 것) ──
+export const FR_WIN_ON   = FRIEZE_ROOM_ON && FR_WIN_MODE !== 'none'
+export const FR_WIN_SILL = FR_WIN_MODE === 'slit' ? FR_WIN_SLIT_SILL : FR_WIN_GRAND_SILL
+export const FR_WIN_HEAD = FR_WIN_MODE === 'slit' ? FR_WIN_SLIT_HEAD : FR_WIN_GRAND_HEAD
+export const FR_WIN_HZ   = FR_WIN_MODE === 'slit' ? FR_WIN_SLIT_HZ   : FR_WIN_GRAND_HZ
+//  ★상단 한계 = **방 천장**(서벽 안쪽면에서의 천장 밑면). 바깥면 돌 끝(190.5)이 아니다 —
+//  바깥면이 아니라 천장이 먼저 걸린다. 넘기면 창이 천장 슬래브를 파고들어 방 천장 서쪽 모서리가
+//  이 빠진 자국이 된다(창이 아니라 홈이 된다). 2026.07.28 초안이 바깥면으로 잡았다가 정정.
+export const FR_WIN_HEAD_MAX = ceilY(TEMPLE_X0 + FR_WALL_T) - 0.02 - FR_CEIL_T - 0.5
+export const FR_WIN_SILL_MIN = FR_FLOOR_Y + 0.5          // 바닥 살 보존
+export const FR_WIN_HZ_MAX   = TEMPLE_HZ - FR_WALL_T - 2 // 옆벽 살 보존
+//  ★봉인선 — 실측값(2026.07.28). 리브 절단 높이(RIB_CUT_SEED)나 시점 봉투가 바뀌면 **다시 재야 한다**.
+//  검사 V절이 매 실행마다 실제로 재유도해 이 값과 대조한다(숫자만 남고 근거를 잃는 것 방지).
+export const FR_WIN_SEAL_Y = 180.04
+
 // ══ ★56 리브 절단 — 1p7의 몸(2026.07.24 · 현도 지정) ══
 //  왜: 55가 방(껍데기)을 팠고, 56이 그 안에서 **실체를 끊는다**. 1p7 "실체의 본성에는 존재가 속한다" —
 //   증명은 1p6("다른 실체에서 산출될 수 없다")에 기대므로, 리브 밑에 **아무것도 없어야** 한다.
