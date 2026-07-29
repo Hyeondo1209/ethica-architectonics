@@ -31,6 +31,9 @@ import {
   WSTAIR_X1, X_DESC0, DESC_TREAD_D, PASS_X_CHEEK, JCT_DN_Z, PASS_HW, PASS_T, DESC_SLOPE,   // ★84 W5
 } from './constants.js'
 import { RM10_FLARE_ON, RM10_FLARE_MX, RM10_FLARE_MZ, RM10_FLARE_SWEEP, RM10_FLARE_R, RM10_ARC_TH1, TERRACE_ON } from './constants.js'   // ★80
+import { RM10_FLARE_RISE, RM10_FLARE_MY, RM10_FLARE_W1, TR_RIN, TR_ROUT, TR_AZ0, TR_AZ1, TR_Y, TERRACE_T, TR_W_F, terraceMouth } from './constants.js'   // ★85 테라스
+import { terraceSpec, terracePoint } from './terraceGeometry.js'
+import { flareSpec } from './exitFlareGeometry.js'
 import { p1HeightAt } from './radialEventsGeometry.js'
 const r2 = (v) => Math.round(v * 100) / 100   // ★㊾ (check_corridor와 같은 보조자)
 import { descentSpec, woldaeSpec, gatSeal, incaStairSpec, incaBladesSpec, descentPortSpec, portPrismTris, drumPierAzimuths, outwardTris, signedVolume, windingConsistent } from './corridorStairsGeometry.js'   // ★㊾·53·54
@@ -644,8 +647,17 @@ if (RM10_ON) {
   } else {
     ok(dg > RM10_EXIT_ROUT && dg <= RM10_STR_END, `reveal 방 축에서 ${dg.toFixed(2)} ∈ 직선 구간(${RM10_EXIT_ROUT.toFixed(2)}~${RM10_STR_END.toFixed(2)})`)
   }
-  ok(Math.abs(g.y - RM10_EXIT_FLOOR_Y) < 1e-9 && Math.abs(x2.y - RM10_EXIT_FLOOR_Y) < 1e-9,
-    `통로 두 지점 y = ${RM10_EXIT_FLOOR_Y.toFixed(2)} = 테라스와 같은 높이(무단차 도착)`)
+  //  ⚠★85 정정: 이 항은 ★80(나팔) 이전에 쓰였다 — 그때는 통로가 평평해서 두 지점 y가 같았다.
+  //   ★80이 12.00을 **올려** 아가리를 회랑 레벨에 놓으므로, 공개 지점 y는 아가리 바닥이어야 한다.
+  //   구판은 reveal을 226.43에 묶어 두었고(12 어긋남), 그래서 스냅 레이가 아가리 바닥을 못 찾았다.
+  ok(Math.abs(x2.y - RM10_EXIT_FLOOR_Y) < 1e-9,
+    `출구 통로 시작 y = ${r2(RM10_EXIT_FLOOR_Y)} = 방 바깥 겹 윗면(무단차 출발)`)
+  ok(RM10_FLARE_ON
+      ? (Math.abs(g.y - RM10_FLARE_MY) < 1e-9 && Math.abs(g.y - x2.y - RM10_FLARE_RISE) < 1e-9)
+      : Math.abs(g.y - RM10_EXIT_FLOOR_Y) < 1e-9,
+    RM10_FLARE_ON
+      ? `공개 지점 y = ${r2(RM10_FLARE_MY)} = 아가리 바닥 — 통로가 ${r2(RM10_FLARE_RISE)} 올라온 끝(★85 테라스와 무단차)`
+      : `공개 지점 y = ${r2(RM10_EXIT_FLOOR_Y)} = 통로 바닥(구 체제)`)
   //  ★현도 요구: "나왔을 때 방향은 돔 중심부, 클라이막스를 목격하는 방향"
   const rr = Math.hypot(g.x, g.z)
   ok(dot2(fwd(g.yaw), [-g.x / rr, -g.z / rr]) > 0.99, '공개 지점 시선 = **돔 중심 향**(클라이막스 방향)')
@@ -657,18 +669,88 @@ if (RM10_ON) {
   ok(dth > 30, `통로 회전 ${dth.toFixed(0)}° — 방 쪽 문과 테라스 쪽 문이 겹치지 않는다`)
 }
 
-console.log('\n— F. 테라스 —')
+console.log('\n— F. ★85 테라스 = 아가리를 받는 부채꼴 —')
 {
-  //  ⚠★80: 테라스 임시 소등(TERRACE_ON=false) — S자 나팔이 옛 링을 24 지나 안쪽에서 끝나기 때문.
-  //   재설계 대기이며 그동안 1p12~15는 집이 없다(선언된 빚). 소등 중엔 '없다'를 검사한다.
+  //  ★85(2026.07.29 현도 지시): 나팔 아가리 끝에 **딱 맞게** 붙는 환형 부채꼴, 리브 #0 반지름선까지.
+  //   ★80이 만든 '선언된 빚'(1p12~15 집 상실 · DoD-2 미충족)의 상환. 근거·유도 = constants ★85 블록.
   if (!TERRACE_ON) {
     ok(WAYPOINTS.every((w) => w.id !== 'terrace'), '테라스 소등 중 — 웨이포인트도 함께 내려갔다(유령 좌표 금지)')
     ok(true, '⚠선언된 빚: 1p12~15는 새 테라스가 설 때까지 집이 없다(DoD-2·3 일시 미충족)')
   } else {
+    const D = 180 / Math.PI
+    const sp = terraceSpec(), m = sp.mouth
+
+    // ── ① 도구 대조 — 상수 사슬(RM10_FLARE_M*)이 빌더(flareSpec)의 마지막 정거장과 같은 점인가 ──
+    //  ⚠★83 `axisDistMatches` 전례와 같은 형식. 이걸 안 재면 terraceMouth()가 조용한 **사본**이 된다.
+    {
+      const st = flareSpec().stations.at(-1)
+      const dP = Math.hypot(st.x - RM10_FLARE_MX, st.z - RM10_FLARE_MZ)
+      ok(dP < 1e-9, `아가리 중심 대조: constants ↔ flareSpec 편차 ${dP.toExponential(2)} — 사본 아님`)
+      ok(Math.abs(st.w - RM10_FLARE_W1) < 1e-9 && Math.abs(st.y - RM10_FLARE_MY) < 1e-9,
+        `아가리 폭 ${r2(st.w)} · 바닥 ${r2(st.y)} 대조 일치`)
+    }
+
+    // ── ② "딱 맞게"가 성립하는 근거 — 두 모서리가 **같은 반경**에 선다 ──
+    //  아가리가 돔 중심 정조준이라 문턱이 반경에 수직인 직선 현이고, 그래서 호 하나가 둘을 꿴다.
+    //  ⚠이게 깨지면(노브가 정조준을 깨면) '딱 맞게'는 그 순간 거짓이 된다 — 여기가 그 경보다.
+    const dR = Math.abs(m.cornerR[0] - m.cornerR[1])
+    ok(dR < 1e-6, `아가리 두 모서리 반경 ${r2(m.cornerR[0])} ↔ ${r2(m.cornerR[1])} 편차 ${dR.toExponential(2)} < 1e-6 — 호 하나가 둘을 꿴다`)
+    ok(Math.abs(TR_ROUT - m.rOut) < 1e-9, `바깥 림 ${r2(TR_ROUT)} = 모서리 반경 — 물림 TR_BITE 반영`)
+    ok(sp.crescent > 0 && sp.crescent < 2.5,
+      `초승달(문턱 현 ↔ 바깥 호) 가운데 깊이 ${r2(sp.crescent)} ∈ (0, 2.5) — 문턱 앞이 메워진다`)
+
+    // ── ③ 부채꼴의 두 끝 ──
+    //  ★85-2(현도): 리브 #0 선에서 끝내지 않고 **그 선을 축으로 대칭**이 될 때까지 연장.
+    const wLo = TR_AZ0 + RIB_DEST_PHI, wHi = TR_AZ1 + RIB_DEST_PHI     // 월드 방위
+    ok(Math.abs(wLo + wHi) < 1e-12,
+      `★대칭: 월드 ${r2(wLo * D)}° ~ ${r2(wHi * D)}° — **리브 #0 반지름선(0°)이 부채꼴 정중앙**(편차 ${Math.abs(wLo + wHi).toExponential(1)})`)
+    ok(Math.abs(TR_AZ1 - m.azHi) < 1e-12 && TR_AZ1 > m.azLo,
+      `아가리 쪽 끝 = **먼** 모서리 로컬 ${r2(TR_AZ1 * D)}°(현도 판정 ㄱ) — 아가리 폭 40을 통째로 받는다`)
+    ok(m.azLo > TR_AZ0 && m.azHi <= TR_AZ1 + 1e-12,
+      `아가리 문턱 ${r2(m.azLo * D)}~${r2(m.azHi * D)}° ⊂ 부채꼴 ${r2(TR_AZ0 * D)}~${r2(TR_AZ1 * D)}°(거울 반쪽엔 개구 0)`)
+
+    // ── ④ 레벨·두께 ──
+    ok(Math.abs(TR_Y - RM10_FLARE_MY) < 1e-9 && Math.abs(TR_Y - CL_FLOOR_END) < 1e-9,
+      `테라스 윗면 ${r2(TR_Y)} = 아가리 바닥 = 회랑 바닥 — **무단차 도착**(구 링 대비 +12.00)`)
+    ok(TERRACE_T > 2 * PASS_T,
+      `두께 ${r2(TERRACE_T)} > 바닥판 ${r2(PASS_T)}×2 — '통로 바닥의 연장'이 아니라 다른 덩어리(구 링은 두께 0)`)
+    //  ⚠★85-2: 구 기준 '폭 > 8'은 폐기 — 현도가 폭을 **줄이러** 노브를 만들었다(2/3·1/2 비교 중).
+    //   진짜 구속은 폭이 아니라 **아가리 앞 깊이**다: 안쪽 림이 문턱 중앙을 넘으면 문 앞이 허공이 된다.
+    const depth = m.ctrR - TR_RIN
+    ok(depth > 2,
+      `아가리 앞 깊이 ${r2(depth)} = 문턱 중앙 ${r2(m.ctrR)} − 안쪽 림 ${r2(TR_RIN)} > 2(한 걸음) — 폭 배율 ${r2(TR_W_F)}(폭 ${r2(sp.width)})`)
+    ok(TR_RIN < m.ctrR - sp.crescent,
+      `안쪽 림 ${r2(TR_RIN)} < 문턱 최근접 ${r2(m.ctrR - sp.crescent)} — 폭 하한(${r2(sp.crescent)}) 위반 없음`)
+
+    // ── ⑤ 부채꼴 안이 비어 있는가(전수 — 같은 높이에 사는 것들) ──
+    ok(CL_R - CL_HW > TR_ROUT,
+      `회랑 안벽 ${r2(CL_R - CL_HW)} > 테라스 외림 ${r2(TR_ROUT)} — 여유 ${r2(CL_R - CL_HW - TR_ROUT)}(같은 레벨이라 이 값이 곧 빈 폭)`)
+    ok(RM10_AX_R - RM10_EXIT_ROUT > TR_ROUT,
+      `등불 방·출구 통로 최근접 ${r2(RM10_AX_R - RM10_EXIT_ROUT)} > 외림 ${r2(TR_ROUT)} — 방이 테라스를 안 뚫는다`)
+    {   // 나팔 통로 발자국이 부채꼴 안으로 들어오지 않는가(아가리 앞은 비어야 한다)
+      let rmin = Infinity
+      for (const st of flareSpec().stations) rmin = Math.min(rmin, st.axDist)
+      const rminW = Math.hypot(...(() => {
+        const st = flareSpec().stations.reduce((a, b) => (b.axDist < a.axDist ? b : a))
+        const c = Math.cos(-RM10_PHI), sn = Math.sin(-RM10_PHI)
+        return [st.x * c + st.z * sn + RM10_AX_R * Math.cos(RM10_PHI), -st.x * sn + st.z * c + RM10_AX_R * Math.sin(RM10_PHI)]
+      })())
+      ok(rminW >= TR_ROUT - 1e-6,
+        `나팔 중심선 최소 반경 ${r2(rminW)} ≥ 외림 ${r2(TR_ROUT)} — 통로가 부채꼴 위로 안 넘어온다`)
+    }
+
+    // ── ⑥ 웨이포인트 ──
     const t = WU('terrace'), r = Math.hypot(t.x, t.z)
-    ok(r > TERRACE_RIN && r < TERRACE_ROUT, `테라스 r=${r.toFixed(1)} ∈ 고리(${TERRACE_RIN}~${TERRACE_ROUT})`)
-    ok(Math.abs(t.y - TERRACE_Y) < 1e-9, `테라스 y=${t.y.toFixed(2)} = 테라스 판`)
-    ok(t.pitch > 0, `테라스 pitch=${t.pitch.toFixed(2)} — 리브·렌즈를 약간 올려봄`)
+    const azW = Math.atan2(t.z, t.x)                     // ⚠WU()가 이미 그룹 로컬로 되돌린다(여기서 또 빼면 −10° 이중)
+    ok(r > TR_RIN && r < TR_ROUT, `테라스 웨이포인트 r=${r2(r)} ∈ 띠(${r2(TR_RIN)}~${r2(TR_ROUT)})`)
+    ok(azW > TR_AZ0 && azW < TR_AZ1, `방위 ${r2(azW * D)}° ∈ 부채꼴 — 아가리 정면`)
+    ok(Math.abs(t.y - TR_Y) < 1e-9, `y=${r2(t.y)} = 판 윗면`)
+    ok(t.pitch > 0, `pitch=${r2(t.pitch)} — 리브·렌즈를 올려봄`)
+
+    // ── ⑦ 밑이 비어 있다 = **선언**(결정이 아니라 미룸이다 — UNASSIGNED·WALK_DEBT와 같은 형식) ──
+    ok(true, `⚠뿌리 미결(§2-D ①): 이 판은 **완전 부양**이다 — 받칠 것이 없다(그 높이 껍질까지 수평 85.76 · 회랑은 동일 레벨). 현 답 = "의도된 부양 — 잠정"`)
+
+    console.log(`     └ ★85 실측: 부채꼴 ${r2(TR_AZ0 * D)}~${r2(TR_AZ1 * D)}°(${r2(sp.span * D)}°) · r ${r2(TR_RIN)}~${r2(TR_ROUT)}(폭 ${r2(sp.width)}) · 두께 ${r2(TERRACE_T)} · 바깥호 ${r2(sp.arcOut)} · 안호 ${r2(sp.arcIn)}`)
   }
 }
 
@@ -1002,12 +1084,33 @@ console.log('\n— W. 보행 (FREE_WALK를 끄면 걸어서 완주할 수 있는
         `나선 마지막 칸 (x${r2(p5.x)} z${r2(p5.z)}) ⊂ 무릎길 첫 참 — 여유 x ${r2(mx5)} · z ${r2(mz5)}`)
     }
 
-    //  ── 도착 '면'의 존재 — ★80 아가리 앞 ──
+    //  ── 도착 '면'의 존재 — ★80 아가리 → ★85 테라스 ──
     //  ⚠W3의 마지막 항은 나팔 계단 끝을 **레벨**(CL_FLOOR_END)과 비교한다. 레벨은 면이 아니다.
-    //   테라스가 꺼져 있으면 아가리 앞은 허공이고, 높이 검사로는 영원히 안 잡힌다.
-    ok(TERRACE_ON === false,
-      `★80 아가리 앞 도착 면: TERRACE_ON=${TERRACE_ON}` +
-      (TERRACE_ON ? '' : ' — ⚠**면이 존재하지 않는다**(선언된 빚 · 1p12~15 집 상실 · DoD-2 미충족)'))
+    //   ★84가 이 자리에 '면이 없다'를 선언으로 박아 두었고, ★85가 그 선언을 **실측으로 교체**한다.
+    //  ★재는 법: 문턱은 반경에 수직인 직선 현이므로 현 위 표본 u에서 r = √(rc² + u²)이고,
+    //   테라스 윗면은 r ≤ TR_ROUT를 덮는다 ⇒ **겹침 = TR_ROUT − r**. 방위는 부채꼴 안이어야 한다.
+    if (!TERRACE_ON) {
+      ok(false, '⛔아가리 앞에 면이 없다 — 테라스 소등(선언된 빚 · DoD-2 미충족)')
+    } else {
+      const sp5 = terraceSpec(), m5 = sp5.mouth, hw5 = m5.w / 2
+      let minAll = Infinity, minMid = Infinity, azBad = 0
+      for (let i = 0; i <= 40; i++) {
+        const u = -hw5 + 2 * hw5 * i / 40
+        const rr = Math.hypot(m5.ctrR, u)              // 현 위 표본의 반경
+        const ov = TR_ROUT - rr
+        minAll = Math.min(minAll, ov)
+        if (Math.abs(u) <= hw5 - 4) minMid = Math.min(minMid, ov)
+        //  방위: 현 위 표본을 극좌표로 — 중심 방위에서 ±atan(u/rc)
+        const az = m5.ctrAz + Math.atan2(u, m5.ctrR)
+        if (!(az > TR_AZ0 - 1e-9 && az < TR_AZ1 + 1e-9)) azBad++
+      }
+      ok(minAll >= -1e-9 && azBad === 0,
+        `아가리 문턱 41점 → 테라스 윗면: 겹침 최소 ${r2(minAll)}(양 끝 = 기하 필연 0) · 중앙 ±16에서 ${r2(minMid)} · 방위 이탈 ${azBad}점`)
+      ok(minMid > 0.3,
+        `걷는 선(중앙 32 폭)의 최소 겹침 ${r2(minMid)} > 0.3 — 발 앞에 면이 있다`)
+      ok(Math.abs(TR_Y - m5.y) < 1e-9,
+        `문턱 y ${r2(m5.y)} = 테라스 윗면 ${r2(TR_Y)} — 단차 0(W3의 '레벨' 비교가 이제 '면' 비교로 닫힌다)`)
+    }
 
     //  ── 아직 못 잰 이음매 = 선언한다(UNASSIGNED·WALK_DEBT와 같은 형식) ──
     //  ⚠하부 여정·극좌표 구간은 평면 발자국을 이 절이 아직 안 딴다. 숨기면 "다 쟀다"로 읽힌다.

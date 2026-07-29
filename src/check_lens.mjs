@@ -3,7 +3,7 @@
 import fs from 'node:fs'
 import {
   MERIDIANS, R_TOP, SHELL_RIB_R, H, SCALE, KNEE,
-  TERRACE_Y, TERRACE_RIN, TERRACE_ROUT,
+  TERRACE_Y, TERRACE_RIN, TERRACE_ROUT, TERRACE_ON, TR_Y, TR_RIN,   // ★85
   LENS_R, LENS_Y, LENS_T, LENS_FACETS, LENS_IRREG, LENS_SEED,
   RIB_TINT_Y0, RIB_TINT_Y1, RIB_TINT_AMT, RIB_TINT_EMIS,
   LAMP_TOP_Y,
@@ -34,10 +34,13 @@ if (LENS_Y <= H) {
 
 // ── fog·간격 ──
 const FOG_FAR = 150 * SCALE                                // App.jsx fog args와 동기(변경 시 여기도)
-const eyeY = TERRACE_Y + 1.6
-const dist = Math.hypot(LENS_Y - eyeY, TERRACE_RIN)
+//  ⚠★85-2: 시점을 **현행 테라스**로 옮긴다(구 링 y226.43·r129.6은 ★80이 폐기 — 그대로 두면 죽은 검사).
+const tY_ = TERRACE_ON ? TR_Y : TERRACE_Y
+const tR_ = TERRACE_ON ? TR_RIN : TERRACE_RIN
+const eyeY = tY_ + 1.6
+const dist = Math.hypot(LENS_Y - eyeY, tR_)
 ok(dist < FOG_FAR, `fog 가시 — 테라스→렌즈 거리 ${dist.toFixed(0)} < far ${FOG_FAR} (y960이면 ≈710로 전소멸이던 것)`)
-ok(LENS_Y - LENS_T * (1 + LENS_IRREG * 0.2) > TERRACE_Y + 30, `테라스 상공 간극 — 렌즈 하단 > 테라스 +30`)
+ok(LENS_Y - LENS_T * (1 + LENS_IRREG * 0.2) > tY_ + 30, `테라스 상공 간극 — 렌즈 하단 > 테라스(${tY_.toFixed(2)}) +30`)
 ok(LENS_Y - LENS_T > LAMP_TOP_Y + 20, `등불 무간섭 — 렌즈 하단 ${(LENS_Y-LENS_T)} > 등불 관 상단 ${LAMP_TOP_Y}+20`)
 
 // ── 기하 ──

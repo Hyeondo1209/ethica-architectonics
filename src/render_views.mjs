@@ -638,8 +638,17 @@ function render(eye, yaw, pitch, W, H, name, quiet = false) {
            t, C.ST_ROOF + t - C.PASS_DOOR_H, C.PASS_DOOR_W, SHELL)                      // 린텔
     }
 
-    // ⓖ 테라스(1p12~15) — 무단차 도착. 부채꼴 ±68.75°가 회랑 길이의 진짜 상한이다(★78 K2절)
-    ring(C.TERRACE_RIN, C.TERRACE_ROUT, C.TERRACE_Y, -C.TERRACE_ARC / 2, C.TERRACE_ARC / 2, STONE)
+    // ⓖ 테라스(1p12~15) — 무단차 도착.
+    //  ★85(2026.07.29): 구 링(±68.75° · y226.43 · 두께 0)을 폐기하고 **아가리를 받는 부채꼴**로 교체.
+    //  ⚠셀프 렌더가 구 링을 계속 그리면 이 권역에서 도구가 거짓말한다(§2-D ⑤ 사각지대는 '안 그린 것'과
+    //   '옛것을 그린 것' 둘 다에서 생긴다 — ★60 프리즈 바닥 전례).
+    //  ⚠ring()의 방위 인자는 **월드**다. 부채꼴 정본은 그룹 로컬이므로 +RIB_DEST_PHI 해서 넘긴다.
+    if (C.TERRACE_ON) {
+      const xp = C.RIB_XFER_ON ? C.RIB_DEST_PHI : 0
+      ring(C.TR_RIN, C.TR_ROUT, C.TR_Y, C.TR_AZ0 + xp, C.TR_AZ1 + xp, STONE)
+    } else {
+      ring(C.TERRACE_RIN, C.TERRACE_ROUT, C.TERRACE_Y, -C.TERRACE_ARC / 2, C.TERRACE_ARC / 2, STONE)
+    }
 
     // ⓗ 등불 9기(1p10) — 관 + 갓. 갓 입 높이가 층계참마다 내려온다(★78-2)
     {

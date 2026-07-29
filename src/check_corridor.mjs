@@ -47,6 +47,7 @@ import {
   INCA_PANEL_L, INCA_PANEL_W, INCA_PANEL_T, INCA_ARCH_X0, INCA_ARCH_Y1, INCA_FACETS,
   INCA_NEXUS_R, INCA_TIP_Y1, INCA_TIP_Y2, INCA_GAP, INCA_TIP_T, INCA_EMBED,
   CL_SILL, CL_R, PASS_FLOOR_Y, TERRACE_RIN, TERRACE_ROUT, TERRACE_Y,
+  TERRACE_ON, TR_RIN, TR_ROUT, TR_Y, RM10_FLARE_ON, RM10_FLARE_MY,   // ★85 테라스
   CL_HW, CL_PHI0, CL_PHI1, ST_ON, ST_PHI, ST_HW, TERRACE_ARC, PASS_X_END, LAMP_RIBS,
   RM10_EXIT_FLOOR_Y, RM10_EXIT_ROUT, RM10_AX_R, RM10_STR_END,   // ★79-5/6 출구 통로   // ★78 K2
   CL_SEG_DROP, CL_STEP_N, CL_STEP_RISE, CL_STEP_GO, CL_STEP_RUN, CL_STAIR_MID, CL_STAIR_HPHI,   // ★78-2 K3
@@ -1231,12 +1232,19 @@ console.log('— K. 다른 시점 불가시 (LOCKED 예외의 조건 — E-10) �
     }
     return false
   }
+  //  ★85(2026.07.29): 테라스가 재설계되면서 **시점이 12.00 올라갔다**(226.43 → 238.43).
+  //   이 절은 LOCKED 예외 #1의 조건 ③('다른 시점에서 문 전부 불가시')을 강제하는 자리이므로
+  //   눈높이가 바뀌면 반드시 다시 재야 한다 — 구 좌표로 계속 재면 **죽은 검사**가 된다(★83 전례).
+  //   ⚠방위는 여전히 360° 전수(새 부채꼴 −10~31.57°의 상위집합) = 보수적으로 잰다.
+  const tRin = TERRACE_ON ? TR_RIN : TERRACE_RIN
+  const tRout = TERRACE_ON ? TR_ROUT : TERRACE_ROUT
+  const tY = TERRACE_ON ? TR_Y : TERRACE_Y
   let leak = null
   outer:
   for (let j = 0; j < 12; j++) {
     const a = j / 12 * Math.PI * 2
-    for (const rr of [TERRACE_RIN + 0.5, TERRACE_ROUT - 0.5]) {
-      const ex = rr * Math.cos(a), ez = rr * Math.sin(a), ey = TERRACE_Y + EYE
+    for (const rr of [tRin + 0.5, tRout - 0.5]) {
+      const ex = rr * Math.cos(a), ez = rr * Math.sin(a), ey = tY + EYE
       for (const d of doors) {
         for (const [fy, fz] of [[0.1, -0.4], [0.1, 0.4], [0.95, 0], [0.5, 0]]) {   // 문 개구 표본점
           const ty = d.sill + DOOR_H * fy
@@ -1247,7 +1255,7 @@ console.log('— K. 다른 시점 불가시 (LOCKED 예외의 조건 — E-10) �
       }
     }
   }
-  ok(leak === null, `테라스(24점 × 문 5 × 표본 4) → 문 전부 불가시(드럼 천장·벽이 차단)` + (leak ? ` — 누출 (${leak[0]},${leak[1]}) → #${leak[2]}` : ''))
+  ok(leak === null, `테라스(★85 y${r2(tY)} · r${r2(tRin)}~${r2(tRout)} · 24점 × 문 5 × 표본 4) → 문 전부 불가시(드럼 천장·벽이 차단)` + (leak ? ` — 누출 (${leak[0]},${leak[1]}) → #${leak[2]}` : ''))
 }
 
 console.log('— K2. ★78 회랑 확장 — 끝캡 비공면 · 문 ↔ 테라스 도착 —')
@@ -1268,16 +1276,28 @@ console.log('— K2. ★78 회랑 확장 — 끝캡 비공면 · 문 ↔ 테라�
     `끝캡 물러섬 ${r2(dCap)}° — 어휘(리브 −1.4°) 또는 리브 살(2.02°) 밖`)
 
   // ② 문(스텁 끝벽) 방위 ± 각반폭이 테라스 부채꼴 안에 온전히 드는가
-  const tHalf = TERRACE_ARC / 2 * D                       // ±68.75°
-  const doorHalf = Math.atan(ST_HW / PASS_X_END) * D      // 문벽 반경에서의 각반폭
-  const stub = ST_PHI * D
-  ok(Math.abs(stub) + doorHalf < tHalf - 1.0,
-    `문 ${r2(stub)}°±${r2(doorHalf)} ⊂ 테라스 호 ±${r2(tHalf)}° — 남은 여유 ${r2(tHalf - Math.abs(stub) - doorHalf)}° (호 ${r2((tHalf - Math.abs(stub) - doorHalf) / D * TERRACE_ROUT)})`)
+  //  ⚠★85: 이 항은 **구 체제 전용**이다 — 상대가 구 스텁 문(ST_ON=false)이고 구 링 호(±68.75°)다.
+  //   ★80이 출구를 나팔로 바꾸고 ★85가 테라스를 아가리 파생으로 바꿨으므로, 현행 도착 관계는
+  //   `check_waypoints` **F절**(아가리 문턱 ⊂ 부채꼴)과 **W5**(문턱 41점 → 판 윗면 겹침)가 잰다.
+  //   치수는 지우지 않는다(되살릴 근거) — ST_ON 전례와 같은 형식으로 스위치 뒤에 둔다.
+  if (!RM10_FLARE_ON) {
+    const tHalf = TERRACE_ARC / 2 * D                       // ±68.75°
+    const doorHalf = Math.atan(ST_HW / PASS_X_END) * D      // 문벽 반경에서의 각반폭
+    const stub = ST_PHI * D
+    ok(Math.abs(stub) + doorHalf < tHalf - 1.0,
+      `문 ${r2(stub)}°±${r2(doorHalf)} ⊂ 테라스 호 ±${r2(tHalf)}° — 남은 여유 ${r2(tHalf - Math.abs(stub) - doorHalf)}° (호 ${r2((tHalf - Math.abs(stub) - doorHalf) / D * TERRACE_ROUT)})`)
+  } else {
+    ok(TERRACE_ON, `구 스텁↔구 링 도착 조항 = 보존계(★80 나팔·★85 테라스로 대체). 현행 도착은 check_waypoints F·W5가 잰다`)
+  }
   //  ⛔★79-5: 구 스텁 문↔테라스 림 물림 조항. 테라스가 출구 통로 파생으로 옮겨가 이 관계는 죽었다.
   //   ST_ON을 되살릴 때만 유효하므로 스위치 뒤로 넣는다(치수 보존 — 지우면 되살릴 근거가 사라진다).
   if (ST_ON) ok(PASS_X_END > TERRACE_ROUT && PASS_X_END - TERRACE_ROUT < 1.2,
     `문벽 반경 ${r2(PASS_X_END)} = 테라스 외림 ${r2(TERRACE_ROUT)} + ${r2(PASS_X_END - TERRACE_ROUT)}(림 물림 ∈ (0,1.2))`)
-  ok(TERRACE_ROUT - TERRACE_RIN > 8, `테라스 폭 ${r2(TERRACE_ROUT - TERRACE_RIN)} > 8 — 문 앞 체류 면적`)
+  {   // ★85-2: 폭 기준은 `check_waypoints` F절로 이관(현도가 폭을 줄이는 노브 TR_W_F를 만들었다).
+    //  여기선 구 링만 구 기준으로 잰다 — 새 테라스의 진짜 구속은 폭이 아니라 '아가리 앞 깊이'다.
+    if (!TERRACE_ON) ok(TERRACE_ROUT - TERRACE_RIN > 8, `구 링 폭 ${r2(TERRACE_ROUT - TERRACE_RIN)} > 8`)
+    else ok(TR_ROUT - TR_RIN > 0, `테라스 폭 ${r2(TR_ROUT - TR_RIN)}(노브 TR_W_F) — 하한 판정은 check_waypoints F절`)
+  }
 
   // ③ 등불이 호에서 파생됐는가(손 목록 잔재 = 호를 늘려도 안 따라오는 사고) — 여기서 다시 유도해 대조
   const derived = []
@@ -1391,12 +1411,19 @@ console.log('— K3. ★78-2 회랑 계단 바닥 — 연속성 · 보행 · 파
     `스텁 입(${r2((ST_PHI - mouthHalf) * D)}~${r2((ST_PHI + mouthHalf) * D)}°)이 **평평한** 마지막 층계참 위 — 계단에 안 걸림`)
   //  ★79-5 '문턱 없는 도착'의 **상대가 바뀌었다** — 회랑이 아니라 등불 방의 출구 통로다.
   //   관계(무단차)는 그대로고 값만 12 더 내려갔다. 어느 쪽에 묶여 있는지를 검사가 못 박는다.
-  ok(Math.abs(TERRACE_Y - RM10_EXIT_FLOOR_Y) < 1e-9,
-    `TERRACE_Y ${r2(TERRACE_Y)} = 출구 통로 바닥 — '문턱 없는 도착' 관계 보존(구 상대 = 회랑 끝 ${r2(CL_FLOOR_END)})`)
-  //  ★79-6 상대가 원호 바깥벽 → **직선 구간 끝**으로 바뀌었다(공개 지점이 직선 끝이므로)
-  ok(TERRACE_ROUT <= RM10_AX_R - RM10_STR_END + PASS_T + 1e-9 && TERRACE_ROUT > RM10_AX_R - RM10_STR_END,
-    `테라스 외림 ${r2(TERRACE_ROUT)} = 직선 끝 ${r2(RM10_AX_R - RM10_STR_END)} + 물림 ${r2(PASS_T)} — 문지방에 틈 없음`)
-  ok(TERRACE_Y - 110 > 100, `테라스 ${r2(TERRACE_Y)} − 최고 문 상단 110 = ${r2(TERRACE_Y - 110)} > 100 — 하부 세계는 여전히 한참 아래`)
+  //  ⚠★85: 아래 둘은 **구 링(★79-5 출구 통로 파생) 전용**이다. ★80이 12.00을 올려 아가리를 회랑
+  //   레벨에 놓았고 ★85가 테라스를 그 아가리에서 파생시켰으므로, 두 관계는 상대가 통째로 바뀌었다.
+  //   현행 = `TR_Y = RM10_FLARE_MY = CL_FLOOR_END` · `TR_ROUT = 아가리 모서리 반경`(check_waypoints F절).
+  if (!RM10_FLARE_ON) {
+    ok(Math.abs(TERRACE_Y - RM10_EXIT_FLOOR_Y) < 1e-9,
+      `TERRACE_Y ${r2(TERRACE_Y)} = 출구 통로 바닥 — '문턱 없는 도착' 관계 보존(구 상대 = 회랑 끝 ${r2(CL_FLOOR_END)})`)
+    ok(TERRACE_ROUT <= RM10_AX_R - RM10_STR_END + PASS_T + 1e-9 && TERRACE_ROUT > RM10_AX_R - RM10_STR_END,
+      `테라스 외림 ${r2(TERRACE_ROUT)} = 직선 끝 ${r2(RM10_AX_R - RM10_STR_END)} + 물림 ${r2(PASS_T)} — 문지방에 틈 없음`)
+  } else {
+    ok(Math.abs(TR_Y - CL_FLOOR_END) < 1e-9 && Math.abs(TR_Y - RM10_FLARE_MY) < 1e-9,
+      `★85 도착 = TR_Y ${r2(TR_Y)} = 아가리 바닥 = 회랑 바닥(구 관계는 스위치 뒤 보존)`)
+  }
+  ok((TERRACE_ON ? TR_Y : TERRACE_Y) - 110 > 100, `테라스 ${r2(TERRACE_ON ? TR_Y : TERRACE_Y)} − 최고 문 상단 110 = ${r2((TERRACE_ON ? TR_Y : TERRACE_Y) - 110)} > 100 — 하부 세계는 여전히 한참 아래`)
   ok(CL_FLOOR_END - 0.05 + PASS_DOOR_H < CL_FLOOR_END + ST_ROOF, `문(${PASS_DOOR_H}) < 스텁 내부고(${ST_ROOF})`)
   console.log(`     └ ★78-2 실측: 바닥 ${r2(PASS_FLOOR_Y)}→${r2(CL_FLOOR_END)}(−${CL_DROP_TOTAL}) · 층고 ${CL_ROOF}→${r2(CL_ROOF_Y - CL_FLOOR_END)} · 창높이 ${r2(CL_HEAD - CL_SILL)}→${r2(CL_HEAD_Y - (CL_FLOOR_END + CL_SILL))} · 계단 ${CL_STAIR_MID.length}×${CL_STEP_N}단`)
 }
@@ -1421,7 +1448,10 @@ console.log('— K4. ★78-4 회랑 벽 두께 — 돌출 소멸 · 폭 사슬 �
   ok(LAMP_R > rIn && LAMP_R < rOut, `등불 관 r=${LAMP_R}이 여전히 통행 단면 안`)
 
   //  ── ③ 벽 발자국이 이웃을 안 먹는가 ──
-  ok(CL_R_IN2 > TERRACE_ROUT + 1, `안벽 안쪽면 ${r2(CL_R_IN2)} > 테라스 외림 ${TERRACE_ROUT}+1`)
+  {   // ★85: 회랑 안벽 ↔ 테라스 외림. 둘은 **같은 레벨**이라 이 여유가 곧 그 사이 빈 폭이다.
+    const tro = TERRACE_ON ? TR_ROUT : TERRACE_ROUT
+    ok(CL_R_IN2 > tro + 1, `안벽 안쪽면 ${r2(CL_R_IN2)} > 테라스 외림 ${r2(tro)}+1 — 빈 폭 ${r2(CL_R_IN2 - tro)}`)
+  }
   ok(CL_R_IN2 - PASS_X_END > 3, `스텁 남은 길이 ${r2(CL_R_IN2 - PASS_X_END)} > 3 — 벽이 스텁을 삼키지 않았다`)
   ok(ST_ROOF + CL_FLOOR_END > CL_FLOOR_END, `스텁이 안벽을 관통해 뚫린다(측벽 r ${r2(PASS_X_END)}~${r2(rIn + 0.4)} ⊃ 벽 ${r2(CL_R_IN2)}~${r2(rIn)})`)
 

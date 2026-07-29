@@ -38,7 +38,8 @@ import { INCA_ON, INCA_GAP, FRIEZE_ROOM_ON, FR_FLOOR_Y, FR_WALL_T, TEMPLE_X0 } f
 import { RIB_XFER_ON, RIB_DEST_PHI, STELE7_F, STAIR_STEPS, spiralU, RIB_FREE_MODE, RIB_OPEN_ON } from './constants.js'
 import { ST_ON, RM10_ON, RM10_PHI, RM10_AX_R, RM10_FLOOR_Y, RM10_FLOOR_OPEN_R, RM10_ENTRY_TH, RM10_DOOR_HTH, RM10_TURN, RM10_CCW } from './constants.js'   // ★79 등불 방
 import { RM10_EXIT_RIN, RM10_EXIT_ROUT, RM10_EXIT_TH, RM10_TERR_TH, RM10_EXIT_FLOOR_Y, RM10_STR_END } from './constants.js'   // ★79-5/6 출구 통로
-import { RM10_FLARE_ON, RM10_FLARE_MX, RM10_FLARE_MZ, TERRACE_ON } from './constants.js'   // ★80 S자 나팔
+import { RM10_FLARE_ON, RM10_FLARE_MX, RM10_FLARE_MZ, RM10_FLARE_MY, TERRACE_ON } from './constants.js'   // ★80 S자 나팔
+import { terraceSpec, terracePoint } from './terraceGeometry.js'   // ★85 테라스(사본 금지 — 좌표는 빌더 파생)
 import { openRimSpec, isOpenRib } from './ribGeometry.js'                                              // ★63 우물 발코니
 import { ribCutSpec } from './corridorStairsGeometry.js'                                               // ★63 리브별 절단 좌표  // ★61 리브 갈아타기
 import { freeSplitRange, destCut } from './ribGeometry.js'                               // ★61 자립 나선(정본 파생)
@@ -376,15 +377,24 @@ export const WAYPOINTS = [
       { id: 'exitpass', group: '등불 방 (1p10)', label: '출구 통로 — 방 벽을 돈다(밀폐)', prop: '—',
         x: rX(ix, iz), y: RM10_EXIT_FLOOR_Y, z: rZ(ix, iz),
         yaw: rYaw(yawTo(gx - ix, gz - iz)), pitch: 0 },
+      //  ⚠★85에서 적발: 나팔은 12.00을 **올라가서** 끝나는데 이 y가 구 통로 바닥(226.43)에 묶여 있었다.
+      //   스냅 레이(발+2.5에서 아래로 8.5)로는 12를 못 메우므로 아가리 바닥을 못 찾는다. 아가리면 아가리 바닥.
       { id: 'reveal', group: '등불 방 (1p10)', label: RM10_FLARE_ON ? '나팔 입 — 정조준 공개 지점' : '테라스 문 — 직선 끝, 공개 직전(돔 중심 향)', prop: '1p11',
-        x: rX(gx, gz), y: RM10_EXIT_FLOOR_Y, z: rZ(gx, gz),
+        x: rX(gx, gz), y: RM10_FLARE_ON ? RM10_FLARE_MY : RM10_EXIT_FLOOR_Y, z: rZ(gx, gz),
         yaw: rYaw(yawTo(-gx, -gz)), pitch: 0.15 },
     ]
   })() : []),
 
-  ...(TERRACE_ON ? [{ id: 'terrace', group: '테라스 (1p12~15)', label: '테라스 — 무한 리브 · 정점 렌즈', prop: '1p12~15',
-    x: rX((TERRACE_RIN + TERRACE_ROUT) / 2, 0), y: TERRACE_Y, z: rZ((TERRACE_RIN + TERRACE_ROUT) / 2, 0),
-    yaw: rYaw(FACE_NX), pitch: 0.25 }] : []),
+  //  ★85 테라스 = 아가리를 받는 부채꼴. 좌표는 `terracePoint()` 파생이라 ★80 노브를 돌려도 자동 추종한다.
+  //   자리 = 아가리 정면(방위 = 문턱 중앙) × 띠 한가운데 → 문턱에서 안쪽으로 약 5걸음.
+  ...(TERRACE_ON ? (() => {
+    const sp = terraceSpec()
+    const fa = (sp.mouth.ctrAz - sp.az0) / sp.span          // 아가리 문턱 중앙의 방위 보간값
+    const t  = terracePoint(0.5, fa)
+    return [{ id: 'terrace', group: '테라스 (1p12~15)', label: '테라스 — 무한 리브 · 정점 렌즈', prop: '1p12~15',
+      x: rX(t.x, t.z), y: t.y, z: rZ(t.x, t.z),
+      yaw: rYaw(yawTo(-t.x, -t.z)), pitch: 0.25 }]
+  })() : []),
 ]
 
 export const wpIndexOf = (id) => WAYPOINTS.findIndex(w => w.id === id)

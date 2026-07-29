@@ -25,7 +25,7 @@ import {
   RM_X0, RM_X1, RM_Z0, RM_Z1, RM_ROOF, RM_MOUTH_H, PASS_FUSE,
   ST_ON, ST_PHI, ST_HW, ST_ROOF,
   LAMP_RIBS, LAMP_R, LAMP_TUBE_R, LAMP_ENTRY_Y, LAMP_TOP_Y, LAMP_MOUTH_Y0, LAMP_MOUTH_Y1, LAMP_FUNNEL_H, LAMP_MOUTH_R, LAMP_POOL_R,
-  TERRACE_Y, TERRACE_RIN, TERRACE_ROUT, TERRACE_ARC,
+  TERRACE_Y, TERRACE_RIN, TERRACE_ROUT, TERRACE_ARC,   // ⚠구 링(보존계 — ★80이 폐기, 그리지 않는다)
   RM10_ON, RM10_K, RM10_PHI, RM10_AX_R, RM10_RHO, RM10_WALL_T, RM10_FLOOR_Y, RM10_ROOF_Y,   // ★79 등불 방
   RM10_DOOR_H, RM10_ENTRY_TH, RM10_DOOR_HTH, RM10_FLOOR_OPEN_R, rm10Steps,
   RM10_CONE_DEG, RM10_CONE_Y, rm10R, RM10_FLOOR_R, RM10_BOT_Y, RM10_CENTER_Y,   // ★79-3 원뿔대
@@ -45,6 +45,7 @@ import {
 import { hallDoors, ribCutSpec } from './corridorStairsGeometry'
 import { buildRibShell, makeRibCurve, buildViceWedge, viceSplitIndex, newelSpec, buildSill, buildFloorCollar, buildFloorLanding, freeNewelSpec, freeSplitRange, buildOpenRim, isOpenRib , ribHoleSolid } from './ribGeometry'
 import { buildKneeBody, buildKneePlinth } from './kneeBodyGeometry'
+import { buildTerrace } from './terraceGeometry'   // ★85 테라스 = 아가리를 받는 부채꼴 슬래브
 import { buildJunctionKnot, buildLightShaft, shaftCutSolid, lightShaftSpec, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, apronSteps, buildRoomMouthWall, ribArchCutSolid, radialPlate } from './junctionGeometry'   // ★70 매듭 · ★71 빛 기둥 · ★75 넓은 계단
 import { kneeTreads, kneeStairSpec } from './kneeStair'   // ★66 계단 규격·참
 import { buildFlareShell } from './exitFlareGeometry'   // ★80 S자 나팔
@@ -1112,12 +1113,15 @@ export function CloisterLamps() {
   )
 }
 
-// ── 테라스(1p12~15의 집 · 문 밖 = 1p11 공개) — y는 통로 바닥 파생(constants), 무단차 도착 ──
+// ── ★85 테라스(1p12~15의 집 · 아가리 밖 = 1p11 공개 직후) ─────────────────────
+//  현도 2026.07.29: 나팔 아가리 끝에 **딱 맞게** 붙는 환형 부채꼴, 리브 #0 반지름선까지.
+//  ⚠구판은 `ringGeometry` **두께 0 한 장**이었다(판떼기). 지금은 두께 1.50 슬래브다.
+//  기하·법선의 정본 = `terraceGeometry.js`, 수치의 정본 = constants ★85 블록. 여기는 마운트만 한다.
 export function Terrace() {
+  const geo = useMemo(() => buildTerrace(), [])
   return (
-    <mesh position={[0, TERRACE_Y, 0]} rotation-x={-Math.PI / 2} userData={{ walkable: true }}>
-      <ringGeometry args={[TERRACE_RIN, TERRACE_ROUT, 64, 1, -TERRACE_ARC / 2, TERRACE_ARC]} />
-      <meshStandardMaterial color="#caa161" roughness={0.85} side={THREE.DoubleSide} />
+    <mesh geometry={geo} userData={{ walkable: true }}>
+      <meshStandardMaterial color="#caa161" roughness={0.85} />
     </mesh>
   )
 }
