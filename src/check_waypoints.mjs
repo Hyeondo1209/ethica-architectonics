@@ -41,6 +41,16 @@ import { openRimSpec, isOpenRib } from './ribGeometry.js'
 import { ribCutSpec } from './corridorStairsGeometry.js'
 import { freeSplitRange, freeNewelSpec, destCut } from './ribGeometry.js'
 
+// ── ★W절(보행, 2026.07.29) 전용 import — 리그 정본 + 계단계 정본 ──
+import fs from 'fs'
+import { STEP_UP, STEP_DOWN, FREE_WALK } from './waypoints.js'   // ⚠사본 금지(EYE 전례) — 런타임과 같은 수
+import { TREAD_THICK, STAIR_STEPS, spiralPoint, ROOM_STAIR_RISE, DAIS_STEP_H,
+         DESC_STEP_R, DESC_STEPS, clFloorSegments, rm10Steps, RM10_LAND_Y } from './constants.js'
+import { floorKnotSpec, viceSplitIndex } from './ribGeometry.js'
+import { kneeTreads, kneeStairSpec } from './kneeStair.js'
+import { wideStairTreads } from './junctionGeometry.js'
+import { stairProfile } from './exitFlareGeometry.js'
+
 let n = 0, fail = 0
 const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
 const W = (id) => wpById(id)
@@ -731,6 +741,194 @@ console.log('  ' + WP_GROUPS.map(g => `${g.name}(${g.items.length})`).join('  �
               : at('lamp') < at('lamproom') && at('lamproom') < at('exitpass')
                 && at('exitpass') < at('reveal') && (!TERRACE_ON || at('reveal') < at('terrace'))),
     `순서 = 관람 동선(지상 → 허브 → 꽃잎4 → 통로 → 리브 → 갈림·전망 → 전실 → 회랑 → 등불 → ${ST_ON ? '문' : '등불 방 → 출구 통로 → 공개'} → 테라스)`)
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ★W. 보행 (2026.07.29 신설 — 운용계획 v5 §8 운용규칙 2)
+// ════════════════════════════════════════════════════════════════════════════
+//  ★왜 이 절이 있는가: 지금까지 검증된 것은 **형태**뿐이다. 로컬 순회는 `FREE_WALK=true`
+//   상태이며 이 모드는 `probe()`를 아예 부르지 않는다 — 벽을 통과하고 바닥이 없어도 안 떨어진다.
+//   즉 **보행 가능성은 한 번도 시험된 적이 없다.** 전례 셋(★60 환형 허공 0.85 / ★62 링 슬롯 0.40 /
+//   ★63 우물로 인한 횡단 무효)이 전부 "보기엔 멀쩡한데 밟을 수 없는" 종류였고, 그때마다 현도의
+//   로컬 왕복이 비용을 냈다. P3 완주 5일 예산은 '이미 걸어봤다'를 전제로 선 값이다 — 그 전제를
+//   여기서 코드가 지킨다(현도 시간 소모 0).
+//
+//  ★무엇을 재는가(운용규칙 2가 지정한 둘):
+//    ⓐ `walkable` 태그 — W4(정적 대조)
+//    ⓑ 접합부 단차 > `STEP_UP` — W2(계단계 단높이) · W3(이음매)
+//
+//  ★리그 모델(FirstPersonControls.probe와 동일): 발+`STEP_UP`에서 아래로 `STEP_UP+STEP_DOWN`
+//   길이의 광선. 맞으면 그 y로 올라서고 안 맞으면 **이동 자체가 거부된다**(막힘). 그러므로
+//     · 다음 면이 발보다 `STEP_UP`(0.8)보다 높으면 → 못 올라간다
+//     · 다음 면이 발보다 `STEP_DOWN`(2.2)보다 낮으면 → 광선이 못 닿아 **막힌다**(떨어지지도 않는다)
+//   두 값 전부 waypoints.js 정본을 import한다(사본 금지 — EYE 전례).
+//
+//  ⚠이 절이 못 잡는 것(정직하게 적어 둔다):
+//   ① **수평 틈**(발 앞에 면이 아예 없는 구간). 두 면의 평면 겹침까지 재려면 씬이 필요하다.
+//   ② 헤드룸·벽 충돌. ③ 조건부 태그가 런타임에 실제로 켜지는가.
+//   → ①은 다음 세션 후보, ②③은 로컬 순회 몫.
+console.log('\n— W. 보행 (FREE_WALK를 끄면 걸어서 완주할 수 있는가) —')
+{
+  const ST_UP = STEP_UP, ST_DN = STEP_DOWN
+  ok(ST_UP === 0.8 && ST_DN === 2.2 && typeof FREE_WALK === 'boolean',
+    `리그 정본 = waypoints.js — STEP_UP ${ST_UP} · STEP_DOWN ${ST_DN} · FREE_WALK ${FREE_WALK}` +
+    `${FREE_WALK ? ' ⚠현재 켜짐: 이 절은 "끄면 걸을 수 있는가"를 재는 것이다' : ''}`)
+
+  // ── W2. 계단계 단높이 — 전부 실제 모듈에서 유도한다(상수 재기입 금지) ──
+  console.log('  · W2. 계단계 단높이 (≤ STEP_UP)')
+  const TT = TREAD_THICK
+  const spTop = (i) => spiralPoint((i + 0.5) / STAIR_STEPS).pos.y + TT / 2   // ★58/61 나선 한 칸 상면
+  const maxGap = (ys) => {
+    const s = ys.filter(Number.isFinite).slice().sort((a, b) => a - b)
+    let mx = 0
+    for (let i = 1; i < s.length; i++) mx = Math.max(mx, s[i] - s[i - 1])
+    return mx
+  }
+  const wd = woldaeSpec(), dsp = descentSpec(HALL_ENTRY), inca = incaStairSpec()
+  const fr = freeSplitRange()
+  const rises = [
+    ['방 나선(정의·공리 방)',      ROOM_STAIR_RISE],
+    ['성역 단(DAIS)',              DAIS_STEP_H],
+    ['월대 상승단(★54-3)',         wd.rise ? wd.rise.stepH : 0],
+    ['하강로(★㊾)',                dsp.rise],
+    ['잉카 계단(★㊶)',             inca.rise],
+    ['리브 나선 쐐기(★58)',        maxGap(Array.from({ length: viceSplitIndex() }, (_, i) => spTop(i)))],
+    ['자립 판 나선(★61·62-2)',     maxGap(Array.from({ length: fr.end - fr.start + 1 }, (_, i) => spTop(fr.start + i)))],
+    ['무릎길 계단(★66)',           maxGap(kneeTreads().map(t => t.y))],
+    ['★75 넓은 상승 계단',         maxGap(wideStairTreads().map(t => t.y))],
+    ['갈림 하강 계단',             DESC_STEP_R],
+    ['회랑 계단(★78-2)',           CL_STEP_RISE],
+    ['등불 방 계단(★79)',          maxGap(rm10Steps().map(s => s.top))],
+    ['★80 나팔 계단',              maxGap(stairProfile().samples.map(s => s.y))],
+    ['★63 우물 발코니 한 단',      BAL_STEP],
+  ]
+  for (const [name, r] of rises)
+    ok(r <= ST_UP + 1e-9, `${name} 단높이 ${r2(r)} ≤ ${ST_UP}`)
+  //  ★계단은 위험하지 않다는 것을 수치로 남긴다 — 위험은 이음매(W3)와 태그(W4)뿐이다.
+  const worst = rises.reduce((a, b) => (b[1] > a[1] ? b : a))
+  ok(worst[1] <= ST_UP * 0.9,
+    `최대 단높이 = ${worst[0]} ${r2(worst[1])} — 상한 ${ST_UP}의 ${Math.round(worst[1] / ST_UP * 100)}% (여유 ${r2(ST_UP / worst[1])}배)`)
+
+  // ── W3. 이음매 단차 — 계단계가 서로 만나는 자리. 양쪽 다 실제 모듈에서 딴다 ──
+  //  ⚠부호 규약: Δ = (다음 면) − (지금 면). Δ > 0 = 올라섬(≤ STEP_UP) · Δ < 0 = 내려섬(≥ −STEP_DOWN).
+  console.log('  · W3. 이음매 단차 (−STEP_DOWN ≤ Δ ≤ STEP_UP)')
+  const kn = floorKnotSpec(), kl0 = kneeStairSpec().landings[0], kt = kneeTreads(), wst = wideStairTreads()
+  const clSeg = clFloorSegments().segs, rm10 = rm10Steps()
+  const jctTop = U_KNEE_END * H + 0.1                                   // JunctionLanding 상면(JCT_PLATE_TOP과 같은 식)
+  const jctDescTop = U_KNEE_END * H                                     // 하강 첫 디딤 상면 = yTop − R/2 + TT/2
+  const descTreadTop = (i) => U_KNEE_END * H - (i + 0.5) * DESC_STEP_R + TT / 2
+  const seams = [
+    ['허브 디스크 → 방사 접합 패드',   COR_Y0 + COR_THICK / 2 + 0.02, RAD_FLOOR_Y + COR_THICK / 2],
+    ['방사 접합 패드 → 월대 상면',     RAD_FLOOR_Y + COR_THICK / 2, wd.yTop],
+    ['월대 상면 → 하강로 첫 판',       wd.yTop, dsp.plates[0].yTop],
+    ['하강로 끝 → 잉카 진입 판',       dsp.plates[dsp.plates.length - 1].yTop, inca.panel.yTop],
+    ['잉카 진입 판 → 잉카 첫 단',      inca.panel.yTop, inca.steps[0].yTop],
+    ['★잉카 정상 → 리브 문 첫 디딤판', inca.top, spTop(0)],
+    ['나선 마지막 쐐기 → ★62 착지판',  spTop(viceSplitIndex() - 1), kn.yTop],
+    ['★62 착지판 → 프리즈 방 바닥',    kn.yTop, FR_FLOOR_Y],
+    ['프리즈 방 바닥 → ★63 발코니',    FR_FLOOR_Y, FR_FLOOR_Y + BAL_STEP],
+    ['프리즈 방 바닥 → 자립 판 첫 칸', FR_FLOOR_Y, spTop(fr.start)],
+    ['자립 판 끝 → 아가리 위 첫 판',   spTop(fr.end), spTop(fr.end + 1)],
+    ['나선 마지막 칸 → 무릎길 첫 참',  spTop(STAIR_STEPS - 1), kl0.y + TT / 2],
+    ['무릎길 첫 참 → 첫 디딤',         kl0.y + TT / 2, kt[0].y + TT / 2],
+    ['무릎길 마지막 디딤 → 갈림 판',   kt[kt.length - 1].y + TT / 2, jctTop],
+    ['갈림 판 → ★75 첫 디딤',          jctTop, wst[0].y],
+    ['★75 마지막 디딤 → 전망 반원판',  wst[wst.length - 1].y, U_LOOKOUT_END * H + LK_DISC_LIFT + LK_DISC_DY],
+    ['갈림 판 → 하강 첫 디딤',         jctTop, descTreadTop(0)],
+    ['하강 마지막 디딤 → 전실 바닥',   descTreadTop(DESC_STEPS - 1), PASS_FLOOR_Y],
+    ['전실 바닥 → 회랑 첫 조각',       PASS_FLOOR_Y, clSeg[0].y],
+    ['회랑 끝 → 등불 방 착지 링',      clSeg[clSeg.length - 1].y, RM10_LAND_Y],
+    ['등불 방 착지 링 → 계단 첫 단',   RM10_LAND_Y, rm10[0].top],
+    ['등불 방 계단 끝 → 방 바닥',      rm10[rm10.length - 1].top, RM10_FLOOR_Y],
+    ['등불 방 바닥 → 출구 통로 바닥',  RM10_FLOOR_Y, RM10_EXIT_FLOOR_Y],
+    ['★80 나팔 계단 끝 → 도착 레벨',   stairProfile().samples[stairProfile().samples.length - 1].y, CL_FLOOR_END],
+  ]
+  //  ★선언된 보행 빚(UNASSIGNED와 같은 형식) — **고치는 것은 조형 결정이라 현도 몫이다.**
+  //   숨기면 잊는다: 여기 적힌 이음매는 빨강으로 안 만들되, 선언과 실제가 어긋나면 즉시 실패한다.
+  //   ⚠비면 DoD-2(걸어서 완주)가 이 절에 관한 한 충족이다. 채워져 있으면 그만큼 못 걷는다.
+  //  ── 현재 1건 (2026.07.29 W절 신설이 처음 잰 것) ──
+  //   잉카 계단 정상 `INCA_TOP_Y` 77 ↔ 리브 문 안 첫 쐐기 상면 74.28 = **−2.72**(STEP_DOWN 2.2 초과).
+  //   ★㊶-6에서 정상을 110→77로 내리면서 "우연히 구 RIB_Y 74 근방 복귀"라고 적혔지만(constants 주석),
+  //   문 안쪽 첫 디딤판과의 차는 아무도 잰 적이 없다. 결과: 문 앞에서 광선이 못 닿아 **이동이 거부된다**
+  //   (떨어지지도 않는다 — 그냥 못 들어간다). 노브 하나(INCA_TOP_Y)로 오가지만, 정상 높이는
+  //   아치 웨브·프리즈 여유·실루엣이 걸린 조형 값이라 Claude가 정하지 않는다.
+  const WALK_DEBT = ['★잉카 정상 → 리브 문 첫 디딤판']
+  let worstSeam = null
+  const broken = []
+  for (const [name, a, b] of seams) {
+    const d = b - a
+    if (!worstSeam || Math.abs(d) > Math.abs(worstSeam[1])) worstSeam = [name, d]
+    const bad = !(d <= ST_UP + 1e-6 && d >= -ST_DN - 1e-6)
+    if (bad) broken.push(name)
+    const why = d > ST_UP ? ` ⛔ 올라설 수 없다(STEP_UP ${ST_UP})`
+      : d < -ST_DN ? ` ⛔ 광선이 못 닿는다(STEP_DOWN ${ST_DN}) = 이동 거부` : ''
+    ok(bad ? WALK_DEBT.includes(name) : true,
+      `${name}: ${r2(a)} → ${r2(b)} Δ ${d >= 0 ? '+' : ''}${r2(d)}${why}${bad ? ' — ⚠선언된 보행 빚(현도 결정 대기)' : ''}`)
+  }
+  ok(broken.join('|') === WALK_DEBT.join('|'),
+    broken.length === 0 ? `이음매 ${seams.length}곳 전부 통행 가능 — DoD-2 이 절에 관한 한 충족`
+      : `막힌 이음매 ${broken.length}곳 = 선언과 일치(${broken.join(' · ')}) — ⚠DoD-2 미충족`)
+  ok(true, `이음매 ${seams.length}곳 검사 · 최대 |Δ| = ${worstSeam[0]} ${r2(worstSeam[1])}`)
+
+  // ── W4. walkable 태그 — 선언 대장 ──
+  //  ⚠이 절만 기하가 아니라 **소스 텍스트**를 읽는다. 이유: `walkable`은 JSX의 `userData`에만 있고
+  //   Node에서 씬을 세우지 않는 한 기하로는 못 잰다. 그래서 '무엇이 밟는 면인가'를 판정하지 않고,
+  //   **부재 수와 태그 수를 동결**한다 — 새 메시가 생기면 여기서 깨지고, 그때 '밟는 면인가'를
+  //   한 번 결정하게 만든다. (구 상태: "태그 누락 59곳 미확인" = 아무도 세어 본 적이 없었다.)
+  console.log('  · W4. walkable 태그 선언 대장 (JSX 정적 대조)')
+  {
+    const dir = new URL('.', import.meta.url).pathname
+    const scanTags = (src) => {
+      const out = []
+      const re = /<(mesh|instancedMesh)\b/g
+      let m
+      while ((m = re.exec(src))) {
+        let i = m.index + m[0].length, depth = 0, end = -1
+        while (i < src.length) {                       // 여는 태그의 끝 '>' — 중괄호 깊이 0에서만(=> 화살표 오인 방지)
+          const c = src[i]
+          if (c === '{') depth++
+          else if (c === '}') depth--
+          else if (c === '>' && depth === 0) { end = i; break }
+          i++
+        }
+        if (end < 0) break
+        const tag = src.slice(m.index, end + 1)
+        const cls = !/walkable/.test(tag) ? 'none'
+          : /\?/.test(tag) ? 'cond'
+          : /walkable\s*:\s*true/.test(tag) ? 'true' : 'false'
+        out.push({ line: src.slice(0, m.index).split('\n').length, cls })
+        re.lastIndex = end
+      }
+      return out
+    }
+    //  ★선언 대장 — [파일, 총 메시, walkable:true, 조건부, walkable:false]
+    //   ⚠깨지면 "새 메시가 생겼다"는 뜻이다. 밟는 면이면 태그를 달고, 아니면 여기 수를 고친다.
+    //   조건부 4(Dome: ring 헬퍼 walk 인자) · false 6(기둥·난간·격자 등 명시 비-바닥)은 의도된 것.
+    const LEDGER = [
+      ['Corridor.jsx',      32, 17, 0, 0],
+      ['Dome.jsx',          67, 18, 4, 4],
+      ['GraphScaffold.jsx',  1,  0, 0, 0],
+      ['Lens.jsx',           1,  0, 0, 0],
+      ['Radial.jsx',        11,  5, 0, 0],
+      ['RadialEvents.jsx',   6,  1, 0, 0],
+      ['Room.jsx',          13,  3, 0, 2],
+      ['Steles.jsx',         5,  0, 0, 0],
+    ]
+    let sumAll = 0, sumWalk = 0
+    for (const [f, nAll, nT, nC, nF] of LEDGER) {
+      const r = scanTags(fs.readFileSync(dir + f, 'utf8'))
+      const c = { true: 0, false: 0, cond: 0, none: 0 }
+      for (const x of r) c[x.cls]++
+      sumAll += r.length; sumWalk += c.true + c.cond
+      ok(r.length === nAll && c.true === nT && c.cond === nC && c.false === nF,
+        `${f.padEnd(18)} 메시 ${r.length}/${nAll} · walkable true ${c.true}/${nT} 조건부 ${c.cond}/${nC} false ${c.false}/${nF} · 무선언 ${c.none}`)
+    }
+    ok(sumAll === 136 && sumWalk === 48,
+      `합계 메시 ${sumAll} 중 밟는 면 ${sumWalk}(true 44 + 조건부 4) · 무선언 ${sumAll - sumWalk - 6} = 벽·지붕·챌판·기둥`)
+    //  ★챌판(riser)은 밟는 면이 아니다 — 회랑·등불 방 계단의 '밟는 면'은 ring 헬퍼(조건부 태그)가 낸다.
+    //   이 한 줄이 W4가 "무선언 = 버그"로 읽히는 것을 막는다(무선언 대부분은 정상이다).
+  }
 }
 
 console.log(fail === 0 ? `\n전부 통과 (${n}항)` : `\n실패 ${fail}/${n}`)

@@ -52,6 +52,19 @@ export const SPAWN_ID     = 'corridor' // ★㊳ 판정 세션용(1p5 홀). 직�
 //  FirstPersonControls가 이 값을 import해 쓴다(중복 정의 금지 — 어긋나면 텔레포트만 눈높이가 달라짐).
 export const EYE = 1.6
 
+// ── 보행 리그(★2026.07.29 W절 신설) — EYE와 **같은 이유**로 여기가 정본이다 ──
+//  왜 여기냐: 이 셋은 '웨이포인트 y(발 딛는 면)에서 실제로 걸을 수 있는가'를 정하는 값이고,
+//  검사(check_waypoints W절)와 런타임(FirstPersonControls)이 **같은 수를 봐야** 판정이 의미를 갖는다.
+//  구판은 FirstPersonControls 안의 지역 const라 Node 검사가 못 읽었다 = 사본을 적을 수밖에 없었다.
+//  ⚠STEP_UP/DOWN은 probe()의 광선 길이를 정한다: 발+STEP_UP에서 아래로 (STEP_UP+STEP_DOWN)만큼.
+//   즉 **올라설 수 있는 최대 단차 = STEP_UP · 내려설 수 있는 최대 낙차 = STEP_DOWN**.
+//   이보다 큰 이음매는 '보이지만 밟을 수 없는' 지점이 된다(★60·★62·★63 전례).
+export const STEP_UP   = 0.8   // 올라설 수 있는 최대 단차
+export const STEP_DOWN = 2.2   // 내려설 수 있는 최대 낙차
+//  ⚠편집 중 노브 — true면 probe()를 건너뛴다(벽 통과·무낙하). 형태는 검증되지만 **보행은 안 된다**.
+//   운용계획 v5 §8 운용규칙 2: P3 5일 예산은 '이미 걸어봤다'를 전제로 선 값이다.
+export const FREE_WALK = true
+
 // ── 시선 헬퍼 ──
 //  FirstPersonControls의 전진 벡터 = (−sin yaw, 0, −cos yaw).
 //  따라서 수평방향 (dx,dz)를 바라보려면 yaw = atan2(−dx, −dz).  (pitch: + = 위)

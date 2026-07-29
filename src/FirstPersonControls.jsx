@@ -1,11 +1,12 @@
-// FirstPersonControls.jsx — 1인칭 컨트롤(걷기·비행 Q/E·시선 드래그). FREE_WALK 임시 노브는 함수 안.
+// FirstPersonControls.jsx — 1인칭 컨트롤(걷기·비행 Q/E·시선 드래그).
+//  ★보행 리그(EYE·STEP_UP·STEP_DOWN·FREE_WALK) 정본 = waypoints.js — 검사와 런타임이 같은 수를 본다.
 //  ★2026.07.13: 스폰 하드코딩(SPAWN 문자열 4갈래) 폐기 → 웨이포인트 표(waypoints.js) 단일 소스.
 //   스폰 = SPAWN_ID · 텔레포트 = App 패널/[ ] 키가 쏘는 CustomEvent('ethica:teleport'). 좌표 정본은 waypoints.js.
 import { useThree, useFrame } from '@react-three/fiber'
 import { useRef, useEffect } from 'react'
 import * as THREE from 'three'
 import { SCALE, H, DOWN } from './constants'
-import { WAYPOINTS, wpById, SPAWN_ID, EYE } from './waypoints'
+import { WAYPOINTS, wpById, SPAWN_ID, EYE, STEP_UP, STEP_DOWN, FREE_WALK } from './waypoints'
 
 // ── ① 1인칭 컨트롤 ──
 export function FirstPersonControls() {
@@ -76,10 +77,9 @@ export function FirstPersonControls() {
   //   최종 보행속도(사람 고정 vs ×SCALE)는 열린 결정(§7) — 리그 판정 후.
   const WALK_SPEED = 6         // 사람 걷기(고정). 느리면 이 값만 ↑
   const RUN_MULT   = 3         // Shift 달리기 배수(6 → 18)
-  const STEP_UP   = 0.8        // ※눈높이 EYE는 waypoints.js가 정본(웨이포인트 y와 어긋나면 안 됨)
-  const STEP_DOWN = 2.2
   const FALL      = 5
-  const FREE_WALK = true    // 편집 중: 자유부양(벽 통과)으로 구멍 확인. 걷기 검증할 땐 false(바닥 있는 칸으로만 이동, Q/E는 항상 비행).
+  //  ★2026.07.29: STEP_UP·STEP_DOWN·FREE_WALK는 **waypoints.js가 정본**(EYE와 같은 이유).
+  //   검사(check_waypoints W절)가 같은 수를 읽어야 '걸을 수 있는가'를 코드가 잰다. 여기 다시 적지 말 것.
 
   const probe = (x, z) => {
     const feet = camera.position.y - EYE
