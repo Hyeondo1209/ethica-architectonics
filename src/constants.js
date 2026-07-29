@@ -1214,6 +1214,66 @@ export const RM10_FLARE_TPLUS = Math.max(0, 1 - RM10_FLARE_SKEW / RM10_FLARE_SWE
 export const RM10_FLARE_MX = RM10_FLARE_C[0] + RM10_FLARE_R * Math.cos(RM10_ARC_TH1 + Math.PI - RM10_FLARE_SWEEP)
 export const RM10_FLARE_MZ = RM10_FLARE_C[1] + RM10_FLARE_R * Math.sin(RM10_ARC_TH1 + Math.PI - RM10_FLARE_SWEEP)
 export const RM10_FLARE_MY = RM10_EXIT_FLOOR_Y + RM10_FLARE_RISE
+// ══ ★81 출구 통로의 창 (2026.07.29 · 시험판 — 현도 "느낌만 봐보자") ═══════════
+//  현도 지정: **좌측(= 돔 중심 쪽) 벽에만** · 점점 커지는 **사다리꼴** 창.
+//  ⚠좌/우 실측(2026.07.29): 진행 t 기준 좌측 = up×forward = (tz,−tx).
+//   +N 벽(`wDome`)이 좌측이고 반경성분 −0.24~−1.00 = 돔 중심을 향한다. −N(`wOuter`)은 우측·바깥.
+//   ⚠첫 계산에서 좌우 부호가 뒤집혀 있었다 — 반대 벽에 뚫을 뻔했다. 부호는 반드시 검산할 것.
+//
+//  ★설계 결정 넷(현도 2026.07.29): ① 벽 = 안쪽(좌) ② 리브 여러 기 보이는 것 허용
+//   ③ '점진적' = 창이 커진다 ④ 렌즈 노출 수용.
+//  ⚠**이것은 LOCKED §1 시야 차단 3중의 ②(통로 외피가 먼 리브를 가림)를 여는 장치다.**
+//   창 밖 = 먼 리브 39~43기(최근접 146→283). 현도가 실측을 듣고 수용했다.
+//   `RM10_WIN_ON=false` 한 줄로 ★80 상태가 정확히 복원된다(시험판인 이유).
+//
+//  ★사다리꼴은 발명이 아니라 **파생**이다 — 창턱은 수평 고정, 위턱은 통로 천장을 따라간다.
+//   낮은 구간에서 층고가 5.0→9.8로 이미 자라므로(★80), 위턱만 추종시키면 창은 저절로
+//   앞으로 갈수록 키가 크는 사다리꼴이 된다. 폭도 함께 자란다(GROW).
+//  ★★로컬 판정용 3체제 스위치(현도 2026.07.29 — "세 가지 변형하면서 판정할 수 있도록").
+//   'off'       = 창 없음(★80 온벽) — 부재 10종·표본 143으로 정확히 복원된다
+//   'trapezoid' = 사다리꼴 6장(밑변 3.47→10.41 · 배터 8° · 위턱 천장 추종)
+//   'slit'      = **얇은 슬릿** — 창턱·밑변 길이는 사다리꼴 그대로 두고 키만 잘라낸다
+export const RM10_WIN_MODE  = 'slit'
+export const RM10_WIN_ON    = RM10_WIN_MODE !== 'off'
+//  ★★슬릿 키 — **파생 상한이 있다.** 창가에 얼굴을 붙였을 때 올려다볼 수 있는 각은
+//   atan(h / PASS_T)이고, 렌즈 하단이 새기 시작하는 각은 54.4°(통로 시작·가장 유리한 지점)다.
+//   ⇒ h < PASS_T·tan(54.4°) = **0.838** 이면 렌즈가 **저절로 다시 봉인된다**.
+//   즉 슬릿은 '얇게 보이려는' 미학이 아니라, 사다리꼴이 열었던 렌즈 누출을 되닫는 장치이기도 하다.
+//   0.8 → 53.1° (여유 1.3°). 이 값을 올리면 검사가 렌즈 노출을 도로 보고한다.
+export const RM10_WIN_SLIT_H = 0.8
+export const RM10_WIN_N     = 6      // ★노브 창 개수
+export const RM10_WIN_U0    = 5.0    // ★노브 시작 여백(원호↔나팔 이음매 뒤 — 이음매에 창을 물리지 않는다)
+export const RM10_WIN_U1    = 4.0    // ★노브 끝 여백(터짐 직전 — 계단 시작점에 창을 물리지 않는다)
+export const RM10_WIN_PIER  = 2.6    // ★노브 창 사이 살(기둥) 폭
+export const RM10_WIN_GROW  = 3.0    // ★노브 마지막 창 폭 ÷ 첫 창 폭
+export const RM10_WIN_SILL  = 1.6    // ★노브 창턱(바닥 위) — 추락 방지 + 지면 시선 차단(회랑 CL_SILL과 같은 수)
+export const RM10_WIN_HEAD  = 0.9    // ★노브 인방 살(천장에서 내려온 여유)
+export const RM10_WIN_TAPER = true   // ★노브 true = 위턱이 천장 추종(기울기 ≈3.7°) / false = 창 중앙 높이로 수평
+//  ★★'사다리꼴'의 두 독해 — 이 각 하나가 가른다(현도 판정 대기):
+//   0  = 위턱만 천장을 따르는 **직사각에 가까운** 창(기울기 3.7°는 눈에 잘 안 읽힌다)
+//   >0 = **잉카식 배터** — 문선이 안으로 기울어 위가 좁다. §2-D ④ 현행 합격작(잉카 매스) 어휘.
+//   배터 폭은 절대치가 아니라 **창 키에서 파생**된다 → 여섯 창이 커져도 같은 어법을 유지한다.
+export const RM10_WIN_BATTER_DEG = 8
+//  창 목록 — u(나팔 호길이) 구간. **낮은 구간 안에만** 산다(터짐 구간은 공개 그 자체라 창이 무의미).
+//  ★슬릿도 **같은 u 구간**을 쓴다 — 현도 지정: "슬릿의 너비는 사다리꼴 창 밑변의 길이를 그대로".
+//   두 체제가 같은 목록을 공유하므로 로컬에서 갈아 끼워도 창의 '자리'는 안 움직인다(비교가 정직해진다).
+export function rm10Windows () {
+  if (!RM10_FLARE_ON || !RM10_WIN_ON || RM10_WIN_N < 1) return []
+  const uB = RM10_FLARE_LEN * RM10_FLARE_TB
+  const avail = uB - RM10_WIN_U0 - RM10_WIN_U1 - (RM10_WIN_N - 1) * RM10_WIN_PIER
+  if (avail <= 0) return []
+  const N = RM10_WIN_N, G = RM10_WIN_GROW
+  const w0 = avail / (N * (1 + G) / 2)          // Σ w_k = avail 를 만족하는 첫 창 폭(파생)
+  const out = []
+  let u = RM10_WIN_U0
+  for (let k = 0; k < N; k++) {
+    const w = w0 * (1 + (G - 1) * (N === 1 ? 0 : k / (N - 1)))
+    out.push({ k, u0: u, u1: u + w, w })
+    u += w + RM10_WIN_PIER
+  }
+  return out
+}
+
 //  ⚠★80 임시 소등 — 재설계 대기(1p12~15 선언된 빚)
 export const TERRACE_ON       = !RM10_FLARE_ON
 

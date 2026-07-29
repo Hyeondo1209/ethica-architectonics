@@ -15,7 +15,7 @@ import { execSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { RM10_FLARE_ON } from './constants.js'   // ★80 나팔 체제 스위치
+import { RM10_FLARE_ON, RM10_WIN_ON } from './constants.js'   // ★80 나팔 체제 스위치 · ★81 창 스위치
 
 let n = 0, fail = 0
 const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
@@ -145,7 +145,8 @@ console.log(JSON.stringify({ called, bad, noted, keys }))
       'ld', 'xth',                    // 입구 층계참 · ★79-9 문지방
       ...(RM10_FLARE_ON
         ? ['flifloor', 'flefloor', 'fliwOuter', 'flewOuter', 'fliroof', 'fleroof',
-           'fliwDome', 'flewDome', 'flrim', 'flcap']      // ★80 나팔 껍질(안4·밖4·사선 아가리·시작 테두리)
+           'fliwDome', 'flewDome', 'flrim', 'flcap',      // ★80 나팔 껍질(안4·밖4·사선 아가리·시작 테두리)
+           ...(RM10_WIN_ON ? ['flwin'] : [])]             // ★81 창 살(창턱·인방·기운 문선)
         : ['xob0', 'xob1', 'xoj0', 'xoj1', 'xc1',         // 구 테라스 문
            'sf', 'sr', 'sw-1', 'sw1', 'se-1', 'se1', 'sl']),  // 구 직선
     ],

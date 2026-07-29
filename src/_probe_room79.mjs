@@ -350,13 +350,146 @@ if (C.RM10_FLARE_ON) {
   //  ── 밀폐: 껍질이 닫혀 있는가(면 넷 안팎 + 테두리 둘) ──
   {
     const sh = buildFlareShell()
-    ok(sh.length === 10, `껍질 부재 ${sh.length}종 = 안 4 + 밖 4 + 입 테두리 + 시작 테두리`)
+    //  ★81: 창이 켜지면 +N 벽의 살(창턱·인방·문선) 부재 `flwin`이 하나 늘어난다.
+    //   **개수가 아니라 이름으로 센다** — 개수 상수는 스위치를 돌릴 때마다 거짓이 된다.
+    const KEYS = ['flifloor', 'flefloor', 'fliwOuter', 'flewOuter', 'fliroof', 'fleroof',
+                  'fliwDome', 'flewDome', 'flrim', 'flcap']
+    const have = new Set(sh.map((m) => m.key))
+    const miss = KEYS.filter((k) => !have.has(k))
+    ok(miss.length === 0, `껍질 기본 부재 10종 전부 존재(안 4 + 밖 4 + 입 테두리 + 시작 테두리)` + (miss.length ? ` ✗누락 ${miss}` : ''))
+    ok(have.has('flwin') === (C.RM10_WIN_ON && C.rm10Windows().length > 0),
+      C.RM10_WIN_ON ? '★81 창 살 부재 `flwin` 존재' : '★81 창 소등 — `flwin` 없음(★80 상태 복원)')
     ok(sh.filter((m) => m.walk).length === 1, '밟는 면은 바닥 하나뿐(walkable 태그)')
     let nan = 0
     for (const m of sh) { const a = m.geo.attributes.position.array; for (let i = 0; i < a.length; i++) if (!Number.isFinite(a[i])) nan++ }
     ok(nan === 0, `정점 좌표 NaN/Inf ${nan}개`)
     const mouth = sh.find((m) => m.key === 'flrim')
     ok(mouth != null, '입 테두리가 있다 — 클라이막스에서 종잇장 모서리가 안 보인다(두께 = PASS_T)')
+  }
+}
+
+
+// ══ ⑰ ★81 출구 통로의 창 (3체제) ════════════════════════════════════════════
+//  ⚠이 절이 지키는 것: 창은 **좌측(+N·돔 중심 쪽) 벽에만** 있고, **낮은 구간 안에만** 살며,
+//   껍질은 여전히 닫혀 있다. 그리고 이 창이 무엇을 새게 하는지를 **매 실행 소리 내어 보고**한다
+//   — 현도가 실측을 듣고 수용한 것이지, 아무도 안 잰 것이 아니다(★80 '밀폐 검사가 구멍 수만 셌다' 전례).
+//  ★3체제(off / trapezoid / slit)를 **한 검사가 다 잰다** — 꺼진 어법이 썩지 않게(★78-3 M절 전례).
+if (C.RM10_FLARE_ON) {
+  console.log(`\n— ⑰ ★81 출구 통로의 창 [체제 ${C.RM10_WIN_MODE}] —`)
+  const { flareSection, buildFlareShell, winShape, stairProfile, flarePoint } = await import('./exitFlareGeometry.js')
+  const W = C.rm10Windows()
+  const uB = C.RM10_FLARE_LEN * C.RM10_FLARE_TB
+  const SLIT = C.RM10_WIN_MODE === 'slit'
+
+  //  개구의 높이(u에서) — 두 체제를 한 식으로. 면적·보존 검사가 전부 이걸 쓴다.
+  const openH = (u, w) => {
+    const { b, hgt } = winShape(w)
+    if (SLIT) return hgt
+    const hb = flareSection(u / C.RM10_FLARE_LEN).h - C.RM10_WIN_HEAD - C.RM10_WIN_SILL
+    const f = b <= 1e-9 ? 1 : Math.max(0, Math.min(1, (u - w.u0) / b, (w.u1 - u) / b))
+    return hb * f
+  }
+  //  ★개구 면적은 **곡선 안쪽 면**의 호길이로 잰다 — 중심선 u보다 (R−반폭)/R 만큼 짧다(최대 −20%).
+  //   이 인자를 빼먹어 보존이 3.6% 틀어졌던 전례(2026.07.29). 노브를 돌려도 따라온다.
+  const areaOf = (w) => {
+    let a = 0
+    const M = 60
+    for (let j = 0; j < M; j++) {
+      const u = w.u0 + (w.u1 - w.u0) * (j + 0.5) / M
+      const sec = flareSection(u / C.RM10_FLARE_LEN)
+      a += openH(u, w) * ((C.RM10_FLARE_R - sec.a0) / C.RM10_FLARE_R) * (w.u1 - w.u0) / M
+    }
+    return a
+  }
+
+  if (!C.RM10_WIN_ON || W.length === 0) {
+    ok(C.RM10_WIN_MODE === 'off', `★81 체제 'off' — ★80 온벽 그대로. 켜면 아래 검사가 되살아난다`)
+  } else {
+    ok(['trapezoid', 'slit'].includes(C.RM10_WIN_MODE), `체제 '${C.RM10_WIN_MODE}' — 'off'|'trapezoid'|'slit' 셋 중 하나`)
+    ok(W.length === C.RM10_WIN_N, `창 ${W.length}장 = 노브 RM10_WIN_N`)
+    //  ① 낮은 구간 안에만 산다 — 터짐 구간은 공개 그 자체라 창이 의미 없고, 계단과 겹치면 위험하다
+    ok(W[0].u0 >= C.RM10_WIN_U0 - 1e-9 && W.at(-1).u1 <= uB - C.RM10_WIN_U1 + 1e-9,
+      `전 창이 낮은 구간 [${C.RM10_WIN_U0}, ${(uB - C.RM10_WIN_U1).toFixed(1)}] 안 — 이음매·계단 시작에 안 물린다`)
+    //  ② 겹치지 않고, 살(기둥)이 살아 있다
+    let minPier = Infinity
+    for (let i = 1; i < W.length; i++) minPier = Math.min(minPier, W[i].u0 - W[i - 1].u1)
+    ok(minPier >= C.RM10_WIN_PIER - 1e-9, `창 사이 최소 살 ${minPier.toFixed(2)} ≥ ${C.RM10_WIN_PIER} — 창끼리 안 붙는다`)
+    //  ③ '점진적' = 밑변·면적 단조 증가(현도 지정 축). ★슬릿도 **같은 밑변**을 쓴다(현도 지정).
+    let monoW = true, prevA = -1, monoA = true
+    for (let i = 1; i < W.length; i++) if (W[i].w <= W[i - 1].w + 1e-9) monoW = false
+    const areas = W.map(areaOf)
+    for (const a of areas) { if (a <= prevA) monoA = false; prevA = a }
+    ok(monoW, `밑변 ${W.map((w) => w.w.toFixed(1)).join(' → ')} 단조 증가` +
+      (SLIT ? ' — 슬릿 길이 = 사다리꼴 밑변 그대로(현도 지정)' : ''))
+    ok(monoA, `개구 면적 ${areas.map((a) => a.toFixed(1)).join(' → ')} 단조 증가 = 현도 '점점 커지는'`)
+    //  ④ 체제별 형태
+    if (SLIT) {
+      let flat = true, hh = 0
+      for (const w of W) { const sh = winShape(w); if (sh.b !== 0 || Math.abs(sh.hgt - C.RM10_WIN_SLIT_H) > 1e-9) flat = false; hh = sh.hgt }
+      ok(flat, `슬릿 = 키 ${hh} 고정 · 배터 0 — 수평 띠 하나(얇은 띠에 기운 문선을 주면 마름모로 읽힌다)`)
+      //  ★★슬릿이 되돌려 닫는 것 — 사다리꼴이 열었던 렌즈 누출
+      const el = Math.atan(C.RM10_WIN_SLIT_H / C.PASS_T) * 180 / Math.PI
+      ok(el < 54.4, `창가(b=0)에서 올려다보는 최대각 ${el.toFixed(1)}° < 렌즈 하단 54.4° — **렌즈 재봉인**(파생 상한 h < ${(C.PASS_T * Math.tan(54.4 * Math.PI / 180)).toFixed(3)})`)
+      ok(Math.abs(C.RM10_WIN_SILL - 1.6) < 1e-9, `창턱 ${C.RM10_WIN_SILL} = 눈높이 1.6 — 슬릿이 시선을 문다(현도 "눈 높이는 유지")`)
+    } else if (C.RM10_WIN_BATTER_DEG > 0) {
+      let ok2 = true
+      for (const w of W) if (winShape(w).b <= 0 || w.w - 2 * winShape(w).b <= 0.5) ok2 = false
+      ok(ok2, `배터 ${C.RM10_WIN_BATTER_DEG}° — 위 폭 ${W.map((w) => (w.w - 2 * winShape(w).b).toFixed(1)).join(' → ')} < 밑 폭 (잉카 어법)`)
+      const el = Math.atan((flareSection(0.05).h - C.RM10_WIN_HEAD - C.RM10_WIN_SILL) / C.PASS_T) * 180 / Math.PI
+      console.log(`  ⓘ 사다리꼴: 창가에서 올려다보는 최대각 ${el.toFixed(0)}° > 54.4° → 렌즈 노출(현도 2026.07.29 수용)`)
+    } else {
+      ok(true, '배터 0° = 곧은 개구(위턱만 천장 추종). 잉카 사다리꼴은 RM10_WIN_BATTER_DEG > 0')
+    }
+    //  ⑤ 창턱·인방이 물리적으로 성립하는가
+    let minH = Infinity, headOK = true
+    for (const w of W) for (const u of [w.u0, (w.u0 + w.u1) / 2, w.u1]) {
+      const oh = openH(u, w)
+      const rest = flareSection(u / C.RM10_FLARE_LEN).h - C.RM10_WIN_SILL - oh
+      if (rest < 0.5) headOK = false
+      if (oh > 1e-6) minH = Math.min(minH, oh)
+    }
+    ok(C.RM10_WIN_SILL >= 0.9, `창턱 ${C.RM10_WIN_SILL} ≥ 0.9 — 추락 방지 + 지면 시선 차단(회랑 CL_SILL ${C.CL_SILL}과 같은 수)`)
+    ok(headOK, `최소 창 키 ${minH.toFixed(2)} · 인방 위 살 ≥ 0.5 남음(천장을 안 먹는다)`)
+    //  ⑥ ★좌측 벽에만 — 우측(−N `wOuter`)은 개구 0이어야 한다(현도 지정) + 면적 보존
+    {
+      const sh = buildFlareShell()
+      const S = stairProfile().samples
+      const area = (g) => {
+        const p = g.attributes.position.array, ix = g.index.array
+        let a = 0
+        for (let i = 0; i < ix.length; i += 3) {
+          const A = ix[i] * 3, B = ix[i + 1] * 3, Cc = ix[i + 2] * 3
+          const ux = p[B] - p[A], uy = p[B + 1] - p[A + 1], uz = p[B + 2] - p[A + 2]
+          const vx = p[Cc] - p[A], vy = p[Cc + 1] - p[A + 1], vz = p[Cc + 2] - p[A + 2]
+          a += 0.5 * Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx)
+        }
+        return a
+      }
+      let full = 0
+      for (let i = 1; i < S.length; i++) {
+        const t0 = S[i - 1].u / C.RM10_FLARE_LEN, t1 = S[i].u / C.RM10_FLARE_LEN
+        const p0 = flarePoint(C.RM10_FLARE_SWEEP * t0), p1 = flarePoint(C.RM10_FLARE_SWEEP * t1)
+        const a0 = flareSection(t0).a0, a1 = flareSection(t1).a0
+        const dx = (p1.x + a1 * p1.nx) - (p0.x + a0 * p0.nx), dz = (p1.z + a1 * p1.nz) - (p0.z + a0 * p0.nz)
+        full += Math.hypot(dx, dz) * (flareSection(t0).h + flareSection(t1).h) / 2
+      }
+      const aDome = area(sh.find((m) => m.key === 'fliwDome').geo)
+      const aOpen = areas.reduce((x, y) => x + y, 0)
+      ok(Math.abs(full - aDome - aOpen) / full < 0.02,
+        `면적 보존: 온벽 ${full.toFixed(0)} = 남은 벽 ${aDome.toFixed(0)} + 개구 ${aOpen.toFixed(1)} (오차 ${(100 * Math.abs(full - aDome - aOpen) / full).toFixed(1)}%) — 벽이 안 새고 안 겹친다`)
+      ok(area(sh.find((m) => m.key === 'fliwOuter').geo) > 0,
+        `우측 벽(−N \`wOuter\`) 개구 0 — 창은 좌측에만(현도 지정)`)
+      console.log(`  ⓘ 개구가 좌측 벽에서 차지하는 비율 ${(100 * aOpen / full).toFixed(1)}%` +
+        (SLIT ? ' (사다리꼴 체제는 22.4%)' : ''))
+    }
+    //  ⑦ ★새는 것을 소리 내어 보고한다(침묵하지 않는다)
+    {
+      const rAtY2 = (y) => { let lo = 0, hi = 1; for (let i = 0; i < 90; i++) { const m = (lo + hi) / 2; (C.ribCenter(m).y < y) ? lo = m : hi = m } return C.ribCenter((lo + hi) / 2).x }
+      const y = C.RM10_EXIT_FLOOR_Y + 1.6, R = rAtY2(y), dTh = 2 * Math.PI / C.MERIDIANS, d = 170
+      const pitch = Math.atan2(R * Math.sin(dTh), R * Math.cos(dTh) - d) * 180 / Math.PI
+      console.log(`  ⓘ 창 밖: 리브 중심 반경 ${R.toFixed(0)} · 정면 리브 ${(R - d).toFixed(0)} · 이웃 겉보기 간격 ${pitch.toFixed(1)}°`)
+      console.log(`  ⓘ 3체제 전환 = RM10_WIN_MODE 'off' | 'trapezoid' | 'slit' 한 줄`)
+    }
   }
 }
 
