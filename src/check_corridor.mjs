@@ -78,6 +78,7 @@ import * as THREE from 'three'                                                  
 import { Brush, Evaluator, HOLLOW_SUBTRACTION, SUBTRACTION } from 'three-bvh-csg'
 import { kneeBodySamples, kneeBodySpec, kneeWalkY, kneeBodyHalfWidth, prismGeometry, innerTubeSolid, buildKneeBody, buildKneePlinth, kneeWallHalfAt } from './kneeBodyGeometry.js'
 import { kneeStairSpec, kneeTreads, kneeTreadW, kneeSurfaceY, kneeSpineY, kneeHeadroom, KNEE_NOSE, KNEE_SX, KNEE_XA, KNEE_XB, KNEE_YA, KNEE_YB, KNEE_RUN, KNEE_CLIMB } from './kneeStair.js'   // ★66   // ★65 무릎길 몸
+import { castDoorFan, doorArch } from './viewProbe.js'   // ★83 원근 시야 광선 정본(구 _probe_view)
 import { buildJunctionKnot, junctionKnotSpec, buildLightShaft, lightShaftSpec, shaftCutSolid, buildShaftGrate, discSolid, buildJunctionPlate, junctionPlateOutline, plateMaxHalf, JCT_PLATE_TOP, buildPzCheek, pzCheekProfile, cheekTopPzAt, descFloorAt, descPierceX, axisDistAt, buildRoomMouthWall, roomMouthArch, inRibArchCut, wideStairTreads } from './junctionGeometry.js'   // ★70 매듭 · ★71 빛 기둥
 import { buildRibShell, makeRibCurve, shellVolumeApprox, signedVolume, buildViceWedge, viceSplitIndex, newelSpec, viceBottomY, VICE_DTHETA, sillSpec, buildSill, freeSplitRange, freeNewelSpec, destCut, floorKnotSpec, buildFloorCollar, buildFloorLanding, openRimSpec, isOpenRib, ribHoleSolid } from './ribGeometry.js'
 
@@ -2340,26 +2341,25 @@ if (!RIB_XFER_ON) {
       //    지장이 없어 green이었다. 실제 증상: 창 서쪽 끝~방 처마 1.37 구간에서 살 밑면 252.0~252.7이
       //    떠 있었고, 그 위는 계단 볼트가 이미 비운 공간이라 **한 겹만 남은 막**이 보였다.
       //   → 이제 통과 구간 전체를 **바닥−0.3 ~ +4.5**까지 훑어 살이 하나도 안 남았음을 강제한다.
+      //  ★75-g/j **문으로 보이는 범위에 리브 살이 남는가** — ★83(2026.07.29)에 캐스터로 교체.
+      //  ⛔이 자리에 있던 구 검사는 **죽어 있었다**: `mem`·`tot2`를 선언만 하고 표본 루프가 없어
+      //   `ok(mem === 0, '표본 0 중 잔존 0')`으로 **항상 통과**했다(2026.07.29 적발). 즉 ★75가 잡은
+      //   찌꺼기 계열의 회귀를 아무도 안 막고 있었다. 도구는 `_probe_view.mjs`에만 손으로 있었다.
+      //  → `viewProbe.js`로 승격해 프로브·검사가 같은 함수를 쓴다. 표본 수를 같이 박아
+      //   **다시 비어도 즉시 실패**하게 만든다(공허 통과의 사후 봉인).
       {
-        const iR2 = RIB_WALL_ON ? SHELL_RIB_R - RIB_WALL_T : SHELL_RIB_R, oR2 = SHELL_RIB_R
-        const inWin2 = (x, y, z) => inRibArchCut(x, y, z)
-        let mem = 0, tot2 = 0, first2 = null
-        //  ★75-j 판정 기준을 "뚫렸는가"에서 **"보이는가"**로 바꾼다.
-        //   현도가 문 위 파인 자국을 적발해 방 안쪽 크라운을 문 높이로 잠갔는데, 그러자 벽 바로 뒤
-        //   블렌드 구간(0.8)에서 "홈을 감추려는 잠금"과 "살을 걷으려는 요구"가 충돌한다.
-        //   ⚠그런데 그 살은 **문 아치의 옆기둥에 가려진다** — 문은 아치라 z가 커질수록 천장이 낮아지고
-        //    (z 1.6에서 252.20), 남은 살은 252.42~252.89로 전부 그 위다. 실측으로 확인했다.
-        //   → 검사는 "문을 통해 보이는 범위 안에 살이 있는가"를 잰다. 안 보이는 살까지 강제하면
-        //    크라운이 필요 없이 올라가 현도가 적발한 그 파인 자국이 되살아난다.
-        const MA = roomMouthArch()
-        const mSpring = Math.max(MA.floor + 0.05, MA.crown - MA.hw)
-        const visibleTop = (z) => {                       // 그 z에서 문이 허용하는 최대 시선 높이
-          const zz = Math.abs(z - JCT_DN_Z) / MA.hw
-          if (zz > 1) return -Infinity
-          return mSpring + (MA.crown - mSpring) * Math.sqrt(Math.max(0, 1 - zz * zz))
-        }
-        ok(mem === 0, `**문으로 보이는 범위**에 리브 살 막이 안 남는다 — 표본 ${tot2} 중 잔존 ${mem}` +
-           (first2 ? ` (첫 지점 x${r2(first2[0])} y${r2(first2[1])} z${r2(first2[2])})` : ''))
+        const F = castDoorFan()
+        const A2 = doorArch()
+        ok(F.samples >= 400 && F.aperture >= 200,
+           `광선이 실제로 쏘아졌다 — 표본 ${F.samples} · 문 개구 안 ${F.aperture} (구 검사는 표본 0으로 공허 통과했다)`)
+        const kinds = new Set()
+        for (const row of F.rows) for (const c of row.cells) if (c !== '·') kinds.add(c)
+        ok(kinds.has('W') && kinds.has('d') && kinds.has('C'),
+           `가림막 대장이 살아 있다 — 맞은 종류 [${[...kinds].sort().join(' ')}] (방벽 W·하강판 d·볼벽 C 필수)`)
+        const first = F.ribHits[0]
+        ok(F.ribHits.length === 0,
+           `**문 개구로 보이는 범위**에 리브 살 ${F.ribHits.length}점` +
+           (first ? ` — 첫 지점 x${r2(first[0])} y${r2(first[1])} z${r2(first[2])}` : ' (아치 크라운 ' + r2(A2.crown) + ' 아래 청결)'))
         ok(ARCH_X0 <= RM_X1 - 0.29, `창 서쪽 끝 ${r2(ARCH_X0)} ≤ 방 +x벽 ${r2(RM_X1)} — 방 입구까지 이어진다(현도 처방)`)
       }
       //  ★75-h/i 문틀·볼벽 검사(2026.07.26 현도 3건 적발: 비대칭 · 우글우글 · 각진 출구)

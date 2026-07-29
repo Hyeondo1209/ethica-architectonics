@@ -28,6 +28,7 @@ import {
   CL_FLOOR_END, clFloorY, CL_SEG_DROP, CL_STEP_RISE, CL_STAIR_MID, CL_STEP_N, CL_DROP_TOTAL, CL_ROOF_Y, clSillY, CL_SILL,   // ★78-2
   ST_ON, RM10_ON, RM10_PHI, RM10_AX_R, RM10_RHO, RM10_FLOOR_Y, RM10_FLOOR_OPEN_R, RM10_DROP,   // ★79 등불 방
   RM10_EXIT_RIN, RM10_EXIT_ROUT, RM10_EXIT_FLOOR_Y, RM10_STR_END,   // ★79-5/6 출구 통로
+  WSTAIR_X1, X_DESC0, DESC_TREAD_D, PASS_X_CHEEK, JCT_DN_Z, PASS_HW, PASS_T, DESC_SLOPE,   // ★84 W5
 } from './constants.js'
 import { RM10_FLARE_ON, RM10_FLARE_MX, RM10_FLARE_MZ, RM10_FLARE_SWEEP, RM10_FLARE_R, RM10_ARC_TH1, TERRACE_ON } from './constants.js'   // ★80
 import { p1HeightAt } from './radialEventsGeometry.js'
@@ -47,6 +48,7 @@ import { STEP_UP, STEP_DOWN, FREE_WALK } from './waypoints.js'   // ⚠사본 �
 import { TREAD_THICK, STAIR_STEPS, spiralPoint, ROOM_STAIR_RISE, DAIS_STEP_H,
          DESC_STEP_R, DESC_STEPS, clFloorSegments, rm10Steps, RM10_LAND_Y } from './constants.js'
 import { floorKnotSpec, viceSplitIndex } from './ribGeometry.js'
+import { junctionKnotSpec } from './junctionGeometry.js'   // ★84 W5 수평 틈
 import { kneeTreads, kneeStairSpec } from './kneeStair.js'
 import { wideStairTreads } from './junctionGeometry.js'
 import { stairProfile } from './exitFlareGeometry.js'
@@ -928,6 +930,96 @@ console.log('\n— W. 보행 (FREE_WALK를 끄면 걸어서 완주할 수 있는
       `합계 메시 ${sumAll} 중 밟는 면 ${sumWalk}(true 44 + 조건부 4) · 무선언 ${sumAll - sumWalk - 6} = 벽·지붕·챌판·기둥`)
     //  ★챌판(riser)은 밟는 면이 아니다 — 회랑·등불 방 계단의 '밟는 면'은 ring 헬퍼(조건부 태그)가 낸다.
     //   이 한 줄이 W4가 "무선언 = 버그"로 읽히는 것을 막는다(무선언 대부분은 정상이다).
+  }
+
+  // ── W5. 수평 틈 — 발 앞에 '면이 아예 없는' 구간 (★84 신설 2026.07.29) ──
+  //  ⚠W3은 **높이만** 잰다. ★82가 정직하게 적어둔 '못 잡는 것 ①'이 이것이다:
+  //   두 면이 높이로는 이어지는데 평면에서 어긋나면, 아래로 쏘는 광선이 아무것도 못 맞고
+  //   **이동이 거부된다**(떨어지지도 않는다). ★60 환형 허공 0.85 · ★62 링 슬롯 0.40 ·
+  //   ★63 우물 전례가 전부 이 계열 = "보기엔 멀쩡한데 밟을 수 없다".
+  //  ★부호 규약: 진행 = −x. gap = (A의 가장 작은 x) − (B의 가장 큰 x).
+  //   **gap > 0 이면 그 사이에 밟을 면이 없다.** 음수 = 겹침(정상).
+  //  ⚠구현 중 이 도구가 한 번 틀렸다(2026.07.29): 전실 바닥이 `RM_X1`에서 시작한다고 봤으나
+  //   채널 슬랩이 `PASS_X_CHEEK`까지 나가 있어 허위 틈 +0.081이 나왔다. 발자국은 **렌더가 실제로
+  //   그리는 범위**로 잰다 — 벽 좌표가 아니라. (진단 도구를 먼저 검증하라는 규율의 실사례.)
+  console.log('  · W5. 수평 틈 (진행 −x · gap > 0 = 발 앞에 면 없음)')
+  {
+    const KJ = junctionKnotSpec(), WT5 = wideStairTreads(), KT5 = kneeTreads(), KS5 = kneeStairSpec()
+    const seams5 = []
+    //  B가 여러 조각(쪼개진 디딤판)이면, 진입이 가장 이른 조각들 중 A와 측면이 가장 많이 겹치는 것을 쓴다
+    //  — 걸을 수 있는 띠가 하나라도 있으면 통행은 성립한다.
+    const addAx = (name, aEndX, aZ0, aZ1, pieces) => {
+      let bx = -Infinity, bo = -Infinity
+      for (const p of pieces) {
+        if (p.x > bx + 1e-9) { bx = p.x; bo = Math.min(aZ1, p.z1) - Math.max(aZ0, p.z0) }
+        else if (Math.abs(p.x - bx) <= 1e-9) bo = Math.max(bo, Math.min(aZ1, p.z1) - Math.max(aZ0, p.z0))
+      }
+      seams5.push({ name, gap: aEndX - bx, ov: bo, aEndX, bStartX: bx })
+    }
+
+    const tL5 = KT5[KT5.length - 1]
+    addAx('무릎길 마지막 디딤 → 갈림 판', tL5.x - tL5.d / 2, -tL5.w / 2, tL5.w / 2,
+      [{ x: KJ.x1, z0: KJ.z0, z1: KJ.z1 }])
+
+    const L5 = KS5.landings[0], t05 = KT5[0]
+    addAx('무릎길 첫 참 → 첫 디딤', L5.x0, L5.z0, L5.z1,
+      [{ x: t05.x + t05.d / 2, z0: -t05.w / 2, z1: t05.w / 2 }])
+
+    const wMaxX = Math.max(...WT5.map((t) => t.x + t.d / 2))
+    addAx('갈림 판 → ★75 첫 디딤', KJ.x0, KJ.z0, KJ.z1,
+      WT5.filter((t) => t.x + t.d / 2 > wMaxX - 0.3)
+         .map((t) => ({ x: t.x + t.d / 2, z0: (t.z ?? 0) - t.w / 2, z1: (t.z ?? 0) + t.w / 2 })))
+
+    const wL5 = WT5[WT5.length - 1]
+    addAx('★75 마지막 디딤 → 전망 반원판', wL5.x - wL5.d / 2, (wL5.z ?? 0) - wL5.w / 2, (wL5.z ?? 0) + wL5.w / 2,
+      [{ x: WSTAIR_X1, z0: -LK_PLAT_R, z1: LK_PLAT_R }])
+
+    addAx('갈림 판 → 하강 첫 디딤', KJ.x0, KJ.z0, KJ.z1,
+      [{ x: X_DESC0 + DESC_TREAD_D / 2, z0: JCT_DN_Z - PASS_HW, z1: JCT_DN_Z + PASS_HW }])
+
+    //  ★도착 면 = 방 바닥 + 채널 슬랩이 이어진 한 면(슬랩이 PASS_X_CHEEK까지 나간다)
+    const yT5 = U_KNEE_END * H
+    const yL5 = yT5 - (DESC_STEPS - 1 + 0.5) * DESC_STEP_R
+    const xL5 = X_DESC0 - (yT5 - yL5) / DESC_SLOPE
+    addAx('하강 마지막 디딤 → 전실 슬랩', xL5 - DESC_TREAD_D / 2, JCT_DN_Z - PASS_HW, JCT_DN_Z + PASS_HW,
+      [{ x: PASS_X_CHEEK, z0: JCT_DN_Z - PASS_HW - PASS_T, z1: JCT_DN_Z + PASS_HW + PASS_T }])
+
+    for (const s5 of seams5)
+      ok(s5.gap <= 1e-6 && s5.ov > 0,
+        `${s5.name}: A끝 x${r2(s5.aEndX)} · B시작 x${r2(s5.bStartX)} → 겹침 ${r2(-s5.gap)} · 측면 ${r2(s5.ov)}` +
+        (s5.gap > 1e-6 ? ` ⛔ 발 앞에 면 없음(틈 ${r2(s5.gap)})` : ''))
+
+    //  ★가장 얇은 겹침을 소리 내어 남긴다 — 노브 하나면 음수로 뒤집혀 허공이 된다.
+    const thin5 = seams5.reduce((a, b) => (b.gap > a.gap ? b : a))
+    ok(thin5.gap <= -0.01,
+      `가장 얇은 겹침 = ${thin5.name} ${r2(-thin5.gap)} — 0 이하면 허공이 생긴다`)
+
+    //  ── 포함형: 나선 마지막 칸이 무릎길 첫 참의 평면 안에 드는가 ──
+    {
+      const p5 = spiralPoint((STAIR_STEPS - 1 + 0.5) / STAIR_STEPS).pos
+      const mx5 = Math.min(p5.x - L5.x0, L5.x1 - p5.x), mz5 = Math.min(p5.z - L5.z0, L5.z1 - p5.z)
+      ok(mx5 > 0 && mz5 > 0,
+        `나선 마지막 칸 (x${r2(p5.x)} z${r2(p5.z)}) ⊂ 무릎길 첫 참 — 여유 x ${r2(mx5)} · z ${r2(mz5)}`)
+    }
+
+    //  ── 도착 '면'의 존재 — ★80 아가리 앞 ──
+    //  ⚠W3의 마지막 항은 나팔 계단 끝을 **레벨**(CL_FLOOR_END)과 비교한다. 레벨은 면이 아니다.
+    //   테라스가 꺼져 있으면 아가리 앞은 허공이고, 높이 검사로는 영원히 안 잡힌다.
+    ok(TERRACE_ON === false,
+      `★80 아가리 앞 도착 면: TERRACE_ON=${TERRACE_ON}` +
+      (TERRACE_ON ? '' : ' — ⚠**면이 존재하지 않는다**(선언된 빚 · 1p12~15 집 상실 · DoD-2 미충족)'))
+
+    //  ── 아직 못 잰 이음매 = 선언한다(UNASSIGNED·WALK_DEBT와 같은 형식) ──
+    //  ⚠하부 여정·극좌표 구간은 평면 발자국을 이 절이 아직 안 딴다. 숨기면 "다 쟀다"로 읽힌다.
+    const GAP_UNMEASURED = [
+      '허브 디스크 → 방사 패드', '방사 패드 → 월대', '월대 → 하강로', '하강로 → 잉카 판',
+      '잉카 판 → 잉카 첫 단', '잉카 정상 → 리브 문', '나선 → ★62 착지판', '★62 착지판 → 프리즈 바닥',
+      '프리즈 바닥 → ★63 발코니', '프리즈 바닥 → 자립 판', '자립 판 → 아가리', '전실 → 회랑',
+      '회랑 → 등불 방', '등불 방 계단 → 바닥', '등불 방 → 출구 통로', '나선 끝 → 무릎길(포함형으로 대체)',
+      '★80 나팔 내부 참',
+    ]
+    ok(GAP_UNMEASURED.length === 17,
+      `수평 틈 **미측정** 이음매 ${GAP_UNMEASURED.length}곳 선언 — W5가 실제로 잰 것은 상부 7곳뿐이다(W3 이음매 24곳 중)`)
   }
 }
 
