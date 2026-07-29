@@ -4,7 +4,7 @@ import GraphScaffold from './GraphScaffold'
 import { SCALE, RIB_XFER_ON, RIB_DEST_PHI, TERRACE_ON } from './constants'
 import { FirstPersonControls } from './FirstPersonControls'
 import { WAYPOINTS, WP_GROUPS, SPAWN_ID, DEV_TELEPORT, wpIndexOf } from './waypoints'
-import { Ground, DomeRibs, ExplorationRib, HallDoorRibs, RibStair, KneeWalk, RibJunction, Lookout, RevealPassage, CloisterLamps, Terrace, LampRoom, FriezeCrossing } from './Dome'
+import { Ground, MirrorPads, DomeRibs, ExplorationRib, HallDoorRibs, RibStair, KneeWalk, RibJunction, Lookout, RevealPassage, CloisterLamps, Terrace, LampRoom, FriezeCrossing } from './Dome'
 import { ApexLens } from './Lens'
 import { DefAxiomRoom } from './Room'
 import { Corridor } from './Corridor'
@@ -63,6 +63,7 @@ export default function App() {
 
             <group>
               <Ground />
+              <MirrorPads />{/* ★87 지면 폐기 대체 — 접지 단지 임시 판(잠정 블록아웃) */}
               <DomeRibs />
               <ExplorationRib />
               <HallDoorRibs />

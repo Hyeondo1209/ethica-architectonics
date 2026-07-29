@@ -41,9 +41,10 @@ import {
   FR_SILL_MAT, TEMPLE_COLOR,                                  // ★60 문지방(나선↔프리즈 방 매듭)
   RIB_XFER_ON, RIB_DEST_K, RIB_DEST_PHI, RIB_FREE_MODE, FR_FLOOR_Y,          // ★61 리브 갈아타기
   STELE7_ON, STELE7_F, STELE7_OFF,
+  MIR_ON, MIR_PADS,          // ★87 돔 거울 확장 — 지면 폐기·임시 판
 } from './constants'
 import { hallDoors, ribCutSpec } from './corridorStairsGeometry'
-import { buildRibShell, makeRibCurve, buildViceWedge, viceSplitIndex, newelSpec, buildSill, buildFloorCollar, buildFloorLanding, freeNewelSpec, freeSplitRange, buildOpenRim, isOpenRib , ribHoleSolid } from './ribGeometry'
+import { buildRibShell, makeRibCurve, RIB_TUB_SEG, buildViceWedge, viceSplitIndex, newelSpec, buildSill, buildFloorCollar, buildFloorLanding, freeNewelSpec, freeSplitRange, buildOpenRim, isOpenRib , ribHoleSolid } from './ribGeometry'
 import { buildKneeBody, buildKneePlinth } from './kneeBodyGeometry'
 import { buildTerrace } from './terraceGeometry'   // ★85 테라스 = 아가리를 받는 부채꼴 슬래브
 import { buildJunctionKnot, buildLightShaft, shaftCutSolid, lightShaftSpec, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, apronSteps, buildRoomMouthWall, ribArchCutSolid, radialPlate } from './junctionGeometry'   // ★70 매듭 · ★71 빛 기둥 · ★75 넓은 계단
@@ -51,12 +52,33 @@ import { kneeTreads, kneeStairSpec } from './kneeStair'   // ★66 계단 규격
 import { buildFlareShell } from './exitFlareGeometry'   // ★80 S자 나팔
 import { PropStele } from './Steles'
 
+//  ★87(2026.07.29): 지면 폐기 — 미러가 켜지면 세계에 '바닥'이 없다(브리프: 바닥이 보이면 '끝'을 연상한다 —
+//   기댈 곳은 이 공간뿐 = 그것이 곧 실체. 1p8 무한 · 1p15 내재성). 코드는 스위치 뒤 보존(봉인 차분·복원).
 export function Ground() {
+  if (MIR_ON) return null
   return (
     <mesh rotation-x={-Math.PI / 2} userData={{ walkable: true }}>
       <planeGeometry args={[4000, 4000]} />
       <meshStandardMaterial color="#6f5e44" roughness={1} />
     </mesh>
+  )
+}
+
+//  ★87 접지 임시 판(Ground 대체 — 브리프 결정 5) — **전부 잠정·블록아웃**(형태·재질 = Claude 임의값,
+//   조형 판정 = 현도 로컬 순회). 명단·반경의 근거 = constants.MIR_PADS 주석(전수 스캔 실측 124.7 + 여유).
+//   ⚠판은 구 지면과 달리 **떠 있다** — 지지 조형은 추후 건축 어휘로(브리프 결정 4, 이번에 안 만든다).
+//   ⚠홀 권역 리브 관 6기가 판을 꿰고 지난다(구멍 없이 관입) — 블록아웃 한계, 현도 판정 항목.
+export function MirrorPads() {
+  if (!MIR_ON) return null
+  return (
+    <>
+      {MIR_PADS.map((p) => (
+        <mesh key={p.id} position={[p.cx, -p.t / 2, p.cz]} userData={{ walkable: true }}>
+          <cylinderGeometry args={[p.r, p.r, p.t, 96]} />
+          <meshStandardMaterial color="#6f5e44" roughness={1} />
+        </mesh>
+      ))}
+    </>
   )
 }
 
@@ -196,7 +218,7 @@ export function DomeRibs() {
   }, [curve])
   return (
     <instancedMesh ref={ribRef} args={[undefined, undefined, MERIDIANS - 1 - HALL_SKIP.size]}>
-      <tubeGeometry args={[curve, 200, SHELL_RIB_R, RIB_RADIAL_SEG, false]} />
+      <tubeGeometry args={[curve, RIB_TUB_SEG, SHELL_RIB_R, RIB_RADIAL_SEG, false]} />{/* ★87: 분할수 정본 소비 — 미러 연장분만큼 늘어 상반부 밀도 보존 */}
       <meshStandardMaterial {...RIB_MAT} side={THREE.DoubleSide} onBeforeCompile={ribTintOBC} />
     </instancedMesh>
   )

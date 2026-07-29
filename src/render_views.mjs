@@ -798,10 +798,13 @@ const COV_KNOWN = {
   room: '정의·공리 방(Room.jsx) — 이 도구는 드럼 홀 권역만 근사한다(파일 머리 명시). 범위 밖.',
   p2:   '방사 4방(Radial.jsx) — 위와 같음. 범위 밖.',
   p3:   '방사 4방(Radial.jsx) — 위와 같음. 범위 밖.',
-  reveal: '⚠★80 신규: 나팔 입에서 앞을 보면 **열린 돔**뿐인데 이 도구는 드럼 홀 권역만 근사한다(파일 머리). ' +
-          '즉 **클라이막스 시점은 원리적으로 자기 검증이 안 된다** — 통로 후반부(진행 ~70% 이후)의 형태·비례는 ' +
-          '현도의 로컬 확인이 유일한 판정기다. lookout과 같은 뿌리(카메라별 굽기 부재)이나, 여기선 그리는 범위 자체의 문제라 ' +
-          '카메라별 굽기로도 안 풀린다. 통로 **안쪽**은 free 카메라로 볼 수 있다(진행 5%·45% 확인함).',
+  //  (★87에서 reveal 항 삭제 — 실측 배경 77.8%로 해소돼 있었다. 해소 시점은 불명(★78~★86 사이) —
+  //   '해소'는 뭔가 그려진다는 뜻일 뿐, 클라이막스 형태 판정기가 현도 로컬이라는 사실은 그대로다.)
+  terrace: '⚠★87에서 적발(원인은 ★87 아님 — 변경 전 HEAD와 수치 동일 99.8% 실측): 테라스 시점은 축 쪽을 ' +
+           '올려본다(pitch +0.25) — 응시 대상 = 정점 렌즈(Lens.jsx)·원거리 전역 리브인데 이 도구는 드럼 홀 ' +
+           '권역만 근사한다(파일 머리). room·p2·p3와 같은 뿌리(범위 밖). 테라스 권역 형태 판정 = 현도 로컬.',
+  mirror: '⚠★87 돔 거울 확장 **전체가 사각지대** — 이 도구는 전역 리브 72기를 굽지 않는다(실측: 미러 전후 ' +
+          '전 시점 배경 비율 동일). 미러의 형태·이음새 판정 = 현도 로컬 + check_corridor M절(기하 수준).',
   lookout: '⚠★미해결: 1p8 전망에서 **보어 올려다보기**가 이 도구엔 안 보인다. 관 셸을 보행선 위로 안 굽기 ' +
            '때문(무릎길 가림 회피 — 파일 머리 참조). 삼각형 한 벌을 모든 카메라가 공유하는 구조의 한계라, ' +
            '고치려면 **카메라별 굽기**가 필요하다. 1p8 권역의 핵심 시점이므로 우선순위 있음.',
@@ -825,7 +828,7 @@ function coverage() {
   for (const [id, f] of rows)
     console.log(`  ${f > 0.98 ? (COV_KNOWN[id] ? '·' : '✗') : '✓'} ${id.padEnd(12)} 배경 ${(f * 100).toFixed(1)}%`)
   const fresh = blind.filter(id => !COV_KNOWN[id])
-  const fixed = Object.keys(COV_KNOWN).filter(id => !blind.includes(id))
+  const fixed = Object.keys(COV_KNOWN).filter(id => !blind.includes(id) && WAYPOINTS.some(w => w.id === id))   // 시점 아닌 항(mirror 등)은 해소 판정 밖
   console.log('\n[기준선 — 적발됐으나 미해결]')
   for (const id of Object.keys(COV_KNOWN)) console.log(`  · ${id}: ${COV_KNOWN[id]}`)
   if (fixed.length) console.log(`\n✓ 기준선에서 해소됨 — COV_KNOWN에서 지울 것: ${fixed.join(', ')}`)

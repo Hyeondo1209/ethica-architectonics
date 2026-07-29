@@ -15,6 +15,7 @@ import {
   ORB_OPEN_F, ORB_OPEN_X, ORB_RING_R, ORB_RING_T, ORB_OPEN, ASC_TUN_DEPTH, ASC_TUN_T,
   PLAT_X, PLAT_R, PLAT_F, PLAT_Y, PLAT_DROP, DESC_X0, DESC_X1, PILLAR_R, COR_FLOOR_HW, COR_X1, COR_CYL_X0, COR_CLIMB, RIB_Y,
   R_BASE, MERIDIANS, SHELL_RIB_R, DOOR_W, DOOR_H, DOOR_SILL_Y, KNEE, H,
+  MIR_ON, MIR_DEPTH_F,   // ★87 돔 거울 확장
   HALL_DOORS, HALL_DOORS_ON, STAIR_GAP, STAIR_DS, STAIR_TD, STAIR_W, COR_RISE, STAIR_MAX_SLOPE,
   TEMPLE_MODE, TEMPLE_Y0, TEMPLE_X0, TEMPLE_X1, TEMPLE_HZ, TEMPLE_CLR, STAIR_SCHEME, TEMPLE_PEDIMENT, TEMPLE_OPEN,
   FRIEZE_ROOM_ON, FR_FLOOR_T, FR_WALL_T, FR_BACK_T, FR_CEIL_T, FR_FLOOR_Y, FR_ANNEX,   // ★55 프리즈 방(1p7)
@@ -81,7 +82,7 @@ import { kneeBodySamples, kneeBodySpec, kneeWalkY, kneeBodyHalfWidth, prismGeome
 import { kneeStairSpec, kneeTreads, kneeTreadW, kneeSurfaceY, kneeSpineY, kneeHeadroom, KNEE_NOSE, KNEE_SX, KNEE_XA, KNEE_XB, KNEE_YA, KNEE_YB, KNEE_RUN, KNEE_CLIMB } from './kneeStair.js'   // ★66   // ★65 무릎길 몸
 import { castDoorFan, doorArch } from './viewProbe.js'   // ★83 원근 시야 광선 정본(구 _probe_view)
 import { buildJunctionKnot, junctionKnotSpec, buildLightShaft, lightShaftSpec, shaftCutSolid, buildShaftGrate, discSolid, buildJunctionPlate, junctionPlateOutline, plateMaxHalf, JCT_PLATE_TOP, buildPzCheek, pzCheekProfile, cheekTopPzAt, descFloorAt, descPierceX, axisDistAt, buildRoomMouthWall, roomMouthArch, inRibArchCut, wideStairTreads } from './junctionGeometry.js'   // ★70 매듭 · ★71 빛 기둥
-import { buildRibShell, makeRibCurve, shellVolumeApprox, signedVolume, buildViceWedge, viceSplitIndex, newelSpec, viceBottomY, VICE_DTHETA, sillSpec, buildSill, freeSplitRange, freeNewelSpec, destCut, floorKnotSpec, buildFloorCollar, buildFloorLanding, openRimSpec, isOpenRib, ribHoleSolid } from './ribGeometry.js'
+import { buildRibShell, makeRibCurve, RIB_TUB_SEG, shellVolumeApprox, signedVolume, buildViceWedge, viceSplitIndex, newelSpec, viceBottomY, VICE_DTHETA, sillSpec, buildSill, freeSplitRange, freeNewelSpec, destCut, floorKnotSpec, buildFloorCollar, buildFloorLanding, openRimSpec, isOpenRib, ribHoleSolid } from './ribGeometry.js'
 
 let n = 0, fail = 0
 const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
@@ -731,14 +732,11 @@ if (!RIB_CUT_ON || !FRIEZE_ROOM_ON) {
     `시드 ${RIB_CUT_SEED} 결정론 — 재호출이 같은 다섯 높이(렌즈 LENS_SEED 전례)`)
   //  ⑩★CSG 스모크 — 실제로 끊기는가(check_radial 전례: 기하를 말로만 재지 않고 돌려본다).
   //   Dome.jsx의 ExplorationRib·HallDoorRibs와 **같은 구축**(같은 곡선·같은 관 파라미터·같은 브러시).
-  const makeRibCurve = () => {
-    const pts = []
-    for (let i = 0; i <= 160; i++) { const u = i / 160; pts.push(new THREE.Vector3(rOf(u), H * u, 0)) }
-    return new THREE.CatmullRomCurve3(pts)
-  }
+  //  ★87: 구 지역 사본("Dome.jsx와 같은 구축"의 복제)을 **정본 소비**로 교체 — Dome이 미러 연장
+  //   곡선을 쓰게 됐으므로 사본을 두면 이 스모크가 그 순간 렌더와 다른 관을 재는 죽은 검사가 된다(★83 전례).
   let csgBad = 0, csgMin = 1e9
   for (const c of cuts) {
-    const tube = new THREE.TubeGeometry(makeRibCurve(), 200, SHELL_RIB_R, 10, false)
+    const tube = new THREE.TubeGeometry(makeRibCurve(), RIB_TUB_SEG, SHELL_RIB_R, 10, false)
     if (c.k !== 0) tube.rotateY(-c.phi)
     const yM = (c.yBot + c.yTop) / 2, rM = rOf(yM / H)
     const box = new THREE.BoxGeometry(RIB_CUT_BOX_HW * 2, c.gap, RIB_CUT_BOX_HW * 2)
@@ -1769,8 +1767,10 @@ if (!RIB_WALL_ON) {
   ok(RIB_WALL_T >= 0.15, `벽 두께 ${RIB_WALL_T} ≥ 0.15 — 이 아래는 다시 종잇장으로 읽힌다(현도 반려 사유)`)
 
   //  ③★바깥면 불변 — LOCKED의 실질. 셸의 바깥 삼각형이 나머지 71기의 관과 **정점까지 같은가**.
-  const curve = (() => { const p = []; for (let i = 0; i <= 160; i++) { const u = i / 160; p.push(new THREE.Vector3(rOf(u), H * u, 0)) } return new THREE.CatmullRomCurve3(p) })()
-  const plain = new THREE.TubeGeometry(curve, 200, SHELL_RIB_R, RIB_RADIAL_SEG, false)
+  //  ★87: 지역 사본 → 정본 소비(위 스모크와 같은 사유). plain = DomeRibs 71기와 같은 구축이어야
+  //   "나머지와 동일"이 실제 렌더에 대한 진술이 된다 — 미러 연장 후에도 이 항이 하반부까지 잰다.
+  const curve = makeRibCurve()
+  const plain = new THREE.TubeGeometry(curve, RIB_TUB_SEG, SHELL_RIB_R, RIB_RADIAL_SEG, false)
   const { geometry: shell, stats } = buildRibShell(curve, RIB_WALL_T)
   const sp = shell.attributes.position.array, pp = plain.attributes.position
   const sn = shell.attributes.normal.array, pn = plain.attributes.normal
@@ -2500,7 +2500,9 @@ if (!KW_BODY_ON) {
   //    최대 0.24 이격돼 있어(실측) 해석식으로 재면 없는 누출을 만들어 낸다.
   const cr = makeRibCurve()
   const CRP = []
-  for (let i = 0; i <= 4000; i++) CRP.push(cr.getPointAt(i / 4000))
+  //  ★87: 표본수를 분할수 비로 늘린다(미러 연장으로 곡선이 길어져 4000 고정이면 현 최대 현 오차 0.26이 배가 된다)
+  const CRN = Math.round(4000 * RIB_TUB_SEG / 200)
+  for (let i = 0; i <= CRN; i++) CRP.push(cr.getPointAt(i / CRN))
   const dCR = (x, y, z) => {
     let best = 1e9
     for (const q of CRP) { const d = (q.x - x) ** 2 + (q.y - y) ** 2 + (q.z - z) ** 2; if (d < best) best = d }
@@ -2612,7 +2614,10 @@ if (!KW_BODY_ON) {
        `관 셸 부피 ${r2(sh.stats.volume)} ≈ 해석 근사 ${r2(apv)} — 패싯 법선이 기하를 안 건드렸다(감김 무손상)`)
     //  ⚠초기 구현이 안쪽면을 직접 재삼각분할했다가 감김이 뒤집혀 부피가 147115(정답 8382)로 나왔다.
     //   그래서 여기서는 **삼각분할·감김은 원본 그대로**, 법선만 갈아끼운다. 이 항이 그 규율을 지킨다.
-    ok(sh.stats.tris === 8040, `관 셸 삼각 ${sh.stats.tris} — 구판과 동일(정점·삼각분할 불변, 바뀐 것은 법선뿐)`)
+    {   // ★87: 상수 8040 → 공식(분할수가 미러 연장으로 파생값이 됐다). 4·tubSeg·radSeg(안팎 관) + 4·radSeg(마구리 2)
+    const expectTris = 4 * RIB_TUB_SEG * RIB_RADIAL_SEG + 4 * RIB_RADIAL_SEG
+    ok(sh.stats.tris === expectTris, `관 셸 삼각 ${sh.stats.tris} = 공식 ${expectTris} — 정점·삼각분할 불변(바뀐 것은 법선뿐)`)
+  }
   }
   //  ── ★69-2 난간 = 가장자리에 딱 붙되 안 끊긴다(현도 "남는 부분이 있어서 불편") ──
   //   ⚠기준이 또 바뀌었다: ★69는 '상수 |z|'였는데, 그러면 넓은 구간에서 난간 **바깥에 바닥이 남는다**.
@@ -3073,6 +3078,103 @@ if (!FR_WIN_ON) {
          `⚠봉인 열림(현도 판정 ㄴ) — 창턱 ${r2(FR_WIN_SILL)} ≤ 봉인선 ${FR_WIN_SEAL_Y} · 홀에서 절단 노출 ${exposed.length}기 [${exposed.map(k => '#' + k).join(' ')}] — 유지/철회는 로컬 육안 판정`)
       ok(exposed.length <= 5, `노출 리브 ${exposed.length} ≤ 5 — 프리즈 방을 지나는 다섯 밖으로는 안 번진다`)
     }
+  }
+}
+
+// ════════ ★87 M절. 돔 거울 확장 — 캡슐·접합·민짜 (2026.07.29 브리프 §5) ════════
+//  지키는 것 셋: ① 접합 C1(림 평면에서 꺾임 없음 — ★86 실측 2e-8°의 상시화) ② 하반부 = 상반부의
+//  거울(r 대칭 — §1 LOCKED "72기 동일"의 하반부 연장. 방위 격자는 인스턴싱이 구성으로 보장) ③ **민짜**:
+//  수술(문5·아치·빛기둥·절단)은 전부 상반부 국소이고 하반부엔 개구가 하나도 없다(유령 부재 — 광선 실측).
+console.log('\n— ★87 M절. 돔 거울 확장 (캡슐·접합·민짜) —')
+if (!MIR_ON) {
+  ok(true, '미러 꺼짐(MIR_ON=false) — 구세계 복원 경로. M절 생략')
+} else {
+  const f = MIR_DEPTH_F
+  const cur = makeRibCurve()
+  //  ① 캡슐 치수 — 깊이·바닥 개구·camera far 여유(브리프 §2)
+  {
+    const p0 = cur.getPoint(0)
+    ok(Math.abs(p0.y - (-H * f)) < 1e-6 && Math.abs(p0.x - rOf(f)) < 1e-6,
+       `캡슐 밑끝 (r ${r2(p0.x)}, y ${r2(p0.y)}) = (rOf(f) ${r2(rOf(f))}, −H·f ${r2(-H * f)}) — 절단 미러(압축 아님)`)
+    const diag = Math.hypot(2 * R_BASE, H * (1 + f))
+    ok(diag < 3000, `캡슐 대각 ${r2(diag)} < camera far 3000 — 어느 끝에서도 반대 끝이 잘리지 않는다`)
+  }
+  //  ② 접합 C1 — 적도(y=0)를 지나는 접선이 수직에서 벗어나지 않는다(꺾임 = 이음새)
+  {
+    //  적도의 곡선 파라미터를 y로 이분 탐색(호길이 파라미터라 u→t 해석식이 없다)
+    let lo = 0, hi = 1
+    for (let it = 0; it < 60; it++) { const m = (lo + hi) / 2; if (cur.getPointAt(m).y < 0) lo = m; else hi = m }
+    const tg = cur.getTangentAt((lo + hi) / 2)
+    const kink = Math.atan2(Math.abs(tg.x), Math.abs(tg.y)) * 180 / Math.PI
+    ok(kink < 1e-3, `적도 접선 수직 이탈 ${kink.toExponential(1)}° < 1e-3° — 거울 접합 무꺾임(★86 실측 2e-8°의 상시화)`)
+  }
+  //  ③ 하반부 = 상반부의 거울 — 표본 y에서 r(−y) = r(+y). 방위 격자 동일은 인스턴싱(같은 기하 72회전)이
+  //   구성으로 보장하므로 여기서는 곡선 수준만 잰다(§1 LOCKED R7 [정점·법선 0]이 셸 수준을 이미 잰다).
+  {
+    const rAtY = (y) => {   // 호길이 파라미터에서 y로 이분 탐색해 반지름을 읽는다
+      let lo = 0, hi = 1
+      for (let it = 0; it < 50; it++) { const m = (lo + hi) / 2; if (cur.getPointAt(m).y < y) lo = m; else hi = m }
+      return cur.getPointAt((lo + hi) / 2).x
+    }
+    let worst = 0
+    for (const v of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+      const y = H * Math.min(v * f, f) * 0.999
+      worst = Math.max(worst, Math.abs(rAtY(-y) - rAtY(y)))
+    }
+    ok(worst < 5e-3, `하반부 반지름 대칭 |r(−y) − r(+y)| 최대 ${worst.toExponential(1)} < 5e-3 — 거울 프로파일`)
+  }
+  //  ④ ★민짜 — 수술 자국의 하반부 유령 부재. 여정 리브 둘의 **실제 CSG 결과**(렌더와 같은 구축)에
+  //   하반부 대역 방사 광선을 쏜다: 축→바깥, 전부 껍질에 막혀야 한다(뚫림 = 유령 개구).
+  //   수술 브러시 12종 y범위 전수 실측(2026.07.29 _probe_mirror87): 최저 = 문 #−2 밑 y9 — 전부 y≥0.
+  {
+    const ev5 = new Evaluator(); ev5.attributes = ['position', 'normal']
+    const holed = (k) => {   // Dome.jsx ExplorationRib·HallDoorRibs와 같은 구축(간이 — 문+절단만: 아치·빛기둥은 y247+)
+      const { geometry: tube } = buildRibShell(makeRibCurve(), RIB_WALL_T)
+      const d = hallDoors().find(v => v.k === k)
+      const doorCut = new THREE.BoxGeometry(SHELL_RIB_R, DOOR_H, DOOR_W)
+      doorCut.translate(rOf(d.sill / H) - SHELL_RIB_R, d.sill + DOOR_H / 2, 0)
+      const a = new Brush(tube); a.updateMatrixWorld()
+      const b = new Brush(doorCut); b.updateMatrixWorld()
+      let acc = ev5.evaluate(a, b, SUBTRACTION)
+      const c = ribCutSpec().find(v => v.k === k)
+      if (c) {
+        const g = new THREE.BoxGeometry(RIB_CUT_BOX_HW * 2, c.gap, RIB_CUT_BOX_HW * 2)
+        const yM = (c.yBot + c.yTop) / 2
+        g.translate(rOf(yM / H), yM, 0)
+        const cb = new Brush(g); cb.updateMatrixWorld()
+        acc = ev5.evaluate(acc, cb, SUBTRACTION)
+      }
+      return acc.geometry
+    }
+    for (const k of [0]) {
+      const g = holed(k)
+      const mesh = new THREE.Mesh(g.index ? g.toNonIndexed() : g); mesh.updateMatrixWorld()
+      const rc = new THREE.Raycaster()
+      //  ⚠광선은 수평이 아니라 **링 평면**(국소 축에 수직)으로 쏜다 — 무릎 거울부(y −240)는 축이 크게
+      //   기울어 수평 광선이 보어를 따라가며 far를 초과한다(1차 구현이 그렇게 거짓 뚫림 2를 보고했다 —
+      //   '진단 도구를 먼저 검증한다' 전례. 실측: 수평 ±x 광선의 벽 도달 거리 12.8 > far 12).
+      const yToT = (y) => { let lo = 0, hi = 1
+        for (let it = 0; it < 60; it++) { const m = (lo + hi) / 2; if (cur.getPointAt(m).y < y) lo = m; else hi = m }
+        return (lo + hi) / 2 }
+      let open = 0, tested = 0
+      for (const v of [0.08, 0.25, 0.5, 0.75, 0.95]) {
+        const y = -H * f * v
+        const t0 = yToT(y)
+        const P = cur.getPointAt(t0), T = cur.getTangentAt(t0)
+        const n1 = new THREE.Vector3(0, 0, 1)
+        const n2 = new THREE.Vector3().crossVectors(T, n1).normalize()   // 링 평면의 두 직교기저
+        for (let a = 0; a < 12; a++) {
+          const th = a / 12 * Math.PI * 2
+          tested++
+          const dir = n1.clone().multiplyScalar(Math.sin(th)).addScaledVector(n2, Math.cos(th))
+          rc.set(P.clone(), dir)
+          rc.far = SHELL_RIB_R * 1.5
+          if (rc.intersectObject(mesh, false).length === 0) open++
+        }
+      }
+      ok(open === 0, `#${k} 하반부 민짜 — 링 평면 방사 광선 ${tested}개 전부 껍질에 막힘(뚫림 ${open} = 유령 개구 0)`)
+    }
+    ok(true, '수술 브러시 12종 y범위 전수 실측 최저 = 문 #−2 y9 ≥ 0 — 하반부 침범 브러시 없음(_probe_mirror87)')
   }
 }
 

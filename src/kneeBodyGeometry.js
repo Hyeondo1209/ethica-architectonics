@@ -31,11 +31,13 @@ import {
   JCT_PLATE_XHI, KW_RAIL_ON, KW_RAIL_H, KW_PLINTH_T, KW_PLINTH_GAP,   // ★69-2 가장자리 추종 난간 매듭
   SHELL_RIB_R, RIB_RADIAL_SEG, RIB_WALL_ON, RIB_WALL_T,
 } from './constants.js'
-import { makeRibCurve, signedVolume } from './ribGeometry.js'
+import { makeRibCurve, signedVolume, RIB_TUB_SEG } from './ribGeometry.js'
 
 //  리브 셸이 쓰는 것과 **같은** 종단 분할. 다르면 Frenet 프레임이 달라져 10각형 위상이 어긋나고,
 //  그러면 클립이 관 내벽을 정확히 따라가지 못한다(모서리에서 새거나 파고든다).
-export const RIB_TUB_SEG = 200
+//  ★87: 수치 200을 ribGeometry의 **단일 정본**으로 이관(미러 연장으로 분할수가 호길이 비만큼 늘었다 —
+//  두 벌 수치는 언젠가 어긋난다는 ★65 논리 그대로). 재수출 = 기존 소비자 호환.
+export { RIB_TUB_SEG }
 
 // ── 보행선 = ★66 계단 보행면(참 수평 + flight 직선). 정본은 kneeStair — 여기서 사본을 만들지 않는다 ──
 //  ⚠★66 이전에는 이 모듈이 블렌드 식을 따로 갖고 있었다(사본). 계단이 참을 갖게 되면서 보행면이
@@ -141,13 +143,18 @@ export function innerTubeSolid(xLoArg, xHiArg) {
   const S = kneeBodySamples()
   const xLo = xLoArg ?? (Math.min(...S.map(s => s.x)) - 2)
   const xHi = xHiArg ?? (Math.max(...S.map(s => s.x)) + 2)
-  let i0 = 0, i1 = RIB_TUB_SEG
-  for (let i = 0; i <= RIB_TUB_SEG; i++) {                  // 링 중심 x는 i에 대해 단조 감소(리브가 위로 갈수록 안으로)
+  //  ★87 y≥0 가드: 미러 연장으로 곡선 앞머리에 하반부 링이 붙었고, 그 x는 168→288로 **증가**하며
+  //   무릎길 x창(188~285 실측)과 같은 대역을 지난다 — "단조 감소" 가정은 이제 **상반부(y≥0)에서만** 참이다.
+  //   탐색을 첫 상반부 링부터로 좁힌다(무릎길은 전 구간 y>0 — 가드가 형태를 바꾸지 않는다).
+  let kEq = 0
+  for (let i = 0; i <= RIB_TUB_SEG; i++) if (ctrAt(i).y >= -1e-6) { kEq = i; break }
+  let i0 = kEq, i1 = RIB_TUB_SEG
+  for (let i = kEq; i <= RIB_TUB_SEG; i++) {                // 링 중심 x는 (상반부에서) i에 대해 단조 감소
     const cx = ctrAt(i).x
     if (cx >= xHi) i0 = i
     if (cx > xLo) i1 = Math.min(RIB_TUB_SEG, i + 1)
   }
-  i0 = Math.max(0, i0 - 1)
+  i0 = Math.max(kEq, i0 - 1)
   const V = (i, j) => [p.getX(i * W + j), p.getY(i * W + j), p.getZ(i * W + j)]
   const pos = []
   const push = (a, b, c) => pos.push(...a, ...b, ...c)

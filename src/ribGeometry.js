@@ -28,6 +28,7 @@ import {
   RIB_OPEN_ON, BAL_STEP, BAL_W, BAL_PARA_H, BAL_RIM_IN,   // ★63 우물 발코니
   MERIDIANS,   // ★64 리브 추종 구멍
   FR_FLOOR_Y, TEMPLE_CLR, H, ribCenter, rOf,
+  MIR_ON, MIR_DEPTH_F,   // ★87 돔 거울 확장
   //  ★61 리브 갈아타기 — 자립 나선(방 바닥 → 목적지 아가리)
   RIB_XFER_ON, RIB_DEST_K, FREE_MOUTH_CLR,
 } from './constants.js'
@@ -54,13 +55,39 @@ export function signedVolume(posArr) {
 //   '지금은 같은 수식'이라는 우연으로 전락한다 — 무릎길 몸(★65)이 관 내벽에 정확히 맞물려야 하므로
 //   여기서부터는 우연이 아니라 구성으로 보장한다. φ=0(+x) 평면 정의, 나머지는 y축 회전 인스턴스.
 //   ⚠SEG=160은 리브 셸·검증이 공유하는 해상도다(바꾸면 정점이 어긋나 LOCKED가 깨진다).
+//  ★87(2026.07.29) 정의역 연장 u∈[−f, 1] — 하반부 = 상반부의 거울(r(−u)=rOf(u) = rOf(|u|)).
+//   상반부 표본 격자(Δu=1/seg)는 **한 점도 안 움직인다** — 앞에 미러 점만 삽입되므로 기존 소비자의
+//   상반부 형태가 보존된다(Catmull 이웃 영향은 u<2/seg ≈ y<12 대역뿐 · 무릎 창 밖 — 실측).
+//   ⚠소비자 13곳 전수 실측(2026.07.29 _probe_mirror87): 매개변수 가정이 깨지는 곳은
+//   ⓐ 무릎길 링 x 단조 탐색(kneeBodyGeometry — y≥0 가드로 수리) ⓑ 검증의 상반부 사본 2곳(정본 소비로 교체)
+//   ⓒ 분할수 200 하드코딩 3곳(아래 RIB_TUB_SEG로 정본화)뿐. 마구리 접선·getPointAt 패싯은 자기완결.
 export function makeRibCurve(seg = 160) {
+  const f = MIR_ON ? MIR_DEPTH_F : 0
+  const mSeg = Math.round(seg * f)
   const pts = []
-  for (let i = 0; i <= seg; i++) { const u = i / seg; pts.push(new THREE.Vector3(rOf(u), H * u, 0)) }
+  for (let i = -mSeg; i <= seg; i++) { const u = i / seg; pts.push(new THREE.Vector3(rOf(Math.abs(u)), H * u, 0)) }
   return new THREE.CatmullRomCurve3(pts)
 }
 
-export function buildRibShell(curve, t, tubSeg = 200, radSeg = RIB_RADIAL_SEG) {
+//  ★87 관 분할수 **단일 정본** — 셸(Dome 3종)·무릎길 innerTubeSolid·검증이 전부 이 수를 공유해야
+//   정점이 1:1로 겹친다(★65 곡선 정본화와 같은 논리 — 사본 수치는 언젠가 어긋난다).
+//   호길이 비만큼 늘려 **상반부 링 밀도를 구판과 동일**하게 유지(f=1이면 비 2.0 → 400. 상·하 호길이가
+//   같아 링 경계가 정확히 적도에 떨어지고, 상반부 링 위치가 구판과 일치한다 — 실측).
+export const RIB_TUB_SEG = (() => {
+  const f = MIR_ON ? MIR_DEPTH_F : 0
+  const arc = (u0, u1, n = 2000) => {
+    let L = 0, px = rOf(Math.abs(u0)), py = H * u0
+    for (let i = 1; i <= n; i++) {
+      const u = u0 + (u1 - u0) * i / n, x = rOf(Math.abs(u)), y = H * u
+      L += Math.hypot(x - px, y - py); px = x; py = y
+    }
+    return L
+  }
+  const up = arc(0, 1)
+  return Math.round(200 * (up + (f > 0 ? arc(-f, 0) : 0)) / up)
+})()
+
+export function buildRibShell(curve, t, tubSeg = RIB_TUB_SEG, radSeg = RIB_RADIAL_SEG) {
   const outerGeo = new THREE.TubeGeometry(curve, tubSeg, SHELL_RIB_R, radSeg, false)
   if (!(t > 0)) return { geometry: outerGeo, outerGeo, stats: { solid: false, volume: 0 } }
 
@@ -411,11 +438,13 @@ export function buildOpenRim() {
 export function ribHoleSolid(k, y0, y1, clr) {
   const N = 64, M = RIB_RADIAL_SEG * 2
   const rings = []
+  //  ★87: 중심을 |y|로 읽는다 — 하반부는 거울(r(−u)=rOf(u))이므로. 구판은 rOf(u<0)이 바깥으로 발산해
+  //   y<0 인자(셀라 지붕 구멍 y0=−2)에서 중심이 미세히 어긋났다(적도 근방이라 실해 0 — 방어적 수리).
   for (let i = 0; i <= N; i++) {
     const y = y0 + (y1 - y0) * (i / N)
-    const c = ribCenter(y / H)
+    const c = ribCenter(Math.abs(y) / H)
     const d = 0.4
-    const c1 = ribCenter((y + d) / H), c0 = ribCenter((y - d) / H)
+    const c1 = ribCenter(Math.abs(y + d) / H), c0 = ribCenter(Math.abs(y - d) / H)
     const slope = Math.abs(c1.x - c0.x) / (2 * d)               // 기울기(축이 수직에서 벗어난 정도)
     const r = (SHELL_RIB_R + clr) * Math.sqrt(1 + slope * slope)  // = (R+clr)/cosθ
     rings.push({ y, cx: c.x, r })

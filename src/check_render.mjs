@@ -15,7 +15,7 @@ import { execSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { RM10_FLARE_ON, RM10_WIN_ON } from './constants.js'   // ★80 나팔 체제 스위치 · ★81 창 스위치
+import { RM10_FLARE_ON, RM10_WIN_ON, MIR_ON, MIR_PADS } from './constants.js'   // ★80 나팔 체제 스위치 · ★81 창 스위치 · ★87 미러·임시 판
 
 let n = 0, fail = 0
 const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
@@ -28,6 +28,7 @@ const TARGETS = [
 
 const dir = mkdtempSync(join(tmpdir(), 'ethica-render-'))
 const ALLKEYS = {}   // ★79-8 컴포넌트별 mesh key 대장
+const ALLGROUND = []   // ★87 접지 스캔 수집
 
 //  react / @react-three/fiber 얇은 대역품 — 훅은 즉시 실행, JSX는 기술자 객체.
 writeFileSync(join(dir, 'react.mjs'), `
@@ -75,6 +76,7 @@ for (const t of TARGETS) {
   //  ★핵심: export된 컴포넌트를 하나씩 실제 호출한다.
   const runner = join(dir, 'run_' + t.replace(/[/.]/g, '_') + '.mjs')
   writeFileSync(runner, `
+const PADS = ${JSON.stringify(MIR_PADS)}   // ★87 임시 판(constants 정본에서 주입)
 //  ⚠브라우저 API 대역품 — 캔버스 텍스처(비석·정리 글자)는 document를 쓴다. 이건 **버그가 아니므로**
 //   검사가 여기서 실패하면 안 된다. 진짜 예외만 남기려고 얇게 물린다.
 const ctx2d = new Proxy({}, { get: (_, k) =>
@@ -105,17 +107,69 @@ const walk = (node, into) => {
   const p = node.props
   if (p) { walk(p.children, into); for (const v of Object.values(p)) if (v && typeof v === 'object') walk(v, into) }
 }
+//  ── ★87 접지 스캔 — 기술자 트리를 **월드 변환 누적**으로 순회해 y≤0.01 정점을 가진 mesh를 찾는다 ──
+//   왜 여기인가: 컴포넌트를 실제 호출하는 곳이 이 검사뿐이다. Ground 폐기 후 '접지 요소 전부에 임시 판이
+//   있는가'(브리프 §5-3 명단 소진)를 물으려면 요소를 선언이 아니라 **결과에서** 찾아야 한다(★64 교훈).
+//   ⚠한계(정직하게): instancedMesh는 행렬을 useLayoutEffect가 놓는데 여기선 no-op라 판정 불가 — 보고만.
+//   (인스턴스드 접지 후보는 리브뿐이고 리브 = 미러 그 자체다. 상부 여정 부품 좌표는 waypoints가 잰다.)
+import * as THREE from '${process.cwd()}/node_modules/three/build/three.module.js'
+const geoOf = (node) => {
+  const p = node.props || {}
+  if (p.geometry && p.geometry.attributes) return p.geometry
+  for (const c of [].concat(p.children || []).flat(9)) {
+    if (c && typeof c === 'object' && /[gG]eometry$/.test(String(c.__el || ''))) {
+      const cls = String(c.__el)[0].toUpperCase() + String(c.__el).slice(1)
+      try { return new THREE[cls](...((c.props && c.props.args) || [])) } catch { return null }
+    }
+  }
+  return null
+}
+const nodeMatrix = (node) => {
+  const p = node.props || {}, o = new THREE.Object3D()
+  if (p.position) { const v = p.position; o.position.set(v[0] ?? v.x ?? 0, v[1] ?? v.y ?? 0, v[2] ?? v.z ?? 0) }
+  if (p.rotation) { const r = p.rotation; o.rotation.set(r[0] ?? 0, r[1] ?? 0, r[2] ?? 0) }
+  for (const ax of ['x', 'y', 'z']) if (p['rotation-' + ax] != null) o.rotation[ax] = p['rotation-' + ax]
+  if (p['position-y'] != null) o.position.y = p['position-y']
+  if (p.scale != null) { const sc = p.scale; typeof sc === 'number' ? o.scale.setScalar(sc) : o.scale.set(sc[0] ?? 1, sc[1] ?? 1, sc[2] ?? 1) }
+  o.updateMatrix(); return o.matrix
+}
+const grounded = []
+const gwalk = (node, mat, comp) => {
+  if (node == null || typeof node !== 'object') return
+  if (Array.isArray(node)) { for (const c of node) gwalk(c, mat, comp); return }
+  if (!node.__el) return
+  const m = mat.clone().multiply(nodeMatrix(node))
+  if (node.__el === 'mesh' || node.__el === 'instancedMesh') {
+    const g = geoOf(node)
+    if (g && g.attributes && g.attributes.position) {
+      const p = g.attributes.position, v = new THREE.Vector3()
+      let lo = 1e9, dmax = { }
+      for (let i = 0; i < p.count; i++) {
+        v.set(p.getX(i), p.getY(i), p.getZ(i)).applyMatrix4(m)
+        if (v.y < lo) lo = v.y
+        if (v.y < 0.5) for (const pad of PADS) {
+          const d = Math.hypot(v.x - pad.cx, v.z - pad.cz)
+          if (!(pad.id in dmax) || d > dmax[pad.id]) dmax[pad.id] = d
+        }
+      }
+      if (lo <= 0.01) grounded.push({ comp, el: node.__el, minY: +lo.toFixed(2),
+        covered: PADS.some((pad) => (dmax[pad.id] ?? 1e9) <= pad.r) })
+    }
+  }
+  if (node.props) gwalk(node.props.children, m, comp)
+}
 let called = 0
 for (const [k, v] of Object.entries(M)) {
   if (typeof v !== 'function') continue
   if (!/^[A-Z]/.test(k)) continue                    // 컴포넌트 관례 = 대문자 시작
-  try { const out = v({}); called++; const acc = []; walk(out, acc); if (acc.length) keys[k] = acc }
+  try { const out = v({}); called++; const acc = []; walk(out, acc); if (acc.length) keys[k] = acc
+        gwalk(out, new THREE.Matrix4(), k) }
   catch (e) {
     if (e instanceof ReferenceError) bad.push(k + ': ' + e.message)
     else noted.push(k + ': ' + e.message)            // props 미제공 등 — 보고만
   }
 }
-console.log(JSON.stringify({ called, bad, noted, keys }))
+console.log(JSON.stringify({ called, bad, noted, keys, grounded }))
 `)
   let res = null, err = ''
   try { res = JSON.parse(execSync(`node ${runner}`, { stdio: 'pipe' }).toString().trim().split('\n').pop()) }
@@ -123,6 +177,7 @@ console.log(JSON.stringify({ called, bad, noted, keys }))
   ok(res !== null, `${t} 모듈 평가(임포트 시점 예외 없음)` + (res ? '' : ` — ${err}`))
   if (!res) continue
   Object.assign(ALLKEYS, res.keys || {})
+  for (const g of res.grounded || []) ALLGROUND.push({ ...g, file: t })
   ok(res.bad.length === 0,
     `${t} 컴포넌트 ${res.called}개 호출 — **ReferenceError 0**(흰 화면의 원인)` +
     (res.bad.length ? ` — ${res.bad.join(' / ')}` : '') +
@@ -156,6 +211,25 @@ console.log(JSON.stringify({ called, bad, noted, keys }))
     const miss = need.filter((k) => !have.has(k))
     ok(miss.length === 0,
       `${comp} 부재 대장 ${need.length}종 전부 존재` + (miss.length ? ` — ✗누락: ${miss.join(', ')}` : ` (총 mesh ${have.size}종)`))
+  }
+}
+
+//  ── ★87 접지 명단 소진(브리프 §5-3) — y≤0 요소 전부에 임시 판이 있는가 ──
+{
+  const RIB_COMPS = new Set(['DomeRibs', 'ExplorationRib', 'HallDoorRibs'])   // 리브 = 미러 그 자체(판 대상 아님)
+  const PAD_COMPS = new Set(['MirrorPads', 'Ground'])                          // 판 자신·(스위치 복원 시) 구 지면
+  if (!MIR_ON) {
+    ok(true, '미러 꺼짐 — 접지 소진 검사 생략(구 지면이 전부 받는다)')
+  } else {
+    const targets = ALLGROUND.filter((g) => g.el === 'mesh' && !RIB_COMPS.has(g.comp) && !PAD_COMPS.has(g.comp))
+    const bare = targets.filter((g) => !g.covered)
+    ok(bare.length === 0,
+      `접지 mesh ${targets.length}개 전부 임시 판 안(명단 소진)` +
+      (bare.length ? ` — ✗판 없음: ${bare.map((g) => g.comp).join(', ')}` : ''))
+    ok(targets.length >= 25,
+      `접지 스캔이 실제로 잡는다 — ${targets.length}개 ≥ 25(2026.07.29 실측 25 — 리브·지면 제외: 드럼 벽·셀라·피어 8·바닥단 7·잉카+날 5·제단·오벨리스크 기둥. 격감 = 스캔 고장 신호)`)
+    const inst = ALLGROUND.filter((g) => g.el === 'instancedMesh' && !RIB_COMPS.has(g.comp))
+    if (inst.length) console.log(`  ⓘ instancedMesh ${inst.length}개는 행렬 미적용이라 판정 불가(원점 기하) — ${[...new Set(inst.map((g) => g.comp))].join(', ')}`)
   }
 }
 
