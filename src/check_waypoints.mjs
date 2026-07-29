@@ -29,6 +29,7 @@ import {
   ST_ON, RM10_ON, RM10_PHI, RM10_AX_R, RM10_RHO, RM10_FLOOR_Y, RM10_FLOOR_OPEN_R, RM10_DROP,   // ★79 등불 방
   RM10_EXIT_RIN, RM10_EXIT_ROUT, RM10_EXIT_FLOOR_Y, RM10_STR_END,   // ★79-5/6 출구 통로
   WSTAIR_X1, X_DESC0, DESC_TREAD_D, PASS_X_CHEEK, JCT_DN_Z, PASS_HW, PASS_T, DESC_SLOPE,   // ★84 W5
+  INCA_W0,   // ★2026.07.29 W5 잉카 폭(DESC_HW는 위에 이미 있음)
 } from './constants.js'
 import { RM10_FLARE_ON, RM10_FLARE_MX, RM10_FLARE_MZ, RM10_FLARE_SWEEP, RM10_FLARE_R, RM10_ARC_TH1, TERRACE_ON } from './constants.js'   // ★80
 import { RM10_FLARE_RISE, RM10_FLARE_MY, RM10_FLARE_W1, TR_RIN, TR_ROUT, TR_AZ0, TR_AZ1, TR_Y, TERRACE_T, TR_W_F, terraceMouth } from './constants.js'   // ★85 테라스
@@ -1030,13 +1031,17 @@ console.log('\n— W. 보행 (FREE_WALK를 끄면 걸어서 완주할 수 있는
     const seams5 = []
     //  B가 여러 조각(쪼개진 디딤판)이면, 진입이 가장 이른 조각들 중 A와 측면이 가장 많이 겹치는 것을 쓴다
     //  — 걸을 수 있는 띠가 하나라도 있으면 통행은 성립한다.
-    const addAx = (name, aEndX, aZ0, aZ1, pieces) => {
-      let bx = -Infinity, bo = -Infinity
+    //  ★2026.07.29 dir: 진행 방향. -1 = −x(도착 서쪽 · 기존 7곳) · +1 = +x(하부 여정 도착).
+    //   -1: A끝 = A최소x, B시작 = B최대x, gap = A끝 − B시작.  +1: A끝 = A최대x, B시작 = B최소x, gap = B시작 − A끝.
+    //   gap > 0 = 진행 방향으로 발 앞에 면 없음(부호는 dir로 이미 정규화 — 아래 검증 루프는 dir 무관).
+    const addAx = (name, aEndX, aZ0, aZ1, pieces, dir = -1) => {
+      let bx = dir < 0 ? -Infinity : Infinity, bo = -Infinity
       for (const p of pieces) {
-        if (p.x > bx + 1e-9) { bx = p.x; bo = Math.min(aZ1, p.z1) - Math.max(aZ0, p.z0) }
+        const nearer = dir < 0 ? (p.x > bx + 1e-9) : (p.x < bx - 1e-9)
+        if (nearer) { bx = p.x; bo = Math.min(aZ1, p.z1) - Math.max(aZ0, p.z0) }
         else if (Math.abs(p.x - bx) <= 1e-9) bo = Math.max(bo, Math.min(aZ1, p.z1) - Math.max(aZ0, p.z0))
       }
-      seams5.push({ name, gap: aEndX - bx, ov: bo, aEndX, bStartX: bx })
+      seams5.push({ name, gap: dir < 0 ? aEndX - bx : bx - aEndX, ov: bo, aEndX, bStartX: bx, dir })
     }
 
     const tL5 = KT5[KT5.length - 1]
@@ -1066,15 +1071,33 @@ console.log('\n— W. 보행 (FREE_WALK를 끄면 걸어서 완주할 수 있는
     addAx('하강 마지막 디딤 → 전실 슬랩', xL5 - DESC_TREAD_D / 2, JCT_DN_Z - PASS_HW, JCT_DN_Z + PASS_HW,
       [{ x: PASS_X_CHEEK, z0: JCT_DN_Z - PASS_HW - PASS_T, z1: JCT_DN_Z + PASS_HW + PASS_T }])
 
+    //  ── ★2026.07.29 하부 여정(도착 = **+x** 진행) — 기존 7곳과 부호가 반대다(dir=+1) ──
+    //   실측(2026.07.29): 월대 x≤137 · 하강로 x124→206.61(하강) · 잉카 판 206.61→226.81 · 첫 단 x0 226.61.
+    //   진행이 +x라 addAx(dir=+1)로 잰다. W3가 같은 이음매의 **높이**를 이미 재므로 여기선 **평면 틈**만 본다.
+    const WD5 = woldaeSpec(), DSP5 = descentSpec(HALL_ENTRY), INCA5 = incaStairSpec()
+    const wdMaxX = Math.max(...WD5.contour.map((p) => p.x)), wdZ = Math.max(...WD5.contour.map((p) => Math.abs(p.z)))
+    const dscMinX = Math.min(...DSP5.samples.map((s) => s.x)), dscMaxX = Math.max(...DSP5.samples.map((s) => s.x))
+    //  월대 → 하강로: 하강로 첫 판이 월대 위에서 출발(onWoldae)이라 크게 겹친다 — 큰 음수 gap이 정상
+    addAx('월대 → 하강로', wdMaxX, -wdZ, wdZ,
+      [{ x: dscMinX, z0: -DESC_HW, z1: DESC_HW }], +1)
+    //  하강로 → 잉카 판: 하강로 서단(최대 x) → 잉카 판 동단(panel.x0). 경계 일치(gap≈0) 예상
+    addAx('하강로 → 잉카 판', dscMaxX, -DESC_HW, DESC_HW,
+      [{ x: INCA5.panel.x0, z0: -INCA5.panel.w / 2, z1: INCA5.panel.w / 2 }], +1)
+    //  잉카 판 → 잉카 첫 단: panel 서단(x1) → 첫 단 동단(steps[0].x0). 계단 매스 z = ±INCA_W0/2(render_views와 동일)
+    addAx('잉카 판 → 잉카 첫 단', INCA5.panel.x1, -INCA5.panel.w / 2, INCA5.panel.w / 2,
+      [{ x: INCA5.steps[0].x0, z0: -INCA_W0 / 2, z1: INCA_W0 / 2 }], +1)
+
     for (const s5 of seams5)
       ok(s5.gap <= 1e-6 && s5.ov > 0,
         `${s5.name}: A끝 x${r2(s5.aEndX)} · B시작 x${r2(s5.bStartX)} → 겹침 ${r2(-s5.gap)} · 측면 ${r2(s5.ov)}` +
         (s5.gap > 1e-6 ? ` ⛔ 발 앞에 면 없음(틈 ${r2(s5.gap)})` : ''))
 
     //  ★가장 얇은 겹침을 소리 내어 남긴다 — 노브 하나면 음수로 뒤집혀 허공이 된다.
-    const thin5 = seams5.reduce((a, b) => (b.gap > a.gap ? b : a))
+    //  ⚠상부(dir<0)만 본다: 디딤판은 독립 배치라 겹침 여유가 안전의 척도다. 하부(+x)의 하강로↔잉카 판은
+    //   panel.x0가 하강로 끝 x와 **같은 값으로 접합 설계**돼 겹침 0(경계 일치)이 정상 — 여유가 아니라 커플링.
+    const thin5 = seams5.filter((s) => s.dir < 0).reduce((a, b) => (b.gap > a.gap ? b : a))
     ok(thin5.gap <= -0.01,
-      `가장 얇은 겹침 = ${thin5.name} ${r2(-thin5.gap)} — 0 이하면 허공이 생긴다`)
+      `가장 얇은 겹침(상부) = ${thin5.name} ${r2(-thin5.gap)} — 0 이하면 허공이 생긴다`)
 
     //  ── 포함형: 나선 마지막 칸이 무릎길 첫 참의 평면 안에 드는가 ──
     {
@@ -1113,16 +1136,19 @@ console.log('\n— W. 보행 (FREE_WALK를 끄면 걸어서 완주할 수 있는
     }
 
     //  ── 아직 못 잰 이음매 = 선언한다(UNASSIGNED·WALK_DEBT와 같은 형식) ──
-    //  ⚠하부 여정·극좌표 구간은 평면 발자국을 이 절이 아직 안 딴다. 숨기면 "다 쟀다"로 읽힌다.
+    //  ⚠극좌표/수직 구간은 진행이 방위각·연직이라 이 절의 축평행(±x) 발자국으로 못 딴다. 규약 일반화가
+    //   필요하고(B급·중 초과), 숨기면 "다 쟀다"로 읽힌다. ★2026.07.29 하부 여정 3곳(월대→하강로·하강로→
+    //   잉카 판·잉카 판→첫 단)은 +x dir로 실측해 여기서 뺐다 — 상부 7 + 하부 3 = 10곳을 W5가 실제로 잰다.
     const GAP_UNMEASURED = [
-      '허브 디스크 → 방사 패드', '방사 패드 → 월대', '월대 → 하강로', '하강로 → 잉카 판',
-      '잉카 판 → 잉카 첫 단', '잉카 정상 → 리브 문', '나선 → ★62 착지판', '★62 착지판 → 프리즈 바닥',
+      '허브 디스크 → 방사 패드', '방사 패드 → 월대',   // 방사 부품(Radial) 좌표계 — render_views 근사 밖과 같은 뿌리
+      '잉카 정상 → 리브 문',                            // **연직 단차**(−2.72) — W3 보행 빚으로 이미 선언(평면 틈 아님)
+      '나선 → ★62 착지판', '★62 착지판 → 프리즈 바닥',  // 극좌표(방위각 진행)
       '프리즈 바닥 → ★63 발코니', '프리즈 바닥 → 자립 판', '자립 판 → 아가리', '전실 → 회랑',
       '회랑 → 등불 방', '등불 방 계단 → 바닥', '등불 방 → 출구 통로', '나선 끝 → 무릎길(포함형으로 대체)',
       '★80 나팔 내부 참',
     ]
-    ok(GAP_UNMEASURED.length === 17,
-      `수평 틈 **미측정** 이음매 ${GAP_UNMEASURED.length}곳 선언 — W5가 실제로 잰 것은 상부 7곳뿐이다(W3 이음매 24곳 중)`)
+    ok(GAP_UNMEASURED.length === 14,
+      `수평 틈 **미측정** 이음매 ${GAP_UNMEASURED.length}곳 선언 — W5가 실제로 잰 것은 상부 7 + 하부 3 = 10곳(W3 이음매 24곳 중)`)
   }
 }
 

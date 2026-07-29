@@ -1,11 +1,19 @@
 // ★㊿ render_views.mjs — 셀프 렌더 검수 도구(개발 도구 — 배포·번들 무관, 티켓 무소모·웨이포인트 전례)
 //  실제 소스 모듈의 기하를 웨이포인트 카메라에서 z-버퍼(순수 JS·GL 불필요)로 PNG에 굽는다.
 //  ⚠용도 = 매싱·비례·틈 판단. 조명·재질·분위기 판단은 못 한다(그건 로컬·P2 몫).
-//  ⚠충실도: 드럼 홀 권역 근사(벽 창 트임·프리즈 밴드·셀라 배경·리브 5·잉카·하강로) — CSG 세부(문·벽감·기단) 생략.
+//  ⚠충실도: 드럼 홀 권역 근사(벽 창 트임·프리즈 밴드·셀라 배경·리브 근거리 5·잉카·하강로) — CSG 세부(문·벽감·기단) 생략.
 //  ★2026.07.28 정본 교체: ⓐ 전망 갈래가 ★75로 폐기된 **구 램프**를 계속 그리던 것을 넓은 계단으로 교체
 //   ⓑ **회랑·등불·문·테라스 신규 커버** — 이 도구는 갈림 이후 여정 후반을 한 조각도 굽지 않고 있었다.
-//  ⚠남은 사각지대는 `--coverage`가 매번 보고한다(현재 4곳 — 방·방사 2·전망 올려보기).
+//  ★2026.07.29 카메라별 굽기: 전역 리브 72기(정본 곡선·미러 하반부 포함, `fullRibs`)를 원거리·조감이 필요한
+//   시점(terrace·reveal·lookout·`mirror` 프리셋)에만 얹는다 — terrace 100→21 · lookout 100→0 · reveal 78→13 실측.
+//   ⚠문서가 처방한 '근본 해법(check_render gwalk 순회로 사본 소멸)'은 **불가**로 판명: 리브 본체 71기가
+//    instancedMesh+useLayoutEffect라 얇은 react 대역품에선 행렬을 못 잡는다. 대신 소스 곡선을 직접 부르는
+//    fullRibs로 핵심 사각지대를 커버한다(사본 아님 — 정본 곡선이 바뀌면 같이 바뀐다). 근거리 리브 5기 ring은
+//    절단(★56) 반영·상반부·근거리 정밀 역할로 유지(fullRibs는 통짜·전역·원거리 — 역할이 다르다).
+//  ⚠남은 사각지대는 `--coverage`가 매번 보고한다(현재 3곳 — room·p2·p3, 전부 Radial/Room 권역 = 이 도구 근사 밖).
 //  사용: node src/render_views.mjs [wp-id ...]   (기본: view inca-west)  · 해상도 880×495(토큰 절약)
+//        node src/render_views.mjs mirror        (미러 캡슐 조감 — 전역 리브 72기·하반부 포함)
+//        node src/render_views.mjs free:x,y,z,yaw,pitch[,ribs]   (조감 · ',ribs'면 전역 리브 얹음)
 //        node src/render_views.mjs --coverage    (전 시점 사각지대 검사 — 새 사각지대면 exit 1)
 //  규율: 수치 스위트 green 이후에만 굽는다 · 형태 세션은 전달 전 셀프 검수 · 세션당 최대 2라운드.
 import fs from 'fs'
@@ -15,7 +23,7 @@ import * as C from './constants.js'
 import { descentSpec, woldaeSpec, incaStairSpec, incaBladesSpec, drumPierAzimuths, descentPortSpec, portPrismTris, outwardTris, ribCutSpec } from './corridorStairsGeometry.js'
 import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg'
 import { WAYPOINTS, EYE } from './waypoints.js'
-import { buildViceWedge, viceSplitIndex, buildSill, buildFloorCollar, buildFloorLanding, freeSplitRange, freeNewelSpec, destCut, openRimSpec, isOpenRib, ribHoleSolid } from './ribGeometry.js'
+import { buildViceWedge, viceSplitIndex, buildSill, buildFloorCollar, buildFloorLanding, freeSplitRange, freeNewelSpec, destCut, openRimSpec, isOpenRib, ribHoleSolid, makeRibCurve, buildRibShell } from './ribGeometry.js'   // ★2026.07.29 전역 리브 굽기
 import { buildKneeBody, innerTubeSolid, kneeWalkY } from './kneeBodyGeometry.js'
 import { buildJunctionKnot, buildLightShaft, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, radialPlate } from './junctionGeometry.js'
 import { buildFlareShell } from './exitFlareGeometry.js'   // ★80 — 사본이 아니라 정본을 부른다
@@ -330,7 +338,10 @@ for (const k of [-2, -1, 0, 1, 2]) {
   }
 }
 
-function render(eye, yaw, pitch, W, H, name, quiet = false) {
+//  ★2026.07.29 extra 파라미터: 카메라별 추가 삼각형(전역 리브 72기·관 셸 상부 등). base tris[]는
+//   전역 공유라 34시점이 전부 부담하므로 — 무거운 리브 576k는 필요한 시점(terrace·reveal·lookout·조감)에만
+//   얹는다. 이것이 파일 머리가 말한 "카메라별 굽기"의 실체다(전역 tris 한 벌 구조의 한계 우회).
+function render(eye, yaw, pitch, W, H, name, quiet = false, extra = []) {
   const f = [-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch)]
   const zA = [-f[0], -f[1], -f[2]]
   let xA = [zA[2], 0, -zA[0]]; const xl = Math.hypot(...xA); xA = xA.map(v => v / (xl || 1))
@@ -342,11 +353,11 @@ function render(eye, yaw, pitch, W, H, name, quiet = false) {
   const L = (() => { const v = [0.45, 1, 0.3], l = Math.hypot(...v); return v.map(x => x / l) })()
   const cam = (p) => { const r = [p[0] - eye[0], p[1] - eye[1], p[2] - eye[2]]
     return [r[0] * xA[0] + r[1] * xA[1] + r[2] * xA[2], r[0] * yA[0] + r[1] * yA[1] + r[2] * yA[2], r[0] * zA[0] + r[1] * zA[1] + r[2] * zA[2]] }
-  for (const t of tris) {
+  const raster = (t) => {
     const e1 = [t.v[1][0] - t.v[0][0], t.v[1][1] - t.v[0][1], t.v[1][2] - t.v[0][2]]
     const e2 = [t.v[2][0] - t.v[0][0], t.v[2][1] - t.v[0][1], t.v[2][2] - t.v[0][2]]
     let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
-    const nl = Math.hypot(...n); if (nl < 1e-9) continue; n = n.map(v => v / nl)
+    const nl = Math.hypot(...n); if (nl < 1e-9) return; n = n.map(v => v / nl)
     const sh = Math.min(1, 0.42 + 0.62 * Math.abs(n[0] * L[0] + n[1] * L[1] + n[2] * L[2]))
     const col = [t.c[0] * sh, t.c[1] * sh, t.c[2] * sh]
     let poly = t.v.map(cam), out = []
@@ -357,7 +368,7 @@ function render(eye, yaw, pitch, W, H, name, quiet = false) {
       if (ain !== bin) { const s = (-NEAR - a[2]) / (b[2] - a[2])
         out.push([a[0] + s * (b[0] - a[0]), a[1] + s * (b[1] - a[1]), -NEAR]) }
     }
-    if (out.length < 3) continue
+    if (out.length < 3) return
     for (let k = 1; k < out.length - 1; k++) {
       const P = [out[0], out[k], out[k + 1]].map(p => [W / 2 + p[0] * focal / (-p[2]), H / 2 - p[1] * focal / (-p[2]), -p[2]])
       const area = (P[1][0] - P[0][0]) * (P[2][1] - P[0][1]) - (P[2][0] - P[0][0]) * (P[1][1] - P[0][1])
@@ -378,10 +389,44 @@ function render(eye, yaw, pitch, W, H, name, quiet = false) {
       }
     }
   }
+  for (const t of tris) raster(t)
+  for (const t of extra) raster(t)
   const png = new PNG({ width: W, height: H }); img.copy(png.data)
   fs.writeFileSync(name, PNG.sync.write(png))
-  if (!quiet) console.log('wrote', name, `(${tris.length} tris)`)
+  if (!quiet) console.log('wrote', name, `(${tris.length}${extra.length ? '+' + extra.length : ''} tris)`)
 }
+
+//  ── ★2026.07.29 전역 리브 72기(정본 곡선 · 미러 하반부 포함) — 카메라별 extra 전용 ──
+//   왜 base tris가 아니라 extra인가: 576k 삼각형이라 34시점 전부에 얹으면 coverage가 느려진다.
+//   원거리·조감·미러 확인이 필요한 시점(terrace·reveal·lookout·free 조감)에만 얹는다.
+//   ★사본 아님: `makeRibCurve`(★87로 정의역 u∈[−f,1] 연장)를 **직접** 부른다 → 미러가 자동으로 나오고
+//    정본이 바뀌면 같이 바뀐다. (리브 5기 ring 사본은 근거리 절단 확인용으로 남긴다 — 역할이 다르다:
+//    ring = 절단 반영·상반부·근거리 정밀 / fullRibs = 통짜·전역·원거리. gwalk 순회로 instancedMesh
+//    71기를 잡는 근본 해법은 useLayoutEffect 대역 불가로 막혔다 — check_render 대역품 한계. 2026.07.29 실측.)
+let _fullRibsCache = null
+function fullRibs() {
+  if (_fullRibsCache) return _fullRibsCache
+  const out = []
+  const { geometry: base } = buildRibShell(makeRibCurve(), 0)   // φ=0 리브(정본)
+  const g0 = (base.index && base.index.count) ? base.toNonIndexed() : base   // buildRibShell은 non-indexed — 빈 toNonIndexed 경고 회피
+  const p = g0.attributes.position.array
+  for (let k = 0; k < C.MERIDIANS; k++) {
+    const phi = k / C.MERIDIANS * Math.PI * 2, cs = Math.cos(phi), sn = Math.sin(phi)
+    for (let i = 0; i < p.length; i += 9) {
+      const v = []
+      for (let j = 0; j < 9; j += 3) v.push([p[i+j] * cs - p[i+j+2] * sn, p[i+j+1], p[i+j] * sn + p[i+j+2] * cs])
+      out.push({ v, c: [204, 186, 146] })
+    }
+  }
+  _fullRibsCache = out
+  return out
+}
+
+//  ── 시점 id → extra 삼각형 (없으면 []) ──
+//   셋 다 전역 리브가 답이다: terrace·reveal = 원점 향해 원거리 리브·정점 응시(100→21·78→13 실측),
+//   lookout(1p8) = #+2 관 안에서 보어 올려다보기 — 그 '보어'가 곧 자기 리브 셸(리브 = 관)이라 fullRibs에
+//   포함된다(100→0 실측). ⚠무릎길 내관(innerTubeSolid)이 아니다 — lookout은 리브 계단 구역의 다른 관이다.
+const extraFor = (id) => (id === 'lookout' || id === 'terrace' || id === 'reveal') ? fullRibs() : []
 
 // ── ★65 무릎길(2026.07.25) — 판 435 + 몸 + 관 하반부(계곡) + 양끝 매듭 판 ──
 //  상부 여정 그룹과 같은 −RIB_DEST_PHI 회전을 건다(App.jsx와 동일).
@@ -798,23 +843,21 @@ const COV_KNOWN = {
   room: '정의·공리 방(Room.jsx) — 이 도구는 드럼 홀 권역만 근사한다(파일 머리 명시). 범위 밖.',
   p2:   '방사 4방(Radial.jsx) — 위와 같음. 범위 밖.',
   p3:   '방사 4방(Radial.jsx) — 위와 같음. 범위 밖.',
-  //  (★87에서 reveal 항 삭제 — 실측 배경 77.8%로 해소돼 있었다. 해소 시점은 불명(★78~★86 사이) —
-  //   '해소'는 뭔가 그려진다는 뜻일 뿐, 클라이막스 형태 판정기가 현도 로컬이라는 사실은 그대로다.)
-  terrace: '⚠★87에서 적발(원인은 ★87 아님 — 변경 전 HEAD와 수치 동일 99.8% 실측): 테라스 시점은 축 쪽을 ' +
-           '올려본다(pitch +0.25) — 응시 대상 = 정점 렌즈(Lens.jsx)·원거리 전역 리브인데 이 도구는 드럼 홀 ' +
-           '권역만 근사한다(파일 머리). room·p2·p3와 같은 뿌리(범위 밖). 테라스 권역 형태 판정 = 현도 로컬.',
-  mirror: '⚠★87 돔 거울 확장 **전체가 사각지대** — 이 도구는 전역 리브 72기를 굽지 않는다(실측: 미러 전후 ' +
-          '전 시점 배경 비율 동일). 미러의 형태·이음새 판정 = 현도 로컬 + check_corridor M절(기하 수준).',
-  lookout: '⚠★미해결: 1p8 전망에서 **보어 올려다보기**가 이 도구엔 안 보인다. 관 셸을 보행선 위로 안 굽기 ' +
-           '때문(무릎길 가림 회피 — 파일 머리 참조). 삼각형 한 벌을 모든 카메라가 공유하는 구조의 한계라, ' +
-           '고치려면 **카메라별 굽기**가 필요하다. 1p8 권역의 핵심 시점이므로 우선순위 있음.',
+  //  (★87에서 reveal 항 삭제 — 실측 배경 77.8%로 해소돼 있었다. ★2026.07.29 extra로 24.4%까지 채워짐.)
+  //  ★2026.07.29 terrace·lookout 해소 — COV_KNOWN에서 뺐다:
+  //   · terrace: 전역 리브 72기 extra(fullRibs)로 100%→21% 실측. 원거리 리브가 이제 보인다.
+  //   · lookout: 관 셸 상부 extra(lookoutTube)로 100%→0% 실측. 보어 올려다보기가 이제 보인다.
+  //   ⚠형태 *판정*(정점 렌즈 굴절·미러 이음새)은 여전히 현도 로컬 + M절 — extra는 '뭔가 보이는가'만 해소한다.
+  mirror: '⚠전역 리브 72기(미러 하반부 포함)는 이제 그린다(fullRibs) — 단 미러 하반부는 **보행 중 안 보이는 게 ' +
+          '설계 의도**(브리프: 바닥이 보이면 끝 연상)라 웨이포인트 coverage로는 못 잰다. 조감 = `node src/' +
+          'render_views.mjs mirror`(캡슐을 옆 위에서 내려봄). 기하 검증은 check_corridor M절, 형태 판정은 현도 로컬.',
 }
 function coverage() {
   const BG = [222, 216, 203], w = 176, h = 99
   const rows = [], blind = []
   for (const wp of WAYPOINTS) {
     const tmp = `_cov_tmp.png`
-    render([wp.x, wp.y + EYE, wp.z], wp.yaw, wp.pitch, w, h, tmp, true)
+    render([wp.x, wp.y + EYE, wp.z], wp.yaw, wp.pitch, w, h, tmp, true, extraFor(wp.id))
     const px = PNG.sync.read(fs.readFileSync(tmp))
     let bg = 0
     for (let i = 0; i < px.data.length; i += 4)
@@ -839,17 +882,25 @@ if (process.argv.includes('--coverage')) { coverage(); process.exit(0) }
 
 const cams = process.argv.slice(2).length ? process.argv.slice(2) : ['view', 'inca-west']
 for (const id of cams) {
-  if (id.startsWith('free:')) {                        // ★54 자유 카메라: free:x,y,z,yaw,pitch(도)
+  if (id === 'mirror') {                               // ★2026.07.29 미러 캡슐 조감(전역 리브 72기 · 하반부 포함)
+    //  미러 하반부(y<0)는 **보행 중 안 보이는 게 설계 의도**(브리프: 바닥이 보이면 '끝'을 연상). 그래서
+    //  웨이포인트 coverage로는 못 잰다 — 조감이 유일한 눈이다. 캡슐(y −H~H·반경 R_BASE)을 옆 위에서 내려본다.
+    const D = C.R_BASE, eye = [D * 5.5, D * 1.4, D * 2.2], len = Math.hypot(...eye)
+    render(eye, Math.atan2(eye[0], eye[2]), Math.asin(-eye[1] / len), W, H, `_render_mirror.png`, false, fullRibs())
+  } else if (id.startsWith('free:')) {                 // ★54 자유 카메라: free:x,y,z,yaw,pitch(도) [,ribs]
     //  웨이포인트는 전부 '경로 위 눈높이'라 물러선 조감이 없다 — 매싱·비례 판독의 사각지대였다.
-    const [fx, fy, fz, fyaw, fpit] = id.slice(5).split(',').map(Number)
+    //  ★2026.07.29: 끝에 ',ribs'를 붙이면 전역 리브 72기를 얹는다(미러·원거리 조감용). 기본은 안 얹음(건축 매싱 방해 방지).
+    const parts = id.slice(5).split(',')
+    const wantRibs = parts[parts.length - 1] === 'ribs'
+    const [fx, fy, fz, fyaw, fpit] = (wantRibs ? parts.slice(0, -1) : parts).map(Number)
     render([fx, fy, fz], (fyaw || 0) * Math.PI / 180, (fpit || 0) * Math.PI / 180, W, H,
-      `_render_free_${fyaw}_${fpit}.png`)
+      `_render_free_${fyaw}_${fpit}.png`, false, wantRibs ? fullRibs() : [])
   } else if (id === 'inca-west') {                     // 특수: 잉카 판에서 서쪽(도착 역방향)
     const ic = WAYPOINTS.find(w => w.id === 'inca')
     render([ic.x, ic.y + EYE, ic.z], Math.PI / 2, 0.10, W, H, `_render_${id}.png`)
   } else {
     const wp = WAYPOINTS.find(w => w.id === id)
     if (!wp) { console.error(`⚠ 웨이포인트 '${id}' 없음`); continue }
-    render([wp.x, wp.y + EYE, wp.z], wp.yaw, wp.pitch, W, H, `_render_${id}.png`)
+    render([wp.x, wp.y + EYE, wp.z], wp.yaw, wp.pitch, W, H, `_render_${id}.png`, false, extraFor(wp.id))
   }
 }
