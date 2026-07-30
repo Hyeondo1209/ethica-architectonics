@@ -16,6 +16,10 @@ import {
   RAD_JPHI, RAD_JX, RAD_FLOOR_Y, RAD_T_IN,
   RAD_DROP, RAD_ST_N, RAD_ST_T, RAD_ST_LAND, RAD_ST_W,
   RAD_SKIRT_MAX,
+  ROOM_R, ROOM_FLOOR_Y, ROOM_HEIGHT,
+  RAD_CYL_ON, RAD_CYL_R, RAD_CYL_Y0, RAD_CYL_SEG, RAD_CYL_CLIP_ROOM,
+  RAD_CYL_TERM_BY, RAD_CYL_TERM_TOP_BY, RAD_CYL_SPH_SEG, termSpec,
+  RAD_CYL_DOOR_ON, RAD_CYL_DOOR_RING_ONLY, RAD_CYL_DOOR_M,
 } from './constants'
 
 const MAT_WALL  = '#b89a6a'   // 터널·고리(통로 외피와 같은 가족)
@@ -113,6 +117,116 @@ function buildPetalShell() {
 //  통로 바닥판 혀끝〔중심거리 ≈13.5〕을 관입으로 삼킴 — 혀끝·스커트가 착지장 몸통에 묻힘) → 단 N → 발치(바닥판에 0.23 매몰).
 //  ★셸 정합 = CSG '교집합'(−0.05 축소 셸): 기운 벽(문지방 높이 14.4 ↔ 바닥 높이 12.6)에 수직 등짝을 대면
 //  아래는 돌출·위는 틈 — 교집합이 등짝·밑면을 셸 내면 그대로 깎아 둘 다 소거(사발면 정합).
+// ★★원기둥 받침 + 말단(2026.07.30 1~3차) — **하나의 회전체 프로파일**.
+//  위 = 등반경 원기둥(적도 108.5 → 말단 꼭대기): 방 클립 + 문 12곳이 여기에만 걸린다.
+//  아래 = 말단(구 띠 / 원기둥 / 원뿔대 조합, 막힌 끝): constants `RAD_CYL_TERM`이 정본.
+//  ★★반경 연속은 **코드가 강제**한다 — 각 구간이 직전 반경에서 시작하므로 단이 구조적으로 생길 수 없다.
+//   기울기는 경계에서 꺾인다(도형이 바뀌므로) → 경계마다 링을 **두 개** 낸다(법선이 다르기 때문).
+//  ★법선은 전부 **명시**한다(`computeVertexNormals` 금지 — ★57 '각진 연필'):
+//   원기둥 (1,0) · 원뿔대 = 모선의 수직 · **구 띠 = 구 중심에서의 정확한 법선**(면당 근사 아님).
+//  ⚠말단에는 클립·문을 안 건다 — 말단은 방 구 **아래**에 있어 클립이 무의미하다.
+//   그 전제(말단 꼭대기 < 방 구 아랫면)는 constants가 파생으로 세우고 검사 §18이 지킨다.
+export function buildCylSkirt(k) {
+  const name = RAD_CYL_TERM_BY[k], spec = termSpec(name)
+  const TOP = RAD_CYL_TERM_TOP_BY[k]                 // 원기둥 밑단 ≡ 말단 꼭대기(연속)
+  const R = RAD_CYL_R, N = RAD_CYL_SEG, M = RAD_CYL_DOOR_M
+  const W = RAD_T_HW + M, DOOR_TOP = RAD_TOP + 0.4 + M
+
+  const doorAt = (a) => {
+    if (!RAD_CYL_DOOR_ON) return null
+    const lx = R * Math.cos(a), lz = R * Math.sin(a)
+    const d = Math.hypot(RAD_R + lx, lz)
+    const inHub = !RAD_CYL_DOOR_RING_ONLY && lx < 0 && Math.abs(lz) <= W
+    const inRing = Math.abs(d - RAD_R) <= W
+    return (inHub || inRing) ? [clipY(d, 0) - M, DOOR_TOP] : null
+  }
+  const roomAt = (a) => {
+    const d = Math.hypot(RAD_R + R * Math.cos(a), R * Math.sin(a))
+    if (!RAD_CYL_CLIP_ROOM || d >= ROOM_R) return [ROOM_FLOOR_Y, ROOM_FLOOR_Y]
+    const t = Math.sqrt(Math.max(0, 1 - (d * d) / (ROOM_R * ROOM_R)))
+    return [ROOM_FLOOR_Y - ROOM_HEIGHT * t, ROOM_FLOOR_Y + ROOM_HEIGHT * t]
+  }
+
+  //  ★열 각도 = 균등 N + 문 경계각(이분법). 말단도 같은 각 목록을 쓴다 → 이음매에서 정점이 맞물린다.
+  const angs = []
+  for (let i = 0; i <= N; i++) angs.push((i / N) * Math.PI * 2)
+  if (RAD_CYL_DOOR_ON) {
+    const isIn = (a) => doorAt(a) != null
+    const FINE = N * 24
+    for (let i = 0; i < FINE; i++) {
+      let a0 = (i / FINE) * Math.PI * 2, a1 = ((i + 1) / FINE) * Math.PI * 2
+      if (isIn(a0) === isIn(a1)) continue
+      for (let q = 0; q < 40; q++) { const m = (a0 + a1) / 2; if (isIn(m) === isIn(a0)) a0 = m; else a1 = m }
+      angs.push((a0 + a1) / 2 - 1e-9, (a0 + a1) / 2 + 1e-9)
+    }
+  }
+  angs.sort((u, v) => u - v)
+
+  const pos = [], nrm = []
+  const put = (a, y, r, nr, ny) => {
+    pos.push(r * Math.cos(a), y, r * Math.sin(a))
+    nrm.push(nr * Math.cos(a), ny, nr * Math.sin(a))
+  }
+  //  ── ① 등반경 원기둥 구간(클립 + 문) ──
+  for (let i = 0; i < angs.length - 1; i++) {
+    const a0 = angs[i], a1 = angs[i + 1]
+    if (a1 - a0 < 1e-7) continue
+    const [rb0, rt0] = roomAt(a0), [rb1, rt1] = roomAt(a1)
+    const dr = doorAt((a0 + a1) / 2)
+    const dLo0 = dr ? Math.max(dr[0], rt0) : RAD_CYL_Y0
+    const dLo1 = dr ? Math.max(dr[0], rt1) : RAD_CYL_Y0
+    const dHi = dr ? dr[1] : RAD_CYL_Y0
+    for (const [lo0, hi0, lo1, hi1] of [
+      [TOP, rb0, TOP, rb1],          // 방 아래쪽(말단 꼭대기까지)
+      [rt0, dLo0, rt1, dLo1],        // 방 위 ~ 문 밑
+      [dHi, RAD_CYL_Y0, dHi, RAD_CYL_Y0],   // 문 위 인방
+    ]) {
+      if (hi0 - lo0 < 1e-9 && hi1 - lo1 < 1e-9) continue
+      put(a0, lo0, R, 1, 0); put(a0, hi0, R, 1, 0); put(a1, hi1, R, 1, 0)
+      put(a0, lo0, R, 1, 0); put(a1, hi1, R, 1, 0); put(a1, lo1, R, 1, 0)
+    }
+  }
+  //  ── ② 말단 회전체 ── 링 목록을 만들고(경계마다 둘) 이웃 링 사이를 돈다
+  const rings = []
+  for (const g of spec.segs) {
+    const yTop = TOP + g.y0, yBot = TOP + g.y1
+    if (g.t === 'sph') {
+      const yc = g.r0 >= g.r1 ? yTop : yBot            // 적도 = 넓은 쪽 끝
+      for (let i = 0; i <= RAD_CYL_SPH_SEG; i++) {
+        const y = yTop - (i / RAD_CYL_SPH_SEG) * g.d
+        const r = Math.sqrt(Math.max(0, g.Rs ** 2 - (y - yc) ** 2))
+        rings.push({ y, r, nr: r / g.Rs, ny: (y - yc) / g.Rs })   // ★구 중심에서의 정확한 법선
+      }
+    } else {
+      const L = Math.hypot(g.r1 - g.r0, g.d)
+      const nr = g.d / L, ny = (g.r1 - g.r0) / L        // 모선의 수직(원기둥이면 (1,0))
+      rings.push({ y: yTop, r: g.r0, nr, ny }, { y: yBot, r: g.r1, nr, ny })
+    }
+  }
+  for (let j = 0; j < rings.length - 1; j++) {
+    const A = rings[j], B = rings[j + 1]
+    if (Math.abs(A.y - B.y) < 1e-9 && Math.abs(A.r - B.r) < 1e-9) continue
+    for (let i = 0; i < angs.length - 1; i++) {
+      const a0 = angs[i], a1 = angs[i + 1]
+      if (a1 - a0 < 1e-7) continue
+      put(a0, B.y, B.r, B.nr, B.ny); put(a0, A.y, A.r, A.nr, A.ny); put(a1, A.y, A.r, A.nr, A.ny)
+      put(a0, B.y, B.r, B.nr, B.ny); put(a1, A.y, A.r, A.nr, A.ny); put(a1, B.y, B.r, B.nr, B.ny)
+    }
+  }
+  //  ── ③ 막힌 끝(현도 3차 "이젠 막힌 관") — 평면 원반, 법선 아래 ──
+  const E = rings[rings.length - 1]
+  for (let i = 0; i < angs.length - 1; i++) {
+    const a0 = angs[i], a1 = angs[i + 1]
+    if (a1 - a0 < 1e-7) continue
+    pos.push(0, E.y, 0); nrm.push(0, -1, 0)
+    put(a0, E.y, E.r, 0, -1); put(a1, E.y, E.r, 0, -1)
+  }
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3))
+  return g
+}
+
 function buildStairGeo(rotY, tx, tz, ev, shellBrush) {
   const yTop = Y_FTOP - 0.02, yBot = Y_RFTOP - 0.23
   const RISE = (yTop - Y_RFTOP) / RAD_ST_N            // 단높이 ≈0.318
@@ -296,6 +410,7 @@ function DoorFrame({ position, rotY, depth = FR_D }) {
 
 export function RadialRooms() {
   const petalGeo = useMemo(buildPetalShell, [])
+  const cylGeos = useMemo(() => [0, 1, 2, 3].map(buildCylSkirt), [])   // ★말단이 넷 다 달라 개별 기하
   const stairGeos = useMemo(buildStairs, [])
   const angs = [0, 1, 2, 3].map(k => RAD_ANG0 + k * Math.PI / 2)
   // 고리: 온호 3(꽃잎 사이) + 동측 반호 2(박스 옆벽 z=±6에서 종단 — 접합문)
@@ -315,6 +430,12 @@ export function RadialRooms() {
           <mesh geometry={petalGeo}>
             <meshStandardMaterial color={MAT_SHELL} roughness={0.88} side={THREE.DoubleSide} />
           </mesh>
+          {/* ★원기둥 받침(2026.07.30) — 셸 적도에서 아래로. 재질은 셸과 같게 = 한 몸으로 읽힘(Claude 값·P2에서 재판정) */}
+          {RAD_CYL_ON && (
+            <mesh geometry={cylGeos[k]}>
+              <meshStandardMaterial color={MAT_SHELL} roughness={0.88} side={THREE.DoubleSide} />
+            </mesh>
+          )}
           {/* ★내부 바닥(2026.07.12 계란화): 강하 레벨 원뿔대 판 — 위/아래 반경을 각 높이 셸내면−0.05로 파생(기운 벽 정합, 틈·돌출 동시 소거) */}
           <mesh position={[0, Y_RFTOP - COR_THICK / 2, 0]} userData={{ walkable: true }}>
             <cylinderGeometry args={[FLOOR_RT, FLOOR_RB, COR_THICK, 48]} />

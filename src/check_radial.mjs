@@ -8,7 +8,13 @@ import {
   RAD_DOOR_H, RAD_DOOR_HW, RAD_ARC_IN, RAD_JPHI, RAD_JX, RAD_JDOOR_HW, RAD_CAP_X, RAD_T_IN, RAD_FLOOR_Y,
   RAD_DROP, RAD_ST_N, RAD_ST_T, RAD_ST_LAND, RAD_ST_W,
   ROOM_TOP_AZ, ROOM_DISC_SLOT_START, ROOM_DISC_SLOT_LEN, ROOM_STAIR_PHASE, ROOM_STAIR_TOTAL_ANG,
+  ROOM_FLOOR_Y, ROOM_HEIGHT, MIR_PADS,
+  RAD_CYL_ON, RAD_CYL_GROW, RAD_CYL_R, RAD_CYL_Y0, RAD_CYL_Y1_BY, RAD_CYL_Y1_MIN, RAD_CYL_Y1_MAX,
+  RAD_CYL_SEG, RAD_CYL_CLIP_ROOM, RAD_CYL_DOOR_ON, RAD_CYL_DOOR_RING_ONLY, RAD_CYL_DOOR_M,
+  RAD_CYL_TERM, RAD_CYL_TERM_BY, RAD_CYL_TERM_TOP_BY, RAD_CYL_TERM_CLEAR, RAD_CYL_SPH_SEG,
+  RAD_CYL_MASS_ORB, RAD_CYL_MASS_DRUM, termSpec,
 } from './constants.js'
+import { makeRibCurve } from './ribGeometry.js'
 
 let pass = 0, fail = 0
 const ok = (name, cond, detail = '') => {
@@ -267,6 +273,208 @@ console.log('── 17. 착지 디스크 슬랩(2026.07.11) ──')
   ok('디스크 밑면 > 오큘러스 림 돔 표면', bot > domeAtRim + 0.3, `${r2(bot)} > ${r2(domeAtRim)}`)
 }
 
+console.log('── 18. 원기둥 받침(★2026.07.30 현도 "공중에 뜬 성") ──')
+{
+  const sR = (y) => RAD_PRX * Math.sqrt(Math.max(0, 1 - ((y - RAD_PCY) / RAD_PRY) ** 2))
+  const FR_OUT = RAD_T_HW + 0.5
+  const frRW = (y) => Math.sqrt(Math.max(0.25, sR(y) ** 2 - FR_OUT ** 2))
+  const LIN_TOP = RAD_TOP + 0.6, Y_FTOP = RAD_FLOOR_Y + COR_THICK / 2
+  const FR_YS = [Y_FTOP, LIN_TOP, ...(RAD_PCY > Y_FTOP && RAD_PCY < LIN_TOP ? [RAD_PCY] : [])]
+  const FR_FRONT = Math.max(...FR_YS.map(frRW)) + 0.25
+  const corner = Math.hypot(FR_FRONT, FR_OUT)
+
+  ok('스위치 상태 보고', true, `ON=${RAD_CYL_ON} · CLIP_ROOM=${RAD_CYL_CLIP_ROOM} · GROW=${RAD_CYL_GROW} · DOOR=${RAD_CYL_DOOR_ON}${RAD_CYL_DOOR_RING_ONLY ? '(고리만)' : ''}`)
+
+  // ★부착점 = 적도. 노브가 아니라 파생이라는 것을 검사가 박는다
+  ok('상단 ≡ 셸 적도 RAD_PCY(파생 — 노브 아님)', Math.abs(RAD_CYL_Y0 - RAD_PCY) < 1e-12, `${r2(RAD_CYL_Y0)}`)
+  {
+    let cnt = 0
+    for (let y = RAD_PCY - RAD_PRY; y <= RAD_PCY + RAD_PRY; y += 0.01) if (Math.abs(sR(y) - RAD_PRX) < 1e-6) cnt++
+    ok('반경이 셸 최대와 같아지는 높이는 적도 하나뿐', cnt <= 3, `표본 적중 ${cnt}회(적도 근방만)`)
+  }
+
+  // ★GROW > 0 = 적도 접선 회피(폭 사슬과 같은 종류)
+  ok('GROW > 0 — 적도 접선(코플레이너) 회피', RAD_CYL_GROW > 0.05, `GROW ${RAD_CYL_GROW}`)
+  {
+    let minGap = 1e9
+    for (let y = RAD_PCY - RAD_PRY; y <= RAD_PCY; y += 0.01) minGap = Math.min(minGap, RAD_CYL_R - sR(y))
+    ok('셸 하반부가 전 높이에서 원기둥 안', minGap > 0.05, `최소 간극 ${r2(minGap)} (= GROW)`)
+    const tangentGap = RAD_CYL_R - sR(RAD_PCY)
+    ok('적도 간극 = GROW(0이면 깊이 다툼 대역)', Math.abs(tangentGap - RAD_CYL_GROW) < 1e-9, `${r2(tangentGap)}`)
+  }
+
+  // ★문틀 앞 모서리 삼킴 — 면이 아니라 모서리가 기준(반폭 2.7이 실측을 바꾼다)
+  ok('문틀 앞 모서리를 원기둥이 삼킴', corner < RAD_CYL_R - 0.05,
+    `모서리 ${r2(corner)} < ${RAD_CYL_R} (여유 ${r2(RAD_CYL_R - corner)})`)
+  ok('문틀 앞 "면"만 보면 오판한다(기록)', FR_FRONT < corner, `앞면 ${r2(FR_FRONT)} vs 모서리 ${r2(corner)}`)
+
+  // ★현도 지시 = 구 아래를 넘는다
+  //  ★★길이 = 4기 불규칙(현도 2차 지시). 지시가 준 것은 부등식 둘뿐이라 '불규칙'을 코드가 지킨다.
+  const yRoomBot = ROOM_FLOOR_Y - ROOM_HEIGHT
+  ok('4기 전부 방 구 최하점 아래(현도 "최소 길이는 전부 구 아래로")',
+    RAD_CYL_Y1_BY.every((y) => y < yRoomBot - 3), `${RAD_CYL_Y1_BY.join(' · ')} < ${yRoomBot}`)
+  ok('길이가 4기 전부 다르다(어느 둘도 같지 않음)', new Set(RAD_CYL_Y1_BY).size === 4,
+    `구 아래 ${RAD_CYL_Y1_BY.map((y) => r2(yRoomBot - y)).join(' · ')}`)
+  {
+    const srt = [...RAD_CYL_Y1_BY].sort((a, b) => a - b)
+    const gap = [srt[1] - srt[0], srt[2] - srt[1], srt[3] - srt[2]]
+    ok('간격이 등차가 아니다(등차면 눈이 규칙을 읽는다)',
+      Math.abs((gap[1] - gap[0]) - (gap[2] - gap[1])) > 1e-9 || gap[0] !== gap[1],
+      `정렬 간격 ${gap.join(' · ')}`)
+    const rank = RAD_CYL_Y1_BY.map((y) => srt.indexOf(y))
+    const asc = rank.every((v, i) => i === 0 || v > rank[i - 1])
+    const desc = rank.every((v, i) => i === 0 || v < rank[i - 1])
+    ok('방위 순서 ≠ 길이 순서(일치하면 나선으로 읽힌다)', !asc && !desc, `방위별 순위 ${rank.join('→')}`)
+  }
+  //  ⚠상한이 4.5 → 6.0으로 올랐다: 현도 ⓑ 확정(2026.07.30 3차) — 말단을 방 구 클립 **아래**로
+  //   내리기로 하면서 총 길이가 늘어나는 것을 받아들였다. 4.5는 말단 이전 체제의 값이다.
+  ok('가장 긴 것도 "너무 길지 않게"(길이/지름 ≤ 6.0 — ⓑ 확정 후 상한)',
+    (RAD_CYL_Y0 - RAD_CYL_Y1_MIN) / (2 * RAD_CYL_R) <= 6.0,
+    `최장 ${r2(RAD_CYL_Y0 - RAD_CYL_Y1_MIN)} / 지름 ${r2(2 * RAD_CYL_R)} = ${r2((RAD_CYL_Y0 - RAD_CYL_Y1_MIN) / (2 * RAD_CYL_R))} · 최단 ${r2(RAD_CYL_Y0 - RAD_CYL_Y1_MAX)}`)
+
+  // ★통과 공간 — 리브·미러 판·박스 목
+  {
+    const c = makeRibCurve(400)
+    let minR = Infinity
+    for (let i = 0; i <= 4000; i++) {
+      const q = c.getPoint(i / 4000)
+      if (q.y >= RAD_CYL_Y1_MIN - 10 && q.y <= RAD_CYL_Y0 + 10) minR = Math.min(minR, Math.hypot(q.x, q.z))
+    }
+    ok('리브 중심선 여유(원기둥 최대 원점거리 대비)', minR > RAD_R + RAD_CYL_R + 20,
+      `리브 최소 ${r2(minR)} vs ${r2(RAD_R + RAD_CYL_R)} (여유 ${r2(minR - RAD_R - RAD_CYL_R)})`)
+  }
+  {
+    let worst = 1e9
+    for (const pad of MIR_PADS) for (let k = 0; k < 4; k++) {
+      const ang = RAD_ANG0 + k * Math.PI / 2
+      const cx = RAD_R * Math.cos(ang), cz = RAD_R * Math.sin(ang)
+      worst = Math.min(worst, Math.hypot(pad.cx - cx, pad.cz - cz) - pad.r - RAD_CYL_R)
+    }
+    ok('미러 임시 판과 무간섭', worst > 1, `여유 ${r2(worst)}`)
+  }
+  ok('박스 목(z ±BOX_HW)과 무간섭', RAD_R * Math.sin(RAD_ANG0) - BOX_HW > RAD_CYL_R + 5,
+    `셸 축까지 ${r2(RAD_R * Math.sin(RAD_ANG0) - BOX_HW)} > ${RAD_CYL_R}`)
+
+  ok('원주 분할 = 셸과 같음(실루엣 정합)', RAD_CYL_SEG === 48, `SEG ${RAD_CYL_SEG}`)
+
+  // ★4기 등형 — 클립이 방위와 무관함을 산술로(회전 불변)
+  {
+    let spread = 0
+    for (let i = 0; i < RAD_CYL_SEG; i++) {
+      const a = (i / RAD_CYL_SEG) * Math.PI * 2
+      const lx = RAD_CYL_R * Math.cos(a), lz = RAD_CYL_R * Math.sin(a)
+      const dRef = Math.hypot(RAD_R + lx, lz)
+      for (let k = 0; k < 4; k++) {
+        const ang = RAD_ANG0 + k * Math.PI / 2
+        const wx = RAD_R * Math.cos(ang) + lx * Math.cos(ang) - lz * Math.sin(ang)
+        const wz = RAD_R * Math.sin(ang) + lx * Math.sin(ang) + lz * Math.cos(ang)
+        spread = Math.max(spread, Math.abs(Math.hypot(wx, wz) - dRef))
+      }
+    }
+    ok('4기 등형 — 원점거리가 방위와 무관(클립까지 동일)', spread < 1e-9, `최대 편차 ${spread.toExponential(2)}`)
+  }
+
+  // ★★말단 조형(2026.07.30 3차 — 현도 손 스케치 4종)
+  {
+    ok('말단 4종이 서로 다르다', new Set(RAD_CYL_TERM_BY).size === 4, RAD_CYL_TERM_BY.join(' · '))
+    //  ★현도 지시: ①(spike)과 ④(orb)는 대각
+    const kS = RAD_CYL_TERM_BY.indexOf('spike'), kO = RAD_CYL_TERM_BY.indexOf('orb')
+    ok('①spike ↔ ④orb 대각 배치(현도 지시)', Math.abs(kS - kO) === 2,
+      `k=${kS} ↔ k=${kO} (${r2(Math.abs(kS - kO) * 90)}°)`)
+
+    //  ★★반경 연속 — 현도 정정의 핵심. 이 등식이 깨지면 이음매에 '면'이 드러난다.
+    let worstJump = 0, joints = 0
+    for (const nm of RAD_CYL_TERM_BY) {
+      let r = RAD_CYL_R
+      for (const g of termSpec(nm).segs) { worstJump = Math.max(worstJump, Math.abs(g.r0 - r)); r = g.r1; joints++ }
+    }
+    ok('★★전 이음매에서 반경 연속(단이 안 드러남 — 현도 정정)', worstJump < 1e-9,
+      `이음매 ${joints}곳 · 최대 불연속 ${worstJump.toExponential(1)}`)
+
+    //  ★구 띠 깊이가 파생인가 = √(R_s² − r_small²). 노브로 바꾸면 접선이 깨진다.
+    let sphN = 0, worstD = 0, tangent = 0
+    for (const nm of RAD_CYL_TERM_BY) {
+      const sp = termSpec(nm)
+      sp.segs.forEach((g, i) => {
+        if (g.t !== 'sph') return
+        sphN++
+        const want = Math.sqrt(Math.max(g.r0, g.r1) ** 2 - Math.min(g.r0, g.r1) ** 2)
+        worstD = Math.max(worstD, Math.abs(g.d - want))
+        const nb = g.r0 >= g.r1 ? sp.segs[i - 1] : sp.segs[i + 1]   // 적도 쪽 이웃
+        if (nb && nb.t === 'cyl') tangent++
+      })
+    }
+    ok('구 띠 깊이 = √(Rs² − r²) 파생', sphN > 0 && worstD < 1e-9, `구 띠 ${sphN}개 · 최대 편차 ${worstD.toExponential(1)}`)
+    ok('★구 띠가 적도에서 원기둥에 접선으로 만남(기울기까지 연속)', tangent === sphN,
+      `${tangent}/${sphN}곳 — 이 이음매만은 완전히 매끄럽다`)
+
+    //  ★★말단이 방 구 아래 = 클립 면제의 전제
+    let worstClr = 1e9
+    for (let k = 0; k < 4; k++) {
+      const d = RAD_R - termSpec(RAD_CYL_TERM_BY[k]).maxR
+      const low = d >= ROOM_R ? -1e9 : ROOM_FLOOR_Y - ROOM_HEIGHT * Math.sqrt(1 - (d / ROOM_R) ** 2)
+      worstClr = Math.min(worstClr, low - RAD_CYL_TERM_TOP_BY[k])
+    }
+    ok('★★말단 꼭대기가 방 구 아랫면 아래(현도 ⓑ — 클립 면제의 전제)',
+      Math.abs(worstClr - RAD_CYL_TERM_CLEAR) < 1e-9, `최소 여유 ${r2(worstClr)} = TERM_CLEAR`)
+    ok('TERM_CLEAR > 0(0이면 말단이 방 구에 접한다 = 폭 사슬)', RAD_CYL_TERM_CLEAR > 0.5,
+      `여유 ${RAD_CYL_TERM_CLEAR}`)
+    ok('굵은 말단이 더 아래에서 시작(파생 — 넷이 저절로 어긋난다)',
+      RAD_CYL_TERM_TOP_BY[RAD_CYL_TERM_BY.indexOf('orb')] < RAD_CYL_TERM_TOP_BY[RAD_CYL_TERM_BY.indexOf('spike')],
+      `orb ${r2(RAD_CYL_TERM_TOP_BY[RAD_CYL_TERM_BY.indexOf('orb')])} < spike ${r2(RAD_CYL_TERM_TOP_BY[RAD_CYL_TERM_BY.indexOf('spike')])}`)
+
+    //  ★②와 ④가 안 겹치게 — 현도 3차 "2번 중간 원기둥은 좀 얇게"
+    ok('②drum 덩어리 < ④orb 덩어리(형태 분화 — 현도 3차)', RAD_CYL_MASS_DRUM < RAD_CYL_MASS_ORB - 1,
+      `${r2(RAD_CYL_MASS_DRUM)} < ${r2(RAD_CYL_MASS_ORB)}`)
+    ok('말단 최대 굵기가 이웃 꽃잎과 무간섭', RAD_R * Math.SQRT2 - 2 * RAD_CYL_MASS_ORB > 20,
+      `축간 ${r2(RAD_R * Math.SQRT2)} − 2×${r2(RAD_CYL_MASS_ORB)} = ${r2(RAD_R * Math.SQRT2 - 2 * RAD_CYL_MASS_ORB)}`)
+    ok('말단 깊이 기록', true, RAD_CYL_TERM_BY.map((nm, k) => `${nm} ${r2(termSpec(nm).depth)}`).join(' · '))
+  }
+
+  // ★★문 12곳(2026.07.30 2차) — ⚠개수는 **지시(8)가 아니라 실측**이 정했다
+  {
+    const need = RAD_CYL_DOOR_RING_ONLY ? 8 : 12
+    ok('문 개수 = 막힌 통로 수(꽃잎당 허브 1 + 고리 2) × 4기', RAD_CYL_DOOR_ON,
+      `${need}곳${RAD_CYL_DOOR_RING_ONLY ? ' — ⚠고리만: 허브 터널 4곳은 막힌 채(방→꽃잎 진입로)' : ' (지시 8 + 실측이 더한 허브 4)'}`)
+    const W = RAD_T_HW + RAD_CYL_DOOR_M
+    ok('문 여유 > 0(0이면 통로 면과 문설주가 정확히 같아진다 = 폭 사슬)', RAD_CYL_DOOR_M > 0.05,
+      `반폭 ${RAD_T_HW} → ${r2(W)}`)
+    const dTop = RAD_TOP + 0.4 + RAD_CYL_DOOR_M
+    ok('문 윗단이 천장판 윗면 위', dTop > RAD_TOP + 0.4, `${r2(dTop)} > ${r2(RAD_TOP + 0.4)}`)
+    ok('문 윗단 아래에 인방이 남는다(적도까지 여유)', RAD_CYL_Y0 - dTop > 1,
+      `인방 높이 ${r2(RAD_CYL_Y0 - dTop)}`)
+    //  허브 문 아래 남는 띠 — 통로 hem(87.28)과 방 표면 사이의 **기존** 간극이 만든다
+    const dHub = RAD_R - RAD_CYL_R
+    const domeHub = ROOM_FLOOR_Y + ROOM_HEIGHT * Math.sqrt(Math.max(0, 1 - (dHub / ROOM_R) ** 2))
+    const hem = RAD_FLOOR_Y + COR_THICK / 2 - 14
+    ok('⚠허브 문 아래 띠 높이 보고(통로 hem ↔ 방 표면 기존 간극)', true,
+      `방 표면 ${r2(domeHub)} ~ 문턱 ${r2(hem - RAD_CYL_DOOR_M)} = ${r2(hem - RAD_CYL_DOOR_M - domeHub)}`)
+  }
+
+  // ★★방 내부 침범 — 1차의 '선언된 비용'은 2차 지시(CLIP_ROOM=true)로 해소됐다. 회귀하면 다시 보고한다.
+  {
+    const wallR = (y) => ROOM_R * Math.sqrt(Math.max(0, 1 - ((y - ROOM_FLOOR_Y) / ROOM_HEIGHT) ** 2))
+    const half = (y) => {
+      const a = wallR(y)
+      if (a < RAD_R - RAD_CYL_R || a > RAD_R + RAD_CYL_R) return 0
+      const c = (a * a + RAD_R * RAD_R - RAD_CYL_R * RAD_CYL_R) / (2 * a * RAD_R)
+      return Math.acos(Math.min(1, Math.max(-1, c))) * 180 / Math.PI
+    }
+    let yTop = ROOM_FLOOR_Y
+    for (let y = ROOM_FLOOR_Y; y <= ROOM_CEIL_Y; y += 0.01) if (half(y) > 0) yTop = y
+    const atFloor = half(ROOM_FLOOR_Y)
+    const expected = RAD_CYL_CLIP_ROOM ? 0 : 4 * 2 * atFloor
+    ok(RAD_CYL_CLIP_ROOM
+      ? 'CLIP_ROOM=true — 방 내부 침범 없음'
+      : '⚠선언된 비용: 방 내부 침범(현도 ⓐ 감수 2026.07.30)',
+      true,
+      RAD_CYL_CLIP_ROOM
+        ? '방 껍질 안쪽 미생성'
+        : `벽 y ${r2(ROOM_FLOOR_Y)}~${r2(yTop)} · 바닥 레벨 한 기당 ${r2(2 * atFloor)}° · 4기 합 ${r2(expected)}° (둘레의 ${r2(expected / 3.6)}%)`)
+    ok('침범 상단이 방 천장에 안 닿음(오큘러스 무손상)', yTop < ROOM_CEIL_Y - 10, `상단 ${r2(yTop)} < ${ROOM_CEIL_Y}`)
+  }
+}
+
 console.log('── 15. 모듈 평가 스모크(런타임 상수 오류 — TDZ 등) ──')
 {
   // esbuild로 Radial.jsx를 통째 번들해 실제 평가 — 상수 선언 순서 오류(빌드는 통과, 로드시 크래시)를 잡는다
@@ -282,6 +490,92 @@ console.log('── 15. 모듈 평가 스모크(런타임 상수 오류 — TDZ 
     writeFileSync(join(dir, 'run.mjs'), `import('./rad.mjs').then((m) => {
       const gs = m.buildStairs()
       if (gs.length !== 3) throw new Error('계단 기하 ' + gs.length + '기')
+      //  ★원기둥 4기 — 길이만 다르고 단면은 같다. 위생 + **통로 관통 실측**을 여기서 한다.
+      const CR = ${RAD_CYL_R}, TOPBY = ${JSON.stringify(RAD_CYL_TERM_TOP_BY)}
+      let cNrm = 0, cRad = 0, cNy = 0, cDot = 2, cTris = 0, cUnit = 0, cWind = 2, cCap = 0
+      const cLo = [], cHi = []
+      let CG = null
+      for (let kk = 0; kk < 4; kk++) {
+        const cg = m.buildCylSkirt(kk); if (!CG) CG = cg
+        const cp = cg.getAttribute('position'), cn = cg.getAttribute('normal')
+        let lo = 1e9, hi = -1e9
+        cTris = cp.count / 3
+        for (let i = 0; i < cp.count; i++) {
+          const x = cp.getX(i), y = cp.getY(i), z = cp.getZ(i)
+          if (![x, y, z].every(Number.isFinite)) throw new Error('원기둥 NaN 정점')
+          lo = Math.min(lo, y); hi = Math.max(hi, y)
+          if (y > TOPBY[kk] + 1e-6) {                       // ★원기둥 구간만: 말단은 반경이 변한다
+            cRad = Math.max(cRad, Math.abs(Math.hypot(x, z) - CR))
+            cNrm = Math.max(cNrm, Math.abs(cn.getX(i) - x / CR), Math.abs(cn.getZ(i) - z / CR), Math.abs(cn.getY(i)))
+          }
+          cUnit = Math.max(cUnit, Math.abs(Math.hypot(cn.getX(i), cn.getY(i), cn.getZ(i)) - 1))
+        }
+        cLo.push(+lo.toFixed(3)); cHi.push(+hi.toFixed(3))
+        for (let t = 0; t < cp.count; t += 3) {
+          const P = [0, 1, 2].map(k => [cp.getX(t + k), cp.getY(t + k), cp.getZ(t + k)])
+          const u = [P[1][0] - P[0][0], P[1][1] - P[0][1], P[1][2] - P[0][2]]
+          const v = [P[2][0] - P[0][0], P[2][1] - P[0][1], P[2][2] - P[0][2]]
+          const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
+          const L = Math.hypot(n[0], n[1], n[2]); if (L < 1e-12) throw new Error('원기둥 퇴화 삼각형')
+          const gx = (P[0][0] + P[1][0] + P[2][0]) / 3, gz = (P[0][2] + P[1][2] + P[2][2]) / 3
+          const rl = Math.hypot(gx, gz)
+          if (P[0][1] > TOPBY[kk] + 1e-6) {               // 원기둥 구간 = 반경 바깥이어야
+            cDot = Math.min(cDot, (n[0] / L) * (gx / rl) + (n[2] / L) * (gz / rl))
+            cNy = Math.max(cNy, Math.abs(n[1] / L))
+          }
+          //  ★감김 검산(말단 포함) = 면 법선이 **선언 법선**과 같은 쪽을 보는가
+          const d0 = (n[0] / L) * cn.getX(t) + (n[1] / L) * cn.getY(t) + (n[2] / L) * cn.getZ(t)
+          cWind = Math.min(cWind, d0)
+          if (Math.abs(n[1] / L) > 0.999 && n[1] < 0) cCap++     // 막힌 끝(아래 보는 평면)
+        }
+      }
+      //  ★★통로 관통 실측 — 모든 정점이 반경 CR 위이므로 (로컬각, y) 평면 투영에 왜곡이 없다.
+      //   광선을 쏘지 않고 **면 소속**으로 판정한다(축평행 광선·가림막 누락 전례를 피한다).
+      const TR = []
+      {
+        const cp = CG.getAttribute('position')
+        for (let t = 0; t < cp.count; t += 3) {
+          //  ★원기둥(등반경) 구간만 — 투영이 왜곡 없는 곳. 문은 여기에만 있다.
+          let flat = true
+          for (let k = 0; k < 3; k++) if (Math.abs(Math.hypot(cp.getX(t + k), cp.getZ(t + k)) - CR) > 1e-4) flat = false
+          if (!flat) continue
+          const v = [0, 1, 2].map(k => {
+            let a = Math.atan2(cp.getZ(t + k), cp.getX(t + k)); if (a < 0) a += 2 * Math.PI
+            return [a, cp.getY(t + k)]
+          })
+          const mn = Math.min(v[0][0], v[1][0], v[2][0]), mx = Math.max(v[0][0], v[1][0], v[2][0])
+          if (mx - mn > Math.PI) for (const q of v) if (q[0] < Math.PI) q[0] += 2 * Math.PI
+          TR.push(v)
+        }
+      }
+      const covers = (a, y) => {
+        for (const T of TR) for (const off of [0, 2 * Math.PI, -2 * Math.PI]) {
+          const p = [a + off, y]
+          const dd = (u, v, w) => (u[0] - w[0]) * (v[1] - w[1]) - (v[0] - w[0]) * (u[1] - w[1])
+          const d1 = dd(p, T[0], T[1]), d2 = dd(p, T[1], T[2]), d3 = dd(p, T[2], T[0])
+          if (!(((d1 < 0) || (d2 < 0) || (d3 < 0)) && ((d1 > 0) || (d2 > 0) || (d3 > 0)))) return true
+        }
+        return false
+      }
+      const RR = ${RAD_R}, HW = ${RAD_T_HW}, YF = ${RAD_FLOOR_Y + COR_THICK / 2}, YT = ${RAD_TOP}
+      const yS = []; for (let y = YF + 0.1; y <= YT - 0.1; y += 0.25) yS.push(y)
+      let blkHub = 0, blkRing = 0, wallOff = 0, nOff = 0
+      for (let lz = -(HW - 0.2); lz <= HW - 0.2; lz += 0.2) {         // ① 허브 대각 터널 단면
+        const lx = -Math.sqrt(CR * CR - lz * lz); let a = Math.atan2(lz, lx); if (a < 0) a += 2 * Math.PI
+        for (const y of yS) if (covers(a, y)) blkHub++
+      }
+      for (let d = RR - HW + 0.2; d <= RR + HW - 0.2; d += 0.2) {     // ② 고리 좌우 단면
+        const ca = (d * d - CR * CR - RR * RR) / (2 * CR * RR); if (Math.abs(ca) > 1) continue
+        for (const sg of [1, -1]) { let a = sg * Math.acos(ca); if (a < 0) a += 2 * Math.PI
+          for (const y of yS) if (covers(a, y)) blkRing++ }
+      }
+      for (const b of [Math.PI, Math.PI / 2, -Math.PI / 2]) for (const o of [0.52, -0.52]) {
+        let a = b + o; if (a < 0) a += 2 * Math.PI                     // ③ 통로에서 30° — 벽이 남아야 한다
+        for (const y of yS) { nOff++; if (covers(a, y)) wallOff++ }
+      }
+      const lintel = [Math.PI, Math.PI / 2, -Math.PI / 2].filter(b => covers(b < 0 ? b + 2 * Math.PI : b, ${RAD_CYL_Y0} - 0.3)).length
+      const cyl = { tris: cTris, cNrm, cRad, cNy, cDot, cLo, cHi, blkHub, blkRing, wallOff, nOff, lintel, cUnit, cWind, cCap }
+      //  ★계단 CSG 실측(★㉗ 계란화) — 3기·유한성·상단(문지방−0.02)·셸 안(교집합 반경)
       const petalR = (y) => ${RAD_PRX} * Math.sqrt(Math.max(0, 1 - ((y - ${RAD_PCY}) / ${RAD_PRY}) ** 2))
       let maxY = -1e9, minCnt = 1e9, worstOut = -1e9
       for (const g of gs) {
@@ -293,7 +587,7 @@ console.log('── 15. 모듈 평가 스모크(런타임 상수 오류 — TDZ 
           worstOut = Math.max(worstOut, Math.hypot(x, z) - petalR(y))
         }
       }
-      console.log(JSON.stringify({ maxY, minCnt, worstOut }))
+      console.log(JSON.stringify({ maxY, minCnt, worstOut, cyl }))
       process.exit(0)
     }).catch(e => { console.error(e.message); process.exit(1) })`)
     const out = execSync(`node ${join(dir, 'run.mjs')}`, { stdio: 'pipe' }).toString()
@@ -301,6 +595,23 @@ console.log('── 15. 모듈 평가 스모크(런타임 상수 오류 — TDZ 
     ok('계단 CSG 3기 실행·정점 유한', st.minCnt > 100, `최소 정점 ${st.minCnt}`)
     ok('계단 상단 = 문지방 − 0.02 립', Math.abs(st.maxY - (RAD_FLOOR_Y + COR_THICK / 2 - 0.02)) < 0.02, `상단 ${r2(st.maxY)}`)
     ok('계단 전 정점이 셸 안(교집합 −0.05 축소)', st.worstOut < -0.01, `최대 돌출 ${r2(st.worstOut)}`)
+    // ★원기둥 받침 기하 실측(2026.07.30) — 법선은 명시(★57 '각진 연필'), 캡 없음(뚫린 관), 겉면 감김
+    ok('원기둥 구간 반경 정확', st.cyl.cRad < 1e-5, `편차 ${st.cyl.cRad.toExponential(2)}`)
+    ok('4기 밑단 = 말단 꼭대기 − 말단 깊이(파생)',
+      st.cyl.cLo.every((v, i) => Math.abs(v - RAD_CYL_Y1_BY[i]) < 1e-3), `${st.cyl.cLo.join(' · ')}`)
+    ok('★법선이 전부 단위벡터(명시 — 말단 포함)', st.cyl.cUnit < 1e-5, `편차 ${st.cyl.cUnit.toExponential(2)}`)
+    ok('★감김이 선언 법선과 일치(말단 포함)', st.cyl.cWind > 0.98, `최소 dot ${r2(st.cyl.cWind)}`)
+    ok('★막힌 끝이 있다(현도 3차 — 뚫린 관 폐기)', st.cyl.cCap > 0, `아래 보는 평면 ${st.cyl.cCap}장`)
+    ok('4기 상단 = 적도(전부 같다)', st.cyl.cHi.every((v) => Math.abs(v - RAD_CYL_Y0) < 1e-3), `${st.cyl.cHi.join(' · ')}`)
+    //  ★★문이 실제로 뚫렸는가 — (로컬각, y) 투영 면 소속 판정(광선 아님)
+    ok('★허브 터널 단면에 막는 면 0', st.cyl.blkHub === 0, `막힘 ${st.cyl.blkHub}점`)
+    ok('★고리 좌우 단면에 막는 면 0', st.cyl.blkRing === 0, `막힘 ${st.cyl.blkRing}점`)
+    ok('★통로에서 30° 떨어진 곳은 전부 벽(과다 절개 아님)', st.cyl.wallOff === st.cyl.nOff,
+      `${st.cyl.wallOff}/${st.cyl.nOff}`)
+    ok('★문 위 인방이 남는다(통로 셋 전부)', st.cyl.lintel === 3, `${st.cyl.lintel}/3`)
+    ok('★법선 = 반경 바깥(명시 — computeVertexNormals 아님)', st.cyl.cNrm < 1e-5, `편차 ${st.cyl.cNrm.toExponential(2)}`)
+    ok('원기둥 구간에 수평 면 없음(문·인방이 수직으로 선다)', st.cyl.cNy < 1e-9, `면법선 |ny| 최대 ${st.cyl.cNy.toExponential(2)}`)
+    ok('겉면 감김이 전부 바깥', st.cyl.cDot > 0.99, `최소 dot ${r2(st.cyl.cDot)}`)
   } catch (e) {
     evalOk = false; msg = (e.stderr || e.stdout || '').toString().split('\n')[0]
   }

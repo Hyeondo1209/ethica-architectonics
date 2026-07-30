@@ -15,7 +15,7 @@ import { execSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { RM10_FLARE_ON, RM10_WIN_ON, MIR_ON, MIR_PADS } from './constants.js'   // ★80 나팔 체제 스위치 · ★81 창 스위치 · ★87 미러·임시 판
+import { RM10_FLARE_ON, RM10_WIN_ON, MIR_ON, MIR_PADS, RAD_CYL_ON, RAD_CYL_Y1_BY } from './constants.js'   // ★80 나팔 체제 스위치 · ★81 창 스위치 · ★87 미러·임시 판 · ★91 원기둥 받침
 
 let n = 0, fail = 0
 const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
@@ -221,7 +221,23 @@ console.log(JSON.stringify({ called, bad, noted, keys, grounded }))
   if (!MIR_ON) {
     ok(true, '미러 꺼짐 — 접지 소진 검사 생략(구 지면이 전부 받는다)')
   } else {
-    const targets = ALLGROUND.filter((g) => g.el === 'mesh' && !RIB_COMPS.has(g.comp) && !PAD_COMPS.has(g.comp))
+    //  ★2026.07.30 ★91 — 지면이 폐기된 세계에서 **아래로 끝나는 것**에는 두 종류가 있다:
+    //   ⓐ 원래 지면에 서 있던 것 → 임시 판이 받아야 한다(★87 명단 소진의 대상)
+    //   ⓑ 처음부터 허공에서 끝나도록 지은 것 → 받을 판이 없다(리브 미러가 같은 부류)
+    //  ★구분은 **선언**으로 한다 — 깊이로 자동 추정하면 ⓐ의 누락이 조용히 통과한다.
+    //   원기둥 받침(현도 "공중에 뜬 성", 2026.07.30) = ⓑ. 밑단이 정확히 `RAD_CYL_Y1`인 4기.
+    //  ★2차(2026.07.30): 길이가 4기 불규칙이라 밑단이 넷 다 다르다 — 값 집합으로 선언한다.
+    const HANG = RAD_CYL_ON ? RAD_CYL_Y1_BY.map((y) => ({ comp: 'RadialRooms', minY: y, n: 1 })) : []
+    const isHung = (g) => HANG.some((h) => h.comp === g.comp && Math.abs(g.minY - h.minY) < 0.05)
+    const all = ALLGROUND.filter((g) => g.el === 'mesh' && !RIB_COMPS.has(g.comp) && !PAD_COMPS.has(g.comp))
+    const hung = all.filter(isHung)
+    if (HANG.length) {
+      const got = hung.map((g) => g.minY).sort((u, v) => u - v)
+      const want = HANG.map((h) => h.minY).sort((u, v) => u - v)
+      ok(got.length === want.length && want.every((v, i) => Math.abs(v - got[i]) < 0.05),
+        `⚠선언된 매달림 ${want.length}기(길이 불규칙) — 실측 밑단 ${got.join(' · ')}`)
+    }
+    const targets = all.filter((g) => !isHung(g))
     const bare = targets.filter((g) => !g.covered)
     ok(bare.length === 0,
       `접지 mesh ${targets.length}개 전부 임시 판 안(명단 소진)` +
