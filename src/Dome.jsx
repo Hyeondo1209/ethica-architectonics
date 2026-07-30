@@ -42,11 +42,12 @@ import {
   RIB_XFER_ON, RIB_DEST_K, RIB_DEST_PHI, RIB_FREE_MODE, FR_FLOOR_Y,          // ★61 리브 갈아타기
   STELE7_ON, STELE7_F, STELE7_OFF,
   MIR_ON, MIR_PADS,          // ★87 돔 거울 확장 — 지면 폐기·임시 판
+  TR_LINK_ON,   // ★90 참 → 갓 리드 연결 계단
 } from './constants'
 import { hallDoors, ribCutSpec } from './corridorStairsGeometry'
 import { buildRibShell, makeRibCurve, RIB_TUB_SEG, buildViceWedge, viceSplitIndex, newelSpec, buildSill, buildFloorCollar, buildFloorLanding, freeNewelSpec, freeSplitRange, buildOpenRim, isOpenRib , ribHoleSolid } from './ribGeometry'
 import { buildKneeBody, buildKneePlinth } from './kneeBodyGeometry'
-import { buildTerrace } from './terraceGeometry'   // ★85 테라스 = 아가리를 받는 부채꼴 슬래브
+import { buildTerrace, buildTerraceLink } from './terraceGeometry'   // ★85 부채꼴 · ★89 계단화 · ★90 리드 연결
 import { buildJunctionKnot, buildLightShaft, shaftCutSolid, lightShaftSpec, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, apronSteps, buildRoomMouthWall, ribArchCutSolid, radialPlate } from './junctionGeometry'   // ★70 매듭 · ★71 빛 기둥 · ★75 넓은 계단
 import { kneeTreads, kneeStairSpec } from './kneeStair'   // ★66 계단 규격·참
 import { buildFlareShell } from './exitFlareGeometry'   // ★80 S자 나팔
@@ -1139,12 +1140,21 @@ export function CloisterLamps() {
 //  현도 2026.07.29: 나팔 아가리 끝에 **딱 맞게** 붙는 환형 부채꼴, 리브 #0 반지름선까지.
 //  ⚠구판은 `ringGeometry` **두께 0 한 장**이었다(판떼기). 지금은 두께 1.50 슬래브다.
 //  기하·법선의 정본 = `terraceGeometry.js`, 수치의 정본 = constants ★85 블록. 여기는 마운트만 한다.
+//  ★89(07.30) 계단화 · ★90(07.30) 참 → 갓 리드 연결 계단이 여기 함께 마운트된다.
 export function Terrace() {
   const geo = useMemo(() => buildTerrace(), [])
+  const link = useMemo(() => (TR_LINK_ON ? buildTerraceLink() : null), [])
   return (
-    <mesh geometry={geo} userData={{ walkable: true }}>
-      <meshStandardMaterial color="#caa161" roughness={0.85} />
-    </mesh>
+    <>
+      <mesh geometry={geo} userData={{ walkable: true }}>
+        <meshStandardMaterial color="#caa161" roughness={0.85} />
+      </mesh>
+      {link && (
+        <mesh geometry={link} userData={{ walkable: true }}>
+          <meshStandardMaterial color="#caa161" roughness={0.85} />
+        </mesh>
+      )}
+    </>
   )
 }
 

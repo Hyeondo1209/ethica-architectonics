@@ -26,6 +26,7 @@ import { WAYPOINTS, EYE } from './waypoints.js'
 import { buildViceWedge, viceSplitIndex, buildSill, buildFloorCollar, buildFloorLanding, freeSplitRange, freeNewelSpec, destCut, openRimSpec, isOpenRib, ribHoleSolid, makeRibCurve, buildRibShell } from './ribGeometry.js'   // ★2026.07.29 전역 리브 굽기
 import { buildKneeBody, innerTubeSolid, kneeWalkY } from './kneeBodyGeometry.js'
 import { buildJunctionKnot, buildLightShaft, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, radialPlate } from './junctionGeometry.js'
+import { terraceRuns, terraceLinkSpec } from './terraceGeometry.js'   // ★89 계단 · ★90 리드 연결 — 정본 직접(사본 금지)
 import { buildFlareShell } from './exitFlareGeometry.js'   // ★80 — 사본이 아니라 정본을 부른다
 import { kneeTreads, kneeStairSpec } from './kneeStair.js'                          // ★66 계단 규격·참   // ★60 매듭 · ★61 자립 나선 · ★62 바닥 매듭
 
@@ -688,9 +689,23 @@ const extraFor = (id) => (id === 'lookout' || id === 'terrace' || id === 'reveal
     //  ⚠셀프 렌더가 구 링을 계속 그리면 이 권역에서 도구가 거짓말한다(§2-D ⑤ 사각지대는 '안 그린 것'과
     //   '옛것을 그린 것' 둘 다에서 생긴다 — ★60 프리즈 바닥 전례).
     //  ⚠ring()의 방위 인자는 **월드**다. 부채꼴 정본은 그룹 로컬이므로 +RIB_DEST_PHI 해서 넘긴다.
+    //  ★89(2026.07.30): 테라스가 **계단**이 됐다. 구판은 여기서 `ring` 하나로 평판을 그렸는데,
+    //   그건 정본 함수를 안 부르는 **사본**이었다(★79-7 바깥벽 실종과 같은 종류). 이제 `terraceRuns()`를
+    //   직접 불러 구간마다 자기 높이로 그린다 — 모드를 바꾸거나 N을 돌리면 셀프 렌더가 같이 따라온다.
     if (C.TERRACE_ON) {
       const xp = C.RIB_XFER_ON ? C.RIB_DEST_PHI : 0
-      ring(C.TR_RIN, C.TR_ROUT, C.TR_Y, C.TR_AZ0 + xp, C.TR_AZ1 + xp, STONE)
+      for (const r of terraceRuns()) ring(C.TR_RIN, C.TR_ROUT, r.y, r.az0 + xp, r.az1 + xp, STONE)
+      //  ★90 리드 연결 계단 — 곧은 방사 계단(월드 z=0). 디딤마다 상자 하나(스펙 파생 — 치수 재기재 금지).
+      if (C.TR_LINK_ON) {
+        const K = terraceLinkSpec()
+        for (let k = 1; k <= K.N; k++) {
+          const xa = K.x0 + K.go * (k - 1), xb = K.x0 + K.go * k, y = K.y0 - K.rise * k
+          //  ⚠rbox는 **그룹 로컬**을 받는다(자기가 rotateY(−phi)로 월드화한다). 계단은 월드 방위 0°이므로
+          //   로컬로 되돌려 넣어야 한다 — 안 하면 +10° 어긋난다(실제로 한 번 틀렸다).
+          const xc = (xa + xb) / 2
+          rbox(xc * Math.cos(xp), y - K.t / 2, -xc * Math.sin(xp), xb - xa, K.t, 2 * K.hw, xp, STONE)
+        }
+      }
     } else {
       ring(C.TERRACE_RIN, C.TERRACE_ROUT, C.TERRACE_Y, -C.TERRACE_ARC / 2, C.TERRACE_ARC / 2, STONE)
     }

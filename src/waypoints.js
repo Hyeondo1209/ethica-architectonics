@@ -39,7 +39,8 @@ import { RIB_XFER_ON, RIB_DEST_PHI, STELE7_F, STAIR_STEPS, spiralU, RIB_FREE_MOD
 import { ST_ON, RM10_ON, RM10_PHI, RM10_AX_R, RM10_FLOOR_Y, RM10_FLOOR_OPEN_R, RM10_ENTRY_TH, RM10_DOOR_HTH, RM10_TURN, RM10_CCW } from './constants.js'   // ★79 등불 방
 import { RM10_EXIT_RIN, RM10_EXIT_ROUT, RM10_EXIT_TH, RM10_TERR_TH, RM10_EXIT_FLOOR_Y, RM10_STR_END } from './constants.js'   // ★79-5/6 출구 통로
 import { RM10_FLARE_ON, RM10_FLARE_MX, RM10_FLARE_MZ, RM10_FLARE_MY, TERRACE_ON } from './constants.js'   // ★80 S자 나팔
-import { terraceSpec, terracePoint } from './terraceGeometry.js'   // ★85 테라스(사본 금지 — 좌표는 빌더 파생)
+import { terraceSpec, terracePoint, terraceLinkSpec } from './terraceGeometry.js'   // ★85·89·90 테라스(사본 금지 — 좌표는 빌더 파생)
+import { TR_LINK_ON, GAT_CX } from './constants.js'   // ★90
 import { openRimSpec, isOpenRib } from './ribGeometry.js'                                              // ★63 우물 발코니
 import { ribCutSpec } from './corridorStairsGeometry.js'                                               // ★63 리브별 절단 좌표  // ★61 리브 갈아타기
 import { freeSplitRange, destCut } from './ribGeometry.js'                               // ★61 자립 나선(정본 파생)
@@ -391,9 +392,33 @@ export const WAYPOINTS = [
     const sp = terraceSpec()
     const fa = (sp.mouth.ctrAz - sp.az0) / sp.span          // 아가리 문턱 중앙의 방위 보간값
     const t  = terracePoint(0.5, fa)
-    return [{ id: 'terrace', group: '테라스 (1p12~15)', label: '테라스 — 무한 리브 · 정점 렌즈', prop: '1p12~15',
+    const out = [{ id: 'terrace', group: '테라스 (1p12~15)', label: '테라스 — 무한 리브 · 정점 렌즈', prop: '1p12~15',
       x: rX(t.x, t.z), y: t.y, z: rZ(t.x, t.z),
       yaw: rYaw(yawTo(-t.x, -t.z)), pitch: 0.25 }]
+    //  ★89 참(최저점) — 계단 판정용. 부채꼴이 리브 #0 대칭이므로 fa=0.5가 정확히 월드 0°(= 참 중앙)다.
+    //   ⚠y는 `terracePoint`가 프로파일에서 받아온다(사본 금지). 평판 모드면 저절로 TR_Y가 되어 무해하다.
+    if (sp.stepped) {
+      const L = terracePoint(0.5, 0.5)
+      out.push({ id: 'terrace-land', group: '테라스 (1p12~15)', label: '테라스 참 — 계단 최저점(리브 #0 축)', prop: '1p12~15',
+        x: rX(L.x, L.z), y: L.y, z: rZ(L.x, L.z),
+        yaw: rYaw(yawTo(-L.x, -L.z)), pitch: 0.25 })
+      //  ★90 연결 계단 — 중간과 도착(갓 리드). 좌표는 `terraceLinkSpec()` 파생이라 폭·처마를 돌려도 따라온다.
+      //   ⚠계단은 월드 방위 0°(z=0) 축 위이고 웨이포인트는 그룹 로컬을 받으므로 로컬로 되돌려 넣는다.
+      if (TR_LINK_ON) {
+        const K = terraceLinkSpec()
+        const loc = (x) => [x * Math.cos(-RIB_DEST_PHI), x * Math.sin(-RIB_DEST_PHI)]
+        const midK = Math.round(K.N / 2)
+        const [mx, mz] = loc(K.x0 + K.go * midK)
+        out.push({ id: 'terrace-link', group: '테라스 (1p12~15)', label: '리드 연결 계단 — 중간(방사 하강)', prop: '1p12~15',
+          x: rX(mx, mz), y: K.y0 - K.rise * midK, z: rZ(mx, mz),
+          yaw: rYaw(yawTo(Math.cos(-RIB_DEST_PHI), Math.sin(-RIB_DEST_PHI))), pitch: -0.1 })
+        const [gx2, gz2] = loc(GAT_CX)
+        out.push({ id: 'gat-lid', group: '테라스 (1p12~15)', label: '갓 리드 — 드럼 통로 꼭대기 원판(도착)', prop: '1p12~15',
+          x: rX(gx2, gz2), y: K.lidTop, z: rZ(gx2, gz2),
+          yaw: rYaw(yawTo(-Math.cos(-RIB_DEST_PHI), -Math.sin(-RIB_DEST_PHI))), pitch: 0.15 })
+      }
+    }
+    return out
   })() : []),
 ]
 

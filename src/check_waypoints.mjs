@@ -33,7 +33,9 @@ import {
 } from './constants.js'
 import { RM10_FLARE_ON, RM10_FLARE_MX, RM10_FLARE_MZ, RM10_FLARE_SWEEP, RM10_FLARE_R, RM10_ARC_TH1, TERRACE_ON } from './constants.js'   // ★80
 import { RM10_FLARE_RISE, RM10_FLARE_MY, RM10_FLARE_W1, TR_RIN, TR_ROUT, TR_AZ0, TR_AZ1, TR_Y, TERRACE_T, TR_W_F, terraceMouth } from './constants.js'   // ★85 테라스
-import { terraceSpec, terracePoint } from './terraceGeometry.js'
+import { TR_STEP_ON, TR_STEP_MODE, TR_SOFFIT, TR_LAND_F, gatCap, GAT_CX, LK_DISC_T } from './constants.js'   // ★89 테라스 계단화
+import { TR_LINK_ON, TR_LINK_HW, TR_LINK_BITE, GAT_CROWN_R } from './constants.js'   // ★90 리드 연결 계단
+import { terraceSpec, terracePoint, terraceProfileY, terraceSoffitY, buildTerrace, terraceLinkSpec, buildTerraceLink } from './terraceGeometry.js'
 import { flareSpec } from './exitFlareGeometry.js'
 import { p1HeightAt } from './radialEventsGeometry.js'
 const r2 = (v) => Math.round(v * 100) / 100   // ★㊾ (check_corridor와 같은 보조자)
@@ -752,6 +754,259 @@ console.log('\n— F. ★85 테라스 = 아가리를 받는 부채꼴 —')
     ok(true, `⚠뿌리 미결(§2-D ①): 이 판은 **완전 부양**이다 — 받칠 것이 없다(그 높이 껍질까지 수평 85.76 · 회랑은 동일 레벨). 현 답 = "의도된 부양 — 잠정"`)
 
     console.log(`     └ ★85 실측: 부채꼴 ${r2(TR_AZ0 * D)}~${r2(TR_AZ1 * D)}°(${r2(sp.span * D)}°) · r ${r2(TR_RIN)}~${r2(TR_ROUT)}(폭 ${r2(sp.width)}) · 두께 ${r2(TERRACE_T)} · 바깥호 ${r2(sp.arcOut)} · 안호 ${r2(sp.arcIn)}`)
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  ★F2. ★89 테라스 계단화 (2026.07.30 현도 지시)
+    // ════════════════════════════════════════════════════════════════════════
+    //  ★왜: 이 형태의 값은 **하나도 자유롭지 않다**(경사조차 파생). 그래서 검사가 할 일은
+    //   "예쁜가"가 아니라 **파생 사슬이 안 끊겼는가**다 — 아가리가 계단 시작을 정하고, 갓이 강하를
+    //   정하고, 챌판 수가 ①·③ 각폭을 안 먹는가.
+    if (!TR_STEP_ON) {
+      ok(sp.stepped === false && sp.runs.length === 1,
+        `★89 계단 꺼짐(TR_STEP_ON=false) — ★85 평판 부채꼴 복원(구간 1개·최저 y ${r2(sp.yLand)})`)
+    } else {
+      const st = sp.step, runs = sp.runs
+      const M = sp.mouth
+
+      // ── ① 구간 배분: 셋이 각각 무엇이 정한 값인가 ──
+      const mouthRun = runs.find((x) => x.tag === 'mouth')
+      const land = runs.find((x) => x.tag === 'landing')
+      ok(Math.abs((mouthRun.az1 - mouthRun.az0) - st.azMouth) < 1e-12,
+        `① 접합부 각폭 ${r2((mouthRun.az1 - mouthRun.az0) * D)}° = **아가리 각폭**(현도 "아가리 폭 그대로") — 우리가 고른 값이 아니다`)
+      ok(Math.abs(mouthRun.az0 - (M.azLo)) < 1e-12,
+        `계단 시작 방위 = 아가리 **낮은 모서리** 로컬 ${r2(M.azLo * D)}°(월드 ${r2((M.azLo + RIB_DEST_PHI) * D)}°) — 아가리가 정한다`)
+      ok(Math.abs((land.az1 - land.az0) - st.azMouth * TR_LAND_F) < 1e-12,
+        `③ 참 각폭 ${r2((land.az1 - land.az0) * D)}° = 아가리 × ${r2(TR_LAND_F)}(현도 확정 1/3) · 호 ${r2(st.rMid * (land.az1 - land.az0))}`)
+      ok(Math.abs((land.az0 + land.az1) / 2 + RIB_DEST_PHI) < 1e-12,
+        `참 중앙 = 월드 0° = **리브 #0 축**(★85-2 대칭축과 같은 선) — 골짜기의 최저점이 그 축에 있다`)
+      ok(Math.abs((runs[runs.length - 1].az1 - runs[0].az0) - sp.span) < 1e-12,
+        `구간 합 ${r2((runs[runs.length - 1].az1 - runs[0].az0) * D)}° = span ${r2(sp.span * D)}° — 빈틈·초과 0`)
+      ok(runs.length === 2 * st.N + 3,
+        `구간 ${runs.length}개 = 2N+3(N=${st.N} 디딤 ×2 + ①③⑤) — 챌판 ${st.N + 1}개가 ①·③ 각폭을 안 먹었다`)
+
+      // ── ② 대칭(현도 "0도 기준 거울상") ──
+      let asym = 0
+      for (const a of runs) {
+        const mir = runs.find((b) => Math.abs((b.az0 + RIB_DEST_PHI) + (a.az1 + RIB_DEST_PHI)) < 1e-9
+                                  && Math.abs((b.az1 + RIB_DEST_PHI) + (a.az0 + RIB_DEST_PHI)) < 1e-9)
+        if (!mir || Math.abs(mir.y - a.y) > 1e-9) asym++
+      }
+      ok(asym === 0, `전 ${runs.length}구간이 월드 0°에 대해 **거울 대칭**(방위·높이 둘 다) — 어긋난 구간 ${asym}`)
+
+      // ── ③ 강하 = 갓 파생(사본 아님) ──
+      const g = gatCap()
+      const want = TR_STEP_MODE === 'lid' ? g.lidY : (TR_Y + g.lidTop) / 2
+      ok(Math.abs(st.landY - want) < 1e-12 && Math.abs(sp.yLand - st.landY) < 1e-9,
+        `참 y ${r2(st.landY)} = 갓 ${TR_STEP_MODE === 'lid' ? `리드 밑면 ${r2(g.lidY)}` : `리드 윗면 ${r2(g.lidTop)}과 테라스의 중간`} — gatCap() 파생(갓 노브를 돌리면 따라온다)`)
+      ok(Math.abs(st.drop - (TR_Y - st.landY)) < 1e-12 && st.drop > 0,
+        `강하 ${r2(st.drop)} = 테라스 ${r2(TR_Y)} − 참 ${r2(st.landY)}`)
+      ok(Math.abs(st.rise * (st.N + 1) - st.drop) < 1e-9,
+        `단높이 ${st.rise.toFixed(4)} × 챌판 ${st.N + 1} = 강하 ${r2(st.drop)}`)
+
+      // ── ④ 보행: 왕복이 필연이다 ──
+      //  최저점 ③에서 나가는 유일한 출입구가 ①(아가리)이므로 관람자는 **반드시 되올라온다**.
+      //  ㊾ 실측: 단높이가 STEP_UP(0.8)과 같아지면 내려는 가는데 올라올 수 없다.
+      ok(st.rise <= STEP_UP - 0.1,
+        `단높이 ${st.rise.toFixed(4)} ≤ STEP_UP ${STEP_UP} − 0.1 (여유 ${r2(STEP_UP - st.rise)}) — **왕복 가능**(③이 막다름이므로 필수 조건)`)
+      let jmax = 0
+      for (let i = 1; i < runs.length; i++) jmax = Math.max(jmax, Math.abs(runs[i].y - runs[i - 1].y))
+      ok(Math.abs(jmax - st.rise) < 1e-9,
+        `인접 구간 단차 최대 ${jmax.toFixed(4)} = 단높이 — 이중 단차(밟을 수 없는 턱) 0`)
+      ok(st.tread > 0.24, `디딤 ${r2(st.tread)}(중간 반경 호) > 0.24(무릎길 규격 하한)`)
+
+      // ── ⑤ 밑면 어법 (현도 2026.07.30: 'saw' → 'ramp' 교체) ──
+      //  ★두께는 **구간 내부에서** 잰다 — 경계에서는 걷는 면과 밑면이 서로 다른 구간을 골라 거짓값이 난다.
+      let tMin = Infinity, tMax = -Infinity
+      for (const rr of runs) for (const f of [0.05, 0.3, 0.5, 0.7, 0.95]) {
+        const a = rr.az0 + (rr.az1 - rr.az0) * f
+        const th = terraceProfileY(a) - terraceSoffitY(a)
+        tMin = Math.min(tMin, th); tMax = Math.max(tMax, th)
+      }
+      if (sp.soffit === 'saw') {
+        ok(Math.abs(tMin - TERRACE_T) < 1e-6 && Math.abs(tMax - TERRACE_T) < 1e-6,
+          `밑면 = **톱니** — 두께 균일 ${r2(TERRACE_T)}(이빨 깊이 ${st.rise.toFixed(4)} = 단높이 · 판 겹침 ${r2(TERRACE_T - st.rise)})`)
+      } else {
+        //  ★기준선 = 노징선 − T. 세 후보 중 이것만 두께 위계를 지킨다(constants ★89):
+        //   최소 = T(노징) · 최대 = T + 단높이(디딤 뒤 코너).
+        ok(Math.abs(tMin - TERRACE_T) < 1e-6,
+          `밑면 = **경사 매스** — 최소 두께 ${r2(tMin)} = ${r2(TERRACE_T)}(노징에서) · 기준선 = 노징선 − T`)
+        //  ⚠최대는 **표본으로 재면 안 된다** — 코너는 구간의 끝점이라 내부 표본(f≤0.95)이 못 닿는다
+        //   (첫 구현이 그래서 1.8966 vs 1.9174로 실패했다 · 자가 적발). 구간 끝값에서 정확히 잰다.
+        const tCorner = Math.max(...runs.filter((x) => x.tag.startsWith('tread'))
+          .map((x) => Math.max(x.y - x.b0, x.y - x.b1)))
+        ok(Math.abs(tCorner - (TERRACE_T + st.rise)) < 1e-9 && tMax <= tCorner + 1e-9,
+          `최대 두께 ${r2(tCorner)} = T + 단높이 ${r2(TERRACE_T + st.rise)}(디딤 뒤 코너 — 구간 끝값) · 내부 표본 최대 ${r2(tMax)} ≤ 그 값`)
+        //  ★위계(§2-D ③): 걷는 것 < 받치는 것 < 매듭. 최소 두께가 전망 반원판보다 얇아지면 역전이다.
+        //   대안 두 기준선(안쪽코너선·두 밑면을 잇는 현)은 최소 1.083으로 떨어져 이 검사에 걸린다.
+        ok(tMin > LK_DISC_T,
+          `최소 두께 ${r2(tMin)} > 전망 반원판 ${r2(LK_DISC_T)} — §2-D ③ 두께 위계 보존(이 부등식이 기준선을 결정했다)`)
+        //  ★립 = ①(수평)과 램프가 만나는 곳의 밑면 턱. 참 쪽은 정확히 연속이어야 한다.
+        const mo = runs.find((x) => x.tag === 'mouth'), t0 = runs.find((x) => x.tag === 'tread-0')
+        ok(Math.abs((mo.b0 - t0.b1) - st.rise) < 1e-9,
+          `아가리 쪽 **립** ${r2(mo.b0 - t0.b1)} = 단높이 — 램프 매스가 접합부 슬래브 밑으로 내려간다(기하의 귀결)`)
+        const lnd = runs.find((x) => x.tag === 'landing'), tL = runs.find((x) => x.tag === `tread-${st.N - 1}`)
+        ok(Math.abs(lnd.b1 - tL.b0) < 1e-9,
+          `참 쪽 밑면 **연속**(Δ ${(lnd.b1 - tL.b0).toExponential(1)}) — 노징선이 참 윗면에서 끝나기 때문`)
+      }
+
+      // ── ⑥ 프로파일 ↔ 구간 목록 대조(둘 중 하나가 사본이 되는 것을 막는다) ──
+      let pmis = 0
+      for (const rr of runs) {
+        for (const f of [0.02, 0.5, 0.98]) {
+          const a = rr.az0 + (rr.az1 - rr.az0) * f
+          if (Math.abs(terraceProfileY(a) - rr.y) > 1e-9) pmis++
+        }
+      }
+      ok(pmis === 0, `terraceProfileY() ↔ terraceRuns() ${runs.length * 3}점 전수 일치 — 높이 정본이 하나다`)
+      const tl = WU('terrace-land')
+      ok(Math.abs(tl.y - st.landY) < 1e-9,
+        `참 웨이포인트 y ${r2(tl.y)} = 참 높이 — 계단 판정용 스폰(빌더 파생)`)
+      ok(Math.abs(Math.atan2(tl.z, tl.x) + RIB_DEST_PHI) < 1e-9,
+        `참 웨이포인트 방위 = 월드 0°(리브 #0 축) — 골짜기 정중앙`)
+
+      // ── ⑦ 하강이 안전한가(무엇에도 안 부딪히는가) ──
+      ok(GAT_CX - (gatSeal().lidR) > TR_ROUT,
+        `갓 리드 최근접 x ${r2(GAT_CX - gatSeal().lidR)} > 테라스 외림 ${r2(TR_ROUT)} — x 간극 ${r2(GAT_CX - gatSeal().lidR - TR_ROUT)}(계단이 갓 위로 안 내려앉는다)`)
+      ok(CL_R - CL_HW > TR_ROUT && st.landY < CL_FLOOR_END,
+        `회랑 안벽 ${r2(CL_R - CL_HW)} > 외림 ${r2(TR_ROUT)} · 참 ${r2(st.landY)} < 회랑 바닥 ${r2(CL_FLOOR_END)} — 하강은 이미 빈 공간으로 내려간다`)
+
+      // ── ⑧ ★면 방향(2026.07.30 신설 — 현도 적발 "계단 앞쪽면이 비어있어") ──
+      //  ★왜 이 절이 필요했나: watertight 검사는 **변만 센다**. 법선이 뒤집힌 면은 변 짝이 멀쩡하므로
+      //   통과하는데, 렌더에서는 back-face culling으로 **통째로 사라진다**. 실제로 챌판 66장(132삼각)이
+      //   그렇게 사라졌고 검사 1074항이 전부 green이었다. → 방향을 재는 검사를 사후 봉인으로 신설.
+      //  ★방법: 솔리드가 닫힌 식으로 있으므로(r 대역 × 방위 대역 × [밑면, 윗면]) 삼각형 무게중심에서
+      //   법선 방향으로 0.03 나간 점이 **밖**, 반대로 간 점이 **안**이어야 한다. 도구 검증 = 평판 모드
+      //   (챌판이 없는 형태)에서 0이 나오는 것으로 했다.
+      {
+        const g = buildTerrace()
+        const pos = g.attributes.position.array, nrm = g.attributes.normal.array
+        const AZ0 = runs[0].az0, AZ1 = runs[runs.length - 1].az1, DD = 0.03
+        const insideT = (q) => {
+          const rr = Math.hypot(q[0], q[2]), az = Math.atan2(q[2], q[0])
+          if (rr <= TR_RIN || rr >= TR_ROUT || az <= AZ0 || az >= AZ1) return false
+          return q[1] > terraceSoffitY(az) && q[1] < terraceProfileY(az)
+        }
+        const ntr = pos.length / 9
+        let flip = 0, amb = 0
+        for (let t = 0; t < ntr; t++) {
+          const V = [0, 1, 2].map((j) => [pos[(t * 3 + j) * 3], pos[(t * 3 + j) * 3 + 1], pos[(t * 3 + j) * 3 + 2]])
+          const c = [0, 1, 2].map((k) => (V[0][k] + V[1][k] + V[2][k]) / 3)
+          const nm = [nrm[t * 9], nrm[t * 9 + 1], nrm[t * 9 + 2]]
+          const o = insideT([0, 1, 2].map((k) => c[k] + nm[k] * DD))
+          const i2 = insideT([0, 1, 2].map((k) => c[k] - nm[k] * DD))
+          if (o && !i2) flip++
+          else if (o === i2) amb++
+        }
+        ok(flip === 0 && amb === 0,
+          `면 방향 — 삼각형 ${ntr} 전수: 뒤집힘 ${flip} · 모호 ${amb}(0이어야 — 뒤집히면 back-face culling으로 사라진다)`)
+      }
+
+      // ════════════════════════════════════════════════════════════════════
+      //  ★F3. ★90 참 → 갓 리드 연결 계단 (2026.07.30 현도 지시)
+      // ════════════════════════════════════════════════════════════════════
+      //  ★이 형태도 값이 거의 자유롭지 않다 — 강하는 갓·테라스가, 단높이는 테라스가, 현 위치는
+      //   폭과 리드 반경이 정한다. 검사가 할 일은 그 사슬과 **도착 처리 셋**(빈틈 0 · 코플레이너 0 · 왕복)이다.
+      if (!TR_LINK_ON) {
+        ok(TR_STEP_MODE !== 'half' || TR_SOFFIT !== 'ramp' || !TR_STEP_ON,
+          `★90 연결 꺼짐 — 'half' + 'ramp' 조합에서만 성립한다(현재 ${TR_STEP_MODE}/${TR_SOFFIT}). 참이 막다름으로 복귀`)
+      } else {
+        const K = terraceLinkSpec()
+        // ── ① 강하 사슬: 테라스 편과 정확히 같아야 한다(참이 중간이므로) ──
+        ok(Math.abs(K.drop - st.drop) < 1e-9,
+          `연결 강하 ${r2(K.drop)} = 테라스 편 강하 ${r2(st.drop)} — 참이 정확히 중간이라는 사실의 귀결`)
+        ok(Math.abs(K.rise - st.rise) < 1e-12,
+          `단높이 ${K.rise.toFixed(4)} = 테라스와 동일(현도 확정 "테라스와 같게")`)
+        ok(Math.abs(K.drop / K.rise - K.risers) < 1e-9 && K.risers === 33,
+          `챌판 ${K.risers}개가 **정확히** 맞는다(${(K.drop / K.rise).toFixed(6)}) — 보정값 0 · 갓 리드가 33번째 레벨`)
+        ok(K.N === K.risers - 1,
+          `디딤 ${K.N} = 챌판 − 1(마지막 챌판이 리드로 내려선다 — 리드가 도착 참)`)
+        // ── ② 도착 처리 셋(현도 "원판 끝에 현 형태로 빈틈 없이") ──
+        const lidNear = GAT_CX - K.lidR
+        ok(Math.abs(K.xEnd - (GAT_CX - Math.sqrt(K.lidR ** 2 - K.hw ** 2))) < 1e-9,
+          `원단 = 리드 원의 **현** x ${r2(K.xEnd)}(양 끝 z=±${r2(K.hw)}이 원 위 접점)`)
+        ok(K.xEnd > lidNear + 1e-9 && Math.abs(K.bite - (K.xEnd - lidNear)) < 1e-9,
+          `**빈틈 0** — 현이 리드 최근단 ${r2(lidNear)}보다 안쪽 · 중앙 물림 ${r2(K.bite)}`)
+        ok(Math.abs(K.lastTop - K.lidTop - K.rise) < 1e-9,
+          `**코플레이너 0** — 마지막 디딤 ${r2(K.lastTop)} = 리드 윗면 ${r2(K.lidTop)} + 단높이. 같은 높이 면이 없다`)
+        ok(K.bite <= K.lidR - Math.sqrt(K.lidR ** 2 - K.hw ** 2) + 1e-9,
+          `물림 ${r2(K.bite)}이 현-호 초승달 깊이와 일치 — 리드를 넘어 들어가지 않는다`)
+        // ── ③ 근단: 참 바깥 림과 같은 x에 면이 겹치지 않는다(폭 사슬 교훈) ──
+        ok(Math.abs((TR_ROUT - K.x0) - TR_LINK_BITE) < 1e-9 && TR_LINK_BITE > 0,
+          `근단 물림 ${r2(TR_ROUT - K.x0)} > 0 — 참 바깥 림 ${r2(TR_ROUT)}과 **코플레이너 회피**(물린 구간은 슬래브 안)`)
+        // ── ④ 보행: 왕복이 필연(리드가 막다름) ──
+        ok(K.rise <= STEP_UP - 0.1,
+          `단높이 ${K.rise.toFixed(4)} ≤ STEP_UP ${STEP_UP} − 0.1 — 리드에서 참으로 **되올라올 수 있다**`)
+        ok(K.go > 0.24, `디딤 ${r2(K.go)} > 0.24(무릎길 하한) · 경사 ${r2(K.slope * D)}°`)
+        // ── ⑤ 폭 노브의 성질: 돌려도 단높이·단수는 불변 ──
+        ok(K.hw > 0 && 2 * K.hw < sp.arcOut * (TR_LAND_F * st.azMouth) / sp.span + 1e-9 + 2 * K.hw,
+          `폭 ${r2(2 * K.hw)} = 2×CL_HW(회랑 통행 폭 계승) · 상한 = 참 바깥 림 호 ${r2(TR_ROUT * st.azMouth * TR_LAND_F)}`)
+        // ── ⑥ 통과 공간: 무엇에도 안 부딪히는가 ──
+        ok(Math.atan2(K.hw, K.xEnd) < CL_PHI0,
+          `원단 모서리 방위 ${r2(Math.atan2(K.hw, K.xEnd) * D)}° < 회랑 시작 ${r2(CL_PHI0 * D)}° · 높이 여유 ${r2(CL_FLOOR_END - PASS_T - K.lastTop)}`)
+        ok(K.yEnd > gatCap().cutY,
+          `연결 최저 ${r2(K.yEnd)} > 갓 절단면 ${r2(gatCap().cutY)} — 크라운·슬릿·양태 전부 아래를 지난다`)
+        // ── ⑦ 기하 무결 + 면 방향(★89에서 놓친 축) ──
+        {
+          const gl = buildTerraceLink()
+          const pp = gl.attributes.position.array, nn = gl.attributes.normal.array
+          const ntl = pp.length / 9
+          let nanC = 0
+          for (const v of pp) if (!Number.isFinite(v)) nanC++
+          for (const v of nn) if (!Number.isFinite(v)) nanC++
+          const Qz = (v) => Math.round(v * 1e6)
+          const kk = (i) => Qz(pp[i * 3]) + ',' + Qz(pp[i * 3 + 1]) + ',' + Qz(pp[i * 3 + 2])
+          const em = new Map(); let dgn = 0
+          for (let t = 0; t < ntl; t++) {
+            const v = [t * 3, t * 3 + 1, t * 3 + 2].map(kk)
+            if (v[0] === v[1] || v[1] === v[2] || v[0] === v[2]) { dgn++; continue }
+            for (const [a, b] of [[0, 1], [1, 2], [2, 0]]) {
+              const key2 = v[a] < v[b] ? v[a] + '|' + v[b] : v[b] + '|' + v[a]
+              em.set(key2, (em.get(key2) || 0) + 1)
+            }
+          }
+          const badE = [...em.values()].filter((c) => c !== 2).length
+          let nUnit = 0
+          for (let i = 0; i < nn.length; i += 3) if (Math.abs(Math.hypot(nn[i], nn[i + 1], nn[i + 2]) - 1) > 1e-6) nUnit++
+          ok(nanC === 0 && dgn === 0 && badE === 0 && nUnit === 0,
+            `연결 기하 — 삼각형 ${ntl} · NaN ${nanC} · 퇴화 ${dgn} · 2회 아닌 변 ${badE} · 비단위 법선 ${nUnit}`)
+          //  면 방향(계단 축계로 되돌려 닫힌 식으로 판정)
+          const ca = Math.cos(RIB_DEST_PHI), sa2 = Math.sin(RIB_DEST_PHI)
+          const insideK = (q) => {
+            const x = q[0] * ca - q[2] * sa2, y = q[1], z = q[0] * sa2 + q[2] * ca
+            if (Math.abs(z) >= K.hw || x <= K.x0 || x >= K.xEnd) return false
+            const k2 = Math.min(K.N, Math.max(1, Math.ceil((x - K.x0) / K.go)))
+            const top = K.y0 - K.rise * k2
+            const f2 = (x - (K.x0 + K.go * (k2 - 1))) / K.go
+            return y > (top - K.t) - f2 * K.rise && y < top
+          }
+          let fl = 0, ab = 0
+          for (let t = 0; t < ntl; t++) {
+            const V = [0, 1, 2].map((j) => [pp[(t * 3 + j) * 3], pp[(t * 3 + j) * 3 + 1], pp[(t * 3 + j) * 3 + 2]])
+            const c2 = [0, 1, 2].map((k3) => (V[0][k3] + V[1][k3] + V[2][k3]) / 3)
+            const nm2 = [nn[t * 9], nn[t * 9 + 1], nn[t * 9 + 2]]
+            const o2 = insideK([0, 1, 2].map((k3) => c2[k3] + nm2[k3] * 0.02))
+            const i3 = insideK([0, 1, 2].map((k3) => c2[k3] - nm2[k3] * 0.02))
+            if (o2 && !i3) fl++
+            else if (o2 === i3) ab++
+          }
+          ok(fl === 0 && ab === 0, `연결 면 방향 — 뒤집힘 ${fl} · 모호 ${ab}(★89 챌판 사고의 사후 봉인)`)
+        }
+        // ── ⑧ 웨이포인트 ──
+        const wl = WU('terrace-link'), wg = WU('gat-lid')
+        //  ⚠WU()는 이미 그룹 로컬로 되돌린다 — 월드 0°는 로컬 −RIB_DEST_PHI다(테라스 ⑥과 같은 함정).
+        const azWl = Math.atan2(wl.z, wl.x) + RIB_DEST_PHI, azWg = Math.atan2(wg.z, wg.x) + RIB_DEST_PHI
+        ok(Math.abs(azWl) < 1e-9 && Math.abs(azWg) < 1e-9,
+          `연결·리드 웨이포인트가 **월드 방위 0°**(리브 #0 축 = 드럼 축) 위에 있다 — 실측 ${azWl.toExponential(1)} / ${azWg.toExponential(1)}`)
+        ok(Math.abs(wg.y - K.lidTop) < 1e-9 && Math.abs(Math.hypot(wg.x, wg.z) - GAT_CX) < 1e-6,
+          `리드 웨이포인트 = (x ${r2(GAT_CX)}, y ${r2(K.lidTop)}) — 원판 중앙 윗면`)
+        console.log(`     └ ★90 실측: 디딤 ${K.N}(챌판 ${K.risers}) · 단높이 ${K.rise.toFixed(4)} · 디딤 ${r2(K.go)} · 경사 ${r2(K.slope * D)}° · 주행 ${r2(K.run)} · 폭 ${r2(2 * K.hw)} · x ${r2(K.x0)}→${r2(K.xEnd)}`)
+        console.log(`       ⚠★89가 깬 봉인: 참에서 갓 슬릿으로 홀이 보인다(창 1.2°) — 처마 6.141→10이면 막힘. §7 ★90 (c) 현도 판정.`)
+      }
+
+      console.log(`     └ ★89 실측[${st.mode}]: 경사 ${r2(st.slope * D)}° · 단높이 ${st.rise.toFixed(4)} · 디딤 ${r2(st.tread)} · N ${st.N}(챌판 ${st.N + 1}) · 강하 ${r2(st.drop)} · 참 y ${r2(st.landY)} · 주행 ${r2(st.run)} · 구간 ${runs.length}`)
+      console.log(`       ⚠경사는 노브가 아니다 — 강하(갓 파생)와 주행(아가리 파생)이 둘 다 파생이라 과결정된다. 'half' 14.09° / 'lid' 29.50°(≈회랑 30°).`)
+      console.log(`       ⚠뿌리는 계단화로 **더 커졌다** — 노출 밑면이 늘어난다(§7 (e)ⓐ · 톱니 어법도 현도 판정 대기).`)
+    }
   }
 }
 
@@ -992,7 +1247,7 @@ console.log('\n— W. 보행 (FREE_WALK를 끄면 걸어서 완주할 수 있는
     //   조건부 4(Dome: ring 헬퍼 walk 인자) · false 6(기둥·난간·격자 등 명시 비-바닥)은 의도된 것.
     const LEDGER = [
       ['Corridor.jsx',      32, 17, 0, 0],
-      ['Dome.jsx',          68, 19, 4, 4],   // ★87 +1 = MirrorPads(지면 폐기 대체 임시 판, walkable)
+      ['Dome.jsx',          69, 20, 4, 4],   // ★87 +1 = MirrorPads · ★90 +1 = 리드 연결 계단(둘 다 walkable)
       ['GraphScaffold.jsx',  1,  0, 0, 0],
       ['Lens.jsx',           1,  0, 0, 0],
       ['Radial.jsx',        11,  5, 0, 0],
@@ -1009,8 +1264,8 @@ console.log('\n— W. 보행 (FREE_WALK를 끄면 걸어서 완주할 수 있는
       ok(r.length === nAll && c.true === nT && c.cond === nC && c.false === nF,
         `${f.padEnd(18)} 메시 ${r.length}/${nAll} · walkable true ${c.true}/${nT} 조건부 ${c.cond}/${nC} false ${c.false}/${nF} · 무선언 ${c.none}`)
     }
-    ok(sumAll === 137 && sumWalk === 49,
-      `합계 메시 ${sumAll} 중 밟는 면 ${sumWalk}(true 45 + 조건부 4) · 무선언 ${sumAll - sumWalk - 6} = 벽·지붕·챌판·기둥`)   // ★87 +1 임시 판
+    ok(sumAll === 138 && sumWalk === 50,
+      `합계 메시 ${sumAll} 중 밟는 면 ${sumWalk}(true 46 + 조건부 4) · 무선언 ${sumAll - sumWalk - 6} = 벽·지붕·챌판·기둥`)   // ★87 +1 임시 판 · ★90 +1 리드 연결 계단
     //  ★챌판(riser)은 밟는 면이 아니다 — 회랑·등불 방 계단의 '밟는 면'은 ring 헬퍼(조건부 태그)가 낸다.
     //   이 한 줄이 W4가 "무선언 = 버그"로 읽히는 것을 막는다(무선언 대부분은 정상이다).
   }

@@ -39,7 +39,7 @@ import {
   WOLDAE_ON, WOLDAE_OUT, WOLDAE_HW, WOLDAE_TIP_T, WOLDAE_ROOT_D, WOLDAE_FACETS, WOLDAE_EMBED, WOLDAE_RIM,   // ★54 월대
   WOLDAE_NOTCH, WOLDAE_NOTCH_R,   // ★54-2 노치
   WOLDAE_RISE, WOLDAE_RISE_H, WOLDAE_RISE_HW, WOLDAE_STEP_R, WOLDAE_STEP_T,   // ★54-3 상승단
-  ceilY, GAT_CX, GAT_CROWN_R, GAT_CONE_H, GAT_CROWN_H, GAT_SLIT, GAT_EAVE_MIN, GAT_EAVE_SF,
+  ceilY, GAT_CX, GAT_CROWN_R, GAT_CONE_H, GAT_CROWN_H, GAT_SLIT, GAT_EAVE_MIN, GAT_EAVE_SF, gatCap,
   FRIEZE_ROOM_ON, FR_FLOOR_Y, FR_CEIL_T, TEMPLE_CLR,                                          // ★55 프리즈 방
   RIB_CUT_ON, RIB_CUT_MODE, RIB_CUT_SEED, RIB_CUT_GAP_MIN, RIB_CUT_HEAD,                       // ★56 리브 절단(1p7)
   RIB_CUT_STUB_MIN, RIB_CUT_SEP, RIB_CUT_CAP_T, RIB_CUT_CAP_MG,
@@ -728,12 +728,10 @@ export const INTAKE_IS_SLIT = ['slit', 'slits', 'arc', 'ring'].includes(INTAKE_F
 //  ⚠보행 표본이 늘면(새 계단 등) 요구 처마도 변한다 — 자동 파생이라 그때도 봉인이 유지된다.
 export function gatSeal() {
   const cx = GAT_CX, R = GAT_CROWN_R
-  const ringMaxY = ceilY(cx + R)                             // 크라운 링에서 가장 높은 지붕점(동쪽)
   // ★밑동·절단면·리드 전부 수평(현도 07.22 최종) → 크라운 = 완전한 수직 원통: 벽 높이·기둥 길이 균일,
   //  요구 처마 최소. 빗면 평행 안은 폐기(constants ⛔ 주석 — 쐐기 슬릿·접시 처마).
-  const baseY = ringMaxY + GAT_CONE_H
-  const cutY  = baseY + GAT_CROWN_H
-  const lidY  = cutY + GAT_SLIT
+  //  ⚠수직 사슬은 `gatCap()`(constants ★89)이 정본이다 — ★89 테라스가 같은 값을 쓰므로 여기서 다시 쓰지 않는다.
+  const { baseY, cutY, lidY } = gatCap()
 
   const W = []                                               // 보행면 표본(발 딛는 면) + 눈높이
   const bl = incaBladesSpec()
