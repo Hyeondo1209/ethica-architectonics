@@ -8,7 +8,7 @@ import {
   RAD_DOOR_H, RAD_DOOR_HW, RAD_ARC_IN, RAD_JPHI, RAD_JX, RAD_JDOOR_HW, RAD_CAP_X, RAD_T_IN, RAD_FLOOR_Y,
   RAD_DROP, RAD_ST_N, RAD_ST_T, RAD_ST_LAND, RAD_ST_W,
   ROOM_TOP_AZ, ROOM_DISC_SLOT_START, ROOM_DISC_SLOT_LEN, ROOM_STAIR_PHASE, ROOM_STAIR_TOTAL_ANG,
-  ROOM_FLOOR_Y, ROOM_HEIGHT, MIR_PADS,
+  ROOM_FLOOR_Y, ROOM_HEIGHT, MIR_PADS, CUP_R,
   RAD_CYL_ON, RAD_CYL_GROW, RAD_CYL_R, RAD_CYL_Y0, RAD_CYL_Y1_BY, RAD_CYL_Y1_MIN, RAD_CYL_Y1_MAX,
   RAD_CYL_SEG, RAD_CYL_CLIP_ROOM, RAD_CYL_DOOR_ON, RAD_CYL_DOOR_RING_ONLY, RAD_CYL_DOOR_M,
   RAD_CYL_TERM, RAD_CYL_TERM_BY, RAD_CYL_TERM_TOP_BY, RAD_CYL_TERM_CLEAR, RAD_CYL_SPH_SEG,
@@ -350,7 +350,16 @@ console.log('── 18. 원기둥 받침(★2026.07.30 현도 "공중에 뜬 성
       const cx = RAD_R * Math.cos(ang), cz = RAD_R * Math.sin(ang)
       worst = Math.min(worst, Math.hypot(pad.cx - cx, pad.cz - cz) - pad.r - RAD_CYL_R)
     }
-    ok('미러 임시 판과 무간섭', worst > 1, `여유 ${r2(worst)}`)
+    //  ★2026.07.31 ★92 — 임시 판이 폐기돼 배열이 비었다. 빈 배열에 `worst > 1`을 물으면
+    //   1e9 > 1 로 **조용히 통과**한다(공허참 = 죽은 검사, ★83 전례). 대신 하판과 재본다.
+    ok(MIR_PADS.length === 0 ? '임시 판 없음 — 드럼 하판과 재잰다(아래)' : '미러 임시 판과 무간섭',
+      MIR_PADS.length === 0 || worst > 1, MIR_PADS.length === 0 ? `MIR_PADS 0개` : `여유 ${r2(worst)}`)
+    { let w2 = 1e9
+      for (let k = 0; k < 4; k++) {
+        const ang = RAD_ANG0 + k * Math.PI / 2
+        w2 = Math.min(w2, Math.hypot(COR_CX - RAD_R * Math.cos(ang), -RAD_R * Math.sin(ang)) - CUP_R - RAD_CYL_R)
+      }
+      ok('★드럼 하판(반구)과 원기둥 받침 무간섭', w2 > 5, `여유 ${r2(w2)}`) }
   }
   ok('박스 목(z ±BOX_HW)과 무간섭', RAD_R * Math.sin(RAD_ANG0) - BOX_HW > RAD_CYL_R + 5,
     `셸 축까지 ${r2(RAD_R * Math.sin(RAD_ANG0) - BOX_HW)} > ${RAD_CYL_R}`)
@@ -391,22 +400,24 @@ console.log('── 18. 원기둥 받침(★2026.07.30 현도 "공중에 뜬 성
     ok('★★전 이음매에서 반경 연속(단이 안 드러남 — 현도 정정)', worstJump < 1e-9,
       `이음매 ${joints}곳 · 최대 불연속 ${worstJump.toExponential(1)}`)
 
-    //  ★구 띠 깊이가 파생인가 = √(R_s² − r_small²). 노브로 바꾸면 접선이 깨진다.
-    let sphN = 0, worstD = 0, tangent = 0
+    //  ★★2026.07.31 현도 정정 — **곡률 구간 0**(구 띠 폐기, 원뿔대만). 구 두 항(구 띠 깊이 파생 ·
+    //   적도 접선 연속)을 이 절이 대체한다. 되살리려면 `RAD_CYL_TERM`에 `t:'sph'`를 다시 쓰면 되고,
+    //   그 순간 아래 첫 항이 운다 = 되돌림이 조용히 일어나지 않는다.
+    let sphN = 0, coneN = 0, cylN = 0, degen = 0
+    const slopes = []
     for (const nm of RAD_CYL_TERM_BY) {
-      const sp = termSpec(nm)
-      sp.segs.forEach((g, i) => {
-        if (g.t !== 'sph') return
-        sphN++
-        const want = Math.sqrt(Math.max(g.r0, g.r1) ** 2 - Math.min(g.r0, g.r1) ** 2)
-        worstD = Math.max(worstD, Math.abs(g.d - want))
-        const nb = g.r0 >= g.r1 ? sp.segs[i - 1] : sp.segs[i + 1]   // 적도 쪽 이웃
-        if (nb && nb.t === 'cyl') tangent++
-      })
+      for (const g of termSpec(nm).segs) {
+        if (g.t === 'sph') sphN++
+        else if (g.t === 'cone') { coneN++; slopes.push(Math.atan2(Math.abs(g.r1 - g.r0), g.d) * 180 / Math.PI) }
+        else cylN++
+        if (g.d <= 0) degen++                                    // 깊이 0 = 퇴화(면이 드러남)
+      }
     }
-    ok('구 띠 깊이 = √(Rs² − r²) 파생', sphN > 0 && worstD < 1e-9, `구 띠 ${sphN}개 · 최대 편차 ${worstD.toExponential(1)}`)
-    ok('★구 띠가 적도에서 원기둥에 접선으로 만남(기울기까지 연속)', tangent === sphN,
-      `${tangent}/${sphN}곳 — 이 이음매만은 완전히 매끄럽다`)
+    ok('★★말단 프로파일에 곡률 구간 0(현도 2026.07.31 — 원뿔대만)', sphN === 0,
+      `구 띠 ${sphN}개 · 원뿔대 ${coneN} · 원기둥 ${cylN}`)
+    ok('전 구간 깊이 > 0(퇴화 링 없음)', degen === 0, `퇴화 ${degen}개`)
+    ok('원뿔대 모선 각 기록(수직 대비)', coneN > 0,
+      slopes.map((s) => `${r2(s)}°`).join(' · '))
 
     //  ★★말단이 방 구 아래 = 클립 면제의 전제
     let worstClr = 1e9

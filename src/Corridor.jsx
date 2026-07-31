@@ -34,6 +34,7 @@ import {
   PLAT_DROP, DESC_X0, DESC_X1,
 } from './constants'
 import { buildHallStairs, hallDoors, friezeWinBarZ, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal, descentSpec, woldaeSpec, drumPierAzimuths, descentPortSpec, portPrismTris, outwardTris } from './corridorStairsGeometry'
+import { pierBodyTris } from './drumCupGeometry'   // ★92-b 피어 몸(계단 밑동 포함) — 정본 하나
 import { ribHoleSolid } from './ribGeometry'   // ★64-2 리브를 따라가는 관통 구멍(watertight 로프트)
 
 
@@ -805,23 +806,9 @@ export function DrumPiers() {
         const X = COR_CX + r * c - w * sn, Z = r * sn + w * c
         return { X, Z, topY: ceilY(X) + PIER_TOP_OVER }
       }
-      const V = [corner(rOut, -PIER_HW), corner(rOut, PIER_HW), corner(rIn, PIER_HW), corner(rIn, -PIER_HW)]
-      const pos = []
-      for (const p of V) pos.push(p.X, PIER_Y0 - 0.5, p.Z)  // 0..3 바닥(관문 피어 CSG 위해 살짝 매몰 = 닫힌 몸)
-      for (const p of V) pos.push(p.X, p.topY, p.Z)         // 4..7 상단(빗면 — 지붕 추종)
-      const idx = [
-        4, 5, 6, 4, 6, 7,        // 상단(빗면)
-        0, 1, 5, 0, 5, 4,        // 바깥면(벽 쪽)
-        1, 2, 6, 1, 6, 5,        // +접선 옆면
-        2, 3, 7, 2, 7, 6,        // 안쪽 면(홀에서 보임)
-        3, 0, 4, 3, 4, 7,        // −접선 옆면
-        1, 0, 3, 1, 3, 2,        // ★53 바닥면(지면 매몰이나 CSG 닫힘에 필요)
-      ]
-      //  ★53-2: 인덱스를 펼쳐 **겉면 감김 강제** — 원본 감김이 안쪽이라 CSG가 파탄났었다(부호 부피 검산).
-      const flat = []
-      for (const i of idx) flat.push(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2])
+      //  ★★★92-b 계단 밑동 — 몸 생성은 순수 모듈로 뺐다(`pierBodyTris` — 검사가 같은 함수를 부른다).
       let g = new THREE.BufferGeometry()
-      g.setAttribute('position', new THREE.Float32BufferAttribute(outwardTris(flat), 3))
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pierBodyTris(th), 3))
       const port = ports.find(p => Math.abs(((p.az - th + Math.PI * 3) % (Math.PI * 2)) - Math.PI) < 1e-6)
       if (port) {
         const cut = new THREE.BufferGeometry()

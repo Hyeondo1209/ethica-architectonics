@@ -41,13 +41,15 @@ import {
   FR_SILL_MAT, TEMPLE_COLOR,                                  // ★60 문지방(나선↔프리즈 방 매듭)
   RIB_XFER_ON, RIB_DEST_K, RIB_DEST_PHI, RIB_FREE_MODE, FR_FLOOR_Y,          // ★61 리브 갈아타기
   STELE7_ON, STELE7_F, STELE7_OFF,
-  MIR_ON, MIR_PADS,          // ★87 돔 거울 확장 — 지면 폐기·임시 판
+  MIR_ON, MIR_PADS,          // ★87 돔 거울 확장 — 지면 폐기·임시 판(★92로 비움 = 보존계)
+  CUP_ON,                    // ★92 드럼 하판 = 반구 + 감싸는 기둥
   TR_LINK_ON,   // ★90 참 → 갓 리드 연결 계단
 } from './constants'
 import { hallDoors, ribCutSpec } from './corridorStairsGeometry'
 import { buildRibShell, makeRibCurve, RIB_TUB_SEG, buildViceWedge, viceSplitIndex, newelSpec, buildSill, buildFloorCollar, buildFloorLanding, freeNewelSpec, freeSplitRange, buildOpenRim, isOpenRib , ribHoleSolid } from './ribGeometry'
 import { buildKneeBody, buildKneePlinth } from './kneeBodyGeometry'
 import { buildTerrace, buildTerraceLink } from './terraceGeometry'   // ★85 부채꼴 · ★89 계단화 · ★90 리드 연결
+import { buildCupBowl, buildCupStraps } from './drumCupGeometry'   // ★92 드럼 하판(반구 + 기둥)
 import { buildJunctionKnot, buildLightShaft, shaftCutSolid, lightShaftSpec, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, apronSteps, buildRoomMouthWall, ribArchCutSolid, radialPlate } from './junctionGeometry'   // ★70 매듭 · ★71 빛 기둥 · ★75 넓은 계단
 import { kneeTreads, kneeStairSpec } from './kneeStair'   // ★66 계단 규격·참
 import { buildFlareShell } from './exitFlareGeometry'   // ★80 S자 나팔
@@ -79,6 +81,25 @@ export function MirrorPads() {
           <meshStandardMaterial color="#6f5e44" roughness={1} />
         </mesh>
       ))}
+    </>
+  )
+}
+
+//  ★★92 드럼 하판(2026.07.31 현도 스케치) — 반구 + 그것을 감싸는 기둥.
+//   ⚠**walkable 아님**: 현도가 바닥을 "우선 없게" 하기로 했다 — 밟는 면이 아니라 밑에서 보는 외피다.
+//   ⚠반구는 두께 0이고 뚜껑이 없다 → 홀에서 내려다보면 **안쪽 면**을 본다. 그래서 DoubleSide.
+//   기하·탈락 판정 전부 `drumCupGeometry.js`(순수 모듈 — 검증이 같은 함수를 부른다).
+export function DrumCup() {
+  if (!MIR_ON || !CUP_ON) return null
+  const bowl = buildCupBowl(), straps = buildCupStraps()
+  return (
+    <>
+      <mesh geometry={bowl} userData={{ walkable: false }}>
+        <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+      </mesh>
+      <mesh geometry={straps} userData={{ walkable: false }}>
+        <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+      </mesh>
     </>
   )
 }

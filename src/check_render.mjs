@@ -15,7 +15,8 @@ import { execSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { RM10_FLARE_ON, RM10_WIN_ON, MIR_ON, MIR_PADS, RAD_CYL_ON, RAD_CYL_Y1_BY } from './constants.js'   // ★80 나팔 체제 스위치 · ★81 창 스위치 · ★87 미러·임시 판 · ★91 원기둥 받침
+import * as CUP from './drumCupGeometry.js'
+import { RM10_FLARE_ON, RM10_WIN_ON, MIR_ON, MIR_PADS, RAD_CYL_ON, RAD_CYL_Y1_BY, CUP_ON, CUP_R, PIER_ON, PIER_N } from './constants.js'   // ★80 나팔 체제 스위치 · ★81 창 스위치 · ★87 미러·임시 판 · ★91 원기둥 받침
 
 let n = 0, fail = 0
 const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
@@ -227,7 +228,13 @@ console.log(JSON.stringify({ called, bad, noted, keys, grounded }))
     //  ★구분은 **선언**으로 한다 — 깊이로 자동 추정하면 ⓐ의 누락이 조용히 통과한다.
     //   원기둥 받침(현도 "공중에 뜬 성", 2026.07.30) = ⓑ. 밑단이 정확히 `RAD_CYL_Y1`인 4기.
     //  ★2차(2026.07.30): 길이가 4기 불규칙이라 밑단이 넷 다 다르다 — 값 집합으로 선언한다.
-    const HANG = RAD_CYL_ON ? RAD_CYL_Y1_BY.map((y) => ({ comp: 'RadialRooms', minY: y, n: 1 })) : []
+    //  ★92(2026.07.31) — 드럼 하판도 ⓑ 부류다: 반구·기둥은 처음부터 허공에서 끝나도록 지었다.
+    //   밑끝은 파생 — 반구 = −R · 기둥 = −R − 두께(극점에서 호 법선이 정확히 아래라 두께가 그대로 더해진다).
+    const HANG = [
+      ...(RAD_CYL_ON ? RAD_CYL_Y1_BY.map((y) => ({ comp: 'RadialRooms', minY: y, n: 1 })) : []),
+      //  ★2026.07.31 현도 2차 정정 후: 기둥 깊이가 극점에서 0으로 수렴하므로 반구·기둥 **둘 다 −R**에서 끝난다.
+      ...(CUP_ON && MIR_ON ? [{ comp: 'DrumCup', minY: -CUP_R, n: 1 }, { comp: 'DrumCup', minY: -CUP_R, n: 1 }] : []),
+    ]
     const isHung = (g) => HANG.some((h) => h.comp === g.comp && Math.abs(g.minY - h.minY) < 0.05)
     const all = ALLGROUND.filter((g) => g.el === 'mesh' && !RIB_COMPS.has(g.comp) && !PAD_COMPS.has(g.comp))
     const hung = all.filter(isHung)
@@ -239,10 +246,25 @@ console.log(JSON.stringify({ called, bad, noted, keys, grounded }))
     }
     const targets = all.filter((g) => !isHung(g))
     const bare = targets.filter((g) => !g.covered)
-    ok(bare.length === 0,
-      `접지 mesh ${targets.length}개 전부 임시 판 안(명단 소진)` +
-      (bare.length ? ` — ✗판 없음: ${bare.map((g) => g.comp).join(', ')}` : ''))
-    ok(targets.length >= 25,
+    if (MIR_PADS.length === 0) {
+      //  ★★2026.07.31 현도 ★92 — 임시 판을 지웠고 **바닥을 우선 없게** 하기로 했다("나중에 내부
+      //   인테리어는 손볼거야"). 그래서 드럼 단지 접지 전부가 받침을 잃는다 = **선언된 빚**이다.
+      //   ⚠검사를 끄지 않는다 — **수를 박는다.** 새로 생긴 접지 요소는 이 수를 깨서 즉시 걸린다
+      //   (UNASSIGNED·WALK_DEBT와 같은 형식. 판을 되살리면 아래 else 가지가 다시 명단을 소진한다).
+      //  ★2026.07.31 ★92-c 'loft': 피어 밑동이 로프트 목 안으로 **올라가므로**(y 5.5) 피어 8기는
+      //   더는 접지가 아니다 — 로프트가 받는다. 그래서 기대 수가 체제에 따라 갈린다. 끄지 않고 **수를 옮긴다.**
+      //  ★체제 깃발이 아니라 **실제 밑동 높이**로 판정한다(깃발과 기하가 어긋나면 깃발이 거짓말한다).
+      const lifted = PIER_ON && CUP.pierBottomY() > 0.01 ? PIER_N : 0
+      ok(targets.length === 25 - lifted,
+        `⚠선언된 빚 — 드럼 단지 접지 ${targets.length}기가 받침 없음(현도 2026.07.31 "일단 두자")` +
+        (lifted ? ` · 피어 ${lifted}기는 로프트가 받아 명단에서 빠졌다` : '') +
+        ` · 내역 ${[...new Set(targets.map((g) => g.comp))].join(' · ')}`)
+    } else {
+      ok(bare.length === 0,
+        `접지 mesh ${targets.length}개 전부 임시 판 안(명단 소진)` +
+        (bare.length ? ` — ✗판 없음: ${bare.map((g) => g.comp).join(', ')}` : ''))
+    }
+    ok(targets.length >= 25 - (PIER_ON && CUP.pierBottomY() > 0.01 ? PIER_N : 0),
       `접지 스캔이 실제로 잡는다 — ${targets.length}개 ≥ 25(2026.07.29 실측 25 — 리브·지면 제외: 드럼 벽·셀라·피어 8·바닥단 7·잉카+날 5·제단·오벨리스크 기둥. 격감 = 스캔 고장 신호)`)
     const inst = ALLGROUND.filter((g) => g.el === 'instancedMesh' && !RIB_COMPS.has(g.comp))
     if (inst.length) console.log(`  ⓘ instancedMesh ${inst.length}개는 행렬 미적용이라 판정 불가(원점 기하) — ${[...new Set(inst.map((g) => g.comp))].join(', ')}`)

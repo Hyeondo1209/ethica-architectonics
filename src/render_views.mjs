@@ -24,6 +24,7 @@ import { descentSpec, woldaeSpec, incaStairSpec, incaBladesSpec, drumPierAzimuth
 import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg'
 import { WAYPOINTS, EYE } from './waypoints.js'
 import { buildViceWedge, viceSplitIndex, buildSill, buildFloorCollar, buildFloorLanding, freeSplitRange, freeNewelSpec, destCut, openRimSpec, isOpenRib, ribHoleSolid, makeRibCurve, buildRibShell } from './ribGeometry.js'   // ★2026.07.29 전역 리브 굽기
+import { buildCupBowl, buildCupStraps, pierBodyTris } from './drumCupGeometry.js'   // ★92 드럼 하판 · ★92-b 피어 몸(정본)
 import { buildKneeBody, innerTubeSolid, kneeWalkY } from './kneeBodyGeometry.js'
 import { buildJunctionKnot, buildLightShaft, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, radialPlate } from './junctionGeometry.js'
 import { terraceRuns, terraceLinkSpec } from './terraceGeometry.js'   // ★89 계단 · ★90 리드 연결 — 정본 직접(사본 금지)
@@ -157,18 +158,11 @@ if (C.HALL_ENTRY === 'axial' || C.HALL_ENTRY === 'lateral') {
 {
   const ports = descentPortSpec(C.HALL_ENTRY), ev = new Evaluator(); ev.attributes = ['position']
   for (const th of drumPierAzimuths()) {
-    const c = Math.cos(th), sn = Math.sin(th)
-    const corner = (r, w) => [C.COR_CX + r * c - w * sn, r * sn + w * c]
-    const V = [corner(C.COR_R + C.PIER_OUT, -C.PIER_HW), corner(C.COR_R + C.PIER_OUT, C.PIER_HW),
-               corner(C.COR_R - C.PIER_DEPTH, C.PIER_HW), corner(C.COR_R - C.PIER_DEPTH, -C.PIER_HW)]
-    const pos = []
-    for (const q of V) pos.push(q[0], -0.5, q[1])
-    for (const q of V) pos.push(q[0], C.ceilY(q[0]) + C.PIER_TOP_OVER, q[1])
-    const idx = [4,5,6,4,6,7, 0,1,5,0,5,4, 1,2,6,1,6,5, 2,3,7,2,7,6, 3,0,4,3,4,7, 1,0,3,1,3,2]
-    const flat = []
-    for (const i of idx) flat.push(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2])
+    //  ★★2026.07.31 ★92-b: 여기 있던 **피어 사본을 폐기**하고 정본 빌더를 부른다.
+    //   ⚠구 사본은 계단 밑동을 모른 채 옛 직육면체를 그렸을 것이다 — ★75가 폐기한 램프를 이 도구가
+    //    계속 그려 그 권역에서 거짓말한 전례와 정확히 같은 함정이다. 사본은 조형을 못 따라온다.
     let g = new THREE.BufferGeometry()
-    g.setAttribute('position', new THREE.Float32BufferAttribute(outwardTris(flat), 3))
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pierBodyTris(th), 3))
     const port = ports.find(p => Math.abs(((p.az - th + Math.PI * 3) % (Math.PI * 2)) - Math.PI) < 1e-6)
     if (port) {
       const cut = new THREE.BufferGeometry()
@@ -421,6 +415,25 @@ function fullRibs() {
   }
   _fullRibsCache = out
   return out
+}
+
+//  ★★92 드럼 하판(반구 + 기둥) — 이 도구가 **못 보던 것**이라 붙인다.
+//   ⚠전례: `render_views`가 ★75가 폐기한 구 램프를 계속 그려 셀프 렌더가 그 권역에서 거짓말했다.
+//    새 조형은 만든 세션이 여기에 등록해야 한다(사본 금지 — 정본 빌더를 그대로 부른다).
+let _cupCache = null
+function cupTris() {
+  if (_cupCache) return _cupCache
+  if (!C.CUP_ON || !C.MIR_ON) return (_cupCache = [])
+  const out = []
+  for (const [g, col] of [[buildCupBowl(), [176, 152, 104]], [buildCupStraps(), [198, 172, 118]]]) {
+    const p = g.attributes.position.array
+    for (let i = 0; i < p.length; i += 9) {
+      const v = []
+      for (let j = 0; j < 9; j += 3) v.push([p[i + j], p[i + j + 1], p[i + j + 2]])
+      out.push({ v, c: col })
+    }
+  }
+  return (_cupCache = out)
 }
 
 //  ── 시점 id → extra 삼각형 (없으면 []) ──
@@ -901,7 +914,7 @@ for (const id of cams) {
     //  미러 하반부(y<0)는 **보행 중 안 보이는 게 설계 의도**(브리프: 바닥이 보이면 '끝'을 연상). 그래서
     //  웨이포인트 coverage로는 못 잰다 — 조감이 유일한 눈이다. 캡슐(y −H~H·반경 R_BASE)을 옆 위에서 내려본다.
     const D = C.R_BASE, eye = [D * 5.5, D * 1.4, D * 2.2], len = Math.hypot(...eye)
-    render(eye, Math.atan2(eye[0], eye[2]), Math.asin(-eye[1] / len), W, H, `_render_mirror.png`, false, fullRibs())
+    render(eye, Math.atan2(eye[0], eye[2]), Math.asin(-eye[1] / len), W, H, `_render_mirror.png`, false, [...fullRibs(), ...cupTris()])
   } else if (id.startsWith('free:')) {                 // ★54 자유 카메라: free:x,y,z,yaw,pitch(도) [,ribs]
     //  웨이포인트는 전부 '경로 위 눈높이'라 물러선 조감이 없다 — 매싱·비례 판독의 사각지대였다.
     //  ★2026.07.29: 끝에 ',ribs'를 붙이면 전역 리브 72기를 얹는다(미러·원거리 조감용). 기본은 안 얹음(건축 매싱 방해 방지).
@@ -909,7 +922,7 @@ for (const id of cams) {
     const wantRibs = parts[parts.length - 1] === 'ribs'
     const [fx, fy, fz, fyaw, fpit] = (wantRibs ? parts.slice(0, -1) : parts).map(Number)
     render([fx, fy, fz], (fyaw || 0) * Math.PI / 180, (fpit || 0) * Math.PI / 180, W, H,
-      `_render_free_${fyaw}_${fpit}.png`, false, wantRibs ? fullRibs() : [])
+      `_render_free_${fyaw}_${fpit}.png`, false, wantRibs ? [...fullRibs(), ...cupTris()] : cupTris())
   } else if (id === 'inca-west') {                     // 특수: 잉카 판에서 서쪽(도착 역방향)
     const ic = WAYPOINTS.find(w => w.id === 'inca')
     render([ic.x, ic.y + EYE, ic.z], Math.PI / 2, 0.10, W, H, `_render_${id}.png`)

@@ -1247,7 +1247,7 @@ console.log('\n— W. 보행 (FREE_WALK를 끄면 걸어서 완주할 수 있는
     //   조건부 4(Dome: ring 헬퍼 walk 인자) · false 6(기둥·난간·격자 등 명시 비-바닥)은 의도된 것.
     const LEDGER = [
       ['Corridor.jsx',      32, 17, 0, 0],
-      ['Dome.jsx',          69, 20, 4, 4],   // ★87 +1 = MirrorPads · ★90 +1 = 리드 연결 계단(둘 다 walkable)
+      ['Dome.jsx',          71, 20, 4, 6],   // ★87 +1 = MirrorPads · ★90 +1 = 리드 연결 계단(둘 다 walkable)
       ['GraphScaffold.jsx',  1,  0, 0, 0],
       ['Lens.jsx',           1,  0, 0, 0],
       ['Radial.jsx',        12,  5, 0, 0],   // ★91 +1 = 원기둥 받침(밟는 면 아님 — 매달린 관벽)
@@ -1264,8 +1264,8 @@ console.log('\n— W. 보행 (FREE_WALK를 끄면 걸어서 완주할 수 있는
       ok(r.length === nAll && c.true === nT && c.cond === nC && c.false === nF,
         `${f.padEnd(18)} 메시 ${r.length}/${nAll} · walkable true ${c.true}/${nT} 조건부 ${c.cond}/${nC} false ${c.false}/${nF} · 무선언 ${c.none}`)
     }
-    ok(sumAll === 139 && sumWalk === 50,
-      `합계 메시 ${sumAll} 중 밟는 면 ${sumWalk}(true 46 + 조건부 4) · 무선언 ${sumAll - sumWalk - 6} = 벽·지붕·챌판·기둥`)   // ★87 +1 임시 판 · ★90 +1 리드 연결 계단 · ★91 +1 원기둥 받침
+    ok(sumAll === 141 && sumWalk === 50,
+      `합계 메시 ${sumAll} 중 밟는 면 ${sumWalk}(true 46 + 조건부 4) · 무선언 ${sumAll - sumWalk - 6} = 벽·지붕·챌판·기둥`)   // ★87 +1 임시 판 · ★90 +1 리드 연결 계단 · ★91 +1 원기둥 받침 · ★92 +2 드럼 하판
     //  ★챌판(riser)은 밟는 면이 아니다 — 회랑·등불 방 계단의 '밟는 면'은 ring 헬퍼(조건부 태그)가 낸다.
     //   이 한 줄이 W4가 "무선언 = 버그"로 읽히는 것을 막는다(무선언 대부분은 정상이다).
   }

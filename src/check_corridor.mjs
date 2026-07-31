@@ -76,6 +76,7 @@ import {
   FR_WIN_BAR_ON, FR_WIN_BAR_W, FR_WIN_BAR_SET, FR_WIN_BAR_IN, FR_WIN_BAR_BITE, FR_WIN_BAR_ALIGN,
 } from './constants.js'
 import { hallDoors, buildHallStairs, PLAT_TOP, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal, ribCutSpec , friezeWinBarZ } from './corridorStairsGeometry.js'
+import { descentPortSpec, windingConsistent } from './corridorStairsGeometry.js'   // ★92-b 피어 계단 검증
 import * as THREE from 'three'                                                   // ★56 CSG 스모크(check_radial 전례)
 import { Brush, Evaluator, HOLLOW_SUBTRACTION, SUBTRACTION } from 'three-bvh-csg'
 import { kneeBodySamples, kneeBodySpec, kneeWalkY, kneeBodyHalfWidth, prismGeometry, innerTubeSolid, buildKneeBody, buildKneePlinth, kneeWallHalfAt } from './kneeBodyGeometry.js'
@@ -3175,6 +3176,258 @@ if (!MIR_ON) {
       ok(open === 0, `#${k} 하반부 민짜 — 링 평면 방사 광선 ${tested}개 전부 껍질에 막힘(뚫림 ${open} = 유령 개구 0)`)
     }
     ok(true, '수술 브러시 12종 y범위 전수 실측 최저 = 문 #−2 y9 ≥ 0 — 하반부 침범 브러시 없음(_probe_mirror87)')
+  }
+}
+
+
+// ════════ ★92절. 드럼 하판 = 반구 + 감싸는 기둥 (2026.07.31 현도 스케치) ════════
+//  검사 원칙 = **광선 안 쏜다.** 반구·기둥·리브가 전부 해석 곡면이라 거리를 직접 잰다
+//  (★91 문 검사와 같은 규율 — 광선이 틀리는 상황이면 광선을 고치지 말고 다른 기하로 바꾼다).
+console.log('\n── ★92. 드럼 하판(반구 R63 + 기둥) ──')
+{
+  const CUP = await import('./drumCupGeometry.js')
+  const CS = await import('./corridorStairsGeometry.js')   // 피어 방위 정본
+  const K = await import('./constants.js')
+  if (!K.CUP_ON || !K.MIR_ON) {
+    ok(true, '하판 꺼짐(CUP_ON/MIR_ON) — ★92절 생략')
+  } else {
+    const sp = CUP.cupSpec()
+    const ribIn = COR_R - SHELL_RIB_R        // 리브 #0 관 안쪽면 = 축에서 78
+
+    // ── ① 파생 사슬 — 노브가 아닌 것들 ──
+    ok(Math.abs(sp.R - COR_R * 3 / 4) < 1e-9, `반구 반경 = 드럼 벽 × 3/4 파생 — ${r2(sp.R)}`)
+    ok(sp.R < ribIn - 1, `★반구가 리브 관 안쪽면 안 — R ${r2(sp.R)} < ${r2(ribIn)} (여유 ${r2(ribIn - sp.R)})`)
+    ok(Math.abs(sp.arc.cy - (CUP.strapStartR() ** 2 - sp.R ** 2) / (2 * sp.R)) < 1e-9,
+      `★기둥 호 중심 = 두 끝점에서 파생 — y ${r2(sp.arc.cy)} · 반경 ${r2(sp.arc.ar)}`)
+    { const a = CUP.strapPoint(0), b = CUP.strapPoint(1)
+      //  ★중심선은 84가 아니라 √(84²−HW²) = 83.905에서 출발한다 — **모서리**가 84에 닿게 하는 파생값
+      //   (현도 지시 "벽 밑동에서 출발"은 모서리 기준으로 지켜진다. 위 [597]이 그것을 박는다).
+      ok(Math.abs(a.r - CUP.strapStartR()) < 1e-9 && Math.abs(a.y) < 1e-9,
+        `호 시작 = 벽 밑동(모서리가 84에 닿는다) — 중심선 r ${r2(a.r)} · y ${r2(a.y)}`)
+      ok(Math.abs(b.r) < 1e-9 && Math.abs(b.y + sp.R) < 1e-9,
+        `호 끝 = 아래 극점(현도 지시) — r ${r2(b.r)} · y ${r2(b.y)}`) }
+
+    // ── ② 호가 반구 밖에 있고, 그 사이를 기둥이 **꽉 채운다**(현도 2차 지시 ⓐ) ──
+    { let worst = 1e9, atEnd = 0
+      for (let i = 0; i <= 400; i++) {
+        const q = CUP.strapPoint(i / 400), d = Math.hypot(q.r, q.y) - sp.R
+        worst = Math.min(worst, d); if (i === 400) atEnd = d
+      }
+      ok(worst > -1e-9, `호가 반구 밖 — 최소 벌어짐 ${r2(worst)}`)
+      ok(Math.abs(atEnd) < 1e-9, `★극점에서만 접한다(기울기까지 이어짐) — 끝 벌어짐 ${atEnd.toExponential(1)}`) }
+    { //  ★빈틈 0 = 기둥 안쪽 끝이 **반구면보다 안쪽**에 있다(동일 평면이면 z-파이팅 → BITE로 묻는다).
+      let gap = -1e9, bite = 1e9
+      for (let i = 0; i <= 400; i++) {
+        const S = CUP.strapSection(i / 400)
+        const rin = Math.hypot(S.rIn, S.yIn)
+        gap = Math.max(gap, rin - sp.R); bite = Math.min(bite, sp.R - rin)
+      }
+      ok(gap < -1e-9, `★★돔↔기둥 빈틈 0 — 안쪽 끝이 반구면보다 ${r2(bite)} 안쪽(현도 2026.07.31 2차)`)
+      ok(Math.abs(bite - K.CUP_STRAP_BITE) < 1e-9, `묻힘 깊이 = BITE 파생 — ${r2(bite)}`) }
+    { //  ★★평면 상한(현도 2차 지시 ⓑ) — 위에서 봤을 때 드럼 바닥(84) 밖으로 나오는 부분이 없다.
+      const g = CUP.buildCupStraps(), P = g.attributes.position
+      let maxR = 0
+      for (let i = 0; i < P.count; i++) maxR = Math.max(maxR, Math.hypot(P.getX(i) - COR_CX, P.getZ(i)))
+      //  ★체제별로 상한이 다르다: 'step'은 드럼 바닥 84(기둥이 홀로 보인다) · 'loft'는 피어 바깥 94
+      //   (로프트 꼭대기가 피어 밑동에 묻히므로 **피어 그림자 안**이면 된다 — 위에서 새로 보이는 건 없다).
+      const lim = CUP.loftOn() ? K.COR_R + K.PIER_OUT : COR_R
+      ok(maxR <= lim + 1e-4,
+        `★★기둥 최대 평면 반경 ${maxR.toFixed(4)} ≤ ${lim}(${CUP.loftOn() ? '피어 바깥 — 로프트 체제' : '드럼 바닥'}) — 위에서 봐도 새로 보이는 게 없다`) }
+
+    // ── ③ 자동 탈락이 실제로 작동하는가 ──
+    ok(sp.live.length >= 8, `기둥 생존 ${sp.live.length}/${sp.cand.length}기 (체제 '${sp.mode}')`)
+    { //  ★★현도 확정(2026.07.31 3차) — 'pier' 체제에선 기둥이 **피어 방위와 정확히 일치**해야 한다.
+      //   피어 목록은 `drumPierAzimuths()`가 정본이므로 여기서 방위를 다시 쓰지 않는다(사본 금지).
+      const piers = CS.drumPierAzimuths().map((a) => ((a * 180 / Math.PI) % 360 + 360) % 360).sort((u, v) => u - v)
+      const got = sp.live.filter((c) => c.src === 'pier').map((c) => (c.az * 180 / Math.PI + 360) % 360).sort((u, v) => u - v)
+      if (sp.mode === 'pier') {
+        const same = got.length === piers.length && got.every((a, i) => Math.abs(a - piers[i]) < 1e-9)
+        ok(same, `★★기둥이 피어 8기와 정확히 일치(현도 확정) — ${got.map((a) => r2(a)).join('·')}`)
+        const fills = sp.live.filter((c) => c.src === 'fill')
+        ok(fills.length >= 2, `피어 없는 창 쪽 110°를 채움 ${fills.length}기가 나눈다 — ${fills.map((c) => r2(((c.az * 180 / Math.PI) + 180) % 360 - 180)).join('·')}`)
+        //  ★남는 최대 공백 = 리브 #0 자리. 이 수가 커지면 채움이 죽었다는 뜻이다.
+        const az = sp.live.map((c) => c.az * 180 / Math.PI).sort((u, v) => u - v)
+        let gap = 0
+        for (let i = 0; i < az.length; i++) gap = Math.max(gap, ((az[(i + 1) % az.length] - az[i]) + 360) % 360)
+        ok(gap <= 60, `최대 공백 ${r2(gap)}° ≤ 60 — 리브 #0(관 78~90이 벽 84를 문다)이 차지한 자리`)
+      } else {
+        ok(sp.mode === 'ring', `⏸'ring' 보존계 — 균등 ${K.CUP_STRAP_N}기 중 ${sp.live.length}기 생존`)
+      } }
+    ok(sp.dropped.length > 0,
+      `★리브에 막혀 탈락한 후보가 있다(자동 탈락 살아 있음) — ${sp.dropped.length}기 · 방위 ${sp.dropped.map((c) => r2(c.az * 180 / Math.PI)).join('·')}`)
+    ok(sp.minClr > 0.5, `산 기둥 중 최소 리브 여유 ${r2(sp.minClr)} > 0.5(0이면 정확히 접함 = 폭 사슬)`)
+
+    // ── ④ 실측 관통 0 — 생존 기둥 모서리 × 근접 리브 전수 ──
+    { let worst = 1e9
+      for (const c of sp.live) worst = Math.min(worst, CUP.strapClearance(c.az))
+      ok(worst >= 0, `★생존 기둥 전부 리브 관 밖 — 최소 여유 ${r2(worst)}`) }
+
+    // ── ⑤ 반폭의 상한은 **리브가 아니라 평면 상한**이 잡는다(2026.07.31 2차 정정) ──
+    //  ⚠1차 구현에선 기둥이 호 **바깥으로** 자라 벽 밖 리브 구역까지 나갔고, 그래서 반폭 5 이상이면
+    //   창 쪽에 한 기도 못 섰다("반폭 4 = 제약의 귀결"). 2차에서 단면이 r ≤ 84 안으로 들어오면서
+    //   **그 제약이 사라졌다** — 실측상 반폭 10까지도 선다. 즉 반폭은 이제 **미학 노브**다.
+    //   지금 박는 것은 진짜로 남은 상한 하나: 모서리가 드럼 바닥을 안 넘게 하는 √(84² − HW²) > 0.
+    { const slots = (HW) => { const good = []
+        for (let a = -43; a <= 43; a += 0.25) if (CUP.strapClearance(a * Math.PI / 180, HW) >= 0) good.push(a)
+        const span = 2 * Math.atan(HW / COR_R) * 180 / Math.PI
+        let cnt = 0, run = 0
+        for (let i = 0; i < good.length; i++) {
+          run = (i > 0 && good[i] - good[i - 1] <= 0.26) ? run + 0.25 : 0
+          if (run >= span) { cnt++; run = 0 }
+        }
+        return cnt }
+      ok(K.CUP_STRAP_HW < COR_R && CUP.strapStartR() > sp.R,
+        `★반폭 ${K.CUP_STRAP_HW} — 호 출발 반경 √(84²−HW²) = ${r2(CUP.strapStartR())} > 반구 ${sp.R}(파생 상한)`)
+      ok(slots(K.CUP_STRAP_HW) >= 2,
+        `창 안 자리 — 반폭 4 → ${slots(4)}기 · 6 → ${slots(6)}기 · 8 → ${slots(8)}기 · 12 → ${slots(12)}기 (⚠1차와 달리 리브가 더는 반폭을 안 잡는다)`) }
+
+    // ── ⑥ 기하 무결 — 법선 명시·단위·감김(★57 '각진 연필' 계열) ──
+    for (const [nm, geo] of [['반구', CUP.buildCupBowl()], ['기둥', CUP.buildCupStraps()]]) {
+      const P = geo.attributes.position, N = geo.attributes.normal
+      let uni = 0, fin = 0
+      for (let i = 0; i < N.count; i++) {
+        uni = Math.max(uni, Math.abs(Math.hypot(N.getX(i), N.getY(i), N.getZ(i)) - 1))
+        if (!Number.isFinite(P.getX(i)) || !Number.isFinite(P.getY(i)) || !Number.isFinite(P.getZ(i))) fin++
+      }
+      let wind = 1
+      for (let t = 0; t < P.count; t += 3) {
+        const a = new THREE.Vector3(P.getX(t), P.getY(t), P.getZ(t))
+        const b = new THREE.Vector3(P.getX(t + 1), P.getY(t + 1), P.getZ(t + 1))
+        const c = new THREE.Vector3(P.getX(t + 2), P.getY(t + 2), P.getZ(t + 2))
+        const fn = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a))
+        if (fn.lengthSq() < 1e-12) continue
+        const dn = new THREE.Vector3(N.getX(t), N.getY(t), N.getZ(t))
+        wind = Math.min(wind, fn.normalize().dot(dn))
+      }
+      ok(uni < 1e-5 && fin === 0, `${nm} 법선 전부 단위·정점 유한 — 편차 ${uni.toExponential(1)} · 비유한 ${fin}`)
+      ok(wind > 0.98, `${nm} 감김이 선언 법선과 일치 — 최소 dot ${r2(wind)}`)
+    }
+
+    // ── ⑦ 밑끝 = 파생(check_render HANG 선언과 같은 값이어야 한다) ──
+    { const g = CUP.buildCupStraps(), P = g.attributes.position
+      let lo = 1e9; for (let i = 0; i < P.count; i++) lo = Math.min(lo, P.getY(i))
+      ok(Math.abs(lo + sp.R) < 1e-6, `기둥 밑끝 = −R 파생(극점에서 깊이 0으로 수렴) — ${r2(lo)}`) }
+    // ── ⑧ ★★92-b 피어 밑동 계단(현도 2026.07.31) ──
+    { const st = CUP.pierStepSpec()
+      if (CUP.loftOn()) {
+        //  ── ★★92-c 로프트 목(조형안 C) ──
+        ok(st === null, `★'loft' 체제에선 피어를 안 깎는다 — pierStepSpec ${st === null ? 'null ✅' : '⛔ 아직 깎는다'}`)
+        //  ★★현도 2026.07.31 재정정: 피어 올림 **취소** — 밑동이 벽 밑동과 같은 자리로 돌아온다.
+        ok(CUP.pierBottomY() === K.PIER_Y0 - 0.5,
+          `★피어 밑동 ${CUP.pierBottomY()} = 구 값 복귀(벽 밑동 0과 동일, 0.5는 기둥 윗면 안에 묻힌다)`)
+        const aB = CUP.strapSection(0, true)
+        //  ★★92-d 헌치 — 홀 안에서 보이는 경사면. 피어(r 75~94)와 **반경 구역이 안 겹쳐야** 성립한다.
+        const hs = CUP.haunchSpec()
+        ok(hs !== null, `헌치 켜짐 — 밑변 y ${r2(hs && hs.y0)} · 꼭대기 y ${r2(hs && hs.y1)}`)
+        if (hs) {
+          ok(hs.rOut <= COR_R - K.PIER_DEPTH + K.CUP_LOFT_BITE + 1e-9 && hs.rOut > COR_R - K.PIER_DEPTH,
+            `★★헌치 바깥면 ${r2(hs.rOut)}이 피어 안쪽 면 ${COR_R - K.PIER_DEPTH} **속에** 묻힌다(같으면 z-파이팅)`)
+          ok(hs.rOut < COR_R - K.PIER_DEPTH + 1 && hs.rIn0 > K.CUP_R - K.CUP_STRAP_BITE - 1,
+            `★헌치는 r ${r2(hs.rIn0)}~${r2(hs.rOut)} — 피어(${COR_R - K.PIER_DEPTH}~${COR_R + K.PIER_OUT})와 반경 구역이 안 겹친다`)
+          //  ★각도는 노브가 아니라 **파생**: 높이 = 밑변 × tan(각). 각을 돌리면 높이가 따라온다.
+          ok(Math.abs(hs.rise - hs.run * Math.tan(K.CUP_HAUNCH_ANG * Math.PI / 180)) < 1e-9,
+            `★★홀 안쪽 경사면 ${K.CUP_HAUNCH_ANG}° (파생 — 수평 ${r2(hs.run)} × tan = 수직 ${r2(hs.rise)})`)
+          ok(hs.y0 < 0 && hs.y1 > 0,
+            `★밑변이 y 0 아래(${r2(hs.y0)})라 기둥 윗면과 동일 평면이 아니다 · 경사면은 홀 쪽 y ${r2(hs.y1)}까지 선다`)
+          //  ★헌치가 드럼 안 다른 것과 안 부딪히는가(기단 r≤46 · 잉카 r≤36 — 한참 안쪽)
+          ok(hs.rIn0 > 50, `헌치 최내반경 ${r2(hs.rIn0)} > 50 — 기단(46)·잉카(36)와 무간섭`)
+        }
+
+        //  ★단조 수축 — 아래로 갈수록 줄기만 해야 위에서 봤을 때 피어 그림자 안에 숨는다
+        let mono = true, prevR = 1e9, prevW = 1e9
+        for (let i = 0; i <= 40; i++) {                    // 목부터
+          const S = CUP.neckSection(K.CUP_LOFT_TOP * (1 - i / 40))
+          if (S.rOut > prevR + 1e-9 || S.hw > prevW + 1e-9) mono = false
+          prevR = S.rOut; prevW = S.hw
+        }
+        for (let i = 0; i <= 200; i++) {
+          const S = CUP.strapSection(i / 200, true)
+          if (S.rOut > prevR + 1e-9 || S.hw > prevW + 1e-9) mono = false
+          prevR = S.rOut; prevW = S.hw
+        }
+        ok(mono, `★로프트가 아래로 단조 수축 — 위에서 보면 피어 그림자 안에 완전히 숨는다`)
+        //  ★★안쪽 끝은 안 벌린다 = 반구↔기둥 빈틈 0 유지(현도 2차 지시를 로프트가 깨지 않는가)
+        let sameIn = true
+        for (let i = 0; i <= 100; i++) {
+          const a = CUP.strapSection(i / 100, false), b = CUP.strapSection(i / 100, true)
+          if (Math.abs(a.rIn - b.rIn) > 1e-12 || Math.abs(a.yIn - b.yIn) > 1e-12) sameIn = false
+        }
+        ok(sameIn, `★★y≤0 구간에서 안쪽 끝은 여전히 반구면에 묻혀 있다 — 반구↔기둥 빈틈 0(현도 2차)이 유지된다`)
+        //  ★★헌치는 **살을 더한 것**이지 안쪽 끝을 옮긴 것이 아니다 = 공동이 안 생긴다.
+        //   안쪽 끝을 62.5 → 75로 옮기면 반구와 기둥 사이에 쐐기 공동이 뚫린다(현도 2차 반려 계열).
+        ok(hs === null || Math.abs(hs.rIn0 - Math.sqrt((K.CUP_R - K.CUP_STRAP_BITE) ** 2 - hs.y0 ** 2)) < 1e-9,
+          `★헌치 밑변 안쪽 끝이 반구면 위(${r2(hs && hs.rIn0)}) — 공동 0`)
+        //  ★★피어 자리에만 건다 — 실측 근거를 검사가 재유도한다
+        const sp2 = CUP.cupSpec()
+        const lofted = sp2.live.filter((c) => c.loft), plain = sp2.live.filter((c) => !c.loft)
+        ok(lofted.length === sp2.live.filter((c) => c.src === 'pier').length && lofted.length > 0,
+          `★로프트는 피어 자리 ${lofted.length}기에만 — 채움 ${plain.length}기는 정상 단면`)
+        let worstFill = 1e9
+        for (const c of plain) worstFill = Math.min(worstFill, CUP.strapClearance(c.az, K.CUP_STRAP_HW, true))
+        ok(plain.length === 0 || worstFill < 0,
+          `★★채움 자리에 로프트를 걸면 리브를 뚫는다(여유 ${r2(worstFill)} < 0) — 피어 자리 한정은 취향이 아니라 리브가 정한 것`)
+        ok(sp2.minClr > 0.5, `산 기둥 최소 리브 여유 ${r2(sp2.minClr)} > 0.5`)
+      } else if (!st) ok(true, '피어 계단 꺼짐(PIER_STEP_ON) — 생략')
+      else {
+        const s0 = CUP.strapSection(0)
+        //  ★★끝 단면의 **출처가 둘로 갈린다**(2026.07.31 정정): 접선 끝은 하판 기둥에서 파생하고,
+        //   바깥 끝은 **벽**을 기준으로 잡는다. 1차 구현이 바깥까지 기둥에서 끌어와 톱니를 지웠다.
+        ok(Math.abs(st.hwEnd - K.CUP_STRAP_HW) < 1e-9,
+          `접선 끝 = 기둥 반폭에서 파생 — ±${st.hwEnd}`)
+        //  ★★★모든 단이 **벽 표면 밖**에 있는가. 드럼 벽은 정 N각형이라 표면이 R·cos(π/N) ~ R 를 오간다 —
+        //   그 안쪽으로 들어가면 톱니가 사라지고, 스칠 만큼 가까우면 z-파이팅이 난다(현도 1차 반려 사유 둘).
+        const wallMin = COR_R * Math.cos(Math.PI / COR_WALL_SEG)
+        let worstWall = 1e9
+        for (const L of st.levels) worstWall = Math.min(worstWall, L.rOut - wallMin)
+        ok(worstWall > 2,
+          `★★★전 단이 벽 표면(${r2(wallMin)}) 밖 — 최소 여유 ${r2(worstWall)} > 2 · 맨 아래 톱니 ${r2(st.rEnd - COR_R)} 남음`)
+        //  ★아래로 갈수록 작아지는가(단조) · 안쪽 면은 안 깎였는가
+        let mono = true
+        for (let i = 1; i < st.levels.length; i++)
+          if (!(st.levels[i].rOut > st.levels[i - 1].rOut && st.levels[i].hw > st.levels[i - 1].hw)) mono = false
+        ok(mono && st.levels[st.levels.length - 1].rOut < st.rOutFull,
+          `단 ${st.levels.length}개가 아래로 갈수록 좁아진다 — 바깥 ${st.levels.map((L) => r2(L.rOut)).join('→')}→${st.rOutFull} · 반폭 ${st.levels.map((L) => L.hw).join('→')}→${K.PIER_HW}`)
+        ok(st.rIn === COR_R - K.PIER_DEPTH, `★안쪽 면 r ${st.rIn}은 안 깎는다(기둥이 62.5까지 더 안으로 받쳐 준다)`)
+        //  ★★관문(★53 CSG)을 안 건드리는가 — 파괴적 연산끼리 겹치면 몸이 깨진다
+        const ports = descentPortSpec(K.HALL_ENTRY)
+        const loPort = Math.min(...ports.map((p) => p.yWalk))
+        ok(st.top < loPort - 20, `★계단 꼭대기 ${st.top} ≪ 관문 최저 ${r2(loPort)} — 두 CSG/절삭이 안 겹친다`)
+        //  ★★몸 무결 — 8기 전부. 감김이 뒤집히면 관문 CSG가 파탄난다(★53-2 전례)
+        let worstV = 1e18, badWind = 0, nonFin = 0, carveErr = 0
+        for (const th of CS.drumPierAzimuths()) {
+          const t = CUP.pierBodyTris(th)
+          let V = 0
+          for (let i = 0; i < t.length; i += 9) {
+            const a = t.slice(i, i + 3), b = t.slice(i + 3, i + 6), d = t.slice(i + 6, i + 9)
+            V += (a[0] * (b[1] * d[2] - b[2] * d[1]) - a[1] * (b[0] * d[2] - b[2] * d[0]) + a[2] * (b[0] * d[1] - b[1] * d[0])) / 6
+          }
+          worstV = Math.min(worstV, V)
+          if (!windingConsistent(t)) badWind++
+          for (const v of t) if (!Number.isFinite(v)) nonFin++
+          //  ★독립 재계산(봉인 차분): 층별 부피 합 = 실측 부피여야 한다.
+          const c = Math.cos(th), sn = Math.sin(th)
+          const topAt = (r, w) => K.ceilY(COR_CX + r * c - w * sn) + K.PIER_TOP_OVER
+          let want = 0
+          for (const L of st.levels) want += (L.rOut - st.rIn) * 2 * L.hw * (L.y1 - L.y0)
+          const A = (st.rOutFull - st.rIn) * 2 * K.PIER_HW
+          const mean = (topAt(st.rOutFull, -K.PIER_HW) + topAt(st.rOutFull, K.PIER_HW)
+            + topAt(st.rIn, K.PIER_HW) + topAt(st.rIn, -K.PIER_HW)) / 4
+          want += A * (mean - st.top)
+          carveErr = Math.max(carveErr, Math.abs(V - want) / want)
+        }
+        ok(worstV > 0 && badWind === 0 && nonFin === 0,
+          `★★피어 8기 몸 무결 — 최소 부호 부피 ${r2(worstV)} > 0(겉면 감김) · 감김 불일치 ${badWind} · 비유한 ${nonFin}`)
+        ok(carveErr < 1e-9,
+          `★★깎인 몸 = 층별 독립 재계산과 일치(봉인 차분) — 최대 상대오차 ${carveErr.toExponential(1)}`)
+        //  ★맨 아래 단의 **안쪽 부분**은 기둥이 받는다(바깥 톱니 는 벽과 함께 끝난다 — 받을 것이 없다).
+        ok(st.rIn >= s0.rIn - 1e-9 && st.hwEnd <= K.CUP_STRAP_HW + 1e-9,
+          `★맨 아래 단 안쪽 r ${st.rIn}~${r2(s0.rOut)}는 기둥(${r2(s0.rIn)}~${r2(s0.rOut)})이 받는다 · 바깥 톱니 ${r2(st.rEnd - s0.rOut)}는 벽과 함께 끝난다`)
+        //  ★현도 의도: 접선 계단이 있어야 홀 안에서 보인다. 0이면 안 보인다.
+        ok(K.PIER_HW - st.hwEnd > 0,
+          `★접선 이동 ${r2(K.PIER_HW - st.hwEnd)}(±${K.PIER_HW}→±${st.hwEnd}) > 0 — 이게 0이면 홀 안에서 계단이 안 보인다(현도 의도 파기)`)
+      } }
+
+    ok(K.MIR_PADS.length === 0, `⚠임시 판 폐기 확인(★92) — 드럼 단지 접지는 선언된 빚(check_render가 수를 박는다)`)
   }
 }
 
