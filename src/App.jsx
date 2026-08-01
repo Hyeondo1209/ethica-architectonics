@@ -10,6 +10,7 @@ import { DefAxiomRoom } from './Room'
 import { Corridor } from './Corridor'
 import { RadialRooms } from './Radial'
 import { RadialEvents } from './RadialEvents'
+import { PoseProbe, CoordHud } from './CoordHud'   // ★99 좌표 HUD(개발 도구 — DEV_TELEPORT로 일괄 차단)
 
 // ============================================================
 //  App.jsx — 조립만 담당 (파일 분할 2026.07.03 · 스케일 리그 철거 2026.07.04 — ③ 고정)
@@ -89,6 +90,7 @@ export default function App() {
               </group>
             </group>
             <FirstPersonControls />
+            <PoseProbe />{/* ★99 카메라 실값 → window.__ethicaPose (리렌더 0) */}
           </>
         )}
 
@@ -100,6 +102,8 @@ export default function App() {
           </>
         )}
       </Canvas>
+
+      <CoordHud />{/* ★99 좌표 HUD — C 복사 · Shift+C 웨이포인트 줄 · V 접기 */}
 
       <div style={{
         position: 'fixed', left: 24, bottom: 22, maxWidth: 380, pointerEvents: 'none',

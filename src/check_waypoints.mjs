@@ -40,6 +40,7 @@ import { flareSpec } from './exitFlareGeometry.js'
 import { p1HeightAt } from './radialEventsGeometry.js'
 const r2 = (v) => Math.round(v * 100) / 100   // ★㊾ (check_corridor와 같은 보조자)
 import { descentSpec, woldaeSpec, gatSeal, incaStairSpec, incaBladesSpec, descentPortSpec, portPrismTris, drumPierAzimuths, outwardTris, signedVolume, windingConsistent, incaNexusWestX} from './corridorStairsGeometry.js'   // ★㊾·53·54
+import { formatFree, formatWaypoint, parseFree, formatHuman } from './poseFormat.js'   // ★99 좌표 교환 포맷
 import * as THREE from 'three'
 import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg'
 import { WAYPOINTS, WP_GROUPS, SPAWN_ID, EYE, wpById } from './waypoints.js'
@@ -1432,6 +1433,73 @@ console.log('\n— W. 보행 (FREE_WALK를 끄면 걸어서 완주할 수 있는
     ok(GAP_UNMEASURED.length === 14,
       `수평 틈 **미측정** 이음매 ${GAP_UNMEASURED.length}곳 선언 — W5가 실제로 잰 것은 상부 7 + 하부 3 = 10곳(W3 이음매 24곳 중)`)
   }
+}
+
+
+// ════════ Y절 ★99 좌표 교환 포맷 — HUD가 뱉는 것을 렌더 도구가 그대로 먹는가 (2026.08.01) ════════
+//  왜 검사가 필요한가: 이 포맷의 존재 이유가 **단위 사고 봉인**이다(free:는 도, waypoints는 라디안).
+//  2026.08.01 Claude가 라디안을 free:에 넣어 정면만 찍힌 렌더를 보고 "도구 고장"으로 오진했다.
+//  형식이 조용히 어긋나면 그 사고가 그대로 재발하므로, 왕복을 상시 검증한다.
+{
+  console.log('\n— Y. 좌표 교환 포맷(★99) —')
+
+  //  ① 왕복 항등: 임의 포즈를 format → parse 하면 원값이 돌아온다(반올림 오차 안).
+  const POSES = [
+    { x: 124.53, y: 102.9, z: 0, yaw: Math.PI, pitch: -0.4363 },
+    { x: -87.2, y: 38.22, z: 60.31, yaw: -2.1, pitch: 0.9 },
+    { x: 204, y: 640, z: 0, yaw: 0, pitch: -1.3 },
+    { x: 331.7, y: 248.5, z: -12.04, yaw: 1.5708, pitch: 0 },
+  ]
+  let worstP = 0, worstA = 0
+  for (const p of POSES) {
+    const back = parseFree(formatFree(p))
+    if (!back) { ok(false, `왕복 파싱 실패: ${formatFree(p)}`); continue }
+    worstP = Math.max(worstP, Math.abs(back.x - p.x), Math.abs(back.y - p.y), Math.abs(back.z - p.z))
+    worstA = Math.max(worstA, Math.abs(back.yaw - p.yaw), Math.abs(back.pitch - p.pitch))
+  }
+  ok(worstP <= 0.005, `왕복 위치 오차 최대 ${r2(worstP)} ≤ 0.005 (소수 2자리 = 5mm — 84m 드럼에서 무의미)`)
+  ok(worstA <= 0.001, `왕복 각도 오차 최대 ${r2(worstA)} rad ≤ 0.001 (소수 1자리 도 = 0.05° 반올림)`)
+
+  //  ② ★단위 봉인: parseFree는 **도**를 받아 **라디안**을 낸다. 이게 뒤집히면 렌더가 정면만 찍는다.
+  const q = parseFree('free:0,0,0,180,-45')
+  ok(q && Math.abs(q.yaw - Math.PI) < 1e-9, `parseFree: yaw 180(도) → ${q ? r2(q.yaw) : 'null'} rad (= π)`)
+  ok(q && Math.abs(q.pitch + Math.PI / 4) < 1e-9, `parseFree: pitch −45(도) → ${q ? r2(q.pitch) : 'null'} rad (= −π/4)`)
+  ok(formatFree({ x: 0, y: 0, z: 0, yaw: Math.PI, pitch: 0 }).includes('180'),
+    'formatFree: yaw π(라디안) → 문자열에 180(도)이 찍힌다 — 경계가 뒤집히면 여기서 운다')
+
+  //  ③ ribs 꼬리(원거리 조감용)가 살아 있는가 — 붙여도 숫자 파싱이 안 밀린다.
+  const rb = parseFree('free:10,20,30,90,-10,ribs')
+  ok(rb && rb.ribs === true && rb.x === 10 && rb.z === 30, 'ribs 꼬리 인식 + 숫자 자리 안 밀림')
+  ok(parseFree('free:10,20,30')?.ribs === false, 'yaw·pitch 생략 시 0 기본 · ribs false')
+
+  //  ④ 쓰레기 입력은 null(호출부가 사용법을 찍고 멈춘다 — 조용한 NaN 렌더 방지).
+  for (const bad of ['free:', 'free:1,2', 'free:a,b,c', 'wp:1,2,3', 'free:1,2,3,4,5,6'])
+    ok(parseFree(bad) === null, `쓰레기 입력 거부: '${bad}'`)
+
+  //  ⑤ render_views가 **정말로** 이 파서를 쓰는가(사본 부활 방지 — 소스 문자열 검사).
+  const rv = fs.readFileSync(new URL('./render_views.mjs', import.meta.url), 'utf8')
+  ok(rv.includes("from './poseFormat.js'"), 'render_views.mjs가 poseFormat을 임포트한다')
+  ok(rv.includes('parseFree(id)'), 'render_views.mjs가 parseFree를 호출한다(인라인 파싱 복귀 아님)')
+  ok(!/const \[fx, fy, fz, fyaw, fpit\]/.test(rv), '구 인라인 파싱 잔재 없음')
+
+  //  ⑥ HUD 배선 — 프로브(Canvas 안)와 패널(Canvas 밖)이 둘 다 마운트돼 있는가.
+  const app = fs.readFileSync(new URL('./App.jsx', import.meta.url), 'utf8')
+  ok(app.includes('<PoseProbe />'), 'App.jsx에 <PoseProbe /> 마운트(Canvas 안 — 카메라 실값 공급원)')
+  ok(app.includes('<CoordHud />'), 'App.jsx에 <CoordHud /> 마운트(Canvas 밖 — DOM 패널)')
+  const hud = fs.readFileSync(new URL('./CoordHud.jsx', import.meta.url), 'utf8')
+  ok(/PoseProbe[\s\S]*useFrame/.test(hud), 'PoseProbe가 useFrame으로 매 프레임 갱신')
+  ok(!/useState/.test(hud), '⚠HUD에 useState 없음 — 60fps 리렌더가 씬을 느리게 만들면 도구가 작품을 해친다')
+  ok(hud.includes('DEV_TELEPORT'), '배포 스위치 DEV_TELEPORT로 통째 차단(텔레포트 패널과 같은 한 줄)')
+
+  //  ⑦ 웨이포인트 줄이 실제 WAYPOINTS 항목 모양과 같은 필드를 낸다(붙여 넣으면 바로 동작).
+  const wline = formatWaypoint({ x: 1.5, y: 2.5, z: 3.5, yaw: 1.2345, pitch: -0.5 }, 'probe', '테스트')
+  for (const k of ['id:', 'group:', 'label:', 'x:', 'y:', 'z:', 'yaw:', 'pitch:'])
+    ok(wline.includes(k), `웨이포인트 줄에 '${k}' 필드 존재`)
+  ok(/yaw: 1\.2345/.test(wline), '웨이포인트 줄은 **라디안 원값** 보존(free:와 반대 — 저장 형식이 다름)')
+
+  //  ⑧ 사람이 읽는 줄 — 발밑 y가 눈높이와 구분돼 찍힌다(두 값을 혼동한 전례가 많다).
+  const hline = formatHuman({ x: 124.5, y: 102.9, z: 0, yaw: 0, pitch: 0 }, 101.3)
+  ok(hline.includes('102.9') && hline.includes('101.3'), `HUD 줄에 눈높이·발밑이 둘 다: "${hline}"`)
 }
 
 console.log(fail === 0 ? `\n전부 통과 (${n}항)` : `\n실패 ${fail}/${n}`)

@@ -19,6 +19,7 @@
 import fs from 'fs'
 import { PNG } from 'pngjs'
 import * as THREE from 'three'
+import { parseFree } from './poseFormat.js'   // ★99 좌표 교환 포맷 단일 정본
 import * as C from './constants.js'
 import { descentSpec, woldaeSpec, incaStairSpec, incaBladesSpec, drumPierAzimuths, descentPortSpec, portPrismTris, outwardTris, ribCutSpec, buildIncaPanel, mastSpec, buildMast, buildNexusPier, buildNexusHaunch, buildWestButtress} from './corridorStairsGeometry.js'
 import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg'
@@ -925,11 +926,14 @@ for (const id of cams) {
   } else if (id.startsWith('free:')) {                 // ★54 자유 카메라: free:x,y,z,yaw,pitch(도) [,ribs]
     //  웨이포인트는 전부 '경로 위 눈높이'라 물러선 조감이 없다 — 매싱·비례 판독의 사각지대였다.
     //  ★2026.07.29: 끝에 ',ribs'를 붙이면 전역 리브 72기를 얹는다(미러·원거리 조감용). 기본은 안 얹음(건축 매싱 방해 방지).
-    const parts = id.slice(5).split(',')
-    const wantRibs = parts[parts.length - 1] === 'ribs'
-    const [fx, fy, fz, fyaw, fpit] = (wantRibs ? parts.slice(0, -1) : parts).map(Number)
-    render([fx, fy, fz], (fyaw || 0) * Math.PI / 180, (fpit || 0) * Math.PI / 180, W, H,
-      `_render_free_${fyaw}_${fpit}.png`, false, wantRibs ? [...fullRibs(), ...cupTris()] : cupTris())
+    //  ★99(2026.08.01): 인라인 파싱 폐기 → `poseFormat.parseFree` 소비. 화면 HUD가 뱉는 문자열과
+    //   **같은 함수**를 쓴다 = 사본 소멸. ⚠단위 사고 전례: 도(free:)와 라디안(waypoints)을 혼동해
+    //   정면만 찍힌 렌더를 보고 '도구 고장'으로 오진한 적이 있다(2026.08.01). 경계를 파서가 끝낸다.
+    const fp = parseFree(id)
+    if (!fp) { console.error(`free: 인자 형식 오류 — free:x,y,z,yaw(도),pitch(도)[,ribs]  받은 값: ${id}`); process.exit(1) }
+    const dg = (v) => Math.round(v * 1800 / Math.PI) / 10
+    render([fp.x, fp.y, fp.z], fp.yaw, fp.pitch, W, H,
+      `_render_free_${dg(fp.yaw)}_${dg(fp.pitch)}.png`, false, fp.ribs ? [...fullRibs(), ...cupTris()] : cupTris())
   } else if (id === 'inca-west') {                     // 특수: 잉카 판에서 서쪽(도착 역방향)
     const ic = WAYPOINTS.find(w => w.id === 'inca')
     render([ic.x, ic.y + EYE, ic.z], Math.PI / 2, 0.10, W, H, `_render_${id}.png`)

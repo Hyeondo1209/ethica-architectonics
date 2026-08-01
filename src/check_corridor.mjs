@@ -484,7 +484,13 @@ console.log('— R2. ★㊸ 리브 받침 제단(신전 기단) — 다섯 리�
     // (1) 리브 열 전체 폭 커버: z 반폭이 #±2(z±50)+리브 반경을 덮음
     const ribOutZ = 50 + SHELL_RIB_R                                        // #±2 바깥 |z| = 56
     ok(ALTAR_ZHW >= ribOutZ, `제단 z반폭 ${ALTAR_ZHW} ≥ 리브 열 바깥(${ribOutZ}) — 다섯 리브 밑동 다 덮음`)
-    ok(ALTAR_ZHW <= CELLA_ZHW - 2, `제단 z반폭 ${ALTAR_ZHW} ≤ 셀라 옆벽(${CELLA_ZHW})−2 — 셀라 안`)
+    //  ★100(2026.08.01) 불변식 반전 — 구 검사는 `ALTAR_ZHW ≤ CELLA_ZHW − 2`(벽에서 2 떨어져라)였다.
+    //   그 '여유'가 곧 **바닥 구멍**이었다: 셀라는 바닥 슬랩이 없고 `MIR_ON=true`라 지면도 없어서,
+    //   제단이 안 덮는 셀라 안쪽은 그대로 허공이다(현도 실측 free:304.19,12.21,-58.58).
+    //   → 이제 요구는 정반대다: **벽 안면을 덮되(봉합) 바깥면은 넘지 마라(무돌출)**.
+    ok(ALTAR_ZHW >= CELLA_ZHW, `제단 z반폭 ${ALTAR_ZHW} ≥ 셀라 옆벽 안면 ${CELLA_ZHW} — 옆 띠 구멍 봉합`)
+    ok(ALTAR_ZHW < CELLA_ZHW + CELLA_T, `제단 z반폭 ${ALTAR_ZHW} < 벽 바깥면 ${CELLA_ZHW + CELLA_T} — 외부 무돌출(현도 조건)`)
+    ok(ALTAR_ZHW > CELLA_ZHW, `제단 z반폭이 벽 안면과 **정확히 같지 않다**(${r2(ALTAR_ZHW - CELLA_ZHW)} 물림) — 코플레이너 아티팩트 회피`)
     // (2) 총 높이 < 넥서스(다섯 날 뿌리 y≈38.2) — 무간섭(핵심)
     const total = ALTAR_STEP1_H + ALTAR_STEP2_H
     const spec = incaBladesSpec()
@@ -493,7 +499,14 @@ console.log('— R2. ★㊸ 리브 받침 제단(신전 기단) — 다섯 리�
     const x1West = ALTAR_SCOPE === 'unified' ? ALTAR_UNI_XW : ALTAR_STEP1_X
     const x2West = ALTAR_SCOPE === 'unified' ? ALTAR_UNI_XW + 10 : ALTAR_STEP2_X
     ok(x2West > x1West, `계단 2장: 상단 서쪽끝 ${x2West} > 하단 ${x1West} — 상단이 물러남(2장 단차)`)
-    ok(ALTAR_X_BACK > 288 && ALTAR_X_BACK <= 300, `제단 동쪽 끝 ${ALTAR_X_BACK} — 리브 밑동(≤294) 뒤 · 동벽(300) 안`)
+    //  ★100 같은 반전 — 구 검사의 상한 300은 `CELLA_X1`이 309로 확장된 뒤 갱신 안 된 하드코딩이었고,
+    //   그 사이(296~307)가 11 × 124 짜리 뒷마당 구멍이었다. 현도가 선 자리가 정확히 여기다.
+    ok(ALTAR_X_BACK > 294, `제단 동쪽 끝 ${ALTAR_X_BACK} > 리브 #0 바깥 294 — 리브 밑동 뒤까지`)
+    ok(ALTAR_X_BACK >= CELLA_X1 - CELLA_T, `제단 동쪽 끝 ${ALTAR_X_BACK} ≥ 셀라 동벽 안면 ${CELLA_X1 - CELLA_T} — 뒷마당 구멍 봉합`)
+    ok(ALTAR_X_BACK < CELLA_X1, `제단 동쪽 끝 ${ALTAR_X_BACK} < 동벽 바깥면 ${CELLA_X1} — 외부 무돌출`)
+    //  ⚠경계가 셀라에서 **파생**인지(하드코딩 복귀 방지) — 셀라 노브를 돌리면 제단이 따라와야 한다.
+    ok(Math.abs((ALTAR_X_BACK - (CELLA_X1 - CELLA_T)) - (ALTAR_ZHW - CELLA_ZHW)) < 1e-9,
+      `x·z 두 물림이 같은 값(ALTAR_BITE ${r2(ALTAR_ZHW - CELLA_ZHW)})에서 파생 — 한쪽만 하드코딩되면 여기서 운다`)
     // (4) 리브 밑동 받침: 리브(x 283.6~288)가 제단 x범위 안(하단이 리브를 받침)
     ok(x1West < 283.6 && ALTAR_X_BACK > 288, `제단 x [${x1West}, ${ALTAR_X_BACK}] ⊃ 리브 밑동(283.6~288) — 다섯 리브 받침`)
     // (5) unified 시 넥서스까지: 서쪽 끝이 넥서스 중심 근처
