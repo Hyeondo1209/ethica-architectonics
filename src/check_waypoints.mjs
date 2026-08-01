@@ -29,7 +29,7 @@ import {
   ST_ON, RM10_ON, RM10_PHI, RM10_AX_R, RM10_RHO, RM10_FLOOR_Y, RM10_FLOOR_OPEN_R, RM10_DROP,   // ★79 등불 방
   RM10_EXIT_RIN, RM10_EXIT_ROUT, RM10_EXIT_FLOOR_Y, RM10_STR_END,   // ★79-5/6 출구 통로
   WSTAIR_X1, X_DESC0, DESC_TREAD_D, PASS_X_CHEEK, JCT_DN_Z, PASS_HW, PASS_T, DESC_SLOPE,   // ★84 W5
-  INCA_W0,   // ★2026.07.29 W5 잉카 폭(DESC_HW는 위에 이미 있음)
+  INCA_W0, INCA_CENTER_MODE,   // ★2026.07.29 W5 잉카 폭 · ★94-b 체제
 } from './constants.js'
 import { RM10_FLARE_ON, RM10_FLARE_MX, RM10_FLARE_MZ, RM10_FLARE_SWEEP, RM10_FLARE_R, RM10_ARC_TH1, TERRACE_ON } from './constants.js'   // ★80
 import { RM10_FLARE_RISE, RM10_FLARE_MY, RM10_FLARE_W1, TR_RIN, TR_ROUT, TR_AZ0, TR_AZ1, TR_Y, TERRACE_T, TR_W_F, terraceMouth } from './constants.js'   // ★85 테라스
@@ -39,7 +39,7 @@ import { terraceSpec, terracePoint, terraceProfileY, terraceSoffitY, buildTerrac
 import { flareSpec } from './exitFlareGeometry.js'
 import { p1HeightAt } from './radialEventsGeometry.js'
 const r2 = (v) => Math.round(v * 100) / 100   // ★㊾ (check_corridor와 같은 보조자)
-import { descentSpec, woldaeSpec, gatSeal, incaStairSpec, incaBladesSpec, descentPortSpec, portPrismTris, drumPierAzimuths, outwardTris, signedVolume, windingConsistent } from './corridorStairsGeometry.js'   // ★㊾·53·54
+import { descentSpec, woldaeSpec, gatSeal, incaStairSpec, incaBladesSpec, descentPortSpec, portPrismTris, drumPierAzimuths, outwardTris, signedVolume, windingConsistent, incaNexusWestX} from './corridorStairsGeometry.js'   // ★㊾·53·54
 import * as THREE from 'three'
 import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg'
 import { WAYPOINTS, WP_GROUPS, SPAWN_ID, EYE, wpById } from './waypoints.js'
@@ -194,8 +194,11 @@ if (HALL_ENTRY === 'axial' || HALL_ENTRY === 'lateral') {
   const st = incaStairSpec()
   ok(Math.abs(d.yS - (COR_Y0 + COR_THICK / 2)) < 1e-9 && Math.abs(d.S[0] - BOX_X1) < 1e-9,
     `출발 = 박스 출구 (x${d.S[0]}, y${r2(d.yS)}) — 다리 상면과 등고`)
-  ok(Math.abs(d.yE - st.panel.yTop) < 1e-9 && Math.abs(d.E[0] - st.panel.x0) < 1e-9,
-    `도착 = 잉카 판 서단 (x${r2(d.E[0])}, y${r2(d.yE)}) — 판이 경첩`)
+  //  ★★94 도착 = **그 높이에서 서쪽으로 먼저 나오는 단단한 면**(판 서단 또는 넥서스 서변 — min 파생).
+  //   'fan'에선 부채가 판보다 서쪽까지 뻗어 도착이 부채 서변으로 당겨진다.
+  { const westSolid = Math.min(st.panel.x0, incaNexusWestX())
+    ok(Math.abs(d.yE - st.panel.yTop) < 1e-9 && Math.abs(d.E[0] - westSolid) < 1e-9,
+      `도착 = ${westSolid < st.panel.x0 - 1e-9 ? '**넥서스 서변**' : '잉카 판 서단'} (x${r2(d.E[0])}, y${r2(d.yE)}) — 경첩`) }
   ok(d.slopeDeg <= 38.5, `경사 ${r2(d.slopeDeg)}° ≤ 38.5 (축 체제 37.4°가 상한 근처 — 측면은 여유)`)
   //  ★보행 천장: 단높이가 STEP_UP(0.8)을 넘으면 되돌아 올라올 수 없다. 디딤 역산이 이걸 지킨다.
   ok(d.rise <= 0.8 - 0.2, `단높이 ${r2(d.rise)} ≤ STEP_UP(0.8)−0.2 — 되돌아 오를 수 있다`)
@@ -225,11 +228,15 @@ if (HALL_ENTRY === 'axial' || HALL_ENTRY === 'lateral') {
   //  ★다섯 날과의 간섭(회전량 상한의 근거)
   const bs = incaBladesSpec()
   let bladeClr = 1e9
+  //  ⚠★★94 도구 정정 — 구 코드는 **넥서스 중심(u=0)부터** 잤다. 그 구간(중심 ~ 날 뿌리 s0)은
+  //   날이 아니라 **넥서스 발자국 안**이다. 'fan'에서 하강로가 부채 서변에 도착하자 그 허깨비 구간과의
+  //   거리가 0으로 나와 검사가 울었지만, 실제 날까지는 22.01이었다(별도 실측으로 확인).
+  //   → **뿌리(s0)부터 팁까지**만 잰다. 부채 자체와의 관계는 아래 W5(수평 틈)가 담당한다.
   for (const b of bs.blades.filter(b => !b.reach)) {
-    const rx = b.tip.x - bs.ncx, rz = b.tip.z
+    const ca = Math.cos(b.az), sa = Math.sin(b.az)
     for (const q of d.samples) for (let j = 0; j <= 20; j++) {
-      const u = j / 20
-      bladeClr = Math.min(bladeClr, Math.hypot(q.x - (bs.ncx + rx * u), q.z - rz * u))
+      const sPos = b.s0 + (b.sTip - b.s0) * (j / 20)
+      bladeClr = Math.min(bladeClr, Math.hypot(q.x - (bs.ncx + sPos * ca), q.z - sPos * sa))
     }
   }
   ok(bladeClr > 5, `다섯 날 최소 수평거리 ${r2(bladeClr)} > 5 — 하강로가 부채를 파고들지 않는다`)
@@ -1246,8 +1253,8 @@ console.log('\n— W. 보행 (FREE_WALK를 끄면 걸어서 완주할 수 있는
     //   ⚠깨지면 "새 메시가 생겼다"는 뜻이다. 밟는 면이면 태그를 달고, 아니면 여기 수를 고친다.
     //   조건부 4(Dome: ring 헬퍼 walk 인자) · false 6(기둥·난간·격자 등 명시 비-바닥)은 의도된 것.
     const LEDGER = [
-      ['Corridor.jsx',      32, 17, 0, 0],
-      ['Dome.jsx',          71, 20, 4, 6],   // ★87 +1 = MirrorPads · ★90 +1 = 리드 연결 계단(둘 다 walkable)
+      ['Corridor.jsx',      36, 17, 0, 4],   // ★94-c 중앙 기둥 · ★95 반십각 기둥 · ★96 헌치 · ★98 서쪽 빗면(전부 walkable:false)
+      ['Dome.jsx',          72, 21, 4, 6],   // ★87 +1 = MirrorPads · ★90 +1 = 리드 연결 계단 · ★93 +1 = 하판 고리판(전부 walkable)
       ['GraphScaffold.jsx',  1,  0, 0, 0],
       ['Lens.jsx',           1,  0, 0, 0],
       ['Radial.jsx',        12,  5, 0, 0],   // ★91 +1 = 원기둥 받침(밟는 면 아님 — 매달린 관벽)
@@ -1264,8 +1271,12 @@ console.log('\n— W. 보행 (FREE_WALK를 끄면 걸어서 완주할 수 있는
       ok(r.length === nAll && c.true === nT && c.cond === nC && c.false === nF,
         `${f.padEnd(18)} 메시 ${r.length}/${nAll} · walkable true ${c.true}/${nT} 조건부 ${c.cond}/${nC} false ${c.false}/${nF} · 무선언 ${c.none}`)
     }
-    ok(sumAll === 141 && sumWalk === 50,
-      `합계 메시 ${sumAll} 중 밟는 면 ${sumWalk}(true 46 + 조건부 4) · 무선언 ${sumAll - sumWalk - 6} = 벽·지붕·챌판·기둥`)   // ★87 +1 임시 판 · ★90 +1 리드 연결 계단 · ★91 +1 원기둥 받침 · ★92 +2 드럼 하판
+    //  ⚠합계는 대장의 **합**에서 유도한다 — 손으로 박으면 파일별 수와 어긋나도 안 걸린다(실제로 한 번 어긋났다).
+    const WANT_ALL = LEDGER.reduce((a, r) => a + r[1], 0)
+    const WANT_WALK = LEDGER.reduce((a, r) => a + r[2] + r[3], 0)
+    const WANT_FALSE = LEDGER.reduce((a, r) => a + r[4], 0)
+    ok(sumAll === WANT_ALL && sumWalk === WANT_WALK,
+      `합계 메시 ${sumAll}/${WANT_ALL} 중 밟는 면 ${sumWalk}/${WANT_WALK} · 무선언 ${sumAll - sumWalk - WANT_FALSE} = 벽·지붕·챌판·기둥`)   // ★87 +1 임시 판 · ★90 +1 리드 연결 계단 · ★91 +1 원기둥 받침 · ★92 +2 드럼 하판 · ★93 +1 고리판
     //  ★챌판(riser)은 밟는 면이 아니다 — 회랑·등불 방 계단의 '밟는 면'은 ring 헬퍼(조건부 태그)가 낸다.
     //   이 한 줄이 W4가 "무선언 = 버그"로 읽히는 것을 막는다(무선언 대부분은 정상이다).
   }
@@ -1335,12 +1346,28 @@ console.log('\n— W. 보행 (FREE_WALK를 끄면 걸어서 완주할 수 있는
     //  월대 → 하강로: 하강로 첫 판이 월대 위에서 출발(onWoldae)이라 크게 겹친다 — 큰 음수 gap이 정상
     addAx('월대 → 하강로', wdMaxX, -wdZ, wdZ,
       [{ x: dscMinX, z0: -DESC_HW, z1: DESC_HW }], +1)
-    //  하강로 → 잉카 판: 하강로 서단(최대 x) → 잉카 판 동단(panel.x0). 경계 일치(gap≈0) 예상
-    addAx('하강로 → 잉카 판', dscMaxX, -DESC_HW, DESC_HW,
-      [{ x: INCA5.panel.x0, z0: -INCA5.panel.w / 2, z1: INCA5.panel.w / 2 }], +1)
-    //  잉카 판 → 잉카 첫 단: panel 서단(x1) → 첫 단 동단(steps[0].x0). 계단 매스 z = ±INCA_W0/2(render_views와 동일)
-    addAx('잉카 판 → 잉카 첫 단', INCA5.panel.x1, -INCA5.panel.w / 2, INCA5.panel.w / 2,
-      [{ x: INCA5.steps[0].x0, z0: -INCA_W0 / 2, z1: INCA_W0 / 2 }], +1)
+    //  하강로 → 다음 면: 하강로 서단(최대 x) → **판 서단 또는 넥서스 서변**(★94 min 파생과 같은 값).
+    //   ⚠'fan'에선 부채가 판보다 서쪽까지 뻗어 하강로가 부채 위에 착지한다 — 밟는 면이 판이 아니라 부채다.
+    { const nWest = incaNexusWestX()
+      const onFan = nWest < INCA5.panel.x0 - 1e-9
+      const zHalf = onFan ? Math.max(...incaBladesSpec().nexus.map((q) => Math.abs(q.z))) : INCA5.panel.w / 2
+      addAx(onFan ? '하강로 → 넥서스 부채' : '하강로 → 잉카 판', dscMaxX, -DESC_HW, DESC_HW,
+        [{ x: onFan ? nWest : INCA5.panel.x0, z0: -zHalf, z1: zHalf }], +1) }
+    //  ★★94-b 'plate'에선 판이 **넥서스 서변**에서 끝나고 그다음 밟는 면이 **부채**다(판 → 부채 → 첫 단).
+    //   구 체제에선 판이 절단면까지 가므로 판 → 첫 단이 맞다. 사슬이 체제로 갈린다.
+    { const nx = incaBladesSpec()
+      const nexHalf = Math.max(...nx.nexus.map((q) => Math.abs(q.z)))
+      if (INCA_CENTER_MODE === 'plate') {
+        addAx('잉카 판 → 넥서스 부채', INCA5.panel.x1, -INCA5.panel.w1 / 2, INCA5.panel.w1 / 2,
+          [{ x: nx.ncx, z0: -nexHalf, z1: nexHalf }], +1)
+        //  ★부채 동단 = 가운데 변의 현(z=0에서 밟는 면이 끝나는 x) — 절단면보다 물림만큼 동쪽이다.
+        const eastX = nx.ncx + nx.rimR * Math.cos((nx.bnd[3] - nx.bnd[2]) / 2)
+        addAx('넥서스 부채 → 잉카 첫 단', eastX, -nexHalf, nexHalf,
+          [{ x: INCA5.steps[0].x0, z0: -INCA_W0 / 2, z1: INCA_W0 / 2 }], +1)
+      } else {
+        addAx('잉카 판 → 잉카 첫 단', INCA5.panel.x1, -INCA5.panel.w / 2, INCA5.panel.w / 2,
+          [{ x: INCA5.steps[0].x0, z0: -INCA_W0 / 2, z1: INCA_W0 / 2 }], +1)
+      } }
 
     for (const s5 of seams5)
       ok(s5.gap <= 1e-6 && s5.ov > 0,

@@ -42,14 +42,14 @@ import {
   RIB_XFER_ON, RIB_DEST_K, RIB_DEST_PHI, RIB_FREE_MODE, FR_FLOOR_Y,          // ★61 리브 갈아타기
   STELE7_ON, STELE7_F, STELE7_OFF,
   MIR_ON, MIR_PADS,          // ★87 돔 거울 확장 — 지면 폐기·임시 판(★92로 비움 = 보존계)
-  CUP_ON,                    // ★92 드럼 하판 = 반구 + 감싸는 기둥
+  CUP_ON,                    // ★92 드럼 하판 = 반구 + 감싸는 기둥 · ★93 고리판
   TR_LINK_ON,   // ★90 참 → 갓 리드 연결 계단
 } from './constants'
 import { hallDoors, ribCutSpec } from './corridorStairsGeometry'
 import { buildRibShell, makeRibCurve, RIB_TUB_SEG, buildViceWedge, viceSplitIndex, newelSpec, buildSill, buildFloorCollar, buildFloorLanding, freeNewelSpec, freeSplitRange, buildOpenRim, isOpenRib , ribHoleSolid } from './ribGeometry'
 import { buildKneeBody, buildKneePlinth } from './kneeBodyGeometry'
 import { buildTerrace, buildTerraceLink } from './terraceGeometry'   // ★85 부채꼴 · ★89 계단화 · ★90 리드 연결
-import { buildCupBowl, buildCupStraps } from './drumCupGeometry'   // ★92 드럼 하판(반구 + 기둥)
+import { buildCupBowl, buildCupStraps, buildCupRing } from './drumCupGeometry'   // ★92 드럼 하판(반구 + 기둥) · ★93 고리판
 import { buildJunctionKnot, buildLightShaft, shaftCutSolid, lightShaftSpec, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, apronSteps, buildRoomMouthWall, ribArchCutSolid, radialPlate } from './junctionGeometry'   // ★70 매듭 · ★71 빛 기둥 · ★75 넓은 계단
 import { kneeTreads, kneeStairSpec } from './kneeStair'   // ★66 계단 규격·참
 import { buildFlareShell } from './exitFlareGeometry'   // ★80 S자 나팔
@@ -91,7 +91,7 @@ export function MirrorPads() {
 //   기하·탈락 판정 전부 `drumCupGeometry.js`(순수 모듈 — 검증이 같은 함수를 부른다).
 export function DrumCup() {
   if (!MIR_ON || !CUP_ON) return null
-  const bowl = buildCupBowl(), straps = buildCupStraps()
+  const bowl = buildCupBowl(), straps = buildCupStraps(), ring = buildCupRing()
   return (
     <>
       <mesh geometry={bowl} userData={{ walkable: false }}>
@@ -100,6 +100,14 @@ export function DrumCup() {
       <mesh geometry={straps} userData={{ walkable: false }}>
         <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
       </mesh>
+      {/*  ★★93 고리판(2026.07.31 현도) — 반구 입(63) ↔ 드럼 벽(84) 동심 틈을 100% 덮는다.
+           ⚠이건 **밟는 면이다**(하판 반구·기둥과 달리 walkable) — 바닥이 생겼다는 선언.
+           ⚠닫힌 솔리드라 DoubleSide 불필요(FrontSide) — 밑면·안쪽 띠까지 자기 면을 갖고 있다. */}
+      {ring && (
+        <mesh geometry={ring} userData={{ walkable: true }}>
+          <meshStandardMaterial {...SHELL_MAT} />
+        </mesh>
+      )}
     </>
   )
 }

@@ -47,6 +47,7 @@ import {
   INCA_ON, INCA_TOP_Y, INCA_SLOPE, INCA_END_X, INCA_X0, INCA_W0, INCA_W1, INCA_BITE, INCA_CUT_Y,
   INCA_PANEL_L, INCA_PANEL_W, INCA_PANEL_T, INCA_ARCH_X0, INCA_ARCH_Y1, INCA_FACETS,
   INCA_NEXUS_R, INCA_TIP_Y1, INCA_TIP_Y2, INCA_GAP, INCA_TIP_T, INCA_EMBED,
+  INCA_CENTER_MODE, INCA_SEP_MIN, INCA_RIM_CLR, DESC_HW,   // ★94
   CL_SILL, CL_R, PASS_FLOOR_Y, TERRACE_RIN, TERRACE_ROUT, TERRACE_Y,
   TERRACE_ON, TR_RIN, TR_ROUT, TR_Y, RM10_FLARE_ON, RM10_FLARE_MY,   // ★85 테라스
   CL_HW, CL_PHI0, CL_PHI1, ST_ON, ST_PHI, ST_HW, TERRACE_ARC, PASS_X_END, LAMP_RIBS,
@@ -75,8 +76,9 @@ import {
   FR_WIN_HEAD_MAX, FR_WIN_SILL_MIN, FR_WIN_HZ_MAX,
   FR_WIN_BAR_ON, FR_WIN_BAR_W, FR_WIN_BAR_SET, FR_WIN_BAR_IN, FR_WIN_BAR_BITE, FR_WIN_BAR_ALIGN,
 } from './constants.js'
-import { hallDoors, buildHallStairs, PLAT_TOP, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal, ribCutSpec , friezeWinBarZ } from './corridorStairsGeometry.js'
+import { hallDoors, buildHallStairs, PLAT_TOP, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal, ribCutSpec , friezeWinBarZ , nexusR, nexusWestSpan } from './corridorStairsGeometry.js'
 import { descentPortSpec, windingConsistent } from './corridorStairsGeometry.js'   // ★92-b 피어 계단 검증
+import * as K94 from './constants.js'   // ★94-d 체제 상수 일괄
 import * as THREE from 'three'                                                   // ★56 CSG 스모크(check_radial 전례)
 import { Brush, Evaluator, HOLLOW_SUBTRACTION, SUBTRACTION } from 'three-bvh-csg'
 import { kneeBodySamples, kneeBodySpec, kneeWalkY, kneeBodyHalfWidth, prismGeometry, innerTubeSolid, buildKneeBody, buildKneePlinth, kneeWallHalfAt } from './kneeBodyGeometry.js'
@@ -783,26 +785,65 @@ console.log('— P. ★잉카 계단(㊶-5~7) — 정상 77 · 절단 · 아치 
   ok(Math.abs(INCA_SLOPE - Math.tan(35 * Math.PI / 180)) < 1e-9, `경사 35°(tan=${r2(INCA_SLOPE)}) — "사람이 올라갈 수 있을 정도"(현도)`)
   ok(INCA_X0 > COR_CYL_X0 + 2, `가상 발치 x ${r2(INCA_X0)} > 드럼 서벽(${COR_CYL_X0})+2 — 드럼 안 담김`)
   // (2b) ★㊶-6 절단·사다리꼴·판
-  ok(spec.i0 >= 1 && Math.abs(spec.cutY - spec.i0 * spec.rise) < 1e-9 && Math.abs(spec.cutY - INCA_CUT_Y) <= spec.rise / 2 + 1e-9,
-    `절단 스냅: 노브 ${INCA_CUT_Y} → 단 격자 i0=${spec.i0} · 실절단 y ${r2(spec.cutY)}(오차 ≤ rise/2)`)
+  //  ★★94 'cut' 체제는 **CUT_Y 노브를 우회**한다(목표 절단면 = 축 + R에서 i0를 역산) — 스냅 기준이 다르다.
+  if (INCA_CENTER_MODE === 'cut' || INCA_CENTER_MODE === 'mast')
+    ok(spec.i0 >= 1 && Math.abs(spec.cutY - spec.i0 * spec.rise) < 1e-9,
+      `절단 = **역산**(체제 '${INCA_CENTER_MODE}', CUT_Y ${INCA_CUT_Y} 우회) → i0=${spec.i0} · 실절단 y ${r2(spec.cutY)}`)
+  else
+    ok(spec.i0 >= 1 && Math.abs(spec.cutY - spec.i0 * spec.rise) < 1e-9 && Math.abs(spec.cutY - INCA_CUT_Y) <= spec.rise / 2 + 1e-9,
+      `절단 스냅: 노브 ${INCA_CUT_Y} → 단 격자 i0=${spec.i0} · 실절단 y ${r2(spec.cutY)}(오차 ≤ rise/2)`)
   ok(spec.steps.length === spec.n - spec.i0 && spec.steps[0].yTop > spec.cutY,
     `하부 제거: 잔존 ${spec.steps.length}단 = n(${spec.n}) − i0 · 첫 단 상면 ${r2(spec.steps[0].yTop)} > 절단 ${r2(spec.cutY)} — 서면 = 절단면(㊶-7: 밑면은 아치)`)
   ok(spec.cutY / INCA_TOP_Y > 0.3 && spec.cutY / INCA_TOP_Y < 0.7,
     `절단 비율 ${r2(spec.cutY / INCA_TOP_Y)} ∈ (0.3, 0.7) — "더 높게"(현도) 기본 절반대, 노브 안전범위`)
-  ok(Math.abs(spec.panel.yTop - spec.cutY) < 1e-9 && spec.panel.x1 > spec.cutX && spec.panel.x1 - spec.cutX <= 0.3,
-    `진입 판: 상면 = 절단 높이 ${r2(spec.panel.yTop)} · 동단 물림 ${r2(spec.panel.x1 - spec.cutX)} ≤ 0.3`)
+  //  ★★94-b 'plate'에선 판이 **넥서스 서변**에 물린다(절단면이 아니라). 물림 기준면이 체제로 갈린다.
+  { const anchor = INCA_CENTER_MODE === 'plate' ? spec.cutX - nexusR() : spec.cutX
+    ok(Math.abs(spec.panel.yTop - spec.cutY) < 1e-9 && spec.panel.x1 > anchor && spec.panel.x1 - anchor <= 0.3 + 1e-9,
+      `진입 판: 상면 = 절단 높이 ${r2(spec.panel.yTop)} · 동단이 ${INCA_CENTER_MODE === 'plate' ? '**넥서스 서변**' : '절단면'}(${r2(anchor)})에 물림 ${r2(spec.panel.x1 - anchor)} ≤ 0.3`) }
   // (2c) ★㊶-7 판 6배·밑곡면·챔퍼
-  ok(INCA_PANEL_L === 20 && INCA_PANEL_W === 5 && INCA_PANEL_T === 2,
-    `판 20×5×2 (㊶-8 재정정 — "크기 줄이고 가로 우세" 4:1)`)
-  ok(INCA_PANEL_L / INCA_PANEL_W >= 3, `판 비례 가로:세로 ${r2(INCA_PANEL_L / INCA_PANEL_W)} ≥ 3 — 가로 우세(현도 ㊶-8)`)
-  ok(INCA_PANEL_W / 2 + 2 < Math.abs(ribC(1)[1]) - SHELL_RIB_R,
-    `판 반폭 ${INCA_PANEL_W / 2}+2 < #±1 안쪽(${r2(Math.abs(ribC(1)[1]) - SHELL_RIB_R)}) — 이웃 무접촉`)
+  if (INCA_CENTER_MODE === 'mast') {
+    //  ★94-c 사다리꼴 계승 + 무릎(xm = 넥서스 서변) — 서단 = 하강로 폭 · 동단 = 10각형 서변 폭
+    const P = spec.panel
+    ok(P.taper === true && Math.abs(P.w0 - DESC_HW * 2) < 1e-9,
+      `★판 서단 폭 ${r2(P.w0)} = 하강로 폭 — 접합 커플링 유지(★94-b 계승)`)
+    ok(Math.abs(P.w1 - nexusWestSpan(spec.cutX - nexusR(), nexusR())) < 1e-9,
+      `★판 동단 폭 ${r2(P.w1)} = 10각형 서변 폭 — 부채와 맞물림(★94-b 계승)`)
+    ok(Math.abs(P.xm - (spec.cutX - nexusR())) < 1e-9 && P.xm > P.x0 && P.xm < P.x1,
+      `★폭 무릎 xm ${r2(P.xm)} = 넥서스 서변 — 서쪽 테이퍼 · 동쪽 등폭(림 밑 은폐 구간)`)
+    ok(Math.abs(P.x0 - (spec.cutX - INCA_PANEL_L)) < 1e-9,
+      `판 서단 x ${r2(P.x0)} = 절단면 − PANEL_L ${INCA_PANEL_L}(고전 길이 유지 — 하강로 도착이 이리 온다)`)
+    ok(P.w1 / 2 + 2 < Math.abs(ribC(1)[1]) - SHELL_RIB_R,
+      `판 최대 반폭 ${r2(P.w1 / 2)}+2 < #±1 안쪽(${r2(Math.abs(ribC(1)[1]) - SHELL_RIB_R)}) — 이웃 무접촉`)
+  } else if (INCA_CENTER_MODE === 'plate') {
+    //  ★★94-b 사다리꼴 — 두 끝 폭이 **둘 다 파생**이다(노브 아님).
+    const P = spec.panel
+    ok(P.taper === true && Math.abs(P.w0 - DESC_HW * 2) < 1e-9,
+      `★판 서단 폭 ${r2(P.w0)} = 하강로 폭(DESC_HW ${DESC_HW}×2) — 하강계단과 폭이 맞물린다(현도)`)
+    ok(Math.abs(P.w1 - nexusWestSpan(spec.cutX - nexusR(), nexusR())) < 1e-9,
+      `★판 동단 폭 ${r2(P.w1)} = 10각형 서변 폭 — 부채와 폭이 맞물린다(현도)`)
+    ok(Math.abs(P.x0 - COR_CX) < 1e-9,
+      `★판 서단 x ${r2(P.x0)} = 드럼축 ${COR_CX} — 착지점이 사발 최저점 바로 위`)
+    ok(P.w1 > P.w0, `★사다리꼴 성립 — 서 ${r2(P.w0)} → 동 ${r2(P.w1)} (넓어진다)`)
+    ok(P.w1 / 2 + 2 < Math.abs(ribC(1)[1]) - SHELL_RIB_R,
+      `판 최대 반폭 ${r2(P.w1 / 2)}+2 < #±1 안쪽(${r2(Math.abs(ribC(1)[1]) - SHELL_RIB_R)}) — 이웃 무접촉`)
+  } else {
+    ok(INCA_PANEL_L === 20 && INCA_PANEL_W === 5 && INCA_PANEL_T === 2,
+      `판 20×5×2 (㊶-8 재정정 — "크기 줄이고 가로 우세" 4:1)`)
+    ok(INCA_PANEL_L / INCA_PANEL_W >= 3, `판 비례 가로:세로 ${r2(INCA_PANEL_L / INCA_PANEL_W)} ≥ 3 — 가로 우세(현도 ㊶-8)`)
+    ok(INCA_PANEL_W / 2 + 2 < Math.abs(ribC(1)[1]) - SHELL_RIB_R,
+      `판 반폭 ${INCA_PANEL_W / 2}+2 < #±1 안쪽(${r2(Math.abs(ribC(1)[1]) - SHELL_RIB_R)}) — 이웃 무접촉`)
+  }
   ok(spec.panel.x0 > ORB_CX + ORB_R + 2,
     `판 서단 ${r2(spec.panel.x0)} > 소구 동단(${r2(ORB_CX + ORB_R)})+2 — 소구와 이격(구 '밑 통과' 사건은 ㊶-6 발치 동진으로 소멸)`)
   {
     const u = spec.panel.under
-    ok(Math.abs(u[0].y - (spec.cutY - INCA_PANEL_T)) < 1e-9 && u[u.length - 1].y <= 0 && Math.abs(u[u.length - 1].x - spec.cutX) < 1e-9,
-      `판 밑곡면: 서단 두께 ${INCA_PANEL_T} → '바닥까지'(종점 = 절단면 발, y ${r2(u[u.length - 1].y)} ≤ 0 — ㊶-8 현도) · 접지 곡면 콘솔`)
+    //  ★★94-d 'mast': 밑면이 **평평한 슬라브**다(구 콘솔은 기둥을 관통했다 — 실측 적발).
+    if (INCA_CENTER_MODE === 'mast')
+      ok(u.every((q) => Math.abs(q.y - (spec.cutY - INCA_PANEL_T)) < 1e-9),
+        `★판 밑면 = 평평한 슬라브 y ${r2(spec.cutY - INCA_PANEL_T)} — 넥서스 밑면(${r2(spec.cutY + 0.04 - INCA_PANEL_T)})과 0.04 차로 한 장 · ⛔구 콘솔은 기둥을 관통했다`)
+    else
+      ok(Math.abs(u[0].y - (spec.cutY - INCA_PANEL_T)) < 1e-9 && u[u.length - 1].y <= 0 && Math.abs(u[u.length - 1].x - spec.panel.x1) < 1e-9,
+        `판 밑곡면: 서단 두께 ${INCA_PANEL_T} → '바닥까지'(종점 = 판 동단 ${r2(u[u.length - 1].x)}, y ${r2(u[u.length - 1].y)} ≤ 0 — ㊶-8 현도) · 곡면 콘솔`)
     let convex = true                                            // 위로 볼록: 다면점이 전부 현 위(스커트 S2 어휘)
     const [a, b] = [u[0], u[u.length - 1]]
     for (const pt of u) if (pt.y < a.y + (b.y - a.y) * (pt.x - a.x) / (b.x - a.x) - 1e-6) convex = false
@@ -811,8 +852,11 @@ console.log('— P. ★잉카 계단(㊶-5~7) — 정상 77 · 절단 · 아치 
   // (2d) ★㊶-7 밑면 아치 — 위로 볼록 다면 · 아치 보이드(리브 밑동 자유)
   {
     const a = spec.arch
-    ok(INCA_ARCH_X0 > spec.cutX + 4 && Math.abs(a[0].x - INCA_ARCH_X0) < 1e-9 && a[0].y === 0,
-      `아치 발 x ${INCA_ARCH_X0} — 접지 스트립 ${r2(INCA_ARCH_X0 - spec.cutX)} ≥ 4 확보`)
+    //  ★★94-e 아치 발 높이 = 매스 밑(spec.y0)에서 솟는다. 'mast'+'slab'이면 슬라브 밑면, 아니면 0.
+    //  ⚠구 체제는 매스 밑이 −0.3(지면 매몰)이고 아치 발은 0 — 0.3 차이가 설계다. 'mast'+'slab'만 일치.
+    { const wantArch0 = (INCA_CENTER_MODE === 'mast' && K94.MAST_SKIRT === 'slab') ? spec.y0 : 0
+      ok(INCA_ARCH_X0 > spec.cutX + 4 && Math.abs(a[0].x - INCA_ARCH_X0) < 1e-9 && Math.abs(a[0].y - wantArch0) < 1e-9,
+        `아치 발 (x ${INCA_ARCH_X0}, y ${r2(a[0].y)}) — 소핏 ${r2(INCA_ARCH_X0 - spec.cutX)} ≥ 4 확보`) }
     ok(Math.abs(a[a.length - 1].y - INCA_ARCH_Y1) < 1e-9 && INCA_ARCH_Y1 < INCA_TOP_Y - 5 && INCA_ARCH_Y1 > INCA_TOP_Y * 0.5,
       `리브 접점 y ${INCA_ARCH_Y1} — 정상 아래 웨브 ${INCA_TOP_Y - INCA_ARCH_Y1} ≥ 5 · 접점 높이 > 정상 절반(아치 보이드 성립 = 리브 밑동 자유)`)
     let convex = true
@@ -856,8 +900,8 @@ console.log('— Q. ★㊷ 다섯 날(현도 스케치 07.21) — 반십각 넥�
   // (1) 골격: 다섯 날 · 닿는 것 = #0 하나(1p5 불변) · 넥서스 중심 파생
   ok(blades.length === 5 && blades.filter(b => b.reach).length === 1 && blades.find(b => b.reach).k === 0,
     `다섯 날(${blades.map(b => b.k).join(',')}) — 닿는 것 = #0 하나(1p5 불변)`)
-  ok(Math.abs(ibs.ncx - (qb.cutX - INCA_NEXUS_R)) < 1e-9,
-    `넥서스 중심 x ${r2(ibs.ncx)} = 절단면(${r2(qb.cutX)}) − R(${INCA_NEXUS_R}) — 동변 = #0 절단면(파생·현행 잉카 무수정)`)
+  ok(Math.abs(ibs.ncx - (qb.cutX - ibs.R)) < 1e-9,
+    `넥서스 중심 x ${r2(ibs.ncx)} = 절단면(${r2(qb.cutX)}) − R(${r2(ibs.R)}) — 동변 = #0 절단면(파생) · 체제 '${INCA_CENTER_MODE}'`)
   // (2) 방위: 리브 스냅(현도 확정) — z대칭 · 단조 · 실방위 스팬 ≪ 정십각
   {
     const az = Object.fromEntries(blades.map(b => [b.k, b.az]))
@@ -908,8 +952,12 @@ console.log('— Q. ★㊷ 다섯 날(현도 스케치 07.21) — 반십각 넥�
   // (5) 밑곡선 '끝까지'(㊷ ±의 서명 — #0 아치는 접점 y${INCA_ARCH_Y1}에서 멈추고 웨브가 남는다)
   for (const b of minus) if (b.k > 0) {
     const u = b.under, u0 = u[0], u1 = u[u.length - 1]
-    ok(Math.abs(u0.s - b.s0) < 1e-9 && u0.y <= -0.29 && Math.abs(u1.s - b.sTip) < 1e-9 && Math.abs(u1.y - (b.tipY - INCA_TIP_T)) < 1e-9,
-      `#±${b.k} 밑곡선: 뿌리(${r2(u0.s)}, ${r2(u0.y)}) 접지 → 종점 = 팁(두께 ${INCA_TIP_T}) — '끝까지'`)
+    //  ★★94-d 'mast'+'slab': 뿌리 밑면 = **슬라브 밑면**(지면이 없으니 −0.3까지 갈 이유가 없다).
+    //   ⏸'deep'(구 −0.3)은 보존계. 팁 종점 = 두께 TIP_T는 두 체제 공통(1p5 소멸 무손상).
+    { const slabRoot = INCA_CENTER_MODE === 'mast' && K94.MAST_SKIRT === 'slab'
+      const wantY0 = INCA_CENTER_MODE === 'mast' ? K94.INCA_ARCH_Y0 : (slabRoot ? ibs.cutY - INCA_PANEL_T : -0.3)
+      ok(Math.abs(u0.s - b.s0) < 1e-9 && Math.abs(u0.y - wantY0) < 1e-6 && Math.abs(u1.s - b.sTip) < 1e-9 && Math.abs(u1.y - (b.tipY - INCA_TIP_T)) < 1e-9,
+        `#±${b.k} 밑곡선: 뿌리(${r2(u0.s)}, ${r2(u0.y)}) = ${slabRoot ? '**슬라브 밑면**(전고 ' + r2(ibs.cutY - u0.y) + ')' : '접지'} → 종점 = 팁(두께 ${INCA_TIP_T})`) }
     let convex = true                                                      // 위로 볼록(S2 현-위 어휘)
     for (const pt of u) if (pt.y < u0.y + (u1.y - u0.y) * (pt.s - u0.s) / (u1.s - u0.s) - 1e-6) convex = false
     ok(convex, `#±${b.k} 밑곡선 위로 볼록(전 다면점 현 위)`)
@@ -932,15 +980,18 @@ console.log('— Q. ★㊷ 다섯 날(현도 스케치 07.21) — 반십각 넥�
     const az = blades.map(b => b.az)
     let minGap = Infinity
     for (let i = 0; i < 4; i++) {
-      const d = (INCA_NEXUS_R + 1.5) * Math.sin(az[i + 1] - az[i]) - INCA_W0
+      const d = (ibs.R + 1.5) * Math.sin(az[i + 1] - az[i]) - INCA_W0
       if (d < minGap) minGap = d
     }
     ok(minGap > 0.2, `인접 날 횡간격(림+1.5부터) 최소 ${r2(minGap)} > 0.2 — 다섯이 갈라선다(뿌리 합류 = 의도)`)
   }
   // (7) 넥서스 폴리곤: 림 물림 · 날 뿌리 발자국 안 · 서변 = 중심 지름(문자 그대로 '절반')
   {
-    ok(Math.abs(ibs.rimR - (INCA_NEXUS_R + 0.4)) < 1e-9 && ibs.nexus.length === 8,
-      `림 반경 ${r2(ibs.rimR)} = R+0.4 물림 · 폴리곤 8점(서변 2 + 림 6)`)
+    //  ★★94 림 물림은 파생이다 — 구 `R + 0.4`는 R=12에서만 맞았다(사지타가 R에 비례해 커진다).
+    ok(Math.abs(ibs.rimR - (ibs.R + INCA_RIM_CLR) / Math.cos(ibs.maxHalf)) < 1e-9 && ibs.nexus.length === 8,
+      `림 반경 ${r2(ibs.rimR)} = (R ${r2(ibs.R)} + ${INCA_RIM_CLR})/cos(최대 half ${r2(ibs.maxHalf * 180 / Math.PI)}°) — **파생** · 폴리곤 8점`)
+    ok(ibs.rimR * Math.cos(ibs.maxHalf) - ibs.R >= INCA_RIM_CLR - 1e-9,
+      `★변 현이 R을 ${r2(ibs.rimR * Math.cos(ibs.maxHalf) - ibs.R)} 덮는다 ≥ ${INCA_RIM_CLR} — R을 키워도 유지(구 하드코딩은 R 22.6에서 0.08로 붕괴)`)
     let inside = true, worst = Infinity
     for (const b of blades) {
       let fi = 0                                                           // 날을 담는 변
@@ -948,7 +999,7 @@ console.log('— Q. ★㊷ 다섯 날(현도 스케치 07.21) — 반십각 넥�
       const mid = (ibs.bnd[fi] + ibs.bnd[fi + 1]) / 2, half = (ibs.bnd[fi + 1] - ibs.bnd[fi]) / 2
       const chord = ibs.rimR * Math.cos(half)                              // 변 현의 중심거리
       const rayR = chord / Math.cos(b.az - mid)                            // 날 축이 현을 지나는 반경
-      const sFace = b.reach ? INCA_NEXUS_R : b.s0                          // #0 = 절단면(12) · ± = s0
+      const sFace = b.reach ? ibs.R : b.s0                                 // #0 = 절단면(R) · ± = s0
       if (rayR < sFace + 0.2) inside = false
       if (rayR - sFace < worst) worst = rayR - sFace
     }
@@ -3429,6 +3480,550 @@ console.log('\n── ★92. 드럼 하판(반구 R63 + 기둥) ──')
 
     ok(K.MIR_PADS.length === 0, `⚠임시 판 폐기 확인(★92) — 드럼 단지 접지는 선언된 빚(check_render가 수를 박는다)`)
   }
+}
+
+console.log('\n— W. ★★93 하판 고리판 — 동심 틈 100% 봉인 · 안팎 파생 · 바닥단 폐기 —')
+{
+  const CUP = await import('./drumCupGeometry.js')
+  const K = await import('./constants.js')
+  const RS = CUP.ringSpec()
+  if (!RS.on) {
+    ok(true, `고리판 off(검사 스킵) — CUP_RING_ON ${K.CUP_RING_ON} · CUP_ON ${K.CUP_ON}`)
+  } else {
+    //  ── ① 왜 필요했나: 판 없이 기둥만으로는 고리가 얼마나 뚫려 있었나(현도 지시의 근거를 매 실행 재유도) ──
+    { const live = CUP.liveStraps()
+      const cov = (r) => 2 * Math.asin(Math.min(1, K.CUP_STRAP_HW / r)) * live.length / (2 * Math.PI)
+      ok(cov(K.CUP_R) < 0.25 && cov(COR_R) < 0.25,
+        `★판 없을 때 고리 덮임 = 기둥 ${live.length}기뿐 — r${K.CUP_R} ${r2(cov(K.CUP_R) * 100)}% · r${COR_R} ${r2(cov(COR_R) * 100)}% (나머지는 미러 하반부가 그대로 보인다)`) }
+
+    //  ── ② 바깥 = 드럼 벽 **파생**(같은 분할·같은 위상·같은 외접반경) → 정점 공유 = 틈 0 · 돌출 0 ──
+    ok(RS.N === K.COR_WALL_SEG && RS.rOut === COR_R,
+      `★바깥 파생 — 분할 ${RS.N} = COR_WALL_SEG · 외접반경 ${RS.rOut} = COR_R(원 아님 = 정${RS.N}각형. 원이면 면 ${r2(COR_R * Math.cos(Math.PI / RS.N))}와 최대 ${r2(COR_R - COR_R * Math.cos(Math.PI / RS.N))} 어긋나 헤어라인)`)
+    { //  판 정점이 벽 정점과 **정확히 같은 자리**에 있는가(위상 일치의 실증)
+      let worst = 0
+      for (let i = 0; i < RS.N; i++) {
+        const t = (i / RS.N) * Math.PI * 2
+        const wx = COR_CX + COR_R * Math.cos(t), wz = COR_R * Math.sin(t)
+        const rx = COR_CX + RS.rOut * Math.cos(t), rz = RS.rOut * Math.sin(t)
+        worst = Math.max(worst, Math.hypot(wx - rx, wz - rz))
+      }
+      ok(worst < 1e-9, `★판 바깥 정점 ${RS.N}개가 벽 정점과 일치 — 최대 어긋남 ${worst.toExponential(1)} (틈 0)`) }
+    { //  벽 밑선이 실제로 평탄 y=0인가 — 상면(y 0)이 벽 밑동과 맞물린다는 주장의 전제
+      let lo = 1e9, hi = -1e9
+      for (let i = 0; i < RS.N; i++) {
+        const t = (i / RS.N) * Math.PI * 2
+        const y = K.domeClipY(COR_CX + COR_R * Math.cos(t), COR_R * Math.sin(t))
+        lo = Math.min(lo, y); hi = Math.max(hi, y)
+      }
+      ok(Math.abs(lo) < 1e-9 && Math.abs(hi) < 1e-9 && RS.yTop === 0,
+        `★벽 밑선 전 정점 y ${r2(lo)}~${r2(hi)} 평탄 = 판 상면 ${RS.yTop} — 무단차 맞물림`) }
+
+    //  ── ③ 안쪽 = 기둥·헌치와 **같은 값**(새 상수 안 만든다) · 반구면보다 항상 안쪽(근-동일 평면 방지) ──
+    { const s0 = CUP.strapSection(0), hs = CUP.haunchSpec()
+      ok(Math.abs(RS.rIn - (K.CUP_R - K.CUP_STRAP_BITE)) < 1e-9 && Math.abs(RS.rIn - s0.rIn) < 1e-3,
+        `★안쪽 파생 ${RS.rIn} = CUP_R−CUP_STRAP_BITE = 기둥 안쪽 끝 ${r2(s0.rIn)}${hs ? ` = 헌치 ${r2(hs.rIn0)}` : ''} — 어휘 계승`)
+      //  반구면 반경은 y 0~−t에서 R~√(R²−t²). 판 안쪽 면(정N각 → 면 최소반경)이 그보다 작아야 겹침 0.
+      const faceIn = RS.rIn * Math.cos(Math.PI / RS.N)
+      const bowlLo = Math.sqrt(K.CUP_R * K.CUP_R - RS.t * RS.t)
+      ok(faceIn < bowlLo - 0.1,
+        `★판 안쪽 면 ${r2(faceIn)} < 반구 최소반경 ${r2(bowlLo)}(y ${RS.yBot}) — 여유 ${r2(bowlLo - faceIn)} · 근-동일 평면 없음(★92 z-파이팅 계열 봉인)`) }
+
+    //  ── ④ 틈 100% 봉인 — 전 방위 광선으로 실측(주장이 아니라 잰다) ──
+    { const g = CUP.buildCupRing(), P = g.attributes.position
+      let rlo = 1e9, rhi = 0, ylo = 1e9, yhi = -1e9, nonFin = 0
+      for (let i = 0; i < P.count; i++) {
+        const x = P.getX(i), y = P.getY(i), z = P.getZ(i)
+        if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) { nonFin++; continue }
+        const r = Math.hypot(x - COR_CX, z)
+        rlo = Math.min(rlo, r); rhi = Math.max(rhi, r); ylo = Math.min(ylo, y); yhi = Math.max(yhi, y)
+      }
+      //  ⚠공차는 **Float32** 기준이다 — 실기하는 Float32BufferAttribute라 x·z 왕복에서 ~1e-5가 남는다.
+      //   1e-9를 요구하면 기하가 옳아도 검사가 운다(도구가 틀리는 전례를 만들지 않는다).
+      const EPS32 = 1e-4
+      ok(nonFin === 0 && Math.abs(rhi - COR_R) < EPS32 && Math.abs(yhi) < EPS32 && Math.abs(ylo + RS.t) < EPS32,
+        `★판 실기하 — r ${r2(rlo)}~${r2(rhi)} · y ${r2(ylo)}~${r2(yhi)} · 비유한 ${nonFin} (Float32 공차 ${EPS32})`)
+      ok(rhi <= COR_R + EPS32,
+        `★벽 밖으로 안 나간다 — 최대 반경 ${rhi.toFixed(6)} ≤ ${COR_R}+${EPS32}(현도 ★92 2차 반려 재발 방지)`)
+      //  ★★전 방위 실측 — **진짜 아래쪽 광선을 실기하 삼각형에 쏜다.**
+      //   ⚠1차 구현은 반경 산술 비교였고 그건 항등식이라 아무것도 검증하지 못했다(도구가 먼저 틀린 전례).
+      //   광선 = (r, y+10)에서 −y로. 판 상면(y 0)을 맞으면 덮인 것이다.
+      const T = []
+      for (let i = 0; i < P.count; i += 3)
+        T.push([[P.getX(i), P.getY(i), P.getZ(i)],
+          [P.getX(i + 1), P.getY(i + 1), P.getZ(i + 1)],
+          [P.getX(i + 2), P.getY(i + 2), P.getZ(i + 2)]])
+      //  Möller–Trumbore(방향 = (0,−1,0) 고정)
+      const hitDown = (ox, oz, oy) => {
+        for (const [a, b, c] of T) {
+          const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
+          //  d × e2  (d = (0,−1,0))
+          const h = [-1 * e2[2] - 0, 0 - 0, 0 - (-1) * e2[0]]
+          const det = e1[0] * h[0] + e1[1] * h[1] + e1[2] * h[2]
+          if (Math.abs(det) < 1e-12) continue
+          const inv = 1 / det, sv = [ox - a[0], oy - a[1], oz - a[2]]
+          const u = inv * (sv[0] * h[0] + sv[1] * h[1] + sv[2] * h[2]); if (u < -1e-9 || u > 1 + 1e-9) continue
+          const q = [sv[1] * e1[2] - sv[2] * e1[1], sv[2] * e1[0] - sv[0] * e1[2], sv[0] * e1[1] - sv[1] * e1[0]]
+          const v = inv * (0 * q[0] + -1 * q[1] + 0 * q[2]); if (v < -1e-9 || u + v > 1 + 1e-9) continue
+          const tt = inv * (e2[0] * q[0] + e2[1] * q[1] + e2[2] * q[2])
+          if (tt > 1e-6) return true
+        }
+        return false
+      }
+      let holes = 0, shots = 0
+      const rSamp = [K.CUP_R + 0.05, K.CUP_R + 2, (K.CUP_R + COR_R) / 2, COR_R - 2, COR_R * Math.cos(Math.PI / RS.N) - 0.05]
+      for (let a = 0; a < 360; a++) {
+        const t = (a / 360) * Math.PI * 2
+        for (const rr of rSamp) {
+          shots++
+          if (!hitDown(COR_CX + rr * Math.cos(t), rr * Math.sin(t), 10)) holes++
+        }
+      }
+      ok(holes === 0,
+        `★★고리 실광선 ${shots}발(360방위 × 반경 ${rSamp.map((x) => r2(x)).join('/')}) 전부 판 상면에 명중 — 구멍 ${holes}`)
+      //  ★★**도구 검증** — 광선기가 "무조건 명중"을 뱉는 게 아닌지 판 밖에서 쏘아 확인한다.
+      //   (진단 도구 자체가 틀린 전례가 반복됐다 — 이 절의 1차 구현도 그랬다. 도구를 먼저 믿지 않는다.)
+      let miss = 0, mshots = 0
+      for (let a = 0; a < 90; a++) {
+        const t = (a / 90) * Math.PI * 2
+        for (const rr of [RS.rIn - 3, COR_R + 3]) { mshots++; if (!hitDown(COR_CX + rr * Math.cos(t), rr * Math.sin(t), 10)) miss++ }
+      }
+      ok(miss === mshots,
+        `★★도구 검증 — 고리 밖(r ${r2(RS.rIn - 3)} 안쪽 · ${COR_R + 3} 바깥)으로 쏜 ${mshots}발은 **전부 빗나간다**(${miss}) = 광선기가 실제로 판별한다`) }
+
+    //  ── ⑤ 법선 규율(★92에서 두 번 터진 계열) ──
+    { const g = CUP.buildCupRing(), P = g.attributes.position, Nn = g.attributes.normal
+      let uni = 0, wind = 1
+      for (let i = 0; i < P.count; i += 3) {
+        for (let j = 0; j < 3; j++) {
+          const k = i + j
+          uni = Math.max(uni, Math.abs(Math.hypot(Nn.getX(k), Nn.getY(k), Nn.getZ(k)) - 1))
+        }
+        const a = [P.getX(i), P.getY(i), P.getZ(i)]
+        const b = [P.getX(i + 1), P.getY(i + 1), P.getZ(i + 1)]
+        const c = [P.getX(i + 2), P.getY(i + 2), P.getZ(i + 2)]
+        const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
+        const fn = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
+        const L = Math.hypot(fn[0], fn[1], fn[2]); if (L < 1e-12) continue
+        wind = Math.min(wind, (fn[0] * Nn.getX(i) + fn[1] * Nn.getY(i) + fn[2] * Nn.getZ(i)) / L)
+      }
+      ok(uni < 1e-6 && wind > 0.999,
+        `★법선 전부 단위(편차 ${uni.toExponential(1)}) · 감김 일치(최소 dot ${r2(wind)}) — 면 기하에서 뽑고 힌트는 부호만`) }
+
+    //  ── ⑥ 판이 삼키는 것들(선언) — 피어 밑동·헌치 밑변의 묻힘 여유가 두께 안인가 ──
+    ok(RS.t >= 0.5 - 1e-9,
+      `★두께 ${RS.t} ≥ 0.5 — 피어 밑동(${r2(CUP.pierBottomY())})·헌치 밑변(${r2(CUP.haunchSpec() ? CUP.haunchSpec().y0 : -0.5)})의 묻힘 여유를 판이 삼킨다`)
+  }
+}
+
+console.log('— W3. ★★94 넥서스 중심 정렬 체제 — 세 체제 전부 파생 · 관문 자동 추종 —')
+{
+  const K = await import('./constants.js')
+  const G = await import('./corridorStairsGeometry.js')
+  const ibs = incaBladesSpec(), st = incaStairSpec()
+  ok(['off', 'cut', 'fan', 'plate', 'mast'].includes(K.INCA_CENTER_MODE),
+    `INCA_CENTER_MODE '${K.INCA_CENTER_MODE}' — 유효(mast/plate/off/cut/fan)`)
+  const off = ibs.ncx - COR_CX
+  if (K.INCA_CENTER_MODE === 'plate') {
+    //  ★★★94-b 현도 채택 체제 — **정렬 대상이 '제단의 중심'이 아니라 '착지점'이다.**
+    //   10각형은 손대지 않으므로 중심은 벗어난 채 남는 것이 정상이고, 대신 판 서단이 축에 정확히 앉는다.
+    ok(Math.abs(off - (st.cutX - K.INCA_NEXUS_R - COR_CX)) < 1e-9 && Math.abs(off) > 1,
+      `'plate' — 10각형 **무수정**(중심이 축에서 ${r2(off)} 벗어난 채. 정렬 대상은 '제단의 중심'에서 '착지점'으로 옮겨졌다)`)
+    ok(G.nexusR() === K.INCA_NEXUS_R, `'plate' R = 노브 ${K.INCA_NEXUS_R} — 날이 모이는 부분 무수정(현도)`)
+    ok(Math.abs(st.panel.x0 - COR_CX) < 1e-9 && Math.abs(G.descentSpec().E[0] - COR_CX) < 1e-9,
+      `★판 서단 = 하강로 도착 = 드럼축 ${COR_CX} — 사발 최저점 바로 위에 내려선다`)
+    { //  ★날 사이 빈 폭이 'off'와 같아야 한다(부채를 안 키웠으므로) — 'fan' 반려 사유의 회귀 가드
+      const az = ibs.blades.map((q) => q.az)
+      let worst = Infinity
+      for (let i = 0; i < 4; i++) {
+        const a = ibs.blades[i].reach ? ibs.R : ibs.blades[i].s0
+        const b2 = ibs.blades[i + 1].reach ? ibs.R : ibs.blades[i + 1].s0
+        worst = Math.min(worst, Math.max(a, b2) * Math.sin(az[i + 1] - az[i]) - INCA_W0)
+      }
+      ok(worst < 1.0,
+        `★날 사이 빈 폭 최대 ${r2(worst)} < 1.0 — 조밀 유지(⛔'fan'은 2.40~2.98로 벌어져 현도 반려)`) }
+  } else if (K.INCA_CENTER_MODE === 'mast') {
+    //  ★★★94-c 현도 채택 — 'cut' 정렬 + 중앙 기둥. **원기둥이 사발 중심에 정확하게 들어앉는다.**
+    const M = G.mastSpec(), { td } = G.stairGrid()
+    ok(M.on && M.cx === COR_CX,
+      `★기둥 축 x ${M.cx} = 드럼축 = 사발 최저점 = 리브 #0 방위 = 여정축 — **네 축이 한 선**(현도 "정확하게")`)
+    ok(Math.abs(off) <= td / 2 + 1e-9,
+      `넥서스 중심 축 이탈 ${r2(off)} ≤ 격자 절반 ${r2(td / 2)}('cut' 정렬 계승 — 기둥과의 편심은 이 스냅뿐)`)
+    { //  날 간격 조밀 — 'fan' 반려 사유("벌어져 보기 안 좋다")의 회귀 가드
+      const az = ibs.blades.map((q) => q.az)
+      let worst = -Infinity
+      for (let i = 0; i < 4; i++) {
+        const a = ibs.blades[i].reach ? ibs.R : ibs.blades[i].s0
+        const b2 = ibs.blades[i + 1].reach ? ibs.R : ibs.blades[i + 1].s0
+        worst = Math.max(worst, Math.max(a, b2) * Math.sin(az[i + 1] - az[i]) - INCA_W0)
+      }
+      ok(worst < 1.0, `★날 사이 빈 폭 최대 ${r2(worst)} < 1.0 — 조밀 유지("느낌을 살리면서", ⛔fan 2.98 반려)`) }
+    //  ── 앉음(seat) — 밑이 사발 껍질을 뚫되 극점은 안 뚫는다 ──
+    { const want = -Math.sqrt(K.CUP_R * K.CUP_R - M.r * M.r) - K.MAST_SEAT_BITE
+      ok(Math.abs(M.bottom - want) < 1e-9 && M.bottom > -K.CUP_R,
+        `★밑 ${r2(M.bottom)} = −√(R²−r²)−${K.MAST_SEAT_BITE} 파생 · 극점(−${K.CUP_R}) 위 ${r2(M.bottom + K.CUP_R)} — 껍질을 뚫고 앉는다`)
+      //  발이 기둥 다발 속에 묻히는가 — 그 깊이에서 기둥 10기의 접선 반폭이 원주를 다 덮는지 실측
+      const rAt = Math.sqrt(Math.max(0.01, K.CUP_R * K.CUP_R - M.bottom * M.bottom))
+      const cov = 10 * 2 * Math.asin(Math.min(1, K.CUP_STRAP_HW / Math.max(rAt, K.CUP_STRAP_HW)))
+      ok(cov >= 2 * Math.PI - 1e-9,
+        `★발(y ${r2(M.bottom)})이 극점 기둥 다발 속 — 그 위도 원주 반경 ${r2(rAt)}를 기둥 10기가 ${r2(cov / Math.PI / 2 * 100)}% 덮는다(돌출 불가시)`) }
+    //  ── 상단 — 넥서스 슬라브에 물리고 보행면은 안 뚫는다 ──
+    ok(Math.abs(M.capTop - K94.INCA_ARCH_Y0) < 1e-9 && M.top < st.cutY - 1,
+      `★★주두 상단 ${r2(M.capTop)} = **솟는 평면** ARCH_Y0 — 다섯 아치의 발이 여기서 기둥을 만난다(구 위치는 발보다 20 위라 아무것도 안 받았다)`)
+    //  ── 평면 은폐 — 위에서 보면 기둥이 판·넥서스 그림자 안(어깨 슬리버 0) ──
+    { const P = st.panel, xm = P.xm ?? P.x1
+      const hwAt = (x) => (x >= xm ? P.w1 : P.w0 + (P.w1 - P.w0) * Math.max(0, Math.min(1, (x - P.x0) / (xm - P.x0)))) / 2
+      let worst = -1e9, wx = 0
+      for (let i = 0; i <= 60; i++) {
+        const x = M.cx - M.r + (2 * M.r) * (i / 60)
+        const cz = Math.sqrt(Math.max(0, M.r * M.r - (x - M.cx) ** 2))
+        const over = cz - hwAt(x)
+        if (over > worst) { worst = over; wx = x }
+      }
+      ok(worst <= 1e-6,
+        `★평면 은폐 — 기둥 원주가 판 폭 안(최악 x ${r2(wx)}에서 ${r2(worst)} ≤ 0) · r 상한 가드("어색하게 겹치지 않게")`) }
+    //  ── 하강로 보 — 동단이 기둥 서면 앞에서 끝난다(끝점 모델 — 경로는 E 너머로 안 뻗는다) ──
+    { const d2 = G.descentSpec()
+      let mx = -1e9; for (const q of d2.samples) mx = Math.max(mx, q.x)
+      ok(mx <= M.cx - M.r - 0.5 + 1e-9,
+        `★하강로 동단 x ${r2(mx)} ≤ 기둥 서면(${r2(M.cx - M.r)}) − 0.5 — 보 무충돌(실여유 ${r2(M.cx - M.r - mx)})`) }
+    //  ── 날 뿌리와의 링 여유 — 샤프트가 날 서면을 안 문다 ──
+    { let minS = 1e9, maxS = -1e9
+      for (const b2 of ibs.blades) if (!b2.reach) { minS = Math.min(minS, b2.s0); maxS = Math.max(maxS, b2.s0) }
+      ok(Math.abs(minS - M.r) < 1e-9 && Math.abs(maxS - M.r) < 1e-9,
+        `★★날 넷의 뿌리가 전부 샤프트 면 ${M.r}에 **접한다**(현도 "다섯날 전부 접해야지") — 구 11.74에서 매달려 있었다`) }
+    //  ══ ★★★94-d 뿌리 접합(현도 "모든 구조물들이 이어지도록") ══
+    { //  ⓐ 판 밑면이 기둥을 안 관통한다 — 구 콘솔이 x 199.6~209.7에서 기둥 한복판을 내리꽂았다
+      const P = st.panel, slab = st.cutY - INCA_PANEL_T
+      let lo = 1e9, hi = -1e9
+      for (const u of P.under) if (Math.abs(u.x - M.cx) <= M.r + 1) { lo = Math.min(lo, u.y); hi = Math.max(hi, u.y) }
+      ok(hi - lo < 1e-6 && Math.abs(lo - slab) < 1e-6,
+        `★기둥 구간(x ${r2(M.cx - M.r)}~${r2(M.cx + M.r)})에서 판 밑면 평탄 = 슬라브 ${r2(slab)}(진폭 ${r2(hi - lo)}) — ⛔구 콘솔은 여기서 27.9→14.3으로 내리꽂혀 기둥을 관통했다`)
+      ok(M.capTop < st.cutY && M.capBot < M.capTop && M.capBot > M.bottom + 5,
+        `★주두 y ${r2(M.capBot)} → ${r2(M.capTop)}(높이 ${M.capH}) · 샤프트 ${r2(M.bottom)} → ${r2(M.capBot)} · 보행면 ${r2(st.cutY)} 아래`) }
+    { //  ⓑ 뿌리 스커트가 매달리지 않는다 — 날·판 밑면이 전부 슬라브 한 장
+      const slab = st.cutY - INCA_PANEL_T
+      let lo = 1e9
+      for (const b2 of ibs.blades) if (b2.under) lo = Math.min(lo, b2.under[0].y)
+      for (const u of st.panel.under) lo = Math.min(lo, u.y)
+      ok(K94.MAST_SKIRT !== 'slab' || Math.abs(lo - slab) < 1e-6,
+        `★뿌리 복합체 최저 밑면 ${r2(lo)} = 슬라브 ${r2(slab)} — 허공 스커트 소멸(구 −0.3 · 전고 31.2)`) }
+    { //  ⓒ 주두 — 샤프트 접선 연속 · 상단 = 실루엣 그대로(평면 돌출 정의상 0)
+      ok(M.cap && M.capBot > M.bottom + 5 && M.capTop <= st.cutY - INCA_PANEL_T + K.MAST_TOP_BITE + 1e-9,
+        `★주두 y ${r2(M.capBot)} → ${r2(M.capTop)}(높이 ${M.capH}) — 상단이 슬라브 밑면에 물린다`)
+      //  ★t=0 접선 연속: 옆선 1−cos는 dr/dt(0) = 0 이므로 샤프트와 꺾임이 없다(수치로 확인)
+      const eps = 1e-4, dr = ((1 - Math.cos(eps * Math.PI / 2)) - 0) / eps
+      ok(dr < 1e-3, `★샤프트↔주두 접선 연속 — 옆선 기울기 dr/dt(0) = ${dr.toExponential(1)} ≈ 0(1−cos 어휘)`)
+      //  ★평면 돌출 0 — 주두 상단 링이 실루엣 그 자체인지 전 방위 실측
+      const mg = G.buildMastTris(), MP = mg.pos
+      let pk = -1e9
+      for (let i = 0; i < MP.length; i += 3) {
+        if (MP[i + 1] < M.capTop - 1e-6) continue
+        const dx = MP[i] - M.cx, dz = MP[i + 2]
+        pk = Math.max(pk, Math.hypot(dx, dz) - G.rootSilhouetteR(Math.atan2(dz, dx)))
+      }
+      ok(pk <= 1e-6, `★주두 상단이 뿌리 실루엣 밖으로 ${r2(pk)} ≤ 0 — 평면 돌출 없음(원형 주두는 상한 6.6뿐이었다)`) }
+    { //  ⓓ 기둥 솔리드 무결
+      const mg = G.buildMastTris()
+      ok(G.windingConsistent(mg.pos) && G.signedVolume(mg.pos) > 0,
+        `★기둥 솔리드 — 감김 일관 · 부호 부피 ${r2(G.signedVolume(mg.pos))} > 0(샤프트 + 주두 한 몸)`) }
+    { //  ⓔ ★★94-e 주두가 **각져야** 한다(현도 "너무 유선형" 반려) — 수평 턱이 실제로 존재하는가
+      const mg = G.buildMastTris(), MP = mg.pos, MN = mg.nrm
+      let flatDown = 0
+      for (let i = 0; i < MN.length; i += 9) if (MN[i + 1] < -0.99 && MP[i + 1] > M.capBot - 1e-6 && MP[i + 1] < M.capTop + 1e-6) flatDown++
+      ok(K94.MAST_CAP_FORM !== 'corbel' || flatDown >= K94.MAST_CAP_N * 2,
+        `★주두 = 코벨 — 주두 대역의 **아래 향한 수평 턱** 삼각형 ${flatDown}장(단 ${K94.MAST_CAP_N}개 × 분할). ⛔구 매끈한 로프트는 0장이었다(현도 "너무 유선형")`) }
+    { //  ⓖ ★★94-g 부채 볼트 — 아치는 무수정, 수평 소핏이 기둥까지 이어진다(현도 지시의 핵심)
+      ok(Math.abs((st.arch.at(-1).y - st.arch[0].y) - K.INCA_ARCH_Y1) < 1e-9,
+        `★★아치 **무수정** — 발 y ${r2(st.arch[0].y)} → 접점 ${r2(st.arch.at(-1).y)} · 전고 ${r2(st.arch.at(-1).y - st.arch[0].y)} = ARCH_Y1 ${K.INCA_ARCH_Y1}(현도 "묵직한 아치" 보존)`)
+      ok(Math.abs(st.y0 - K94.INCA_ARCH_Y0) < 1e-9 && Math.abs(st.arch[0].y - K94.INCA_ARCH_Y0) < 1e-9,
+        `★수평 소핏 y ${r2(st.y0)} = 아치 발 = 솟는 평면 — 한 평면에서 만난다(현도 "한 변 수평으로 꺾이니까")`)
+      const soffit = K.INCA_ARCH_X0 - (M.cx + M.r)
+      ok(soffit > 4, `★수평 소핏이 **기둥 면(x ${r2(M.cx + M.r)})에서 아치 발(x ${K.INCA_ARCH_X0})까지 ${r2(soffit)}** — 구는 절단면에서 끊겨 24가 허공이었다`)
+      //  다섯 밑곡선이 전부 솟는 평면에서 출발하는가(#0 = 소핏 · 넷 = 아치)
+      let allSpring = Math.abs(st.y0 - K94.INCA_ARCH_Y0) < 1e-9
+      for (const b2 of ibs.blades) if (b2.under) allSpring = allSpring && Math.abs(b2.under[0].y - K94.INCA_ARCH_Y0) < 1e-6
+      ok(allSpring, `★★다섯 밑면이 전부 y ${K94.INCA_ARCH_Y0}에서 솟는다 — 반십각으로 펼쳐지는 한 규칙`) }
+    { //  ⓗ 넥서스가 드럼이 된다 — 기둥 위에 앉아 아치의 솟음을 받는다
+      ok(Math.abs(ibs.depth - (st.cutY + 0.04 - K94.INCA_ARCH_Y0)) < 1e-9 && ibs.depth > INCA_PANEL_T,
+        `★넥서스 깊이 ${r2(ibs.depth)} = 상면 ↔ 솟는 평면(구 판 두께 ${INCA_PANEL_T}) — 기둥 위 드럼`) }
+    { //  ⓕ ★★94-e 매스 하부가 매달리지 않는다 — 서면·아치 발이 슬라브에서 시작
+      ok(K94.MAST_SKIRT !== 'slab' || Math.abs(st.y0 - (st.cutY - INCA_PANEL_T)) < 1e-9,
+        `★매스 밑 y ${r2(st.y0)} = 슬라브 밑면 — 서면 전고 ${r2(st.steps[0].yTop - st.y0)}(⛔구 31.2 수직 벽이 허공에 매달렸다)`)
+      ok(K94.MAST_SKIRT !== 'slab' || Math.abs(st.arch[0].y - st.y0) < 1e-9,
+        `★아치 발 y ${r2(st.arch[0].y)} = 매스 밑 — 접지 스트립(x ${r2(st.cutX)}~${K.INCA_ARCH_X0})이 허공이 아니라 소핏이 된다`) }
+  } else if (K.INCA_CENTER_MODE === 'off') {
+    ok(Math.abs(off) > 1, `'off' — 넥서스 중심이 드럼축에서 ${r2(off)} 이탈(현행 유지. 밑을 처리하면 드러난다)`)
+    ok(G.nexusR() === K.INCA_NEXUS_R, `'off' R = 노브 ${K.INCA_NEXUS_R} 그대로`)
+  } else {
+    //  ★두 체제의 **공통 합격 조건** = 넥서스 중심이 드럼축(= 사발 최저점 = 리브 #0 방위 = 여정축) 위.
+    //   ⚠'cut'은 단 격자 스냅이라 0이 안 된다 — 한 단(td 0.8)의 절반을 상한으로 잡는다.
+    const { td } = G.stairGrid()
+    ok(Math.abs(off) <= td / 2 + 1e-9,
+      `★'${K.INCA_CENTER_MODE}' — 넥서스 중심 축 이탈 ${r2(off)} ≤ 격자 절반 ${r2(td / 2)}(구 체제 10.61에서 해소)`)
+  }
+  //  ★체제와 무관하게 성립해야 하는 것 셋
+  ok(Math.abs(ibs.ncx - (st.cutX - ibs.R)) < 1e-9, `동변 = #0 절단면 불변 — ncx ${r2(ibs.ncx)} = cutX ${r2(st.cutX)} − R ${r2(ibs.R)}`)
+  ok(st.cutY > 0 && st.cutY < INCA_TOP_Y, `실절단 y ${r2(st.cutY)} ∈ (0, 정상 ${INCA_TOP_Y}) — 계단이 공중에서 시작`)
+  { //  ★관문은 자동 추종한다(수동 지정 금지의 실증) — 체제를 바꿔도 검출이 돈다
+    const ports = descentPortSpec()
+    ok(ports.length >= 1, `관문 자동 검출 ${ports.length}곳 — 방위 ${ports.map((p) => r2(p.az * 180 / Math.PI) + '°').join(' · ')}(하강로 표본에서 재검출)`) }
+  //  ★'fan'은 계단을 안 건드린다 = 절단이 CUT_Y 스냅 그대로여야 한다
+  if (K.INCA_CENTER_MODE === 'fan') {
+    const { rise } = G.stairGrid()
+    ok(Math.abs(st.cutY - K.INCA_CUT_Y) <= rise / 2 + 1e-9,
+      `★'fan' — 계단 무수정 확인: 실절단 ${r2(st.cutY)} = CUT_Y ${K.INCA_CUT_Y} 스냅(하강로·잉카 단수 불변)`)
+    ok(ibs.R > K.INCA_NEXUS_R, `★부채 확대 R ${K.INCA_NEXUS_R} → ${r2(ibs.R)} · 넥서스 반폭 ${r2(Math.max(...ibs.nexus.map((q) => Math.abs(q.z))))}`)
+  }
+  //  ★'cut'은 반대다 = R이 하한 위로만 움직이고 절단이 내려간다
+  if (K.INCA_CENTER_MODE === 'cut') {
+    ok(ibs.R >= K.INCA_NEXUS_R - 1e-9, `★R ${r2(ibs.R)} ≥ 하한 ${K.INCA_NEXUS_R} — 날-날 간격 요구에서 역산`)
+    ok(st.cutY < K.INCA_CUT_Y, `★절단이 내려간다 ${K.INCA_CUT_Y} → ${r2(st.cutY)} ⚠㊶-6 현도 "더 높게" 결정을 되돌리는 체제다`)
+  }
+}
+
+console.log('— W4. ★★95 반십각 기둥 — 넥서스 단면 그대로 · 사발 곡면 착지 —')
+{
+  const K = await import('./constants.js')
+  const G = await import('./corridorStairsGeometry.js')
+  const S = G.nexusPierSpec(), ibs = incaBladesSpec(), st = incaStairSpec()
+  if (!S.on) {
+    ok(true, `반십각 기둥 off(스킵) — NPIER_ON ${K.NPIER_ON}`)
+  } else {
+    //  ★단면은 **새로 만들지 않는다** — 넥서스 폴리곤 그대로여야 한다(현도 "잉카판의 반십각형을")
+    ok(S.poly.length === ibs.nexus.length &&
+      S.poly.every((q, i) => Math.abs(q.x - ibs.nexus[i].x) < 1e-9 && Math.abs(q.z - ibs.nexus[i].z) < 1e-9),
+      `★단면 = 넥서스 폴리곤 ${S.poly.length}점 **그대로**(새 단면 없음) · 서변 폐합 = 중심 지름`)
+    //  ★위 = 넥서스 밑면에 물린다(동일 평면 방지)
+    const nexUnder = st.cutY + 0.04 - INCA_PANEL_T
+    ok(Math.abs(S.top - (nexUnder + K.NPIER_BITE)) < 1e-9 && S.top > nexUnder,
+      `★상단 ${r2(S.top)} = 넥서스 밑면 ${r2(nexUnder)} + 물림 ${K.NPIER_BITE} — 근-동일 평면 없음`)
+    //  ★★아래 = 사발 곡면. 평평하게 자르면 안 된다 — 중심 불일치로 점마다 깊이가 다르다
+    ok(S.hi - S.lo > 1,
+      `★★밑선이 사발을 탄다 — 여덟 점 깊이 ${r2(S.lo)}~${r2(S.hi)}(차 ${r2(S.hi - S.lo)}). 한 값으로 자르면 얕은 쪽이 껍질을 뚫는다`)
+    //  ⚠기록용 — 'plate'에선 넥서스 중심이 축에서 벗어나 있고 현도가 그걸 알고 수용했다
+    //   ("중심은 안 맞겠지만 느낌을 보려고"). ⏸'cut'/'mast' 보존계에선 정렬돼 0에 가깝다 — 둘 다 정상.
+    ok(Number.isFinite(S.cx - COR_CX),
+      `중심 어긋남 ${r2(S.cx - COR_CX)}(체제 '${INCA_CENTER_MODE}') — 현도 수용 사항, 가드 아님`)
+    { //  ★밑선 전 둘레가 사발 껍질 아래로 정확히 SEAT만큼 묻힌다(전수 실측 — 뜨거나 뚫지 않는다)
+      const N = S.poly.length
+      let worst = 0
+      for (let i = 0; i < N; i++) {
+        const a = S.poly[i], b = S.poly[(i + 1) % N]
+        for (let k = 0; k <= 40; k++) {
+          const t = k / 40
+          const x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t
+          const rr = Math.hypot(x - COR_CX, z)
+          const shell = -Math.sqrt(Math.max(0, K.CUP_R * K.CUP_R - rr * rr))
+          worst = Math.max(worst, Math.abs((S.seatAt(x, z) - shell) + K.NPIER_SEAT))
+        }
+      }
+      ok(worst < 1e-9, `★밑선 전 둘레(변 ${N} × 41점)가 껍질 아래 정확히 ${K.NPIER_SEAT} — 최대 편차 ${worst.toExponential(1)}`) }
+    { //  ★기둥이 사발 입(63) 안에 있다 — 고리판·하판 기둥과 무간섭
+      let rmax = 0
+      for (const q of S.poly) rmax = Math.max(rmax, Math.hypot(q.x - COR_CX, q.z))
+      ok(rmax < K.CUP_R - 5, `★최대 반경 ${r2(rmax)} < 사발 입 ${K.CUP_R} − 5 — 고리판(62.5~84)·하판 기둥과 무간섭`) }
+    { //  ★솔리드 무결
+      const t = G.buildNexusPierTris()
+      ok(G.windingConsistent(t.pos) && G.signedVolume(t.pos) > 0,
+        `★솔리드 — 감김 일관 · 부호 부피 ${r2(G.signedVolume(t.pos))} > 0 · 삼각형 ${t.pos.length / 9}`) }
+    { //  ★★★97 테이퍼(현도 손 스케치) — 기둥 자체가 아래로 벌어지는 치마다
+      const t = G.buildNexusPierTris(), ring = t.ring
+      const rAt = (r, top) => Math.hypot((top ? r.px : r.lx) - S.cx, (top ? r.pz : r.lz))
+      let tMax = 0, bMax = 0, dMax = 0
+      for (const r of ring) { tMax = Math.max(tMax, rAt(r, true)); bMax = Math.max(bMax, rAt(r, false)); dMax = Math.max(dMax, r.d) }
+      if (K.NPIER_TAPER > 0) {
+        ok(bMax > tMax * 1.5,
+          `★★밑/윗 = ${r2(bMax / tMax)}배(윗 ${r2(tMax)} → 밑 ${r2(bMax)}) — 스케치 비례 1.9배 · 높이/윗폭 ${r2(dMax / (tMax * 2))}`)
+        //  ★★97-b 벌어짐은 **칼라 아래 깊이**에 비례한다(칼라 위는 수직) — 그 기준으로 각을 검산한다
+        let worst = 0
+        for (const r of ring) {
+          if (Math.abs(Math.hypot(r.dx, r.dz) - 1) > 1e-6) continue      // 미터 꼭짓점 제외
+          const below = Math.max(0, S.collar - r.ly)
+          if (below < 1e-6) continue
+          const spread = Math.hypot(r.lx - r.px, r.lz - r.pz)
+          worst = Math.max(worst, Math.abs(spread / below - Math.tan(K.NPIER_TAPER * Math.PI / 180)))
+        }
+        ok(worst < 1e-6, `★벌어짐 = 수직에서 ${K.NPIER_TAPER}°(칼라 y ${r2(S.collar)} 아래 깊이 기준 · 최대 편차 ${worst.toExponential(1)})`)
+        //  ★★★97-c 칼라 위는 **실제로 수직이어야 한다** — 스펙이 아니라 **실기하에서 잰다.**
+        //   ⚠1차 구현은 칼라 값을 계산에만 쓰고 삼각형은 top↔밑점 직선으로 그려, 밑점은 맞는데
+        //    옆선이 칼라에서 안 꺾였다(실효각 6.37° ≠ 10°). 현도가 화면에서 잡았다 —
+        //    "둘 다 치마가 top에서 시작하는데?" 스펙만 검사했으면 또 놓쳤을 종류다.
+        const radAt = (y) => {
+          let r = 0
+          for (let i = 0; i < t.pos.length; i += 3)
+            if (Math.abs(t.pos[i + 1] - y) < 0.05) r = Math.max(r, Math.hypot(t.pos[i] - S.cx, t.pos[i + 2]))
+          return r
+        }
+        if (S.collar < S.top - 1e-9)
+          ok(Math.abs(radAt(S.top) - radAt(S.collar)) < 0.01,
+            `★★★칼라 위가 **실기하에서 수직** — 반경 @상단 ${r2(radAt(S.top))} = @칼라 ${r2(radAt(S.collar))} (⛔1차 구현은 여기서 이미 벌어져 있었다)`)
+        ok(S.collar <= S.top + 1e-9,
+          `★칼라 y ${r2(S.collar)} ≤ 기둥 상단 ${r2(S.top)} — 위 민짜 ${r2(S.top - S.collar)} · 아래 치마 ${r2(S.collar - (S.top - dMax))} (체제 '${K.NPIER_COLLAR}')`)
+        if (K.NPIER_COLLAR === 'panel') {
+          //  ⚠칼라 y는 파생이다 — 판 콘솔과 기둥 서면의 교점. 노브로 박으면 판이 바뀔 때 어긋난다.
+          const U = st.panel.under, wx = Math.min(...ibs.nexus.map((q) => q.x))
+          let want = null
+          for (let i = 0; i < U.length - 1; i++) {
+            if ((U[i].x - wx) * (U[i + 1].x - wx) <= 0) {
+              const u = (wx - U[i].x) / (U[i + 1].x - U[i].x)
+              want = U[i].y + (U[i + 1].y - U[i].y) * u
+              break
+            }
+          }
+          ok(want !== null && Math.abs(S.collar - want) < 1e-9,
+            `★★칼라 = **판 콘솔이 기둥 서면(x ${r2(wx)})과 만나는 y ${r2(want)}** — 파생(현도 "사다리꼴 아래 아치가 사각형 기둥과 만나는 선")`)
+        }
+        //  ★★미터 오프셋 — 꼭짓점은 이등분선으로 1/cos(반각)배 더 나가야 변이 평면이 된다
+        let mit = 0
+        for (const r of ring) if (Math.abs(Math.hypot(r.dx, r.dz) - 1) > 1e-6) mit = Math.max(mit, Math.hypot(r.dx, r.dz))
+        ok(mit > 1.0, `★★모서리 미터 계수 최대 ${r2(mit)} > 1 — 이등분선으로 더 나간다(방사 오프셋이면 변이 휘고 모서리가 뭉갠다)`)
+      } else {
+        ok(Math.abs(bMax - tMax) < 1e-6, `⏸TAPER 0 — 구 직각기둥(밑 ${r2(bMax)} = 윗 ${r2(tMax)})`)
+      }
+      ok(bMax + Math.abs(S.cx - COR_CX) < K.CUP_R - 5,
+        `★드럼축 최대반경 ${r2(bMax + Math.abs(S.cx - COR_CX))} < 사발 입 ${K.CUP_R} − 5 — 고리판·하판 기둥과 무간섭`) }
+  }
+}
+
+console.log('— W6. ★★98 서쪽 빗면 버트레스 — 기점·폭 파생 · 닫힌 솔리드 —')
+{
+  const K = await import('./constants.js')
+  const G = await import('./corridorStairsGeometry.js')
+  const B = G.westButtressSpec()
+  if (!B.on) {
+    ok(true, `서쪽 빗면 off(스킵) — WBUT_ON ${K.WBUT_ON}`)
+  } else {
+    const st = incaStairSpec(), S = B.pier
+    { //  ★★기점 = 판 콘솔 ∩ 기둥 서면 — **파생이다**(반복법). 두 곡선 위에 동시에 있는지 실측한다.
+      const U = st.panel.under
+      let cy = null
+      for (let i = 0; i < U.length - 1; i++)
+        if ((U[i].x - B.x) * (U[i + 1].x - B.x) <= 0) {
+          const t = (B.x - U[i].x) / (U[i + 1].x - U[i].x)
+          cy = U[i].y + (U[i + 1].y - U[i].y) * t
+          break
+        }
+      ok(cy !== null && Math.abs(cy - B.y) < 1e-6,
+        `★★기점이 **판 콘솔 위** — x ${r2(B.x)}에서 콘솔 y ${r2(cy)} = 기점 y ${r2(B.y)}`)
+      const wx0 = Math.min(...S.poly.map((q) => q.x))
+      const faceX = wx0 - Math.max(0, S.collar - B.y) * Math.tan(K.NPIER_TAPER * Math.PI / 180)
+      ok(Math.abs(faceX - B.x) < 1e-6,
+        `★★기점이 **기둥 서면 위** — 그 높이의 서면 x ${r2(faceX)} = 기점 x ${r2(B.x)}(테이퍼 ${K.NPIER_TAPER}° 반영)`) }
+    { //  ★폭 = 그 x의 판 폭(현도 "저 선의 폭만큼")
+      const P = st.panel, xm = P.xm ?? P.x1
+      const want = (B.x >= xm ? P.w1 : P.w0 + (P.w1 - P.w0) * Math.max(0, Math.min(1, (B.x - P.x0) / (xm - P.x0)))) / 2
+      ok(Math.abs(B.hw - want) < 1e-9,
+        `★폭 ${r2(B.hw * 2)} = 기점 x에서의 **판 폭**(파생 — 노브 아님)`) }
+    //  ★기존 치마보다 완만해야 한다(현도 "약간 완만한")
+    ok(K.WBUT_ANG > K.NPIER_TAPER,
+      `★각 ${K.WBUT_ANG}° > 기둥 치마 ${K.NPIER_TAPER}° — **더 완만하다**(수직 기준이라 각이 클수록 완만)`)
+    { //  ★★★닫힌 솔리드 — 현도 명시 경고("종잇장처럼 면 하나만 만드는 것이 아니라는 것을 유념해").
+      //   ★62 링 슬롯·★㊸ 반원 판이 종잇장으로 났던 전례가 있어 **부피와 감김을 잰다.**
+      const t = G.buildWestButtressTris()
+      const vol = G.signedVolume(t.pos)
+      ok(G.windingConsistent(t.pos) && vol > 0,
+        `★★★닫힌 덩어리 — 부피 ${r2(vol)} > 0 · 감김 일관 · 삼각형 ${t.pos.length / 9}(⛔옆면을 빼면 종잇장이 된다)`)
+      //  ★옆면 둘이 실제로 있는가 — ±z 극단면의 법선이 z축을 향하는 삼각형
+      let zf = 0
+      for (let i = 0; i < t.nrm.length; i += 3) if (Math.abs(t.nrm[i + 2]) > 0.99) zf++
+      ok(zf >= 4, `★옆면(±z) 삼각형 ${zf}장 ≥ 4 — 덩어리의 양 옆이 막혀 있다`) }
+    { //  ★밑선이 사발 껍질 아래로 정확히 묻힌다 — 뜨거나 뚫지 않는다
+      const t = G.buildWestButtressTris()
+      let worst = 0
+      for (const f of t.front) {
+        const shell = -Math.sqrt(Math.max(0, K.CUP_R * K.CUP_R - ((f.bx - COR_CX) ** 2 + f.z * f.z)))
+        worst = Math.max(worst, Math.abs((f.by - shell) + K.WBUT_SEAT))
+      }
+      ok(worst < 1e-6, `★밑선 전 폭이 껍질 아래 정확히 ${K.WBUT_SEAT} — 최대 편차 ${worst.toExponential(1)}`) }
+    { //  ★사발 입 안 — 고리판·하판 기둥과 무간섭
+      const g = G.buildWestButtress(), P = g.attributes.position
+      let rmax = 0
+      for (let i = 0; i < P.count; i++) rmax = Math.max(rmax, Math.hypot(P.getX(i) - COR_CX, P.getZ(i)))
+      ok(rmax < K.CUP_R - 5, `★드럼축 최대반경 ${r2(rmax)} < 사발 입 ${K.CUP_R} − 5 — 무간섭`) }
+  }
+}
+
+console.log('— W5. ★★96 사발 헌치 — 각이 노브 · 높이는 극점에서 파생 · 비대칭은 사발이 만든다 —')
+{
+  const K = await import('./constants.js')
+  const G = await import('./corridorStairsGeometry.js')
+  const A = G.nexusHaunchSpec()
+  if (!A.on) {
+    ok(true, `헌치 off(스킵) — NHAUNCH_ON ${K.NHAUNCH_ON}`)
+  } else {
+    ok(Math.abs(A.ang - K.NHAUNCH_ANG) < 1e-9,
+      `★각 ${A.ang}° = 유일한 노브 · ★92-d 헌치와 같은 각(어휘 연속)`)
+    { //  ★높이는 파생 — "서변 z=0에서 그 각으로 내려가면 극점의 묻힌 깊이에 닿는다"
+      const S = A.pier, wx = Math.min(...S.poly.map((q) => q.x))
+      const want = (wx - COR_CX) * Math.tan(A.ang * Math.PI / 180) - (S.seatAt(wx, 0) + K.CUP_R + K.NHAUNCH_SEAT)
+      ok(Math.abs(A.H - want) < 1e-9,
+        `★높이 ${r2(A.H)} = **파생**(run ${r2(A.run)}×tan${A.ang}° − 묻힘 보정) — 노브 아님. ⚠1차 구현이 부호를 뒤집어 1.5 과대였고 40° 스윕에서 잡혔다`) }
+    { //  ★★서쪽 끝이 극점에 닿는다 = ㉮ 중심 화해의 실물 근거
+      const g = G.buildNexusHaunch(), P = g.attributes.position
+      let wmin = Infinity
+      for (let i = 0; i < P.count; i++) if (Math.abs(P.getZ(i)) < 0.5) wmin = Math.min(wmin, P.getX(i))
+      //  ⚠공차도 파생 — 변을 NHAUNCH_LAT로 쪼갠 이산화가 상한(하드코딩하면 각을 바꿀 때 거짓 경보가 난다)
+      const tol = 0.5 + (A.run * 2 / K.NHAUNCH_LAT) * 0.15
+      ok(Math.abs(wmin - COR_CX) <= tol,
+        `★★서쪽 끝 x ${r2(wmin)} ≈ 사발 극점 ${COR_CX}(차 ${r2(Math.abs(wmin - COR_CX))} ≤ 공차 ${r2(tol)}) — **극점이 헌치의 서쪽 꼭짓점** = ㉮ 중심 화해`) }
+    { //  ★★비대칭은 만든 게 아니라 사발이 만든다 — 각은 하나인데 뻗는 거리가 갈린다
+      const g = G.buildNexusHaunch(), P = g.attributes.position
+      let rw = 0, re = 0
+      for (let i = 0; i < P.count; i++) {
+        if (Math.abs(P.getZ(i)) > 0.5) continue
+        const d = P.getX(i) - COR_CX
+        if (d < 11) rw = Math.max(rw, 214.61 - P.getX(i))
+        else re = Math.max(re, P.getX(i) - 226.81)
+      }
+      //  ⚠비율 하한을 손으로 박으면 안 된다 — 각을 세울수록 뻗음이 경사에 지배돼 비율이 **자연히 준다**
+      //   (실측 50°→1.49배 · 60°→1.36 · 65°→1.27). 사실은 "서쪽이 더 멀다"이지 특정 배율이 아니다.
+      ok(rw > re,
+        `★★비대칭 — 서쪽 뻗음 ${r2(rw)} > 동쪽 ${r2(re)}(${r2(rw / Math.max(re, 0.01))}배, 각 ${A.ang}°). 각은 하나인데 사발 깊이가 방위마다 달라 저절로 갈린다`) }
+    { //  ★물림·잠김(동일 평면 방지) · 솔리드 무결
+      const t = G.buildNexusHaunchTris()
+      let lo = Infinity, hi = -Infinity
+      for (let i = 1; i < t.pos.length; i += 3) { lo = Math.min(lo, t.pos[i]); hi = Math.max(hi, t.pos[i]) }
+      ok(lo < -K.CUP_R && hi < 0,
+        `★y ${r2(lo)}~${r2(hi)} — 밑면이 껍질(−${K.CUP_R}) 아래 잠기고 상단은 사발 안`)
+      ok(G.windingConsistent(t.pos) && G.signedVolume(t.pos) > 0,
+        `★솔리드 — 감김 일관 · 부피 ${r2(G.signedVolume(t.pos))} > 0 · 삼각형 ${t.pos.length / 9}`) }
+    { //  ★사발 입 안 — 고리판·하판 기둥과 무간섭
+      const g = G.buildNexusHaunch(), P = g.attributes.position
+      let rmax = 0
+      for (let i = 0; i < P.count; i++) rmax = Math.max(rmax, Math.hypot(P.getX(i) - COR_CX, P.getZ(i)))
+      ok(rmax < K.CUP_R - 5, `★극점 기준 최대 반경 ${r2(rmax)} < 사발 입 ${K.CUP_R} − 5 — 고리판·하판 기둥과 무간섭`) }
+    { //  ★★96-b **각져야 한다**(현도 반려: "껌딱지로 고정시켜놓은 나무젓가락 같아. 기존 어휘는 이렇지 않잖아")
+      //   ⛔원인은 구 부챗살(6갈래)이 반십각 **모서리를 둥글린 것**이었다. 이 건물은 모서리를 둥글린 적이 없다.
+      //   ★실측 방법 = 밑선을 위에서 본 **방향 전환각**. 능선이면 모서리마다 한 번에 크게 꺾이고,
+      //    둥글리면 같은 각도가 여러 점에 잘게 나뉜다. 그래서 '큰 꺾임'의 **개수**가 판별식이 된다.
+      const ring = G.nexusHaunchRing(), N = A.pier.poly.length
+      let sharp = 0, maxTurn = 0
+      for (let i = 0; i < ring.length; i++) {
+        const p0 = ring[(i - 1 + ring.length) % ring.length], p1 = ring[i], p2 = ring[(i + 1) % ring.length]
+        const a0 = Math.atan2(p1.lz - p0.lz, p1.lx - p0.lx), a1 = Math.atan2(p2.lz - p1.lz, p2.lx - p1.lx)
+        let d = a1 - a0
+        while (d > Math.PI) d -= 2 * Math.PI
+        while (d < -Math.PI) d += 2 * Math.PI
+        const deg = Math.abs(d * 180 / Math.PI)
+        maxTurn = Math.max(maxTurn, deg)
+        if (deg > 12) sharp++
+      }
+      ok(K.NHAUNCH_CORNER !== 'ridge' || (sharp >= N && maxTurn > 20),
+        K.NHAUNCH_CORNER === 'ridge'
+          ? `★★밑선 큰 꺾임 ${sharp}곳 ≥ 변 ${N}(최대 ${r2(maxTurn)}°) — **각진 능선**이 산다(현도 "각진 경사면")`
+          : `⏸'round' 보존계 — 큰 꺾임 ${sharp}곳(최대 ${r2(maxTurn)}°). 모서리를 ${K.NHAUNCH_FAN}갈래로 둥글린다(현도 반려 형태)`)
+      ok(ring.length === N * (K.NHAUNCH_LAT + 1) + (K.NHAUNCH_CORNER === 'ridge' ? N : N * (K.NHAUNCH_FAN - 1)),
+        `★밑선 점 ${ring.length} = 변 ${N}×${K.NHAUNCH_LAT + 1} + 모서리 ${K.NHAUNCH_CORNER === 'ridge' ? N : N * (K.NHAUNCH_FAN - 1)}('${K.NHAUNCH_CORNER}')`)
+      //  ★능선은 평면보다 완만해야 한다 — tan·cos(반각) 보정을 빼먹으면 모서리가 먼저 닿아 잘려 보인다
+    }
+  }
+}
+
+console.log('— W2. ⛔★㊹ 바닥 동심 기단 폐기 확인(★93 현도) —')
+{
+  const K = await import('./constants.js')
+  ok(K.TIER_ON === false,
+    `⛔바닥단 ${K.TIER_N}겹 꺼짐 — 최대 반경 ${K.TIER_RMAX} < 반구 입 ${K.CUP_R}이라 전부 사발 아가리 위 허공이었다(★87 지면 폐기의 귀결). ⏸코드·R3절은 보존계`)
 }
 
 console.log(fail === 0 ? `\n전부 통과 (${n}항)` : `\n실패 ${fail}/${n}`)

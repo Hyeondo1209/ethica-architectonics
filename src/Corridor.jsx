@@ -33,7 +33,7 @@ import {
   GAT_SEAT, GAT_CX, GAT_CROWN_R, GAT_CONE_H, GAT_CROWN_H, GAT_SLIT, GAT_FACETS, GAT_POSTS, GAT_POST_R, GAT_LID_T,
   PLAT_DROP, DESC_X0, DESC_X1,
 } from './constants'
-import { buildHallStairs, hallDoors, friezeWinBarZ, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal, descentSpec, woldaeSpec, drumPierAzimuths, descentPortSpec, portPrismTris, outwardTris } from './corridorStairsGeometry'
+import { buildHallStairs, hallDoors, friezeWinBarZ, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal, descentSpec, woldaeSpec, drumPierAzimuths, descentPortSpec, portPrismTris, outwardTris, buildIncaPanel, mastSpec, buildMast, buildNexusPier, buildNexusHaunch, buildWestButtress} from './corridorStairsGeometry'
 import { pierBodyTris } from './drumCupGeometry'   // ★92-b 피어 몸(계단 밑동 포함) — 정본 하나
 import { ribHoleSolid } from './ribGeometry'   // ★64-2 리브를 따라가는 관통 구멍(watertight 로프트)
 
@@ -709,7 +709,7 @@ export function IncaStair() {
     if (!INCA_ON) return { massGeo: null, panelGeo: null, nexusGeo: null, bladeGeos: [] }
     const spec = incaStairSpec()
     const { steps, arch, panel, cutX } = spec
-    const Y0 = -0.3
+    const Y0 = spec.y0   // ★94-e 체제 파생(구 −0.3)
     // ── 매스: 서면 → 디딤 지그재그 → 동면(웨브) → 아치 다면(역순) → 접지 스트립 ──
     const ms = new THREE.Shape()
     ms.moveTo(cutX, Y0)
@@ -722,17 +722,9 @@ export function IncaStair() {
     ms.closePath()                                               // 접지 스트립(발 → 절단면)
     const massGeo = new THREE.ExtrudeGeometry(ms, { depth: INCA_W0, bevelEnabled: false })
     massGeo.translate(0, 0, -INCA_W0 / 2)
-    // ── 판: 상면 평판 → 동단 물림 → 밑곡면(역순, 다면) → 서단 챔퍼 ──
-    const ps = new THREE.Shape()
-    ps.moveTo(panel.x0, panel.yTop)
-    ps.lineTo(panel.x1, panel.yTop)
-    ps.lineTo(panel.x1, -0.3)                                    // 동단: 지면까지(㊶-8 — 곡선 종점 = 절단면 발)
-    for (let i = panel.under.length - 1; i >= 1; i--) ps.lineTo(panel.under[i].x, panel.under[i].y)
-    ps.lineTo(panel.x0 + INCA_CHAMF, panel.yTop - panel.t)       // ★브루탈 챔퍼(서단 모따기)
-    ps.lineTo(panel.x0, panel.yTop - panel.t + INCA_CHAMF)
-    ps.closePath()
-    const panelGeo = new THREE.ExtrudeGeometry(ps, { depth: panel.w, bevelEnabled: false })
-    panelGeo.translate(0, 0, -panel.w / 2)
+    // ── 판 ── ★★94-b: 폭이 x를 따라 변하는 **사다리꼴**이라 압출로는 못 만든다.
+    //  기하 정본 = `buildIncaPanel()`(순수 모듈 — render_views·검증이 같은 함수를 쓴다).
+    const panelGeo = buildIncaPanel()
     // ══ ★㊷ 반십각 넥서스 + 날 4(#±1·±2) — 수치 정본 = incaBladesSpec() ══
     //  넥서스: 부채 폴리곤(x,z) → 압출 두께 = 판 두께(어휘 공유) → 눕힘. 상면 = 절단 높이 +0.04
     //  (판 상면 cutY와의 동일평면 회피 — §3 동일평면 금지. 판은 넥서스 밑을 지나 중앙 접지 콘솔이 된다).
@@ -741,7 +733,7 @@ export function IncaStair() {
     nsh.moveTo(bs.nexus[0].x, bs.nexus[0].z)
     for (let i = 1; i < bs.nexus.length; i++) nsh.lineTo(bs.nexus[i].x, bs.nexus[i].z)
     nsh.closePath()
-    const nexusGeo = new THREE.ExtrudeGeometry(nsh, { depth: INCA_PANEL_T, bevelEnabled: false })
+    const nexusGeo = new THREE.ExtrudeGeometry(nsh, { depth: bs.depth, bevelEnabled: false })   // ★94-g 드럼 깊이 파생
     nexusGeo.rotateX(Math.PI / 2)                                // (x, sy, d) → (x, −d, sy): 압출이 아래로
     nexusGeo.translate(0, bs.cutY + 0.04, 0)
     //  날: 단면 폴리곤(s,y — 서면 수직 → 디딤 지그재그 → 팁(두께 TIP_T) → 밑곡선 역순·접지 뿌리)
@@ -763,6 +755,10 @@ export function IncaStair() {
     return { massGeo, panelGeo, nexusGeo, bladeGeos }
   }, [])
   if (!massGeo) return null
+  const mastGeo = useMemo(() => buildMast(), [])   // ★94-c·d 샤프트 + 주두(정본 빌더)
+  const pierGeo = useMemo(() => buildNexusPier(), [])   // ★95 반십각 기둥
+  const haunchGeo = useMemo(() => buildNexusHaunch(), [])   // ★96 사발 헌치
+  const butGeo = useMemo(() => buildWestButtress(), [])   // ★98 서쪽 빗면
   return (
     <group>
       <mesh geometry={massGeo} userData={{ walkable: true }}>
@@ -779,6 +775,35 @@ export function IncaStair() {
           <meshStandardMaterial color={INCA_COLOR} roughness={0.92} side={THREE.DoubleSide} />
         </mesh>
       ))}
+      {/*  ★★94-c 중앙 기둥(mast, 현도) — 뿌리 한가운데에서 사발 최저점으로 내려가 앉는다.
+           축 = 드럼축 = 사발 극점 = 리브 #0 방위 = 여정축(네 축이 한 선). 수치 정본 = mastSpec().
+           ⚠walkable 아님 — 보행면(판 30.91)보다 1.46 아래 상단이 넥서스 슬라브 속에 묻혀 있다. */}
+      {mastGeo && (
+        <mesh geometry={mastGeo} userData={{ walkable: false }}>
+          <meshStandardMaterial color={INCA_COLOR} roughness={0.92} />
+        </mesh>
+      )}
+      {/*  ★★95 반십각 기둥(현도 2026.08.01) — 넥서스 폴리곤을 사발까지 내리 압출.
+           사다리꼴 뿌리와 아치부 사이의 틈을 채운다. ⚠중심은 드럼축과 안 맞는다(현도 수용 — "느낌을 보려고"). */}
+      {pierGeo && (
+        <mesh geometry={pierGeo} userData={{ walkable: false }}>
+          <meshStandardMaterial color={INCA_COLOR} roughness={0.92} />
+        </mesh>
+      )}
+      {/*  ★★96 사발 헌치 — 기둥 밑동을 사발이 올라와 받는 경사면. 각 50°(★92-d와 같은 각)가 노브,
+           높이 13.25는 "서쪽 끝이 사발 극점에 닿는다"에서 파생. 비대칭은 사발이 만들어 준다. */}
+      {/*  ★★98 서쪽 빗면 버트레스 — 교점선(판 콘솔 ∩ 기둥 서면)에서 사발까지.
+           ⚠닫힌 솔리드다(현도: "옆면도 전부 채운 덩어리"). 종잇장 금지. */}
+      {butGeo && (
+        <mesh geometry={butGeo} userData={{ walkable: false }}>
+          <meshStandardMaterial color={INCA_COLOR} roughness={0.92} />
+        </mesh>
+      )}
+      {haunchGeo && (
+        <mesh geometry={haunchGeo} userData={{ walkable: false }}>
+          <meshStandardMaterial color={INCA_COLOR} roughness={0.92} />
+        </mesh>
+      )}
     </group>
   )
 }

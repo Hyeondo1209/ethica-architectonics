@@ -20,11 +20,11 @@ import fs from 'fs'
 import { PNG } from 'pngjs'
 import * as THREE from 'three'
 import * as C from './constants.js'
-import { descentSpec, woldaeSpec, incaStairSpec, incaBladesSpec, drumPierAzimuths, descentPortSpec, portPrismTris, outwardTris, ribCutSpec } from './corridorStairsGeometry.js'
+import { descentSpec, woldaeSpec, incaStairSpec, incaBladesSpec, drumPierAzimuths, descentPortSpec, portPrismTris, outwardTris, ribCutSpec, buildIncaPanel, mastSpec, buildMast, buildNexusPier, buildNexusHaunch, buildWestButtress} from './corridorStairsGeometry.js'
 import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg'
 import { WAYPOINTS, EYE } from './waypoints.js'
 import { buildViceWedge, viceSplitIndex, buildSill, buildFloorCollar, buildFloorLanding, freeSplitRange, freeNewelSpec, destCut, openRimSpec, isOpenRib, ribHoleSolid, makeRibCurve, buildRibShell } from './ribGeometry.js'   // ★2026.07.29 전역 리브 굽기
-import { buildCupBowl, buildCupStraps, pierBodyTris } from './drumCupGeometry.js'   // ★92 드럼 하판 · ★92-b 피어 몸(정본)
+import { buildCupBowl, buildCupStraps, buildCupRing, pierBodyTris } from './drumCupGeometry.js'   // ★92 드럼 하판 · ★92-b 피어 몸(정본) · ★93 고리판
 import { buildKneeBody, innerTubeSolid, kneeWalkY } from './kneeBodyGeometry.js'
 import { buildJunctionKnot, buildLightShaft, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, radialPlate } from './junctionGeometry.js'
 import { terraceRuns, terraceLinkSpec } from './terraceGeometry.js'   // ★89 계단 · ★90 리드 연결 — 정본 직접(사본 금지)
@@ -106,7 +106,7 @@ if (C.HALL_ENTRY === 'axial' || C.HALL_ENTRY === 'lateral') {
 }
 // ── 잉카(매스·판·넥서스·날 4 — 스모크와 동일) ──
 {
-  const spec = incaStairSpec(), { steps, arch, panel, cutX } = spec, Y0 = -0.3
+  const spec = incaStairSpec(), { steps, arch, panel, cutX } = spec, Y0 = spec.y0   // ★94-e 체제 파생(구 −0.3)
   const ms = new THREE.Shape(); ms.moveTo(cutX, Y0); ms.lineTo(cutX, steps[0].yTop)
   for (const st of steps) { ms.lineTo(st.x0, st.yTop); ms.lineTo(st.x1, st.yTop) }
   const last = steps[steps.length - 1]; ms.lineTo(last.x1, arch[arch.length - 1].y)
@@ -114,15 +114,20 @@ if (C.HALL_ENTRY === 'axial' || C.HALL_ENTRY === 'lateral') {
   ms.lineTo(arch[0].x, Y0); ms.closePath()
   const mg = new THREE.ExtrudeGeometry(ms, { depth: C.INCA_W0, bevelEnabled: false })
   mg.translate(0, 0, -C.INCA_W0 / 2); addGeo(mg, [184, 154, 106])
-  const ps = new THREE.Shape(); ps.moveTo(panel.x0, panel.yTop); ps.lineTo(panel.x1, panel.yTop); ps.lineTo(panel.x1, -0.3)
-  for (let i = panel.under.length - 1; i >= 1; i--) ps.lineTo(panel.under[i].x, panel.under[i].y)
-  ps.lineTo(panel.x0 + C.INCA_CHAMF, panel.yTop - panel.t); ps.lineTo(panel.x0, panel.yTop - panel.t + C.INCA_CHAMF); ps.closePath()
-  const pg = new THREE.ExtrudeGeometry(ps, { depth: panel.w, bevelEnabled: false })
-  pg.translate(0, 0, -panel.w / 2); addGeo(pg, [184, 154, 106])
+  //  ★★94-b 판은 사다리꼴 — 정본 빌더를 쓴다(여기서 사본을 만들면 셀프 렌더가 거짓말한다, ★75 전례).
+  addGeo(buildIncaPanel(), [184, 154, 106])
+  //  ★94-c·d 중앙 기둥(샤프트 + 주두) — 정본 빌더. 사본을 만들면 셀프 렌더가 거짓말한다.
+  { const mg = buildMast(); if (mg) addGeo(mg, [184, 154, 106]) }
+  //  ★95 반십각 기둥 — 정본 빌더(사본 금지, ★75 전례).
+  { const pg = buildNexusPier(); if (pg) addGeo(pg, [180, 150, 102]) }
+  //  ★96 사발 헌치 — 정본 빌더.
+  { const hg = buildNexusHaunch(); if (hg) addGeo(hg, [176, 146, 100]) }
+  //  ★98 서쪽 빗면 — 정본 빌더.
+  { const bg = buildWestButtress(); if (bg) addGeo(bg, [182, 152, 104]) }
   const bs = incaBladesSpec()
   const ns = new THREE.Shape(); ns.moveTo(bs.nexus[0].x, bs.nexus[0].z)
   for (let i = 1; i < bs.nexus.length; i++) ns.lineTo(bs.nexus[i].x, bs.nexus[i].z); ns.closePath()
-  const ng = new THREE.ExtrudeGeometry(ns, { depth: C.INCA_PANEL_T, bevelEnabled: false })
+  const ng = new THREE.ExtrudeGeometry(ns, { depth: bs.depth, bevelEnabled: false })
   ng.rotateX(Math.PI / 2); ng.translate(0, bs.cutY + 0.04, 0); addGeo(ng, [184, 154, 106])
   for (const b of bs.blades.filter(b => !b.reach)) {
     const sh = new THREE.Shape(); sh.moveTo(b.s0, Y0); sh.lineTo(b.s0, bs.cutY)
@@ -425,7 +430,9 @@ function cupTris() {
   if (_cupCache) return _cupCache
   if (!C.CUP_ON || !C.MIR_ON) return (_cupCache = [])
   const out = []
-  for (const [g, col] of [[buildCupBowl(), [176, 152, 104]], [buildCupStraps(), [198, 172, 118]]]) {
+  //  ★93 고리판을 여기 같이 등록한다 — 빠뜨리면 셀프 렌더가 이 권역에서 거짓말한다(★75 구 램프 전례).
+  for (const [g, col] of [[buildCupBowl(), [176, 152, 104]], [buildCupStraps(), [198, 172, 118]], [buildCupRing(), [186, 162, 112]]]) {
+    if (!g) continue
     const p = g.attributes.position.array
     for (let i = 0; i < p.length; i += 9) {
       const v = []

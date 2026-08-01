@@ -32,6 +32,7 @@ import {
   CUP_R, CUP_SEG, CUP_LAT,
   CUP_STRAP_MODE, CUP_STRAP_N, CUP_STRAP_PHASE, CUP_FILL_N,
   CUP_STRAP_HW, CUP_STRAP_BITE, CUP_STRAP_CLR, CUP_STRAP_SEG,
+  CUP_RING_ON, CUP_RING_T, COR_WALL_SEG,
 } from './constants.js'
 import { drumPierAzimuths } from './corridorStairsGeometry.js'
 
@@ -350,6 +351,66 @@ export function buildCupStraps() {
     tri2(A(-1), C(-1), B(-1), [sa, 0, -ca])
   }
 
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3))
+  return g
+}
+
+
+// ════════ ★★93 하판 고리판(2026.07.31 현도) — 반구 입 ↔ 드럼 벽 동심 틈을 덮는 수평판 ════════
+//  현도 지시: "반구와 드럼 통로 사이의 동심원이 만드는 틈을 완벽하게 가리는 판. 우선 그냥 단순히 수평판으로."
+//  ★★안팎이 둘 다 **파생**이다(근거 전문 = constants CUP_RING 블록):
+//   · 바깥 rOut = COR_R(84) · 분할 = COR_WALL_SEG(96) · 위상 = i/N·2π  → 드럼 벽과 **정점 공유**.
+//     벽 밑선은 96정점 전수 실측 y = 0 평탄이므로 상면(y 0)이 벽 밑동과 정확히 맞물린다(틈 0 · 돌출 0).
+//   · 안쪽 rIn = CUP_R − CUP_STRAP_BITE(62.5) = 기둥·헌치의 안쪽 끝과 **같은 값**. 반구면(63~62.982)보다
+//     항상 안쪽이라 근-동일 평면이 안 생긴다.
+//  ★법선은 **면 기하에서 뽑고 힌트는 부호만** 정한다(★92에서 같은 계열로 두 번 터진 뒤 세워진 규율).
+export function ringSpec() {
+  return {
+    on: CUP_ON && CUP_RING_ON,
+    N: COR_WALL_SEG,
+    rOut: COR_R,                      // 외접반경 — 벽과 동일(파생)
+    rIn: CUP_R - CUP_STRAP_BITE,      // 기둥 안쪽 끝과 동일(파생)
+    yTop: 0,                          // 벽 기립선 = 바닥 레벨
+    yBot: -CUP_RING_T,
+    t: CUP_RING_T,
+  }
+}
+
+export function buildCupRing() {
+  const S = ringSpec()
+  if (!S.on) return null
+  const { N, rOut, rIn, yTop, yBot } = S
+  const pos = [], nrm = []
+  const P = (t, r, y) => [COR_CX + r * Math.cos(t), y, r * Math.sin(t)]
+  //  ★법선 = 세 점의 외적(정확) · hint = 어느 쪽이 바깥인지 부호만
+  const tri = (a, b, c, hint) => {
+    const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
+    const e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
+    let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
+    const L = Math.hypot(n[0], n[1], n[2]); if (L < 1e-9) return
+    n = [n[0] / L, n[1] / L, n[2] / L]
+    let v = [a, b, c]
+    if (n[0] * hint[0] + n[1] * hint[1] + n[2] * hint[2] < 0) { n = [-n[0], -n[1], -n[2]]; v = [a, c, b] }
+    for (const p of v) { pos.push(p[0], p[1], p[2]); nrm.push(n[0], n[1], n[2]) }
+  }
+  const quad = (a, b, c, d, hint) => { tri(a, b, c, hint); tri(a, c, d, hint) }
+
+  for (let i = 0; i < N; i++) {
+    const t0 = (i / N) * TAU, t1 = ((i + 1) / N) * TAU
+    const tm = (t0 + t1) / 2
+    const outR = [Math.cos(tm), 0, Math.sin(tm)]                 // 이 면의 바깥 방향(패싯 중앙)
+    const inR = [-outR[0], 0, -outR[2]]
+    const A = P(t0, rOut, yTop), B = P(t1, rOut, yTop)
+    const C = P(t1, rIn, yTop), D = P(t0, rIn, yTop)
+    const a = P(t0, rOut, yBot), b = P(t1, rOut, yBot)
+    const c = P(t1, rIn, yBot), d = P(t0, rIn, yBot)
+    quad(A, B, C, D, [0, 1, 0])        // 상면(홀에서 내려다보는 바닥)
+    quad(a, d, c, b, [0, -1, 0])       // 밑면(밖·아래에서 보인다)
+    quad(A, a, b, B, outR)             // 바깥 띠 — 벽 밑동 아래 테두리
+    quad(D, C, c, d, inR)              // 안쪽 띠 — 사발 아가리 테두리
+  }
   const g = new THREE.BufferGeometry()
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
   g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3))

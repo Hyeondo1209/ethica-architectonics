@@ -16,7 +16,9 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as CUP from './drumCupGeometry.js'
-import { RM10_FLARE_ON, RM10_WIN_ON, MIR_ON, MIR_PADS, RAD_CYL_ON, RAD_CYL_Y1_BY, CUP_ON, CUP_R, PIER_ON, PIER_N } from './constants.js'   // ★80 나팔 체제 스위치 · ★81 창 스위치 · ★87 미러·임시 판 · ★91 원기둥 받침
+import { mastSpec, incaStairSpec, nexusPierSpec, nexusPierBottom, nexusHaunchSpec, buildWestButtressTris } from './corridorStairsGeometry.js'   // ★94-c·e · ★95 · ★96
+import * as K94g from './constants.js'   // ★94-g 솟는 평면
+import { RM10_FLARE_ON, RM10_WIN_ON, MIR_ON, MIR_PADS, RAD_CYL_ON, RAD_CYL_Y1_BY, CUP_ON, CUP_R, PIER_ON, PIER_N, TIER_ON, TIER_N, CUP_RING_ON, INCA_CENTER_MODE, NPIER_SEAT, NHAUNCH_SEAT } from './constants.js'   // ★80 나팔 체제 스위치 · ★81 창 스위치 · ★87 미러·임시 판 · ★91 원기둥 받침 · ★93 바닥단 폐기·고리판
 
 let n = 0, fail = 0
 const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
@@ -230,10 +232,51 @@ console.log(JSON.stringify({ called, bad, noted, keys, grounded }))
     //  ★2차(2026.07.30): 길이가 4기 불규칙이라 밑단이 넷 다 다르다 — 값 집합으로 선언한다.
     //  ★92(2026.07.31) — 드럼 하판도 ⓑ 부류다: 반구·기둥은 처음부터 허공에서 끝나도록 지었다.
     //   밑끝은 파생 — 반구 = −R · 기둥 = −R − 두께(극점에서 호 법선이 정확히 아래라 두께가 그대로 더해진다).
+    //  ★★★93(2026.07.31) — 기대 수를 **하드코딩 25에서 구성별 파생으로** 바꾼다.
+    //   ⚠왜: 이 세션에 명단이 두 번 움직였다 — ⛔바닥단 7겹 폐기(현도 제거 지시) · ★93 고리판 신설(+1).
+    //    25를 그대로 두면 검사가 조형을 못 따라오고, 25를 19로 다시 박으면 **다음에 또 박아야 한다.**
+    //    그래서 수를 옮기는 대신 **수를 유도한다**(★92 "검사는 끄지 말고 수를 옮긴다"의 한 단계 위).
+    //   GROUND_FIXED 18 = 2026.07.29 실측 25 − 바닥단 7. 내역 = 드럼 벽 1 · 셀라 1 · 피어 8 ·
+    //    잉카+날 5 · 제단 1 · 오벨리스크 기둥 1 · RibStair 1. 여기서 격감하면 스캔 고장 신호다.
+    //   ⚠고리판은 받침이 아니라 **빚의 새 항목**이다 — 자기도 y<0에서 끝난다(바닥 아래엔 여전히 아무것도 없다).
+    //  ★★★94-e **빚이 줄었다**(늘어난 게 아니라): 'mast'+'slab'에서 잉카 매스·판·날의 밑면이
+    //   슬라브(28.91)로 올라가 y≤0.01에서 아예 사라진다 = 접지 요소가 아니게 된다. 실측 −5기.
+    //   ⚠수를 낮추는 방향이라 더 조심해야 한다 — **체제 깃발이 아니라 기하로** 판정한다(★92 규율).
+    //  ★★★94-g **부채 볼트가 빚을 갚는다**: 다섯 밑면이 솟는 평면(ARCH_Y0)에서 끝나고 그 자리를
+    //   중앙 기둥이 받는다(기둥은 사발 껍질에 앉아 있다). 허공에서 끊기는 게 아니라 **받쳐진다.**
+    //   → 잉카 무리는 빚이 아니라 **ⓒ 앉은 것**이다. 깃발이 아니라 **실제 밑단 높이**로 판정한다.
+    const springY = mastSpec().on ? K94g.INCA_ARCH_Y0 : null
+    //  ★★95 반십각 기둥도 **앉은 것**이다 — 밑선이 사발 껍질을 NPIER_SEAT만큼 뚫고 묻힌다.
+    //   ⚠깃발이 아니라 **실제 밑단이 사발 껍질 위에 있는지**로 판정한다(중심이 안 맞아 −58.99~−61.79로 퍼진다).
+    const pier = nexusPierSpec()
+    const pierB = pier.on ? nexusPierBottom() : null   // ★97 테이퍼 반영 실측 밑선
+    //  ★96 헌치도 같은 부류다 — 밑면이 사발 껍질에 잠긴다(기둥과 같은 seat 어휘).
+    //  ★98 서쪽 빗면도 사발에 앉는다 — 밑선을 실기하에서 유도해 판정한다(깃발 아님).
+    //  ⚠`front`만 재면 틀린다 — 실제 최저점은 **뒷면**에 있다(front −61.71 vs 실기하 −62.83).
+    //   ★97 `spec.lo`와 같은 계열의 실수라 **전 정점에서** 유도한다.
+    const butT = buildWestButtressTris()
+    let butLo = null
+    if (butT) { butLo = Infinity; for (let i = 1; i < butT.pos.length; i += 3) butLo = Math.min(butLo, butT.pos[i]) }
+    const haunch = nexusHaunchSpec()
+    const haunchLo = haunch.on ? -CUP_R - NHAUNCH_SEAT : null
+    const isPierSeated = (g) => pier.on && g.comp === 'IncaStair' &&
+      ((pierB && g.minY <= pierB.lo + 0.05 && g.minY >= pierB.lo - 0.05) ||
+       (haunchLo !== null && g.minY <= haunchLo + 0.6 && g.minY >= haunchLo - 0.05) ||
+       (butLo !== null && Math.abs(g.minY - butLo) < 0.05))
+    const isSeated = (g) => (springY !== null && g.comp === 'IncaStair' && Math.abs(g.minY - springY) < 0.05) || isPierSeated(g)
+    //  잉카 무리가 명단에서 빠지는 경로는 둘이고 **배타적**이다: 밑면이 솟는 평면 위로 올라가거나
+    //   (★94-e 'slab'), 솟는 평면에서 끝나고 기둥이 받거나(★94-g). 어느 쪽이든 −5기다.
+    const incaLifted = mastSpec().on && incaStairSpec().y0 > 0.01 ? 5 : 0
+    const incaSeatedN = springY !== null && incaLifted === 0 ? 5 : 0
+    const GROUND_FIXED = 18 - incaLifted - incaSeatedN
+    const EXPECT = GROUND_FIXED + (TIER_ON ? TIER_N : 0) + (CUP_RING_ON && CUP_ON && MIR_ON ? 1 : 0)
     const HANG = [
       ...(RAD_CYL_ON ? RAD_CYL_Y1_BY.map((y) => ({ comp: 'RadialRooms', minY: y, n: 1 })) : []),
       //  ★2026.07.31 현도 2차 정정 후: 기둥 깊이가 극점에서 0으로 수렴하므로 반구·기둥 **둘 다 −R**에서 끝난다.
       ...(CUP_ON && MIR_ON ? [{ comp: 'DrumCup', minY: -CUP_R, n: 1 }, { comp: 'DrumCup', minY: -CUP_R, n: 1 }] : []),
+      //  ★94-c 셋째 부류 ⓒ — **앉은 것**: 중앙 기둥은 밑이 사발 껍질을 뚫고 극점 기둥 다발 속에 묻힌다.
+      //   빚(받침 없음)도, 매달림(허공 종단 설계)도 아니다 — 사발이 실제로 받는다. 명단 소진에서 뺀다.
+      ...(mastSpec().on ? [{ comp: 'IncaStair', minY: mastSpec().bottom, n: 1 }] : []),
     ]
     const isHung = (g) => HANG.some((h) => h.comp === g.comp && Math.abs(g.minY - h.minY) < 0.05)
     const all = ALLGROUND.filter((g) => g.el === 'mesh' && !RIB_COMPS.has(g.comp) && !PAD_COMPS.has(g.comp))
@@ -244,7 +287,14 @@ console.log(JSON.stringify({ called, bad, noted, keys, grounded }))
       ok(got.length === want.length && want.every((v, i) => Math.abs(v - got[i]) < 0.05),
         `⚠선언된 매달림 ${want.length}기(길이 불규칙) — 실측 밑단 ${got.join(' · ')}`)
     }
-    const targets = all.filter((g) => !isHung(g))
+    const seated = all.filter(isSeated)
+    if (pier.on)
+      ok(seated.some(isPierSeated),
+        `★★95 반십각 기둥 = **앉은 것** — 밑선 ${pierB.lo.toFixed(2)}~${pierB.hi.toFixed(2)}가 사발 껍질에 ${NPIER_SEAT} 묻힌다(빚이 아니다)`)
+    if (springY !== null)
+      ok(seated.length >= 5,
+        `★★94-g 앉은 것 ${seated.length}기 — 잉카 무리 밑면이 솟는 평면 ${springY}에서 끝나고 **중앙 기둥이 받는다**(기둥은 사발에 앉음). 빚이 아니다`)
+    const targets = all.filter((g) => !isHung(g) && !isSeated(g))
     const bare = targets.filter((g) => !g.covered)
     if (MIR_PADS.length === 0) {
       //  ★★2026.07.31 현도 ★92 — 임시 판을 지웠고 **바닥을 우선 없게** 하기로 했다("나중에 내부
@@ -255,7 +305,7 @@ console.log(JSON.stringify({ called, bad, noted, keys, grounded }))
       //   더는 접지가 아니다 — 로프트가 받는다. 그래서 기대 수가 체제에 따라 갈린다. 끄지 않고 **수를 옮긴다.**
       //  ★체제 깃발이 아니라 **실제 밑동 높이**로 판정한다(깃발과 기하가 어긋나면 깃발이 거짓말한다).
       const lifted = PIER_ON && CUP.pierBottomY() > 0.01 ? PIER_N : 0
-      ok(targets.length === 25 - lifted,
+      ok(targets.length === EXPECT - lifted,
         `⚠선언된 빚 — 드럼 단지 접지 ${targets.length}기가 받침 없음(현도 2026.07.31 "일단 두자")` +
         (lifted ? ` · 피어 ${lifted}기는 로프트가 받아 명단에서 빠졌다` : '') +
         ` · 내역 ${[...new Set(targets.map((g) => g.comp))].join(' · ')}`)
@@ -264,8 +314,8 @@ console.log(JSON.stringify({ called, bad, noted, keys, grounded }))
         `접지 mesh ${targets.length}개 전부 임시 판 안(명단 소진)` +
         (bare.length ? ` — ✗판 없음: ${bare.map((g) => g.comp).join(', ')}` : ''))
     }
-    ok(targets.length >= 25 - (PIER_ON && CUP.pierBottomY() > 0.01 ? PIER_N : 0),
-      `접지 스캔이 실제로 잡는다 — ${targets.length}개 ≥ 25(2026.07.29 실측 25 — 리브·지면 제외: 드럼 벽·셀라·피어 8·바닥단 7·잉카+날 5·제단·오벨리스크 기둥. 격감 = 스캔 고장 신호)`)
+    ok(targets.length >= EXPECT - (PIER_ON && CUP.pierBottomY() > 0.01 ? PIER_N : 0),
+      `접지 스캔이 실제로 잡는다 — ${targets.length}개 ≥ ${EXPECT}(파생: 18 − 잉카 상승 ${incaLifted} − 잉카 앉음 ${incaSeatedN} + 바닥단 ${TIER_ON ? TIER_N : 0} + 고리판 ${CUP_RING_ON && CUP_ON && MIR_ON ? 1 : 0}. 격감 = 스캔 고장 신호)`)
     const inst = ALLGROUND.filter((g) => g.el === 'instancedMesh' && !RIB_COMPS.has(g.comp))
     if (inst.length) console.log(`  ⓘ instancedMesh ${inst.length}개는 행렬 미적용이라 판정 불가(원점 기하) — ${[...new Set(inst.map((g) => g.comp))].join(', ')}`)
   }

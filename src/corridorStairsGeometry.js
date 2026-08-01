@@ -30,6 +30,13 @@ import {
   INCA_CUT_Y, INCA_PANEL_L, INCA_PANEL_W, INCA_PANEL_T,
   INCA_ARCH_X0, INCA_ARCH_Y1, INCA_FACETS,
   R_BASE, INCA_NEXUS_R, INCA_TIP_Y1, INCA_TIP_Y2, INCA_GAP, INCA_TIP_T, INCA_EMBED,
+  INCA_CENTER_MODE, INCA_SEP_MIN, INCA_RIM_CLR, INCA_CHAMF,   // ★94 넥서스 중심 정렬 체제 · ★94-b 판 챔퍼
+  CUP_R, MAST_R, MAST_TOP_BITE, MAST_SEAT_BITE, MAST_SEG,   // ★94-c 중앙 기둥(mast)
+  MAST_CAP, MAST_CAP_H, MAST_CAP_SEG, MAST_CAP_LAT, MAST_SKIRT,   // ★94-d 주두·뿌리 접합
+  MAST_CAP_FORM, MAST_CAP_N, INCA_ARCH_Y0,   // ★94-e 코벨 주두 · ★94-g 솟는 평면
+  NPIER_ON, NPIER_BITE, NPIER_SEAT, NPIER_LAT, NPIER_TAPER, NPIER_COLLAR,   // ★95 반십각 기둥 · ★97 테이퍼·칼라
+  WBUT_ON, WBUT_ANG, WBUT_SEAT, WBUT_BITE, WBUT_LAT,   // ★98 서쪽 빗면 버트레스
+  NHAUNCH_ON, NHAUNCH_ANG, NHAUNCH_BITE, NHAUNCH_SEAT, NHAUNCH_FAN, NHAUNCH_LAT, NHAUNCH_CORNER,   // ★96 사발 헌치
   INTAKE_ON, INTAKE_FORM, INTAKE_CX, SLIT_W, SLIT_LEN_F, SLIT_N, SLIT_GAP, SLIT_R, SLIT_ARC_DEG, SLIT_ARC_MID,
   HALL_ENTRY, DESC_HW, DESC_SIDE, DESC_R, DESC_SWEEP, DESC_SWEEP_MIN, DESC_SWEEP_MAX, DESC_RISE_MAX,
   BOX_HW,
@@ -418,7 +425,13 @@ export function descentSpec(scheme = HALL_ENTRY) {
   const S = [BOX_X1, 0]                              // 출발 = 박스 출구(축상)
   const yS = COR_Y0 + COR_THICK / 2                  // 다리 상면과 등고
   const st = incaStairSpec()
-  const E = [st.panel.x0, 0], yE = st.panel.yTop     // 도착 = 잉카 판 서단 상면
+  //  ★★94 도착 = **그 높이에서 서쪽으로 가장 먼저 나오는 단단한 면**.
+  //   'off'/'cut'에선 그게 진입 판 서단이다. ⚠'fan'에선 넥서스 부채가 판보다 서쪽(ncx)까지 뻗으므로
+  //    판 서단을 쓰면 하강로 마지막 구간이 **부채 위를 지나 보(2.6)가 부채 솔리드를 파고든다**
+  //    (check_waypoints [47]이 실측 0.24로 적발 — 체제를 껐다 켜며 잡힌 실제 충돌이다).
+  //   그래서 min으로 파생시킨다: 부채가 판을 삼키면 도착도 부채 서변으로 당겨진다.
+  const arriveX = Math.min(st.panel.x0, incaNexusWestX())
+  const E = [arriveX, 0], yE = st.panel.yTop        // 도착 = 판 서단 또는 넥서스 서변(파생)
   const sweep = Math.max(DESC_SWEEP_MIN, Math.min(DESC_SWEEP_MAX, DESC_SWEEP)) * DEG
   let segs, viewS = null
   if (scheme === 'axial') {
@@ -597,11 +610,57 @@ export function portPrismTris(port) {
 //  ★㊶-6 절단: INCA_CUT_Y를 단 격자에 스냅(i0) → i0 아래 단 전부 제거. ★㊶-7 곡선 밑면: 접지 스트립
 //  (절단면~ARCH_X0) 뒤 '위로 볼록' 다면 곡선(FACETS 분할 — 브루탈)이 리브 접점(ARCH_Y1)까지 상승 =
 //  아치 보이드. 판(6배)의 밑면도 폭 전체 곡면(위로 볼록)이 서면 ROOT 높이로 흘러듦.
-export function incaStairSpec() {
+//  ★★94 계단 격자 — 절단 역산('cut')이 이 격자 위에서 이뤄지므로 순수 함수로 분리한다.
+export function stairGrid() {
   const run = INCA_END_X - INCA_X0
   const n = Math.max(2, Math.round(INCA_TOP_Y / (INCA_TD * INCA_SLOPE)))
-  const rise = INCA_TOP_Y / n, td = run / n
-  const i0 = Math.min(n - 2, Math.max(0, Math.round(INCA_CUT_Y / rise)))   // 절단 스냅(최소 2단은 남김)
+  return { run, n, rise: INCA_TOP_Y / n, td: run / n }
+}
+
+//  ★★94 주어진 넥서스 중심에서 본 다섯 리브의 방위 — **순환 없는 순수 함수**.
+//   'cut' 체제의 R 역산이 이걸 쓴다(중심은 축에 고정이므로 R과 무관하게 방위가 결정된다).
+export function bladeAzAt(ncx) {
+  const out = []
+  for (const k of [-2, -1, 0, 1, 2]) {
+    const phi = (k / MERIDIANS) * Math.PI * 2
+    const rx = R_BASE * Math.cos(phi), rz = R_BASE * Math.sin(phi)
+    const dx = rx - ncx, dz = rz, L = Math.hypot(dx, dz)
+    const fx = rx - SHELL_RIB_R * dx / L, fz = rz - SHELL_RIB_R * dz / L
+    out.push(Math.atan2(fz, fx - ncx))
+  }
+  return out
+}
+
+//  ★★94 넥서스 반지름 — **세 체제 전부 파생**(constants INCA_CENTER_MODE 주석이 근거 정본).
+//   'off' = 노브 그대로 · 'cut' = 날-날 간격 요구에서 역산(축 고정이라 R과 무순환)
+//   'fan' = 절단면 − 드럼축(서변이 축에 닿는다)
+export function nexusR() {
+  if (INCA_CENTER_MODE === 'fan') {
+    const { td } = stairGrid()
+    return (INCA_X0 + cutStep('fan') * td) - COR_CX
+  }
+  if (INCA_CENTER_MODE === 'cut' || INCA_CENTER_MODE === 'mast') {   // ★94-c mast = cut 정렬 위에 기둥
+    const az = bladeAzAt(COR_CX)                       // 중심 = 축(스냅 오차는 0.2 이하 — 검사가 잰다)
+    let need = INCA_NEXUS_R
+    for (let i = 0; i < 4; i++)
+      need = Math.max(need, (INCA_W0 + INCA_SEP_MIN) / Math.sin(az[i + 1] - az[i]) - 1.5)
+    return need
+  }
+  return INCA_NEXUS_R
+}
+
+//  ★★94 절단 단 i0 — 'cut'이면 **목표 절단면(축 + R)에서 역산**, 아니면 INCA_CUT_Y에서.
+export function cutStep(mode = INCA_CENTER_MODE) {
+  const { n, rise, td } = stairGrid()
+  const raw = mode === 'cut' || mode === 'mast'
+    ? (COR_CX + nexusR() - INCA_X0) / td               // 넥서스 중심 = 드럼축이 되는 단
+    : INCA_CUT_Y / rise
+  return Math.min(n - 2, Math.max(0, Math.round(raw)))
+}
+
+export function incaStairSpec() {
+  const { run, n, rise, td } = stairGrid()
+  const i0 = cutStep()                                                    // ★94 체제별 파생(구: CUT_Y 스냅 고정)
   const cutY = i0 * rise, cutX = INCA_X0 + i0 * td
   const wAt = (x) => INCA_W0 + (INCA_W1 - INCA_W0) * Math.min(1, Math.max(0, (x - INCA_X0) / run))
   const steps = []
@@ -611,23 +670,50 @@ export function incaStairSpec() {
     steps.push({ x0, x1, yTop: (i + 1) * rise, w0: wAt(x0), w1: wAt(x0 + td) })
   }
   // ★㊶-7 밑면 아치 다면(위로 볼록: sin — 급상승 후 완만): 발(ARCH_X0, 0) → 리브 접점(END+BITE, ARCH_Y1)
+  //  ★★★94-e 현도 "5갈래 아래 지지하는 부분과 원기둥이 접하지도 않는다" — 실측 원인:
+  //   매스 밑이 **y −0.3 고정**이라 서면이 전고 31.2 수직 벽으로 매달리고 접지 스트립(x 216~240)이
+  //   전부 허공이었다(주두 상단에서 아래로 29.71 무지지). 지면이 ★87로 없어진 자리의 유물.
+  //   → 'mast'+'slab'에선 매스 밑 = **슬라브 밑면**, 아치도 거기서 솟는다 → 판·넥서스·날과 한 장.
+  //   ⚠아치의 일("리브 밑동을 자유롭게")은 그대로다 — 접점 ARCH_Y1은 안 건드린다.
+  //  ★★94-g 'mast': 매스 밑 = **솟는 평면**(구 −0.3 = 지면 매몰의 유물). 아치 자체는 무수정 —
+  //   발(ARCH_X0, ARCH_Y0)에서 리브 접점 ARCH_Y1까지 전고 그대로다. 수평 소핏이 기둥까지 이어질 뿐.
+  const fanVault = INCA_CENTER_MODE === 'mast'
+  const slabBase = fanVault ? INCA_ARCH_Y0 : ((MAST_SKIRT === 'slab') ? cutY - INCA_PANEL_T : -0.3)
+  const archY0 = fanVault ? INCA_ARCH_Y0 : ((INCA_CENTER_MODE === 'mast' && MAST_SKIRT === 'slab') ? slabBase : 0)
   const arch = []
   for (let f = 0; f <= INCA_FACETS; f++) {
     const t = f / INCA_FACETS
     arch.push({ x: INCA_ARCH_X0 + (INCA_END_X + INCA_BITE - INCA_ARCH_X0) * t,
-                y: INCA_ARCH_Y1 * Math.sin(t * Math.PI / 2) })
+                y: archY0 + (INCA_ARCH_Y1 - archY0) * Math.sin(t * Math.PI / 2) })
   }
   // ★㊶-7→㊶-8 판: 서단 두께 T의 슬라브, 밑면 = 위로 볼록 곡면(1−cos — 완만 출발 후 급강하)이
   //  '바닥까지'(현도 ㊶-8) — 곡선 종점 = 절단면 발(지면 −0.3 매몰). 판 = 접지 곡면 콘솔.
-  const px0 = cutX - INCA_PANEL_L
+  //  ★★★94-b 판 = **사다리꼴**(현도 2026.07.31 'plate' 채택). 두 끝 폭이 둘 다 파생이다:
+  //   서단 = 하강로 폭(DESC_HW×2) @ x = COR_CX(드럼축 = 사발 최저점 바로 위) — 여기 내려선다
+  //   동단 = 10각형 서변(중심 지름) 폭 @ x = ncx + 물림
+  //  ⚠구 체제('off'/'cut'/'fan')에선 종전대로 폭 균일 20×5 — 보존계가 썩지 않게 두 경로를 다 산다.
+  //  ★94-c 'mast': 사다리꼴 어휘 계승 — 폭 무릎(xm) = 넥서스 서변. [x0→xm] 테이퍼 5→서변폭 ·
+  //   [xm→x1] 등폭(넥서스 밑을 지나는 구간 — 림이 덮어 가려진다). 'plate'는 xm = x1(순수 테이퍼).
+  const plate = INCA_CENTER_MODE === 'plate', mast = INCA_CENTER_MODE === 'mast'
+  const R = nexusR(), ncx = cutX - R
+  const px0 = plate ? COR_CX : cutX - INCA_PANEL_L
+  const px1 = plate ? ncx + INCA_BITE : cutX + 0.2
+  //  ★서변 폭 = 넥서스 폴리곤 서변의 z 스팬(같은 파생을 두 번 쓰지 않도록 여기서 직접 유도)
+  const pw1 = (plate || mast) ? nexusWestSpan(ncx, R) : INCA_PANEL_W
+  const pw0 = (plate || mast) ? DESC_HW * 2 : INCA_PANEL_W
+  const pxm = plate ? px1 : (mast ? ncx : px1)          // 폭 무릎 — 'mast'만 x1보다 서쪽
+  //  ★★94-d ⓐ 'mast'에선 밑면이 **평평한 슬라브**다 — 구 콘솔은 '지면까지 흘러듦'이 목적이었고
+  //   지면은 ★87로 없어졌으며, 지금 그 자리엔 기둥이 있어 곡선이 기둥을 관통했다(실측 x 199.6~209.7).
   const under = []
   for (let f = 0; f <= INCA_FACETS; f++) {
     const t = f / INCA_FACETS
-    under.push({ x: px0 + (cutX - px0) * t,
-                 y: (cutY - INCA_PANEL_T) - (cutY - INCA_PANEL_T + 0.3) * (1 - Math.cos(t * Math.PI / 2)) })
+    under.push({ x: px0 + (px1 - px0) * t,
+                 y: mast ? cutY - INCA_PANEL_T
+                   : (cutY - INCA_PANEL_T) - (cutY - INCA_PANEL_T + 0.3) * (1 - Math.cos(t * Math.PI / 2)) })
   }
-  const panel = { x0: px0, x1: cutX + 0.2, yTop: cutY, t: INCA_PANEL_T, w: INCA_PANEL_W, under }
-  return { n, rise, td, steps, x0: INCA_X0, x1: INCA_END_X, top: INCA_TOP_Y, run, i0, cutY, cutX, arch, panel }
+  const panel = { x0: px0, x1: px1, xm: pxm, yTop: cutY, t: INCA_PANEL_T,
+                  w0: pw0, w1: pw1, w: Math.max(pw0, pw1), taper: plate || mast, under }
+  return { n, rise, td, steps, x0: INCA_X0, x1: INCA_END_X, top: INCA_TOP_Y, run, i0, cutY, cutX, arch, panel, y0: slabBase }
 }
 
 // ════════ ★㊷ 다섯 날(2026.07.21 현도 스케치) — 반십각 넥서스 + #±1·±2 날 4 ════════
@@ -644,9 +730,539 @@ export function incaStairSpec() {
 //   대신 밑곡선 = 상면 현(cutY→tipY 직선) − 두께(t), 두께(t) = TIP_T + (뿌리 전고 − TIP_T)·(1−sin(tπ/2))
 //   → (상면 − 밑곡선) ≥ TIP_T가 전 구간 항등 보장 + y″<0 = 위로 볼록(S2 현-위 검사 어휘) 유지.
 //  리브 하부 위치 = R_BASE 원(수직 구간 — INCA_END_X와 같은 기준).
+//  ★★94 넥서스 서변 x(= 중심 지름의 x) — `descentSpec`이 도착점을 파생시킬 때 쓴다.
+//   ⚠`incaBladesSpec()`을 부르면 순환한다(그 함수가 descentSpec을 안 부르긴 하지만 비용이 크다) —
+//    ncx = cutX − R 하나면 되므로 경량 함수로 분리한다.
+export function incaNexusWestX() { return incaStairSpec().cutX - nexusR() }
+
+//  ★★★94-c 중앙 기둥(mast) — 근거 정본 = constants MAST 블록. **노브는 반지름 하나, 나머지 전부 파생.**
+export function mastSpec() {
+  if (INCA_CENTER_MODE !== 'mast') return { on: false }
+  const st = incaStairSpec()
+  const nexUnder = st.cutY + 0.04 - INCA_PANEL_T                  // 넥서스 밑면
+  const top = nexUnder + MAST_TOP_BITE                            // 슬라브 속 물림(⚠판 보행면 st.cutY 아래 — 검사)
+  const bottom = -Math.sqrt(CUP_R * CUP_R - MAST_R * MAST_R) - MAST_SEAT_BITE   // 껍질 관통 앉힘
+  //  ★★94-g 주두는 **솟는 평면**에서 받는다 — 발이 y ARCH_Y0이므로 거기가 받침 자리다.
+  //   ⚠구 위치(판 슬라브 밑면)는 아치 발보다 20 위라 실제로 아무것도 안 받고 있었다.
+  const capTop = (INCA_CENTER_MODE === 'mast') ? INCA_ARCH_Y0 : st.cutY - INCA_PANEL_T + MAST_TOP_BITE
+  return { on: true, cx: COR_CX, r: MAST_R, top: capTop, bottom, h: capTop - bottom, seg: MAST_SEG, nexUnder,
+           cap: MAST_CAP, capTop, capBot: capTop - MAST_CAP_H, capH: MAST_CAP_H, slabTop: top }
+}
+
+//  ★★★94-d 뿌리 복합체의 **평면 실루엣 반경** — 기둥 축에서 방위 θ로 쏜 광선이 (판 ∪ 넥서스) 밖으로
+//   나가는 거리. 주두 상단 링이 이걸 그대로 쓰므로 **평면 돌출이 정의상 0**이다.
+export function rootSilhouetteR(theta) {
+  const st = incaStairSpec(), ibs = incaBladesSpec(), P = st.panel
+  const xm = P.xm ?? P.x1
+  const hwPanel = (x) => (x < P.x0 || x > P.x1) ? -1
+    : (x >= xm ? P.w1 : P.w0 + (P.w1 - P.w0) * Math.max(0, Math.min(1, (x - P.x0) / (xm - P.x0)))) / 2
+  const poly = ibs.nexus
+  const inNexus = (x, z) => {                                     // 짝수-홀수 규칙
+    let c = false
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const zi = poly[i].z, zj = poly[j].z
+      if ((zi > z) !== (zj > z) && x < (poly[j].x - poly[i].x) * (z - zi) / (zj - zi) + poly[i].x) c = !c
+    }
+    return c
+  }
+  const inside = (d) => {
+    const x = COR_CX + d * Math.cos(theta), z = d * Math.sin(theta)
+    return Math.abs(z) <= hwPanel(x) || inNexus(x, z)
+  }
+  let lo = 0, hi = 40                                             // 이분 탐색(실루엣은 별형 = 단조 가정 유효)
+  if (!inside(0.01)) return MAST_R
+  for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (inside(m)) lo = m; else hi = m }
+  return lo
+}
+
+//  ★★★94-d 기둥 = 샤프트 + 주두. 주두 옆선 = `1−cos` 위로 볼록 → **t=0에서 dr/dt=0 = 샤프트 접선 연속.**
+export function buildMastTris() {
+  const M = mastSpec()
+  if (!M.on) return null
+  const N = M.cap ? MAST_CAP_SEG : M.seg
+  const sil = []
+  for (let i = 0; i < N; i++) sil.push(M.cap ? rootSilhouetteR((i / N) * Math.PI * 2) : M.r)
+  //  링 목록: 밑(발) → 샤프트 상단(주두 밑) → 주두 곡선 → 상단
+  const rings = [{ y: M.bottom, f: 0 }, { y: M.cap ? M.capBot : M.top, f: 0 }]
+  if (M.cap && MAST_CAP_FORM === 'corbel') {
+    //  ★★94-e 코벨(내쌓기) — 단마다 **수평 턱(같은 y에서 반경 점프) + 수직 면**. 각진 어휘(★92-b 계승).
+    for (let k = 1; k <= MAST_CAP_N; k++) {
+      rings.push({ y: M.capBot + M.capH * ((k - 1) / MAST_CAP_N), f: k / MAST_CAP_N })   // 수평 턱
+      rings.push({ y: M.capBot + M.capH * (k / MAST_CAP_N), f: k / MAST_CAP_N })         // 수직 면
+    }
+  } else if (M.cap) {
+    for (let j = 1; j <= MAST_CAP_LAT; j++) rings.push({ y: M.capBot + M.capH * (j / MAST_CAP_LAT), f: j / MAST_CAP_LAT })
+  }
+  const rAt = (i, f) => M.r + (sil[i] - M.r) * (1 - Math.cos(f * Math.PI / 2))
+  const pt = (i, ring) => {
+    const t = (i % N) / N * Math.PI * 2, r = rAt(i % N, ring.f)
+    return [COR_CX + r * Math.cos(t), ring.y, r * Math.sin(t)]
+  }
+  const pos = [], nrm = []
+  const tri = (a, b, c, hint) => {
+    const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
+    let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
+    const L = Math.hypot(n[0], n[1], n[2]); if (L < 1e-12) return
+    n = [n[0] / L, n[1] / L, n[2] / L]
+    let v = [a, b, c]
+    if (n[0] * hint[0] + n[1] * hint[1] + n[2] * hint[2] < 0) { n = [-n[0], -n[1], -n[2]]; v = [a, c, b] }
+    for (const q of v) { pos.push(q[0], q[1], q[2]); nrm.push(n[0], n[1], n[2]) }
+  }
+  for (let k = 0; k < rings.length - 1; k++) {
+    //  ⚠★94-e 코벨의 **수평 턱**(같은 y에서 반경만 점프)은 법선이 ∓y다 — 반경 힌트를 주면 부호가
+    //   불안정해져 감김이 깨진다(1차 구현이 그렇게 났고 `windingConsistent`가 false로 잡았다).
+    const flat = Math.abs(rings[k + 1].y - rings[k].y) < 1e-9
+    for (let i = 0; i < N; i++) {
+      const t = ((i + 0.5) / N) * Math.PI * 2
+      const hint = flat ? [0, -1, 0] : [Math.cos(t), 0, Math.sin(t)]
+      const a = pt(i, rings[k]), b = pt(i + 1, rings[k]), c = pt(i + 1, rings[k + 1]), d = pt(i, rings[k + 1])
+      tri(a, b, c, hint); tri(a, c, d, hint)
+    }
+  }
+  const capRing = (ring, hint) => {                               // 위·아래 뚜껑(팬)
+    const ctr = [COR_CX, ring.y, 0]
+    for (let i = 0; i < N; i++) tri(ctr, pt(i, ring), pt(i + 1, ring), hint)
+  }
+  capRing(rings[0], [0, -1, 0])
+  capRing(rings[rings.length - 1], [0, 1, 0])
+  return { pos, nrm }
+}
+
+//  ★★★95 반십각 기둥 — 넥서스 폴리곤을 사발까지 내리 압출한다(현도 2026.08.01).
+//   근거 정본 = constants NPIER 블록. **새 단면을 만들지 않는다** — `incaBladesSpec().nexus` 그대로다.
+export function nexusPierSpec() {
+  const ibs = incaBladesSpec(), st = incaStairSpec()
+  if (!NPIER_ON) return { on: false }
+  const top = st.cutY + 0.04 - INCA_PANEL_T + NPIER_BITE          // 넥서스 밑면 + 물림
+  //  각 점의 사발 깊이(드럼축 기준 반경으로). ⚠중심이 안 맞아 점마다 다르다 — 그래서 밑선이 곡면을 탄다.
+  const seatAt = (x, z) => {
+    const r = Math.hypot(x - COR_CX, z)
+    return -Math.sqrt(Math.max(0, CUP_R * CUP_R - r * r)) - NPIER_SEAT
+  }
+  //  ★★97-b 칼라 = 치마가 시작하는 선. 'panel'이면 **판 콘솔이 기둥 서면과 만나는 y를 푼다**(파생).
+  //   ⚠현도가 두 번 정정한 지점이다 — 처음엔 사발 근처(y 5), 다음엔 기둥 꼭대기로 잡았는데
+  //    본뜻은 "사다리꼴 아래 아치 구조물이 사각형 기둥과 만나는 선"이었다.
+  const wxFace = Math.min(...ibs.nexus.map((q) => q.x))
+  let collar = top
+  if (NPIER_COLLAR === 'panel') {
+    const U = st.panel.under
+    for (let i = 0; i < U.length - 1; i++) {
+      if ((U[i].x - wxFace) * (U[i + 1].x - wxFace) <= 0) {
+        const u = (wxFace - U[i].x) / (U[i + 1].x - U[i].x)
+        collar = U[i].y + (U[i + 1].y - U[i].y) * u
+        break
+      }
+    }
+  }
+  const poly = ibs.nexus.map((q) => ({ x: q.x, z: q.z, y: seatAt(q.x, q.z) }))
+  //  ⚠lo/hi는 **꼭짓점만으로 재면 틀린다** — 밑선이 곡면을 타므로 변 중간이 더 깊을 수 있다.
+  //   실제로 서변(중심 지름) z=0에서 드럼축 반경이 최소(10.61)라 그 지점이 전체 최심점이다.
+  //   (1차 구현이 꼭짓점만 쟀고 `check_render`의 앉음 판정이 실측 밑단과 안 맞아 즉시 적발됐다.)
+  let lo = Infinity, hi = -Infinity
+  const NS = Math.max(8, NPIER_LAT)
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length]
+    for (let k = 0; k <= NS; k++) {
+      const t = k / NS
+      const y = seatAt(a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t)
+      lo = Math.min(lo, y); hi = Math.max(hi, y)
+    }
+  }
+  return { on: true, top, collar, poly, seatAt, lo, hi, cx: ibs.ncx }
+}
+
+export function buildNexusPierTris() {
+  const S = nexusPierSpec()
+  if (!S.on) return null
+  const P = S.poly, N = P.length
+  const tan = Math.tan(NPIER_TAPER * Math.PI / 180)
+  const shell = (x, z) => -Math.sqrt(Math.max(0, CUP_R * CUP_R - ((x - COR_CX) ** 2 + z * z)))
+  let mx = 0, mz = 0
+  for (const q of P) { mx += q.x / N; mz += q.z / N }
+  //  ★★97 **미터 오프셋** — 꼭짓점은 이등분선 방향으로 d·tan/cos(반각)만큼 나간다.
+  //   그래야 변마다 평면 하나 · 모서리는 능선이 된다(현도 "각진", ⛔둥글림 금지).
+  //   ⚠단순히 꼭짓점을 중심에서 멀어지게 밀면(방사 오프셋) 변이 평면이 안 되고 모서리 각이 뭉갠다.
+  const edgeN = []
+  for (let i = 0; i < N; i++) {
+    const a = P[i], b = P[(i + 1) % N]
+    let dx = (a.x + b.x) / 2 - mx, dz = (a.z + b.z) / 2 - mz
+    const L = Math.hypot(dx, dz); edgeN.push([dx / L, dz / L])
+  }
+  const vtx = []                                    // 꼭짓점별 {이등분선, 1/cos(반각)}
+  for (let i = 0; i < N; i++) {
+    const n0 = edgeN[(i - 1 + N) % N], n1 = edgeN[i]
+    let bx = n0[0] + n1[0], bz = n0[1] + n1[1]
+    const L = Math.hypot(bx, bz) || 1
+    bx /= L; bz /= L
+    const cosHalf = Math.max(0.2, bx * n1[0] + bz * n1[1])
+    vtx.push({ bx, bz, k: 1 / cosHalf })
+  }
+  //  둘레 표본: 변마다 쪼개되(평면), 꼭짓점은 미터 계수로(능선)
+  const ring = []
+  for (let i = 0; i < N; i++) {
+    const a = P[i], b = P[(i + 1) % N], n = edgeN[i]
+    const va = vtx[i], vb = vtx[(i + 1) % N]
+    for (let k = 0; k <= NPIER_LAT; k++) {
+      const u = k / NPIER_LAT
+      const px = a.x + (b.x - a.x) * u, pz = a.z + (b.z - a.z) * u
+      //  변 위 점은 변 법선으로, 꼭짓점은 이등분선으로 — u=0/1에서 매끄럽게 넘어가도록 끝점만 교체
+      const dir = (k === 0) ? [va.bx * va.k, va.bz * va.k]
+        : (k === NPIER_LAT) ? [vb.bx * vb.k, vb.bz * vb.k]
+          : [n[0], n[1]]
+      ring.push({ px, pz, dx: dir[0], dz: dir[1] })
+    }
+  }
+  //  각 표본이 사발에 닿는 깊이 — 벌어지면서 내려가므로 이분 탐색
+  for (const r of ring) {
+    //  ★97-b 칼라 위는 수직(벌어짐 0), 아래만 치마 — 벌어짐은 칼라 아래 깊이에 비례한다.
+    const spreadAt = (d) => Math.max(0, (S.top - d < S.collar) ? (S.collar - (S.top - d)) : 0) * tan
+    let lo = 0, hi = 200
+    const f = (d) => (S.top - d) - (shell(r.px + r.dx * spreadAt(d), r.pz + r.dz * spreadAt(d)) - NPIER_SEAT)
+    for (let i = 0; i < 60; i++) { const m = (lo + hi) / 2; if (f(m) > 0) lo = m; else hi = m }
+    r.d = (lo + hi) / 2
+    const sp = spreadAt(r.d)
+    r.lx = r.px + r.dx * sp; r.lz = r.pz + r.dz * sp; r.ly = S.top - r.d
+    r.cx0 = r.px + r.dx * 0; r.cz0 = r.pz   // 칼라 단면(수직 구간 끝) = 원단면
+  }
+  const pos = [], nrm = []
+  const tri = (a, b, c, hint) => {
+    const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
+    let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
+    const L = Math.hypot(n[0], n[1], n[2]); if (L < 1e-12) return
+    n = [n[0] / L, n[1] / L, n[2] / L]
+    let v = [a, b, c]
+    if (n[0] * hint[0] + n[1] * hint[1] + n[2] * hint[2] < 0) { n = [-n[0], -n[1], -n[2]]; v = [a, c, b] }
+    for (const q of v) { pos.push(q[0], q[1], q[2]); nrm.push(n[0], n[1], n[2]) }
+  }
+  const M = ring.length
+  //  ★★★97-c 옆면은 **칼라에서 끊어 두 구간**으로 만든다.
+  //   ⚠1차 구현은 윗점(y=top)과 밑점만 이어 직선 하나로 그렸다 — 밑점 좌표는 맞는데 **옆선이 칼라에서
+  //    안 꺾여** 꼭대기부터 곧장 벌어졌고, 실효각이 10°가 아니라 6.37°로 나왔다(현도 적발: "둘 다
+  //    치마가 top에서 시작하는데?"). 칼라 위 수직 구간을 **꼭짓점으로 박아야** 형태가 산다.
+  const collarY = Math.min(S.top, Math.max(S.collar, -1e9))
+  for (let i = 0; i < M; i++) {
+    const r0 = ring[i], r1 = ring[(i + 1) % M]
+    const hint = [(r0.lx + r1.lx) / 2 - mx, 0, (r0.lz + r1.lz) / 2 - mz]
+    const T0 = [r0.px, S.top, r0.pz], T1 = [r1.px, S.top, r1.pz]
+    const C0 = [r0.px, collarY, r0.pz], C1 = [r1.px, collarY, r1.pz]   // 칼라 = 원단면(수직 구간 끝)
+    const L0 = [r0.lx, r0.ly, r0.lz], L1 = [r1.lx, r1.ly, r1.lz]
+    if (collarY < S.top - 1e-9) {
+      tri(T0, T1, C1, hint); tri(T0, C1, C0, hint)        // ① 칼라 위 — 수직 몸통
+    }
+    tri(C0, C1, L1, hint); tri(C0, L1, L0, hint)          // ② 칼라 아래 — 치마
+    tri([mx, S.top, mz], T0, T1, [0, 1, 0])               // 윗 뚜껑
+    const cBot = [mx, S.top - ring[0].d, mz]
+    tri(cBot, L0, L1, [0, -1, 0])                         // 밑 뚜껑
+  }
+  return { pos, nrm, ring }
+}
+
+//  ★★★96 사발 헌치 — 반십각 기둥 밑동을 사발이 올라와 받는 경사면(현도 2026.08.01).
+//   근거 정본 = constants NHAUNCH 블록. **각도가 노브 · 높이는 파생**(서쪽 끝 = 사발 극점).
+export function nexusHaunchSpec() {
+  const S = nexusPierSpec()
+  if (!NHAUNCH_ON || !S.on) return { on: false }
+  const tan = Math.tan(NHAUNCH_ANG * Math.PI / 180)
+  //  ★높이 파생: 서변 z=0 지점에서 그 각으로 내려가면 정확히 극점(COR_CX, −CUP_R)에 닿는다.
+  const wx = Math.min(...S.poly.map((q) => q.x))          // 서변 x(= 중심 지름)
+  const run = wx - COR_CX                                 // 극점까지 수평거리
+  //  ⚠1차 구현이 부호를 뒤집었다: 착지 y = (밑선 + H) − run·tan 이 **극점의 묻힌 깊이**와 같아야 하므로
+  //   H = run·tan − (밑선 + CUP_R + SEAT). 구식(+0.6)은 H가 1.5 과대라 서쪽 끝이 극점을 1~1.4 지나쳤고,
+  //   각을 40°로 낮췄을 때 가드가 울려 잡혔다(50°에선 공차 안이라 안 보였다 — 스윕이 아니었으면 놓쳤다).
+  const H = run * tan - (S.seatAt(wx, 0) + CUP_R + NHAUNCH_SEAT)
+  return { on: true, tan, H, ang: NHAUNCH_ANG, run, pier: S }
+}
+
+//  ★검사가 밑선을 실측할 수 있게 링을 내보낸다(검사가 기하를 재구현하면 언젠가 어긋난다).
+export function nexusHaunchRing() { const t = buildNexusHaunchTris(); return t ? t.ring : null }
+
+export function buildNexusHaunchTris() {
+  const A = nexusHaunchSpec()
+  if (!A.on) return null
+  const S = A.pier, P = S.poly, N = P.length
+  //  폴리곤 중심(안쪽 방향 판정용) — 반십각은 볼록이다
+  let mx = 0, mz = 0
+  for (const q of P) { mx += q.x / N; mz += q.z / N }
+  const shell = (x, z) => -Math.sqrt(Math.max(0, CUP_R * CUP_R - ((x - COR_CX) ** 2 + z * z)))
+  //  ★바깥으로 내려가 사발과 만나는 지점 — **행진해서 찾는다**(닫힌 해가 없다: 사발도 곡면)
+  const landing = (px, pz, dx, dz, yTop, slope = A.tan) => {
+    let lo = 0, hi = 80
+    const f = (t) => (yTop - t * slope) - shell(px + dx * t, pz + dz * t)
+    if (f(hi) > 0) hi = 200
+    for (let i = 0; i < 60; i++) { const m = (lo + hi) / 2; if (f(m) > 0) lo = m; else hi = m }
+    return (lo + hi) / 2
+  }
+  //  ── 링 구성: 변마다 법선 방향, 모서리마다 부챗살로 방향을 벌린다(볼록 코너 메움) ──
+  const ring = []
+  const edgeDir = []
+  for (let i = 0; i < N; i++) {
+    const a = P[i], b = P[(i + 1) % N]
+    let dx = (a.x + b.x) / 2 - mx, dz = (a.z + b.z) / 2 - mz
+    const L = Math.hypot(dx, dz); edgeDir.push([dx / L, dz / L])
+  }
+  for (let i = 0; i < N; i++) {
+    const a = P[i], b = P[(i + 1) % N]
+    const d = edgeDir[i]
+    //  ⚠변을 쪼갠다 — 극점으로 가는 지점은 서변 한가운데(z=0)뿐이라 끝점만 재면 통째로 빠진다.
+    for (let k = 0; k <= NHAUNCH_LAT; k++) {
+      const u = k / NHAUNCH_LAT
+      const px = a.x + (b.x - a.x) * u, pz = a.z + (b.z - a.z) * u
+      const yT = S.seatAt(px, pz) + A.H
+      const t = landing(px, pz, d[0], d[1], yT)
+      ring.push({ px, pz, yT, lx: px + d[0] * t, lz: pz + d[1] * t })
+    }
+    //  ── 모서리 b ──
+    const d2 = edgeDir[(i + 1) % N]
+    const a0 = Math.atan2(d[1], d[0]); let a1 = Math.atan2(d2[1], d2[0])
+    while (a1 - a0 > Math.PI) a1 -= 2 * Math.PI
+    while (a1 - a0 < -Math.PI) a1 += 2 * Math.PI
+    const yTb = S.seatAt(b.x, b.z) + A.H
+    if (NHAUNCH_CORNER === 'ridge') {
+      //  ★★96-b **능선 하나** — 두 평면의 교선이다(현도 "각진 경사면", 둥글림 반려).
+      //   ⚠교선 방향으로는 **더 완만하게** 내려간다: 평면이 법선 방향으로 tan이면 이등분선 방향은
+      //    tan·cos(반각)이다. 이 보정을 빼먹으면 능선이 평면보다 먼저 사발에 닿아 모서리가 잘려 보인다.
+      const th = (a0 + a1) / 2, half = Math.abs(a1 - a0) / 2
+      const dx = Math.cos(th), dz = Math.sin(th)
+      const t = landing(b.x, b.z, dx, dz, yTb, A.tan * Math.cos(half))
+      ring.push({ px: b.x, pz: b.z, yT: yTb, lx: b.x + dx * t, lz: b.z + dz * t })
+    } else {
+      for (let k = 1; k < NHAUNCH_FAN; k++) {
+        const th = a0 + (a1 - a0) * (k / NHAUNCH_FAN)
+        const dx = Math.cos(th), dz = Math.sin(th)
+        const t = landing(b.x, b.z, dx, dz, yTb)
+        ring.push({ px: b.x, pz: b.z, yT: yTb, lx: b.x + dx * t, lz: b.z + dz * t })
+      }
+    }
+  }
+  //  ── 삼각형 ──
+  const pos = [], nrm = []
+  const tri = (a, b, c, hint) => {
+    const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
+    let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
+    const L = Math.hypot(n[0], n[1], n[2]); if (L < 1e-12) return
+    n = [n[0] / L, n[1] / L, n[2] / L]
+    let v = [a, b, c]
+    if (n[0] * hint[0] + n[1] * hint[1] + n[2] * hint[2] < 0) { n = [-n[0], -n[1], -n[2]]; v = [a, c, b] }
+    for (const q of v) { pos.push(q[0], q[1], q[2]); nrm.push(n[0], n[1], n[2]) }
+  }
+  const M = ring.length
+  const inward = (r) => {                                  // 안쪽(기둥 속) 물림 좌표
+    let dx = mx - r.px, dz = mz - r.pz
+    const L = Math.hypot(dx, dz) || 1
+    return [r.px + dx / L * NHAUNCH_BITE, r.pz + dz / L * NHAUNCH_BITE]
+  }
+  for (let i = 0; i < M; i++) {
+    const r0 = ring[i], r1 = ring[(i + 1) % M]
+    const [i0x, i0z] = inward(r0), [i1x, i1z] = inward(r1)
+    const T0 = [i0x, r0.yT, i0z], T1 = [i1x, r1.yT, i1z]
+    const L0 = [r0.lx, shell(r0.lx, r0.lz) - NHAUNCH_SEAT, r0.lz]
+    const L1 = [r1.lx, shell(r1.lx, r1.lz) - NHAUNCH_SEAT, r1.lz]
+    const B0 = [i0x, shell(i0x, i0z) - NHAUNCH_SEAT, i0z]
+    const B1 = [i1x, shell(i1x, i1z) - NHAUNCH_SEAT, i1z]
+    const out = [(r0.lx + r1.lx) / 2 - mx, 0, (r0.lz + r1.lz) / 2 - mz]
+    tri(T0, T1, L1, out); tri(T0, L1, L0, out)             // 바깥 경사면
+    tri(L0, L1, B1, [0, -1, 0]); tri(L0, B1, B0, [0, -1, 0])  // 밑면(사발에 잠김)
+    tri(B0, B1, T1, [-out[0], 0, -out[2]]); tri(B0, T1, T0, [-out[0], 0, -out[2]])  // 안쪽(기둥 속)
+  }
+  return { pos, nrm, ring }
+}
+
+export function buildNexusHaunch() {
+  const t = buildNexusHaunchTris(); if (!t) return null
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(t.pos, 3))
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(t.nrm, 3))
+  return g
+}
+
+//  ★★97 밑선 범위는 **실기하에서 유도한다** — 테이퍼가 켜지면 발자국이 커져 더 깊이 내려가므로
+//   `nexusPierSpec().lo`(테이퍼 없는 발자국 기준)를 쓰면 틀린다(★97에서 실제로 어긋나 검사가 잡았다).
+export function nexusPierBottom() {
+  const t = buildNexusPierTris()
+  if (!t) return null
+  let lo = Infinity, hi = -Infinity
+  for (const r of t.ring) { lo = Math.min(lo, r.ly); hi = Math.max(hi, r.ly) }
+  return { lo, hi }
+}
+
+//  ★★★98 서쪽 빗면 버트레스 — 근거 정본 = constants WBUT 블록.
+//   기점 = **판 콘솔 ∩ 기둥 서면**(둘 다 곡선/사면이라 닫힌 해가 없다 → 반복법). 폭 = 그 x의 판 폭.
+export function westButtressSpec() {
+  const S = nexusPierSpec()
+  if (!WBUT_ON || !S.on) return { on: false }
+  const st = incaStairSpec(), P = st.panel
+  const tanP = Math.tan(NPIER_TAPER * Math.PI / 180)
+  const wx0 = Math.min(...S.poly.map((q) => q.x))          // 기둥 서면(칼라 높이) x
+  const U = P.under
+  const consoleY = (x) => {                                // 판 콘솔 y(x) — 선형 보간
+    for (let i = 0; i < U.length - 1; i++)
+      if ((U[i].x - x) * (U[i + 1].x - x) <= 0) {
+        const t = (x - U[i].x) / (U[i + 1].x - U[i].x)
+        return U[i].y + (U[i + 1].y - U[i].y) * t
+      }
+    return null
+  }
+  //  ★반복: y → 서면 x(y) → 콘솔 y(x) → … 수렴한다(둘 다 단조라 고정점이 하나)
+  let y = 10
+  for (let i = 0; i < 120; i++) {
+    const fx = wx0 - Math.max(0, S.collar - y) * tanP
+    const cy = consoleY(fx)
+    if (cy === null) break
+    y = cy
+  }
+  const x = wx0 - Math.max(0, S.collar - y) * tanP
+  const xm = P.xm ?? P.x1
+  const hw = (P.x0 <= x && x <= P.x1)
+    ? (x >= xm ? P.w1 : P.w0 + (P.w1 - P.w0) * Math.max(0, Math.min(1, (x - P.x0) / (xm - P.x0)))) / 2
+    : P.w1 / 2
+  return { on: true, x, y, hw, tan: Math.tan(WBUT_ANG * Math.PI / 180), ang: WBUT_ANG, pier: S }
+}
+
+//  ★★★98 **닫힌 솔리드**다(현도: "옆면도 전부 채운 덩어리. 종잇장처럼 면 하나만 만드는 게 아니다").
+//   구성 = 위 모서리(교점선, z ±hw) → 아래 모서리(사발 착지선). 옆면 둘 · 앞면(경사) · 뒷면(기둥 속) · 밑면.
+export function buildWestButtressTris() {
+  const B = westButtressSpec()
+  if (!B.on) return null
+  const shell = (x, z) => -Math.sqrt(Math.max(0, CUP_R * CUP_R - ((x - COR_CX) ** 2 + z * z)))
+  //  z 표본마다 서쪽·아래로 내려가 사발에 닿는 깊이를 푼다(밑선이 곡면을 탄다)
+  const zs = []
+  for (let k = 0; k <= WBUT_LAT; k++) zs.push(-B.hw + (2 * B.hw) * (k / WBUT_LAT))
+  const front = zs.map((z) => {
+    let lo = 0, hi = 300
+    const f = (d) => (B.y - d) - (shell(B.x - d * B.tan, z) - WBUT_SEAT)
+    for (let i = 0; i < 60; i++) { const m = (lo + hi) / 2; if (f(m) > 0) lo = m; else hi = m }
+    const d = (lo + hi) / 2
+    return { z, tx: B.x, ty: B.y, bx: B.x - d * B.tan, by: B.y - d }
+  })
+  //  뒷면 = 기둥 속으로 물린 수직면(그 자리에서 사발까지)
+  const back = zs.map((z) => {
+    const bx = B.x + WBUT_BITE
+    return { z, tx: bx, ty: B.y, bx, by: shell(bx, z) - WBUT_SEAT }
+  })
+  const pos = [], nrm = []
+  const tri = (a, b, c, hint) => {
+    const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
+    let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
+    const L = Math.hypot(n[0], n[1], n[2]); if (L < 1e-12) return
+    n = [n[0] / L, n[1] / L, n[2] / L]
+    let v = [a, b, c]
+    if (n[0] * hint[0] + n[1] * hint[1] + n[2] * hint[2] < 0) { n = [-n[0], -n[1], -n[2]]; v = [a, c, b] }
+    for (const q of v) { pos.push(q[0], q[1], q[2]); nrm.push(n[0], n[1], n[2]) }
+  }
+  const quad = (a, b, c, d, h) => { tri(a, b, c, h); tri(a, c, d, h) }
+  const N = zs.length
+  for (let i = 0; i < N - 1; i++) {
+    const f0 = front[i], f1 = front[i + 1], k0 = back[i], k1 = back[i + 1]
+    quad([f0.tx, f0.ty, f0.z], [f1.tx, f1.ty, f1.z], [f1.bx, f1.by, f1.z], [f0.bx, f0.by, f0.z], [-1, 0, 0])   // 앞 경사면
+    quad([k0.tx, k0.ty, k0.z], [k1.tx, k1.ty, k1.z], [k1.bx, k1.by, k1.z], [k0.bx, k0.by, k0.z], [1, 0, 0])    // 뒷면(기둥 속)
+    quad([f0.tx, f0.ty, f0.z], [f1.tx, f1.ty, f1.z], [k1.tx, k1.ty, k1.z], [k0.tx, k0.ty, k0.z], [0, 1, 0])    // 윗면(교점선)
+    quad([f0.bx, f0.by, f0.z], [f1.bx, f1.by, f1.z], [k1.bx, k1.by, k1.z], [k0.bx, k0.by, k0.z], [0, -1, 0])   // 밑면(사발)
+  }
+  //  ★★옆면 둘 — 이걸 빼면 **종잇장**이 된다(현도 명시 경고 · ★62 링 슬롯 전례)
+  for (const [idx, h] of [[0, [0, 0, -1]], [N - 1, [0, 0, 1]]]) {
+    const f = front[idx], k = back[idx]
+    quad([f.tx, f.ty, f.z], [k.tx, k.ty, k.z], [k.bx, k.by, k.z], [f.bx, f.by, f.z], h)
+  }
+  return { pos, nrm, front, back }
+}
+
+export function buildWestButtress() {
+  const t = buildWestButtressTris(); if (!t) return null
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(t.pos, 3))
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(t.nrm, 3))
+  return g
+}
+
+export function buildNexusPier() {
+  const t = buildNexusPierTris(); if (!t) return null
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(t.pos, 3))
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(t.nrm, 3))
+  return g
+}
+
+export function buildMast() {
+  const t = buildMastTris(); if (!t) return null
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(t.pos, 3))
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(t.nrm, 3))
+  return g
+}
+
+//  ★★★94-b 진입 판 기하 — **정본 하나**(Corridor.jsx·render_views가 같은 함수를 쓴다. 사본 금지).
+//  ⚠압출(ExtrudeGeometry)로는 못 만든다 — 폭이 x를 따라 변하는 사다리꼴이기 때문이다
+//   (같은 이유의 경고가 잉카 매스 주석에 이미 적혀 있었다: \"폭 사다리꼴을 쓰려면 수제 쿼드로 회귀\").
+//  구성 = 단면 폴리곤 P(x–y)를 z ∈ [−hw(x), +hw(x)]로 쓸어낸 솔리드.
+//   · ±z 면 = P를 삼각분할해 z = ±hw(x)로 올린 두 장(폭이 변하므로 **기운 면**이다)
+//   · 테두리 = P의 각 변을 −hw → +hw로 이은 쿼드
+//  ★법선은 면 기하에서 뽑고 힌트는 부호만 정한다(★92·★93에서 세운 규율).
+//   ⚠`outwardTris`(중심 기준)를 쓰면 안 된다 — 이 단면은 밑곡선 때문에 **볼록이 아니다**.
+export function buildIncaPanelTris() {
+  const { panel } = incaStairSpec()
+  const P = [[panel.x0, panel.yTop], [panel.x1, panel.yTop], [panel.x1, -0.3]]
+  for (let i = panel.under.length - 1; i >= 1; i--) P.push([panel.under[i].x, panel.under[i].y])
+  P.push([panel.x0 + INCA_CHAMF, panel.yTop - panel.t], [panel.x0, panel.yTop - panel.t + INCA_CHAMF])
+  //  ★반시계로 정규화(테두리 바깥 법선을 (dy, −dx)로 쓰기 위한 전제)
+  let area2 = 0
+  for (let i = 0; i < P.length; i++) { const q = P[(i + 1) % P.length]; area2 += P[i][0] * q[1] - q[0] * P[i][1] }
+  if (area2 < 0) P.reverse()
+  //  ★94-c 폭 = 무릎(xm) 있는 조각선형: [x0→xm] 테이퍼 · [xm→x1] 등폭(w1)
+  const xm = panel.xm ?? panel.x1
+  const span = xm - panel.x0
+  const hw = (x) => (x >= xm ? panel.w1
+    : panel.w0 + (panel.w1 - panel.w0) * (span === 0 ? 0 : Math.max(0, Math.min(1, (x - panel.x0) / span)))) / 2
+  const pos = [], nrm = []
+  const tri = (a, b, c, hint) => {
+    const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
+    let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
+    const L = Math.hypot(n[0], n[1], n[2]); if (L < 1e-12) return
+    n = [n[0] / L, n[1] / L, n[2] / L]
+    let v = [a, b, c]
+    if (n[0] * hint[0] + n[1] * hint[1] + n[2] * hint[2] < 0) { n = [-n[0], -n[1], -n[2]]; v = [a, c, b] }
+    for (const q of v) { pos.push(q[0], q[1], q[2]); nrm.push(n[0], n[1], n[2]) }
+  }
+  const at = (i, sgn) => [P[i][0], P[i][1], sgn * hw(P[i][0])]
+  const faces = THREE.ShapeUtils.triangulateShape(P.map((q) => new THREE.Vector2(q[0], q[1])), [])
+  for (const [i, j, k] of faces) {
+    tri(at(i, +1), at(j, +1), at(k, +1), [0, 0, 1])            // +z 면
+    tri(at(i, -1), at(j, -1), at(k, -1), [0, 0, -1])           // −z 면
+  }
+  for (let i = 0; i < P.length; i++) {                          // 테두리
+    const j = (i + 1) % P.length
+    const dx = P[j][0] - P[i][0], dy = P[j][1] - P[i][1]
+    const hint = [dy, -dx, 0]                                   // 반시계 폴리곤의 바깥 법선
+    tri(at(i, -1), at(j, -1), at(j, +1), hint)
+    tri(at(i, -1), at(j, +1), at(i, +1), hint)
+  }
+  return { pos, nrm }
+}
+
+export function buildIncaPanel() {
+  const { pos, nrm } = buildIncaPanelTris()
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3))
+  return g
+}
+
+//  ★★94-b 넥서스 서변(중심 지름)의 z 스팬 — 판 동단 폭이 이걸 그대로 쓴다.
+//   ⚠`incaBladesSpec()`을 부르면 순환한다(그 함수가 incaStairSpec을 부른다) → 방위·경계만으로 재유도한다.
+export function nexusWestSpan(ncx, R) {
+  const az = bladeAzAt(ncx)
+  const bnd = [az[0] - (az[1] - az[0]) / 2]
+  for (let i = 0; i < 4; i++) bnd.push((az[i] + az[i + 1]) / 2)
+  bnd.push(az[4] + (az[4] - az[3]) / 2)
+  let maxHalf = 0
+  for (let i = 0; i < 5; i++) maxHalf = Math.max(maxHalf, (bnd[i + 1] - bnd[i]) / 2)
+  const rimR = (R + INCA_RIM_CLR) / Math.cos(maxHalf)
+  return rimR * (Math.sin(bnd[5]) - Math.sin(bnd[0]))
+}
+
 export function incaBladesSpec() {
   const base = incaStairSpec()
-  const ncx = base.cutX - INCA_NEXUS_R                        // 넥서스 중심(파생 — 동변 = 절단면)
+  const R = nexusR()                                          // ★94 체제별 파생
+  const ncx = base.cutX - R                                   // 넥서스 중심(파생 — 동변 = 절단면)
   const blades = []
   for (const k of [-2, -1, 0, 1, 2]) {
     const phi = (k / MERIDIANS) * Math.PI * 2
@@ -656,13 +1272,23 @@ export function incaBladesSpec() {
     const az = Math.atan2(fz, fx - ncx), faceDist = Math.hypot(fx - ncx, fz)
     if (k === 0) { blades.push({ k, az, faceDist, reach: true, ribC: [rx, rz] }); continue }
     const tipY = Math.abs(k) === 1 ? INCA_TIP_Y1 : INCA_TIP_Y2
-    const s0 = INCA_NEXUS_R - INCA_EMBED, sTip = faceDist - INCA_GAP
+    //  ★★94-g 날 뿌리 = **주두 림**(그 방위의 뿌리 실루엣) — 다섯이 전부 기둥에서 솟는다.
+    //   ⚠현도 승인: "미세하게 바껴도 괜찮으니까 그냥 가자"(디딤이 조금 길어진다).
+    //  ⚠실루엣으로 잡으면 `rootSilhouetteR` → `incaBladesSpec` **순환**이 난다(스택 초과로 즉시 적발).
+    //   발은 애초에 **샤프트 면**이므로(현도 승인 "발 = 반경 6 = 기둥 면") MAST_R이 맞고 순환도 없다.
+    const s0 = (INCA_CENTER_MODE === 'mast') ? MAST_R : R - INCA_EMBED
+    const sTip = faceDist - INCA_GAP
     const nB = Math.max(2, Math.round((tipY - base.cutY) / base.rise))     // 단높이 = #0 rise 어휘 공유
     const rb = (tipY - base.cutY) / nB, tb = (sTip - s0) / nB
     const steps = []
     for (let i = 0; i < nB; i++)
       steps.push({ s0: s0 + i * tb, s1: s0 + (i + 1) * tb, yTop: base.cutY + (i + 1) * rb })
-    const rootH = base.cutY + 0.3 - INCA_TIP_T                             // 뿌리 전고(상면 cutY ↔ 지면 −0.3)
+    //  ★★94-d ⓑ 뿌리 전고 — 'mast'+'slab'이면 **슬라브 두께**(지면이 없으므로 −0.3까지 갈 이유가 없다).
+    //   두께 프로파일 기계는 그대로라 팁 소멸(1p5 논증)은 무손상이다.
+    //  ★★94-g 뿌리 전고 = 상면(cutY) ↔ **솟는 평면**. 두께 프로파일 기계는 그대로다(팁 소멸 무손상).
+    const rootH = (INCA_CENTER_MODE === 'mast')
+      ? base.cutY - INCA_ARCH_Y0 - INCA_TIP_T
+      : ((MAST_SKIRT === 'slab') ? INCA_PANEL_T - INCA_TIP_T : base.cutY + 0.3 - INCA_TIP_T)
     const under = []                                                       // 밑곡선(두께 프로파일 — 위 주석)
     for (let f = 0; f <= INCA_FACETS; f++) {
       const t = f / INCA_FACETS
@@ -678,11 +1304,19 @@ export function incaBladesSpec() {
   const bnd = [az5[0] - (az5[1] - az5[0]) / 2]
   for (let i = 0; i < 4; i++) bnd.push((az5[i] + az5[i + 1]) / 2)
   bnd.push(az5[4] + (az5[4] - az5[3]) / 2)
-  const rimR = INCA_NEXUS_R + 0.4                                          // 물림 0.4: 변 현이 날 서면·절단면을 덮음
+  //  ★★94 림 물림 = **파생**(구 하드코딩 `R + 0.4`는 R=12에서만 맞았다 — ★92 '다각형' 계열 잠복 버그).
+  //   변의 중심거리 = rimR·cos(half). 변이 R을 덮으려면 rimR ≥ (R + CLR)/cos(half) — half는 변마다
+  //   다르므로(리브 방위 스냅) **최대 half**로 잡는다. 실측: R 12 → 12.42 · R 22.61 → 23.13.
+  let maxHalf = 0
+  for (let i = 0; i < 5; i++) maxHalf = Math.max(maxHalf, (bnd[i + 1] - bnd[i]) / 2)
+  const rimR = (R + INCA_RIM_CLR) / Math.cos(maxHalf)
   const nexus = [{ x: ncx, z: rimR * Math.sin(bnd[0]) }]
   for (const a of bnd) nexus.push({ x: ncx + rimR * Math.cos(a), z: rimR * Math.sin(a) })
   nexus.push({ x: ncx, z: rimR * Math.sin(bnd[5]) })
-  return { ncx, blades, nexus, bnd, rimR, cutY: base.cutY }
+  //  ★★94-g 넥서스 깊이 = 상면 ↔ **솟는 평면**(기둥 위에 앉은 드럼). 구 체제는 판 두께 그대로.
+  //   ⚠정본 하나 — Corridor·render_views가 이 값을 쓴다(각자 계산하면 언젠가 어긋난다).
+  const depth = (INCA_CENTER_MODE === 'mast') ? (base.cutY + 0.04 - INCA_ARCH_Y0) : INCA_PANEL_T
+  return { ncx, blades, nexus, bnd, rimR, R, maxHalf, depth, cutY: base.cutY }
 }
 
 // ════════ ★ 빛 흡입구 스펙(2026.07.22) — 천장 개구·챔버·검증의 공유 정본 ════════
