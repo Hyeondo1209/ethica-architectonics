@@ -19,6 +19,13 @@ import {
   buildP4A, buildP1Swells, p1HeightAt,
 } from './radialEventsGeometry.js'
 import { wpById } from './waypoints.js'   // ★2026.07.13: 스폰 정본이 웨이포인트 표로 이동
+import {
+  PIT_ON, PIT_SIDES, PIT_PHASE, PIT_R_TOP, PIT_R_BOT, PIT_DEPTH, PIT_WALL_T, PIT_FLOOR_T,
+  PIT_MARK_MODE, PIT_MARK_GAP, DEF_OCT_ON, DEF_OCT_R, DEF_OCT_PHASE,
+  ROOM_FLOOR_Y, ROOM_FLOOR_LIFT, ROOM_R, ROOM_HEIGHT, ROOM_STAIR_ROUT,
+  DAIS_R, DAIS_STEP_IN, DAIS_STEPS, POOL_R,
+} from './constants.js'
+import { pitSpec, pitProbe, buildPitWalls, buildPitRim, buildPitFloor, buildHoledSlab, polyRadiusAt } from './defPitGeometry.js'   // ★101
 
 let n = 0, fail = 0
 const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
@@ -269,6 +276,136 @@ console.log('── 검수 스폰(NE) ──')
   ok(Math.abs(P_SPAWN_LX) + 1.0 <= P_FLOOR_R, `스폰 |x|(${Math.abs(P_SPAWN_LX)}) 바닥 원판 안`)
   const toStele = P_ST_X - P_SPAWN_LX
   ok(toStele < P_ST_FAR && toStele > P_ST_NEAR, `스폰→비석 ${toStele.toFixed(1)} ∈ (near ${P_ST_NEAR}, far ${P_ST_FAR}) — 글자가 어렴풋이 뜬 채 시작`)
+}
+
+
+// ════════════════════════════════════════════════════════════════════
+//  ★101 정의 각뿔대(팔각 역각뿔대) — 블록아웃 (2026.08.02 현도 그림)
+//  이 절이 지키는 것: ⓐ 방위가 '정의 8기 = 면 8'에서 파생됐다 ⓑ 사이즈 노브 셋을 어디까지
+//  밀 수 있는지(격자 전수) ⓒ 밟는 면과 안 밟는 면이 갈려 있다 ⓓ 봉인·법선.
+// ════════════════════════════════════════════════════════════════════
+console.log('── ★101 정의 각뿔대 — 스펙·파생 ──')
+if (!PIT_ON) {
+  ok(DEF_OCT_ON === true, 'PIT_ON=false 보존계: 선돌 8기가 되살아난다(구세계 복원)')
+} else {
+  const S = pitSpec()
+  const nums = [S.yTop, S.yBot, S.rTop, S.rBot, S.rRim, S.apoTop, S.apoBot, S.sideTop, S.sideBot,
+    S.slopeDeg, S.faceH, S.floorBotY, S.shellGap]
+  ok(nums.every(Number.isFinite), `스펙 전 항목 유한 — NaN 없음(${nums.length}항)`)
+  ok(S.rBot < S.rTop && PIT_DEPTH > 0, `역각뿔대: 하면 ${S.rBot} < 상면 ${S.rTop} · 깊이 ${PIT_DEPTH}`)
+  ok(Math.abs(S.rRim - (S.rTop + PIT_WALL_T)) < 1e-12,
+    `판 구멍 반경 ${S.rRim} = 상면 + 입술 폭(${PIT_WALL_T}) — 입술이 곧 구멍의 두께`)
+  ok(Math.abs(S.yTop - (ROOM_FLOOR_Y + ROOM_FLOOR_LIFT)) < 1e-12,
+    `입술 윗면 ${S.yTop} = 판 윗면(ROOM_FLOOR_Y + ROOM_FLOOR_LIFT) — 단차 0`)
+  ok(Math.abs(S.yBot - (S.yTop - PIT_DEPTH)) < 1e-12, `바닥 윗면 ${S.yBot.toFixed(2)} = 판 − 깊이(보이는 강하 = PIT_DEPTH 정확히)`)
+
+  //  ★설계 잠금 — 방위는 노브가 아니라 '정의 8기가 면에 앉는다'의 귀결이다.
+  ok(PIT_SIDES === 8, '면 8 = 정의 8(D1~D8) — 1:1')
+  {
+    const want = Array.from({ length: 8 }, (_, i) => DEF_OCT_PHASE + i * Math.PI / 4)   // 현 선돌 방위
+    const norm = (a) => { let x = a % (2 * Math.PI); if (x < 0) x += 2 * Math.PI; return x }
+    const same = want.every(w => S.faceAz.some(f => Math.abs(norm(f) - norm(w)) < 1e-9))
+    ok(same, '면 중심 방위 = 현 선돌 방위(22.5°+k·45°) — 정의가 서 있던 자리가 그대로 면이 된다')
+    ok(S.edgeAz.some(a => Math.abs(norm(a)) < 1e-9),
+      '세로 모서리에 +x 포함 — 현 옥타곤의 틈·나선 발치 정렬축(현도 "모서리 하나에 계단"의 후보)')
+  }
+  ok(Math.abs(S.apoTop - S.rTop * Math.cos(Math.PI / 8)) < 1e-12 && S.apoTop < S.rTop,
+    `내접(면 중심) ${S.apoTop.toFixed(2)} < 외접 ${S.rTop} — 노브는 외접 기준이다(혼동 방지)`)
+  ok(S.slopeDeg > 0 && S.slopeDeg < 90, `옆면 경사 ${S.slopeDeg.toFixed(2)}° (수평 기준) · 면 실제 높이 ${S.faceH.toFixed(2)} · 한 변 ${S.sideTop.toFixed(2)}→${S.sideBot.toFixed(2)}`)
+
+  console.log('── ★101 간섭·여유 (현행 값) ──')
+  const P = pitProbe()
+  ok(P.shellGap > 2, `방 아랫반 셸 여유 ${P.shellGap.toFixed(2)} > 2 — 각뿔대가 셸을 안 건드린다(§7 구속 '개구는 판에만' 무손상)`)
+  ok(P.bowlGap > 2, `사발 잔여 ${P.bowlGap.toFixed(2)} > 2 — 현도 "중간쯤에서 끊는다" 성립(밑은 개구 0·접근 0 봉인 공간)`)
+  ok(P.stairGap > 0, `판 구멍 ↔ 공리 나선 최하 디딤판 바깥끝 여유 ${P.stairGap.toFixed(2)} > 0 — 나선 발치 무손상`)
+  ok(P.daisGap > 0.5, `성역 기단 최상단이 폭 ${P.daisGap.toFixed(2)}의 고리로 남는다(0이면 기단이 통째로 사라진다)`)
+  ok(P.floorD >= 5, `하면 통행 지름 ${P.floorD.toFixed(2)} ≥ 5 — 돌면서 여덟 면에 다가갈 수 있다(현도 관람 방식)`)
+  ok(S.rRim > POOL_R, `판 구멍(${S.rRim}) > 빛 웅덩이(${POOL_R}) — ⚠빛 하절이 허공에서 잘린다(선언: PIT_SHAFT_DROP로 전환 · 판정은 P2)`)
+
+  console.log('── ★101 노브 스윕(깊이×상면×하면 격자 27) — 현도가 밀 수 있는 범위 ──')
+  {
+    const DS = [12, 24.5, 36], TS = [20, 26, 34], BS = [8, 13, 20]
+    let bad = []
+    for (const d of DS) for (const rt of TS) for (const rb of BS) {
+      if (rb >= rt) continue                                   // 역각뿔대가 아니면 조합 자체가 무의미
+      const q = pitProbe({ depth: d, rTop: rt, rBot: rb })
+      //  ★경성 제약 4(깨지면 기하가 성립 안 함) — 기단은 여기 없다(아래 연성 절에서 따로 잰다)
+      const okC = q.shellGap > 2 && q.bowlGap > 2 && q.stairGap > 0 && q.floorD >= 5
+      if (!okC) bad.push(`d${d}/t${rt}/b${rb}[shell ${q.shellGap.toFixed(1)} bowl ${q.bowlGap.toFixed(1)} stair ${q.stairGap.toFixed(1)} floor ${q.floorD.toFixed(1)}]`)
+    }
+    ok(bad.length === 0, `스윕 격자 27조합 경성 제약 전부 성립 — 막히면 여기 이름이 뜬다${bad.length ? ': ' + bad.join(' · ') : ''}`)
+    //  ★상한을 이름으로 남긴다(다시 재지 않도록 — DESIGN §7 스윕 표의 근거)
+    const dMax = (() => { let d = PIT_DEPTH; while (d < 80 && pitProbe({ depth: d + 0.5 }).bowlGap > 2 && pitProbe({ depth: d + 0.5 }).shellGap > 2) d += 0.5; return d })()
+    const tMax = (() => { let t = PIT_R_TOP; while (t < 60 && pitProbe({ rTop: t + 0.5 }).stairGap > 0) t += 0.5; return t })()
+    ok(dMax >= PIT_DEPTH && tMax >= PIT_R_TOP,
+      `실측 상한(경성) — 깊이 ≤ ${dMax}(사발 바닥이 정한다) · 상면 ≤ ${tMax}(나선 발치가 정한다)`)
+    //  ★연성 제약 = 성역 기단. 상면을 키우면 **기단이 먼저 죽는다**(경성보다 훨씬 먼저).
+    //   이건 실패가 아니라 **선언**이다 — 기단은 구세계(v2 성역) 어휘라 현도가 버릴 수도 있다.
+    const tDais = (() => { let t = 8; while (t < 60 && pitProbe({ rTop: t + 0.5 }).daisGap > 0.5) t += 0.5; return t })()
+    ok(pitProbe().daisGap > 0.5,
+      `⚠연성 상한 — 상면 > ${tDais}이면 성역 기단 최상단(${(DAIS_R - DAIS_STEP_IN * (DAIS_STEPS - 1)).toFixed(1)})이 통째로 먹힌다. 현행 ${PIT_R_TOP} = 고리 ${pitProbe().daisGap.toFixed(2)} 생존 · 34로 밀면 기단 소멸(선언된 선택지)`)
+  }
+
+  console.log('── ★101 기하 무결(법선·봉인·이음) ──')
+  {
+    const gs = { walls: buildPitWalls(), rim: buildPitRim(), floor: buildPitFloor(),
+      disc: buildHoledSlab(ROOM_R, 96, S.rRim, PIT_SIDES, PIT_PHASE, 0) }
+    for (const [k, g] of Object.entries(gs)) {
+      const pos = g.getAttribute('position').array, nor = g.getAttribute('normal').array
+      ok([...pos].every(Number.isFinite) && [...nor].every(Number.isFinite), `${k}: NaN 없음 (삼각 ${pos.length / 9})`)
+      let worst = 0
+      for (let i = 0; i < nor.length; i += 3) worst = Math.max(worst, Math.abs(Math.hypot(nor[i], nor[i + 1], nor[i + 2]) - 1))
+      //  ⚠★'각진 연필' 교훈의 반대편: 여기선 **패싯이 옳다**. computeVertexNormals를 안 쓴 대신
+      //   법선을 손으로 찍었으므로, 단위 길이가 어긋나면 셰이딩이 바로 망가진다 → 상시 잰다.
+      ok(worst < 1e-6, `${k}: 법선 전부 단위벡터(최대 편차 ${worst.toExponential(1)}) — computeVertexNormals 미사용(패싯 보존)`)
+    }
+    //  안쪽 면이 축을 향하는가(뒤집힘 검출) — 면 중심에서 법선·반경방향 내적 < 0
+    {
+      const g = gs.walls, pos = g.getAttribute('position').array, nor = g.getAttribute('normal').array
+      let inward = 0, total = 0
+      for (let i = 0; i < pos.length; i += 9) {
+        const cx = (pos[i] + pos[i + 3] + pos[i + 6]) / 3, cz = (pos[i + 2] + pos[i + 5] + pos[i + 8]) / 3
+        const L = Math.hypot(cx, cz); if (L < 1e-6) continue
+        const d = (nor[i] * cx + nor[i + 2] * cz) / L
+        if (Math.abs(d) > 0.2) { total++; if (d < 0) inward++ }
+      }
+      ok(total > 0 && inward === total / 2, `옆벽 법선: 안쪽 면 ${inward} / 세로면 ${total} = 정확히 절반(안팎 한 쌍씩 · 뒤집힘 없음)`)
+    }
+    //  봉인 — 바닥 슬래브가 옆벽 안쪽면에 물린다(딱 맞추면 헤어라인 틈. ★64 교훈)
+    {
+      const pos = gs.floor.getAttribute('position').array
+      let rMax = 0
+      for (let i = 0; i < pos.length; i += 3) rMax = Math.max(rMax, Math.hypot(pos[i], pos[i + 2]))
+      ok(rMax > S.rBot + 1e-6 && rMax < S.rBot + 0.2,
+        `바닥 슬래브 최대반경 ${rMax.toFixed(3)} — 옆벽 하단(${S.rBot})에 ${(rMax - S.rBot).toFixed(3)} 물림(틈 0)`)
+    }
+    //  이음 — 판 고리의 구멍이 입술 바깥 팔각과 **같은 다각형**인가(겹침 0·틈 0)
+    {
+      const th = 0.3
+      const a = polyRadiusAt(th, S.rRim, PIT_SIDES, PIT_PHASE)
+      const pos = gs.disc.getAttribute('position').array
+      let rMin = Infinity
+      for (let i = 0; i < pos.length; i += 3) rMin = Math.min(rMin, Math.hypot(pos[i], pos[i + 2]))
+      ok(Math.abs(rMin - S.rRim * Math.cos(Math.PI / PIT_SIDES)) < 0.05 && Number.isFinite(a),
+        `판 고리 최소반경 ${rMin.toFixed(3)} = 입술 팔각 내접(${(S.rRim * Math.cos(Math.PI / 8)).toFixed(3)}) — 두 면이 같은 다각형에서 만난다`)
+    }
+  }
+
+  console.log('── ★101 배선(웨이포인트·밟는 면·부수 처분) ──')
+  {
+    const w = wpById('defpit')
+    ok(!!w, '각뿔대 바닥 웨이포인트 존재 — Tab 패널로 즉시 사이즈감 판정')
+    ok(Math.abs(w.y - S.yBot) < 1e-12, `웨이포인트 y ${w.y.toFixed(2)} = 바닥 윗면(불변식 2 — 발 딛는 면)`)
+    ok(w.pitch > 0, `pitch +${(w.pitch * 180 / Math.PI).toFixed(1)}° — 62° 빗면의 D1 면 중앙을 올려다본다`)
+    const ROOM_SRC = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+    ok(/pitRimGeo[\s\S]{0,120}walkable:\s*true/.test(ROOM_SRC), '입술 띠 = walkable:true (판과 이어져 밟힌다)')
+    ok(/pitFloorGeo[\s\S]{0,120}walkable:\s*true/.test(ROOM_SRC), '바닥 슬래브 = walkable:true')
+    ok(/pitWallGeo[\s\S]{0,160}walkable:\s*false/.test(ROOM_SRC), '빗면 = walkable:false (62°를 밟게 두지 않는다)')
+    ok(DEF_OCT_ON === false, '선돌 8기 소등 — r26은 이제 구멍 위 허공(크기 눈금이 필요하면 DEF_OCT_ON=true 강제)')
+    const markR = PIT_MARK_MODE === 'rim' ? S.rRim + PIT_MARK_GAP : DEF_OCT_R
+    ok(PIT_MARK_MODE === 'off' || markR > S.rRim,
+      `팔각 각인선 처분 '${PIT_MARK_MODE}' — 반경 ${markR.toFixed(2)} > 구멍 ${S.rRim} (허공에 안 뜬다)`)
+  }
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} check_rooms: ${n - fail}/${n} 통과`)

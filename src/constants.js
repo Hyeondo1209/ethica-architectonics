@@ -36,6 +36,7 @@ export const ROOM_R       = 64    // ★★㊵-2 구형화(2026.07.20 현도 소
 //  구 아랫반 = 윗반의 거울(수직 반축 동일) → 구 바닥 y = LIFT_Y − 49. Δ=52 → 바닥 3 = 지면 위 부양 간극.
 export const LIFT_Y       = 52     // ★㊵ 부양 Δ(노브) — 단면 시각화 5왕복 확정값. 접합 49→101. ⚠나팔 결합 전제(칼끝 립·박스 담김) — 올리려면 통로 재설계 동반(07.20 상향 시도 100 → 현도 원복)
 export const ROOM_FLOOR_Y = LIFT_Y // 구 내부 주 바닥(수평) — 구 0(지상). 방 안 모든 y가 이 값에서 파생
+export const ROOM_FLOOR_LIFT = 0.05  // ★주 바닥 메시의 리프트(밟는 면 = ROOM_FLOOR_Y + 이 값). 구 Room.jsx 하드코딩 0.05를 정본화(2026.08.02 ★101 — 각뿔대 입이 판 윗면과 같은 높이여야 해서 파생원이 필요해졌다)
 export const ROOM_CEIL_Y  = LIFT_Y + 49   // 돔 apex = 통로 접합 높이 — ★㊵ (3): 구 '49 동결'을 파생으로 전환(Δ=52 → 101)
 export const ROOM_DOME_APEX = ROOM_CEIL_Y                     // ★돔 정점 높이 — ★㊵ 파생 전환(구 절대 49 = 접합 레벨). 키우면 돔이 위로 솟음
 export const ROOM_HEIGHT  = ROOM_DOME_APEX - ROOM_FLOOR_Y     // 돔 전체 높이(wallR·domeClipY·돔메시·조명이 사용)
@@ -100,6 +101,26 @@ export const POOL_R       = 13             // ★빛 웅덩이 반지름(스포�
 export const SHAFT_TOP_Y  = ROOM_CEIL_Y    // 샤프트 '허리' 높이(디스크 구멍 = 접합 레벨) — ★㊵ 파생 전환(구 절대 49) — v2.1: 출처를 원뿔대 꼭대기 구멍(ROOM_CYL_TOP·WELL_RT)으로 올리며 2절 구성
 export const SHAFT_TOP_R  = 5.5            // 허리 반지름 — 디스크 구멍(r6) 바로 안. 직선 1절이면 이 높이서 r≈8.4가 되어 고체 디스크를 뚫고 빛나는 오류
 export const SPOT_I       = 8.0            // ★판테온 스포트 세기 — v2.2: 알베도가 ~2.4배 어두워진 만큼 증폭(웅덩이 밝기 보존). 렌더 보며 튜닝
+
+// ── ★101 정의 각뿔대(팔각 역각뿔대) — 블록아웃 (2026.08.02 현도 그림 · 기하 = defPitGeometry.js) ──
+//  현도 그림: "방 바닥을 8각형 각뿔대로 판다 → 각 면을 또 수평으로 파서 거기에 정의 하나씩."
+//  이번 조각 = **매스만**. 감실·상승 계단·시작점 이설은 다음(현도 미결). 목적 = **사이즈감 판정**.
+//  ⚠사이즈 노브는 아래 셋뿐이다(현도 요청): PIT_DEPTH · PIT_R_TOP · PIT_R_BOT. 나머지는 파생·부수.
+//   경사·면 크기·판 구멍 반경은 전부 이 셋에서 나온다(defPitGeometry.pitSpec()가 유일 유도점).
+export const PIT_ON       = true   // 끄면 구세계(속 찬 판·선돌 8기·기단 원판) 완전 복원 — 보존계
+export const PIT_SIDES    = 8      // 정의 8기 = 면 8. ⚠바꾸면 D1~D8 대응이 깨진다(검사가 막는다)
+export const PIT_PHASE    = 0      // ★세로 모서리 방위 시작 = 0(+x). 파생: 면 중심 = 22.5°+k·45° = 현 선돌 방위
+//  ★사이즈 노브 셋 ↓ (현도 로컬 — 한 줄씩 바꿔 보시라고 스윕 표를 DESIGN §7에 둔다)
+export const PIT_DEPTH    = 24   // ★깊이(판 윗면에서 바닥 윗면까지). 씨앗 = 사발 깊이 49의 절반 = "중간쯤"(현도). 상한 = 사발 바닥 여유(검사가 잰다). 얕게 12 / 깊게 36
+export const PIT_R_TOP    = 32     // ★상면 **외접**반경(꼭짓점까지) — 씨앗 = 현 DEF_OCT_R 계승. 내접(면 중심) 24.02 · 한 변 19.9. 상한 = 나선 발치 43.5
+export const PIT_R_BOT    = 20     // ★하면 외접반경 = 설 자리. 씨앗 = 현 웅덩이 반경 POOL_R와 같은 값. 지름 26에서 8면을 돌며 본다
+//  ↓ 부수 노브(사이즈감 판정 대상 아님)
+export const PIT_WALL_T   = 1.5    // 옆벽 두께(수평 기준) = 판에 보이는 **입술 띠 폭**. §2-D 2 '종잇장 금지'. 판 구멍 반경 = PIT_R_TOP + 이 값
+export const PIT_FLOOR_T  = 1.5    // 바닥 슬래브 두께(밑면은 봉인 공간 쪽 — 아무도 안 본다)
+export const PIT_MARK_MODE = 'rim' // 팔각 각인선 처분 — 'rim' 구멍 테두리 밖으로 파생 이동 / 'off' 숨김 / 'keep' 원위치(r26 = 구멍 위 허공, 비교용)
+export const PIT_MARK_GAP  = 0.6   // 'rim'에서 입술 바깥면부터 각인선까지
+export const PIT_SHAFT_DROP = false // 판테온 빛 하절을 각뿔대 바닥까지 늘일지. ⚠기본 false = 현도 지시("이번엔 손 안 대고 어떻게 보이는지 본다") — 빛은 P2 몫
+export const DEF_OCT_ON   = !PIT_ON // 선돌 8기. 각뿔대가 서면 그 자리(r26)는 구멍 위 허공이다. ★크기 눈금이 필요하면 `true`로 강제(허공에 뜬 채 보임)
 
 // ── 돔/리브 형태 파라미터 — u(0~1)공간·개수·각도라 스케일 무관(동결) ──
 export const KNEE = 0.25, WIDTH = 0.02     // 무릎 위치/날카로움

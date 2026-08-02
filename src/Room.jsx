@@ -13,7 +13,10 @@ import {
   RAD_ANG0, RAD_T_IN, RAD_T_HW, RAD_TOP, RAD_DOOR_HW,
   DAIS_R, DAIS_STEP_H, DAIS_STEP_IN, DAIS_STEPS, DAIS_H, POOL_R, SHAFT_TOP_Y, SHAFT_TOP_R, SPOT_I,
   DEF_OCT_R, DEF_OCT_PHASE, AX_F0, AX_F1, AX_OFFSET, AX_PLAT_R, AX_MONO_SCALE,
+  ROOM_FLOOR_LIFT,
+  PIT_ON, PIT_SIDES, PIT_PHASE, PIT_MARK_MODE, PIT_MARK_GAP, PIT_SHAFT_DROP, DEF_OCT_ON,
 } from './constants'
+import { pitSpec, buildPitWalls, buildPitRim, buildPitFloor, buildHoledSlab } from './defPitGeometry'   // ★101 정의 각뿔대(순수 기하 — 사본 금지)
 
 // ════════ 지하 정의·공리 방 ════════
 export function DefAxiomRoom({ stairKind }) {
@@ -173,6 +176,17 @@ export function DefAxiomRoom({ stairKind }) {
       }`,
   }), [])
 
+  // ── ★101 정의 각뿔대(2026.08.02 현도 그림) — 기하는 전부 defPitGeometry가 만든다(사본 금지) ──
+  //  판 = 팔각 구멍 뚫린 고리 · 각뿔대 = 옆벽 껍질 + 바닥 슬래브. 셋 다 노브(깊이·상면·하면) 자동 추종.
+  const PIT = useMemo(() => pitSpec(), [])
+  const floorRingGeo = useMemo(() => buildHoledSlab(ROOM_R, 96, PIT.rRim, PIT_SIDES, PIT_PHASE, 0), [PIT])
+  const pitWallGeo   = useMemo(() => buildPitWalls(), [])
+  const pitRimGeo    = useMemo(() => buildPitRim(), [])
+  const pitFloorGeo  = useMemo(() => buildPitFloor(), [])
+  //  빛 하절의 밑끝 — 기본은 구세계(기단 위)에서 그대로 끊는다. 각뿔대가 뚫리면 '허공에서 잘린 빛'이
+  //  보이는데, 그것을 **보고 판정하는 것**이 이번 조각의 목적 중 하나다(현도 지시). PIT_SHAFT_DROP로 전환.
+  const SHAFT_BOT_Y = (PIT_ON && PIT_SHAFT_DROP) ? PIT.yBot : ROOM_FLOOR_Y + DAIS_H
+
   return (
     <group position={[ROOM_CX, 0, 0]}>
       {/* 지상 돔 껍질(불투명) + 작은 오큘러스(박스 폭 안 → 박스+디스크가 리브 시야 차단) */}
@@ -187,11 +201,30 @@ export function DefAxiomRoom({ stairKind }) {
         <meshStandardMaterial color="#221b10" roughness={0.95} side={THREE.DoubleSide} fog={false} />
       </mesh>
       {/* ★㊵ 주 바닥(수평 유지) — 구 내부를 반으로 가르는 수평 판 = 관람 레벨. 부양으로 지면(y0)과 분리돼
-          구 z-fighting 근거는 소멸했으나 0.05 리프트는 벽 밑선 봉합 여유로 유지 */}
-      <mesh position={[0, ROOM_FLOOR_Y + 0.05, 0]} rotation-x={-Math.PI / 2} userData={{ walkable: true }}>
-        <circleGeometry args={[ROOM_R, 64]} />
-        <meshStandardMaterial color="#241d12" roughness={0.95} side={THREE.DoubleSide} fog={false} />   {/* v2.2 암실화: 전역광은 못 꺼도 알베도×빛 곱셈으로 어둠을 만든다. fog=false: 밀폐 공간에 크림색 대기 미적용(먼 벽 뿌염 방지) */}
-      </mesh>
+          구 z-fighting 근거는 소멸했으나 ROOM_FLOOR_LIFT(0.05)는 벽 밑선 봉합 여유로 유지.
+          ★101(2026.08.02): PIT_ON이면 가운데에 팔각 구멍이 뚫린 **고리**가 된다(구멍 = 각뿔대 입술 바깥면). */}
+      {PIT_ON ? (
+        <mesh geometry={floorRingGeo} position={[0, ROOM_FLOOR_Y + ROOM_FLOOR_LIFT, 0]} userData={{ walkable: true }}>
+          <meshStandardMaterial color="#241d12" roughness={0.95} side={THREE.DoubleSide} fog={false} />
+        </mesh>
+      ) : (
+        <mesh position={[0, ROOM_FLOOR_Y + ROOM_FLOOR_LIFT, 0]} rotation-x={-Math.PI / 2} userData={{ walkable: true }}>
+          <circleGeometry args={[ROOM_R, 64]} />
+          <meshStandardMaterial color="#241d12" roughness={0.95} side={THREE.DoubleSide} fog={false} />   {/* v2.2 암실화: 전역광은 못 꺼도 알베도×빛 곱셈으로 어둠을 만든다. fog=false: 밀폐 공간에 크림색 대기 미적용(먼 벽 뿌염 방지) */}
+        </mesh>
+      )}
+      {/* ★101 정의 각뿔대 — 옆벽(닫힌 껍질·입술 띠 포함) + 바닥 슬래브. 감실·계단은 다음 조각. */}
+      {PIT_ON && (<>
+        <mesh geometry={pitWallGeo} userData={{ walkable: false }}>   {/* 62° 빗면 — 밟는 면 아님 */}
+          <meshStandardMaterial color="#2b2216" roughness={0.95} fog={false} />
+        </mesh>
+        <mesh geometry={pitRimGeo} userData={{ walkable: true }}>       {/* 입술 띠 — 판과 같은 높이 */}
+          <meshStandardMaterial color="#2b2216" roughness={0.95} fog={false} />
+        </mesh>
+        <mesh geometry={pitFloorGeo} userData={{ walkable: true }}>
+          <meshStandardMaterial color="#332918" roughness={0.95} fog={false} />
+        </mesh>
+      </>)}
       {/* 내부 채움광 — v2 감광(1.05→0.55): 판테온 무브의 상대 어둑함. 중앙에서 퍼지므로 선돌의 '중심을 보는 앞면'을 비추는 방향 */}
       <pointLight position={[0, ROOM_FLOOR_Y + ROOM_HEIGHT * 0.45, 0]} intensity={0.12} distance={ROOM_R * 4} decay={1.4} color="#ffe2b0" />   {/* v2.2: 거의 소등 — 어둠은 여기서 나온다 */}
       {/* 판테온 스포트 — 빛우물 위에서 원점으로 수직 낙하. three의 spotLight.target 기본값이 월드 원점(씬 밖 Object3D=항등행렬)이라 타깃 배선 불필요 */}
@@ -204,8 +237,8 @@ export function DefAxiomRoom({ stairKind }) {
       <mesh material={shaftMat} position={[0, (ROOM_CYL_TOP + SHAFT_TOP_Y) / 2, 0]}>
         <cylinderGeometry args={[ROOM_WELL_RT - 0.3, SHAFT_TOP_R - 0.3, ROOM_CYL_TOP - SHAFT_TOP_Y, 40, 1, true]} />
       </mesh>
-      <mesh material={shaftMat} position={[0, (SHAFT_TOP_Y + ROOM_FLOOR_Y + DAIS_H) / 2, 0]}>
-        <cylinderGeometry args={[SHAFT_TOP_R, POOL_R, SHAFT_TOP_Y - (ROOM_FLOOR_Y + DAIS_H), 40, 1, true]} />
+      <mesh material={shaftMat} position={[0, (SHAFT_TOP_Y + SHAFT_BOT_Y) / 2, 0]}>
+        <cylinderGeometry args={[SHAFT_TOP_R, POOL_R, SHAFT_TOP_Y - SHAFT_BOT_Y, 40, 1, true]} />
       </mesh>
       {/* 계단 — T키로 8각형(각짐) ↔ 원형(매끈) 전환 비교. 둘 다 같은 파라미터·낱장 디딤판. */}
       <instancedMesh ref={treadRef} args={[undefined, undefined, INST_COUNT]} visible={stairKind === 'octagon'} userData={{ walkable: stairKind === 'octagon' }}>
@@ -218,7 +251,7 @@ export function DefAxiomRoom({ stairKind }) {
       </instancedMesh>
       {/* 주어진 것들 — 성역 기단·각인 + 정의 옥타곤 + 공리 스테이션(나선 왼쪽 동행). 형태 = 선돌(잠정) */}
       <DefPrecinct />
-      <DefOctagon />
+      {DEF_OCT_ON && <DefOctagon />}   {/* ★101: 각뿔대가 서면 r26은 구멍 위 허공 — 정의는 감실로 간다(다음 조각) */}
       <AxiomStations />
       {/* 꼭대기 착지 디스크(고리) — 가운데를 뚫어(천장 개방) 나선이 그 구멍으로 올라오고 빛우물이 위로 트임. 바깥 고리(6~18)는 걷는 발판.
           ★두께 슬랩화(2026.07.11): 두께 0 ring 판이 슬롯 가장자리에서 종잇장으로 보임 → 부양 판 어휘(ROOM_STAIR_SLAB=0.35)로 압출.
@@ -241,19 +274,36 @@ export function DefAxiomRoom({ stairKind }) {
 //  각인은 동심 어휘만: 팔각선(선돌 8기를 꿰는 고리) + 상단 가장자리 링. ⚠ 방사선(중심→선돌)은 금지 — 별자리 의존선 어휘와 충돌(정의끼리 연결된 듯 오독).
 function DefPrecinct() {
   const DAIS_TOP_R = DAIS_R - DAIS_STEP_IN * (DAIS_STEPS - 1)
+  //  ★101(2026.08.02): 각뿔대가 서면 기단 2단(속 찬 원판 r34·r31.8)이 정통으로 뚫린다 → **고리**로 다시 잘린다.
+  //   구멍은 판과 **같은 팔각**(같은 반경·위상)이라 입술이 두 번 그려지지 않는다.
+  const PIT = useMemo(() => (PIT_ON ? pitSpec() : null), [])
+  const tierGeos = useMemo(() => (PIT_ON
+    ? Array.from({ length: DAIS_STEPS }, (_, k) =>
+        buildHoledSlab(DAIS_R - DAIS_STEP_IN * k, 96, PIT.rRim, PIT_SIDES, PIT_PHASE, DAIS_STEP_H))
+    : null), [PIT])
+  //  각인선 반경 — 'rim'이면 구멍 테두리 바깥으로 파생 이동(원위치 r26은 구멍 위 허공이다).
+  const markR = PIT_ON && PIT_MARK_MODE === 'rim' ? PIT.rRim + PIT_MARK_GAP : DEF_OCT_R
+  const markOn = !(PIT_ON && PIT_MARK_MODE === 'off')
+  const markPhase = PIT_ON && PIT_MARK_MODE === 'rim' ? PIT_PHASE : DEF_OCT_PHASE
   return (
     <group>
-      {Array.from({ length: DAIS_STEPS }, (_, k) => (
+      {Array.from({ length: DAIS_STEPS }, (_, k) => (PIT_ON ? (
+        <mesh key={k} geometry={tierGeos[k]} position={[0, ROOM_FLOOR_Y + DAIS_STEP_H * (k + 1), 0]} userData={{ walkable: true }}>
+          <meshStandardMaterial color="#322817" roughness={0.95} side={THREE.DoubleSide} fog={false} />
+        </mesh>
+      ) : (
         <mesh key={k} position={[0, ROOM_FLOOR_Y + DAIS_STEP_H * (k + 0.5), 0]} userData={{ walkable: true }}>
           <cylinderGeometry args={[DAIS_R - DAIS_STEP_IN * k, DAIS_R - DAIS_STEP_IN * k, DAIS_STEP_H, 96]} />
           <meshStandardMaterial color="#322817" roughness={0.95} fog={false} />   {/* v2.2 암실화 — 여전히 바닥보다 한 단 위(성역) */}
         </mesh>
-      ))}
+      )))}
       {/* 팔각 각인선 — ringGeometry의 thetaSegments=8이면 8각 고리. 꼭짓점 각 집합이 좌우대칭이라 rotation-x 뒤집힘과 무관하게 선돌 각과 일치 */}
+      {markOn && (
       <mesh position={[0, ROOM_FLOOR_Y + DAIS_H + 0.03, 0]} rotation-x={-Math.PI / 2}>
-        <ringGeometry args={[DEF_OCT_R - 0.28, DEF_OCT_R + 0.28, 8, 1, DEF_OCT_PHASE]} />
+        <ringGeometry args={[markR - 0.28, markR + 0.28, 8, 1, markPhase]} />
         <meshStandardMaterial color="#6b5942" roughness={1} side={THREE.DoubleSide} fog={false} />   {/* v2.2 반전: 암실에선 각인이 밝은 쪽 */}
       </mesh>
+      )}
       {/* 상단 가장자리 링 */}
       <mesh position={[0, ROOM_FLOOR_Y + DAIS_H + 0.03, 0]} rotation-x={-Math.PI / 2}>
         <ringGeometry args={[DAIS_TOP_R - 1.6, DAIS_TOP_R - 1.0, 96]} />

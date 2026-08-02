@@ -31,7 +31,9 @@ import {
   HALL_ENTRY, ASC_X0, ASC_X1, ASC_RISE, ORB_CX, ORB_FLOOR_Y,
   ROOM_CX, ROOM_FLOOR_Y, DAIS_H, ROOM_DISC_HOLE, ROOM_LAND_R,
   RAD_ANG0, RAD_R, RAD_JX, RAD_FLOOR_Y,
-  P_FLOOR_TOP, P_SPAWN_LX, P1_ON,} from './constants.js'
+  P_FLOOR_TOP, P_SPAWN_LX, P1_ON,
+  PIT_ON,} from './constants.js'
+import { pitSpec } from './defPitGeometry.js'   // ★101 정의 각뿔대(좌표 사본 금지 — 스펙 파생)
 import { p1HeightAt } from './radialEventsGeometry.js'   // 1p1 볼록 바닥 보정(모드·노브 자동 추종)
 import { buildHallStairs, incaStairSpec, incaBladesSpec, descentSpec } from './corridorStairsGeometry.js'   // ★㊳ 계단 끝 4곳 + ★㊷ 날 끝 4곳(못 닿음 판정 지점) — 빌더 파생(자동 추종)
 import { INCA_ON, INCA_GAP, FRIEZE_ROOM_ON, FR_FLOOR_Y, FR_WALL_T, TEMPLE_X0 } from './constants.js'   // ★55 프리즈 방
@@ -193,9 +195,26 @@ const BAL = (() => {
   return { x: c.bx - ux * r, y: rs.balY1, z: c.bz - uz * r, yaw: yawTo(ux, uz), k: c.k }
 })()
 
+// ★101 정의 각뿔대 바닥(2026.08.02) — 블록아웃 사이즈감 판정 지점.
+//  바닥 한가운데에 서서 **D1 면 중심**(방위 22.5°)의 한복판을 본다. 면이 62° 경사라 올려다보는 자세가 된다.
+//  ⚠불변식 1 — 좌표 하드코딩 0: 깊이·상면·하면 노브를 밀면 이 지점이 자동으로 따라온다.
+const PIT_WP = PIT_ON ? (() => {
+  const s = pitSpec()
+  const az = s.faceAz[0]                                  // D1 자리
+  const rMid = (s.apoTop + s.apoBot) / 2                  // 면 중앙까지의 축거리(내접반경 평균)
+  const yMid = (s.yTop + s.yBot) / 2                      // 면 중앙 높이
+  return {
+    y: s.yBot,                                            // 발 딛는 면 = 각뿔대 바닥 윗면(불변식 2)
+    yaw: yawTo(Math.cos(az), Math.sin(az)),
+    pitch: Math.atan2(yMid - (s.yBot + EYE), rMid),
+  }
+})() : null
+
 export const WAYPOINTS = [
   { id: 'room', group: '지상', label: '정의·공리 방 (기단 위)', prop: 'D1~8 · A1~7',
     x: ROOM_CX, y: ROOM_FLOOR_Y + DAIS_H, z: 0, yaw: FACE_NX, pitch: 0 },
+  ...(PIT_ON ? [{ id: 'defpit', group: '지상', label: '정의 각뿔대 바닥 (★101 블록아웃)', prop: 'D1~8',
+    x: ROOM_CX, y: PIT_WP.y, z: 0, yaw: PIT_WP.yaw, pitch: PIT_WP.pitch }] : []),
 
   // 허브 = 빛우물 원뿔대 안. 디스크는 고리(r 6~18)이고 +x에 59° 슬롯(구멍)이 뚫려 있으므로
   //  슬롯 반대편(φ=180°)의 고리 위에 선다. 정면(+x)에 슬롯·빛우물, 좌우 뒤로 대각 문 4.
