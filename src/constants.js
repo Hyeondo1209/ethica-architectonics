@@ -130,8 +130,8 @@ export const DEF_OCT_ON   = !PIT_ON // 선돌 8기. 각뿔대가 서면 그 자�
 //   재야 한다(26.44 · 65.20°). 외접반경으로 재면 그건 **꼭짓점을 잇는 모서리**의 값이다(26.83 · 63.43°).
 //   감실 입구가 면 평면 안에 눕는 이상 정본은 면 쪽이다. `pitSpec()`이 둘을 갈라 준다.
 export const NICHE_ON     = true    // 끄면 각뿔대만 남는다(★101 상태 복원 — 보존계)
-export const NICHE_FLOOR  = 'stair'  // ★체제 — 'flat'(ⓐ 턱 하나 딛고 평평) / 'stair'(ⓑ 바닥에서 계단이 감실 안까지 흐름). 둘 다 지어 두고 로컬 비교(★89 전례)
-export const NICHE_BACK   = 'vertical' // ★뒷벽 체제 — 'parallel'(면과 나란 · 깊이 전 높이 일정 · 구현 1차) / 'vertical'(수직면 — 현도 08.02 지시). ⚠수직이면 기준이 **입구 윗변**일 수밖에 없다(아랫변 기준이면 위에서 뒷벽이 면 안쪽으로 들어가 뒤집힌다)
+export const NICHE_FLOOR  = 'flat'  // ★체제 — 'flat'(ⓐ 턱 하나 딛고 평평) / 'stair'(ⓑ 바닥에서 계단이 감실 안까지 흐름). 둘 다 지어 두고 로컬 비교(★89 전례)
+export const NICHE_BACK   = 'parallel' // ★뒷벽 체제 — 'parallel'(면과 나란 · 깊이 전 높이 일정 · 구현 1차) / 'vertical'(수직면 — 현도 08.02 지시). ⚠수직이면 기준이 **입구 윗변**일 수밖에 없다(아랫변 기준이면 위에서 뒷벽이 면 안쪽으로 들어가 뒤집힌다)
 export const NICHE_DEPTH  = 6       // ★감실 깊이 — **면에 수직으로** 잰다(현도 요청 노브). 반경 방향 오프셋은 깊이/sin(면기울기) 파생
 export const NICHE_SILL   = 4       // ★턱 = 감실 바닥이 각뿔대 바닥보다 높은 세계 높이. ⓑ에서는 계단이 이 높이를 오른다
 export const NICHE_W_F    = 0.9     // 입구 폭 = **턱 높이에서의** 면 폭 × 이 값. ⚠1이면 좌우 살이 0 — 면끼리 붙는다
