@@ -32,8 +32,8 @@ import {
   ROOM_CX, ROOM_FLOOR_Y, DAIS_H, ROOM_DISC_HOLE, ROOM_LAND_R,
   RAD_ANG0, RAD_R, RAD_JX, RAD_FLOOR_Y,
   P_FLOOR_TOP, P_SPAWN_LX, P1_ON,
-  PIT_ON, NICHE_ON,} from './constants.js'
-import { pitSpec, nicheSpec, nicheFloorYAt } from './defPitGeometry.js'   // ★101 각뿔대 · ★102 감실(좌표 사본 금지 — 스펙 파생)
+  PIT_ON, NICHE_ON, SLOT_ON,} from './constants.js'
+import { pitSpec, nicheSpec, nicheFloorYAt, slotSpec } from './defPitGeometry.js'   // ★101 각뿔대 · ★102 감실(좌표 사본 금지 — 스펙 파생)
 import { p1HeightAt } from './radialEventsGeometry.js'   // 1p1 볼록 바닥 보정(모드·노브 자동 추종)
 import { buildHallStairs, incaStairSpec, incaBladesSpec, descentSpec } from './corridorStairsGeometry.js'   // ★㊳ 계단 끝 4곳 + ★㊷ 날 끝 4곳(못 닿음 판정 지점) — 빌더 파생(자동 추종)
 import { INCA_ON, INCA_GAP, FRIEZE_ROOM_ON, FR_FLOOR_Y, FR_WALL_T, TEMPLE_X0 } from './constants.js'   // ★55 프리즈 방
@@ -219,6 +219,14 @@ const NICHE_WP = (PIT_ON && NICHE_ON) ? (() => {
     yaw: yawTo(Math.cos(az), Math.sin(az)) }
 })() : null
 
+//  ★103 슬롯 — 턱 높이 바닥 한가운데에 서서 **뒷벽(바깥)을 본다**. 위를 올려다보면 판까지 20이 트여 있다.
+const SLOT_WP = (PIT_ON && SLOT_ON) ? (() => {
+  const g = slotSpec()
+  const rr = (g.rEdge(g.y0) + g.back) / 2
+  return { x: rr * Math.cos(g.az), z: rr * Math.sin(g.az), y: g.y0,
+    yaw: yawTo(Math.cos(g.az), Math.sin(g.az)) }
+})() : null
+
 export const WAYPOINTS = [
   { id: 'room', group: '지상', label: '정의·공리 방 (기단 위)', prop: 'D1~8 · A1~7',
     x: ROOM_CX, y: ROOM_FLOOR_Y + DAIS_H, z: 0, yaw: FACE_NX, pitch: 0 },
@@ -226,6 +234,8 @@ export const WAYPOINTS = [
     x: ROOM_CX, y: PIT_WP.y, z: 0, yaw: PIT_WP.yaw, pitch: PIT_WP.pitch }] : []),
   ...(PIT_ON && NICHE_ON ? [{ id: 'defniche', group: '지상', label: 'D1 감실 안 (★102)', prop: 'D1',
     x: ROOM_CX + NICHE_WP.x, y: NICHE_WP.y, z: NICHE_WP.z, yaw: NICHE_WP.yaw, pitch: 0 }] : []),
+  ...(PIT_ON && SLOT_ON ? [{ id: 'defslot', group: '지상', label: '모서리 슬롯 바닥 (★103)', prop: '—',
+    x: ROOM_CX + SLOT_WP.x, y: SLOT_WP.y, z: SLOT_WP.z, yaw: SLOT_WP.yaw, pitch: 0.35 }] : []),
 
   // 허브 = 빛우물 원뿔대 안. 디스크는 고리(r 6~18)이고 +x에 59° 슬롯(구멍)이 뚫려 있으므로
   //  슬롯 반대편(φ=180°)의 고리 위에 선다. 정면(+x)에 슬롯·빛우물, 좌우 뒤로 대각 문 4.

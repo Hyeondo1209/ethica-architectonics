@@ -23,7 +23,10 @@ import {
   ROOM_FLOOR_Y, ROOM_R, ROOM_HEIGHT, ROOM_FLOOR_LIFT, wallR,
   ROOM_STAIR_ROUT, ROOM_STAIR_WIDTH, DAIS_R, DAIS_STEP_IN, DAIS_STEPS,
   NICHE_ON, NICHE_FLOOR, NICHE_BACK, NICHE_DEPTH, NICHE_SILL, NICHE_W_F, NICHE_H_F,
-  NICHE_STAIR_DEG, NICHE_RISE, NICHE_STEP_R,
+  NICHE_STAIR_DEG, NICHE_RISE, NICHE_STEP_R, NICHE_APP_WIDE,
+  SLOT_ON, SLOT_EDGE, SLOT_W, SLOT_BACK_R,
+  SLOT_STAIR, SLOT_LANDING, SLOT_LANE_GAP, SLOT_SLAB_T, SLOT_STEP_R, SLOT_STAIR_INSET, SLOT_SPIRAL_PAD,
+  ROOM_STAIR_ROUT as _RSR, ROOM_STAIR_WIDTH as _RSW,
 } from './constants.js'
 
 // ── 스펙(단일 유도점) — 검사·웨이포인트·Room.jsx가 전부 여기서 읽는다(사본 금지) ──
@@ -192,6 +195,65 @@ export function nicheFloorYAt(rr) {
 // 면 로컬 (r, u, y) → 월드
 const fp = (az, r, u, y) => [r * Math.cos(az) - u * Math.sin(az), y, r * Math.sin(az) + u * Math.cos(az)]
 
+// ── ★103 모서리 슬롯 스펙 — 세로 모서리 하나에 파이는 수직 틈(단일 유도점) ──
+//  좌표계 = **모서리 로컬**: r = 모서리 방위로 잰 축거리 · u = 그 방위에 수직인 접선 거리.
+//  ★기하가 정한 것 둘(노브 아님):
+//   ⓐ **인접 면이 잃는 u 폭은 높이와 무관한 상수** `cut = (W/2)/cos(π/N)`.
+//     유도: 면 좌표에서 슬롯 경계는 u_f ∈ [−hw(y), −hw(y)+cut]. hw(y)가 커져도 폭은 그대로다.
+//     → 그래서 '평행 슬롯'이 면 위에서도 평행하다(현도 채택안).
+//   ⓑ **슬롯의 안쪽 경계는 V자**다. 모서리(u=0)가 가장 바깥(r=R)이고 양옆으로 물러난다:
+//     rSurf(u,y) = (apo(y) − |u|·sin(π/N)) / cos(π/N).
+//  ⚠감실 침범 판정도 여기서 한다 — `nicheClear` < 0이면 슬롯이 감실 입구를 먹는다.
+export function slotSpec() {
+  const s = pitSpec()
+  const phi = Math.PI / s.N
+  const az  = s.edgeAz[((SLOT_EDGE % s.N) + s.N) % s.N]
+  const HW  = SLOT_W / 2
+  const cut = HW / Math.cos(phi)
+  const q   = NICHE_ON ? nicheSpec() : null
+  const y0  = q ? q.yS : s.yBot + NICHE_SILL          // 출발 = 턱(현도 08.02: "계단은 턱에서 출발")
+  const y1  = s.yTop
+  const rSurf = (u, y) => (s.apoAt(y) - Math.abs(u) * Math.sin(phi)) / Math.cos(phi)
+  const rEdge = (y) => s.apoAt(y) / Math.cos(phi)     // 모서리 자신의 축거리
+  //  감실 여유 = (면 살) − cut. 최소는 **턱 높이**에서 난다(면 살이 위로 갈수록 넓어지므로).
+  const nicheClear = q ? (s.hwAt(q.yS) - q.W) - cut : Infinity
+  //  판 초과 = 뒷벽이 판 구멍(입술 바깥 팔각)을 얼마나 넘는가. 슬롯 옆끝(|u|=HW)에서 제일 크다.
+  const rimAt = (s.rRim * Math.cos(phi) - HW * Math.sin(phi)) / Math.cos(phi)
+  //  ★104: 계단이 켜지면 **뒷벽은 계단이 정한다**(참의 바깥 끝 + 인셋). 결합 설계 — 둘이 어긋날 수 없다.
+  const back = SLOT_STAIR === 'off' ? SLOT_BACK_R : stairSolve(y0, y1, rEdge).back
+  return {
+    s, q, phi, az, HW, cut, y0, y1, rSurf, rEdge, nicheClear,
+    back,
+    faceHi:    ((SLOT_EDGE % s.N) + s.N) % s.N,               // 이 면에서 슬롯은 **−u** 쪽
+    faceLo:    ((SLOT_EDGE - 1) % s.N + s.N) % s.N,           // 이 면에서 슬롯은 **+u** 쪽
+    depthAt:   (y) => back - rEdge(y),                        // 모서리선에서 잰 깊이
+    depthSill: back - rEdge(y0),
+    depthTop:  back - rEdge(y1),
+    rise:      y1 - y0,
+    runStraight: back - rEdge(y0),                            // 슬롯 안 직선 주행(반경 방향)
+    straightDeg: Math.atan2(y1 - y0, back - rEdge(y0)) * 180 / Math.PI,
+    slabBite:  Math.max(0, back - rimAt),                     // 판을 얼마나 파야 하는가(0이면 무수술)
+    spiralIn:  _RSR - _RSW / 2,                               // ⛔뒷벽 천장 = 공리 나선 최하 디딤판 안끝
+    //  이 방위각에서 슬롯이 판 구멍을 얼마나 밀어내는가 — buildHoledSlab이 부른다.
+    //  슬롯 = |r·sin δ| ≤ HW  그리고  r·cos δ ≤ back. 둘의 min이 슬롯 바깥 경계다.
+    holeRAt: (theta) => {
+      let d = (theta - az) % (2 * Math.PI)
+      if (d > Math.PI) d -= 2 * Math.PI
+      if (d < -Math.PI) d += 2 * Math.PI
+      const c = Math.cos(d), sn = Math.abs(Math.sin(d))
+      if (c <= 0) return 0
+      return Math.min(back / c, sn < 1e-9 ? Infinity : HW / sn)
+    },
+    //  판·기단 스윕에 끼워 넣어야 할 방위각(노치 경계 — 등분 격자만으로는 5°짜리 노치를 놓친다)
+    extraTh: (() => {
+      const out = []
+      const dEnd = Math.asin(Math.min(1, HW / (s.rRim * 0.999)))   // 노치가 구멍 팔각과 만나는 각
+      for (let k = -40; k <= 40; k++) out.push(az + dEnd * 1.35 * (k / 40))
+      return out
+    })(),
+  }
+}
+
 //  법선 방향을 지정해 **삼각형** 하나를 놓는다. ⚠사각형 헬퍼에 네 번째 점을 첫 점과 같게 넘기면
 //   퇴화 삼각형이 생기고 그 감김 판정이 0벡터가 된다(2026.08.02 실측: 퇴화 416·불일치 208).
 function triTo(P, Nn, a, b, c, want) {
@@ -255,18 +317,26 @@ function prism(P, Nn, az, poly, u0, u1) {
 export function buildPitWalls() {
   const s = pitSpec(), N = s.N, P = [], Nn = []
   const nq = NICHE_ON ? nicheSpec() : null
+  const sq = SLOT_ON ? slotSpec() : null
   const tanH = Math.tan(Math.PI / N)
   const hwI = (y) => s.apoAt(y) * tanH
   const hwO = (y) => (s.apoAt(y) + PIT_WALL_T) * tanH
   for (let i = 0; i < N; i++) {
     const az = s.faceAz[i]
+    //  ★103: 슬롯이 걸친 두 면은 슬롯 쪽 가장자리가 **상수 cut만큼** 안으로 물러난다(y0 위 구간에서만).
+    const slotSide = !sq ? 0 : (i === sq.faceHi ? -1 : (i === sq.faceLo ? +1 : 0))
+    //  ⚠띠 단위로 켠다 — 턱(y0) 아래 띠는 무손상이고 위 띠만 물러난다. 높이로 판정하면
+    //   경계 y0에서 아래 띠의 윗변까지 깎여 벽이 잘못 좁아진다(경계 공유 함정).
+    const edgeL = (hw, on) => (y) => (on && slotSide === -1) ? -hw(y) + sq.cut : -hw(y)
+    const edgeR = (hw, on) => (y) => (on && slotSide === +1) ? hw(y) - sq.cut : hw(y)
     const inward = [-Math.sin(s.faceDip * Math.PI / 180) * Math.cos(az),
       Math.cos(s.faceDip * Math.PI / 180),
       -Math.sin(s.faceDip * Math.PI / 180) * Math.sin(az)]
     const outward = [-inward[0], -inward[1], -inward[2]]
-    const band = (rOf, hw, y0, y1, uL, uR, want) => {        // uL/uR = null이면 면 가장자리
-      const l0 = uL === null ? -hw(y0) : uL, l1 = uL === null ? -hw(y1) : uL
-      const r0 = uR === null ? hw(y0) : uR, r1 = uR === null ? hw(y1) : uR
+    const band = (rOf, hw, y0, y1, uL, uR, want, cutOn = false) => {   // uL/uR = null이면 면 가장자리
+      const eL = edgeL(hw, cutOn), eR = edgeR(hw, cutOn)
+      const l0 = uL === null ? eL(y0) : uL, l1 = uL === null ? eL(y1) : uL
+      const r0 = uR === null ? eR(y0) : uR, r1 = uR === null ? eR(y1) : uR
       if (Math.abs(r0 - l0) < 1e-9 && Math.abs(r1 - l1) < 1e-9) return
       quadTo(P, Nn, fp(az, rOf(y0), l0, y0), fp(az, rOf(y0), r0, y0),
         fp(az, rOf(y1), r1, y1), fp(az, rOf(y1), l1, y1), want)
@@ -274,11 +344,17 @@ export function buildPitWalls() {
     for (const [rOf, hw, want] of [
       [(y) => s.apoAt(y), hwI, inward],
       [(y) => s.apoAt(y) + PIT_WALL_T, hwO, outward]]) {
-      if (!nq) { band(rOf, hw, s.yBot, s.yTop, null, null, want); continue }
-      band(rOf, hw, s.yBot, nq.yS, null, null, want)          // 아래 사다리꼴
-      band(rOf, hw, nq.yT, s.yTop, null, null, want)          // 위 사다리꼴(갓)
-      band(rOf, hw, nq.yS, nq.yT, null, -nq.W, want)          // 왼쪽 살
-      band(rOf, hw, nq.yS, nq.yT, nq.W, null, want)           // 오른쪽 살
+      if (!nq) {
+        if (sq && slotSide) {
+          band(rOf, hw, s.yBot, sq.y0, null, null, want, false)
+          band(rOf, hw, sq.y0, s.yTop, null, null, want, true)
+        } else band(rOf, hw, s.yBot, s.yTop, null, null, want, false)
+        continue
+      }
+      band(rOf, hw, s.yBot, nq.yS, null, null, want, false)   // 아래 사다리꼴(슬롯은 턱에서 시작 = 무손상)
+      band(rOf, hw, nq.yT, s.yTop, null, null, want, true)    // 위 사다리꼴(갓)
+      band(rOf, hw, nq.yS, nq.yT, null, -nq.W, want, true)    // 왼쪽 살
+      band(rOf, hw, nq.yS, nq.yT, nq.W, null, want, true)     // 오른쪽 살
     }
     // 밑띠(아래, 수평) — 안팎을 잇는다
     const p = (r, u, y) => fp(az, r, u, y)
@@ -289,16 +365,156 @@ export function buildPitWalls() {
   return finish(P, Nn)
 }
 
+// ── ★104 슬롯 계단 — **닫힌 식**으로 갈래를 나눈다(격자 탐색 금지: 값이 세션마다 흔들린다) ──
+//  기호: k = 1/tanθ(상승 1당 주행) · m = 벽면 기울기 dr/dy = 0.5 · H = 오를 높이 · L = 참 깊이 · IN = 인셋.
+//  ★차선제: 갈래 i는 차선 i%2에 앉는다. 같은 차선이 겹치는 것은 A에선 없고, B에선 갈래 0↔2뿐이다.
+//  ★★참은 **지나가는 길이 아니라 온전한 수평판**이다(현도 08.02 정정). 구판은 참 끝에서 다음 갈래가
+//   출발해 되돌아오는 갈래가 **참 위를 덮었고**, 그래서 참을 늘려도 밟을 수 있는 판은 안 늘었다.
+//   정본: 갈래가 끝난 자리(=돌아서는 점)에서 다음 갈래가 **그대로 출발**하고, 참은 그 점에서
+//   진행 방향으로 L만큼 **뻗어 나간 판**이다. 그 판 위에는 다음 갈래가 올라타지 않는다.
+//   ⚠대가: L이 더 이상 주행 예산을 도와주지 않는다 — 뒷벽이 L만큼(A) 또는 1.25L만큼(B) 곧장 나간다.
+//  【A · 2갈래】밖(h1) → 참 → 안(h2). 도착이 판 높이의 벽면 밖: k(h1−h2) ≥ mH − IN (L 무관).
+//    → h1 = H/2 + (mH − IN)/(2k) · 뒷벽 = r0 + k·h1 + L + IN.
+//  【B · 3갈래】밖(h1) → 참 → 안(h2) → 참 → 밖(h3). 구속 둘을 동시에 조인다:
+//    ⓐ **안쪽 참의 안쪽 끝**이 벽면 밖: k(h1−h2) ≥ m(h1+h2) + L − IN
+//    ⓑ 마지막 갈래 끝이 바깥 참 끝을 안 넘음: k(h3−h2) ≤ L
+//    등호 둘을 연립 → h2 = [(m−k)H − mL/k + 2L − IN] / (m − 3k), h3 = h2 + L/k, h1 = H − h2 − h3.
+//  ⛔**나선 천장 자동 클램프:** 뒷벽이 공리 나선 발치를 넘으면 L을 줄인다(체제 A는 2.9를 못 받는다).
+//   조용히 깎지 않는다 — `Lclamped`로 내보내고 검사가 매 실행 보고한다.
+export function stairSolve(y0, y1, rEdge) {
+  const s = pitSpec()
+  const deg = SLOT_STAIR === 'A' ? 35 : 33
+  const k = 1 / Math.tan(deg * Math.PI / 180)
+  const m = (s.rTop - s.rBot) / s.depth
+  const H = y1 - y0, IN = SLOT_STAIR_INSET
+  const rStart = rEdge(y0) + IN
+  const split = (L) => SLOT_STAIR === 'A'
+    ? (() => { const h1 = H / 2 + (m * H - IN) / (2 * k); return [h1, H - h1] })()
+    : (() => {
+        const h2 = ((m - k) * H - m * L / k + 2 * L - IN) / (m - 3 * k)
+        const h3 = h2 + L / k
+        return [H - h2 - h3, h2, h3]
+      })()
+  const backOf = (LL) => rStart + k * split(LL)[0] + LL + IN
+  //  ⛔나선 천장 클램프 — L을 키우면 뒷벽이 단조 증가한다(A +1.00/L · B +1.25/L, 실측).
+  const CEIL = _RSR - _RSW / 2 - SLOT_SPIRAL_PAD
+  let L = SLOT_LANDING, Lclamped = false
+  if (backOf(L) > CEIL) {
+    let lo = 0, hi = L
+    for (let it = 0; it < 60; it++) { const mid = (lo + hi) / 2; if (backOf(mid) <= CEIL) lo = mid; else hi = mid }
+    L = lo; Lclamped = true
+  }
+  const hs = split(L)
+  //  ★단 쌓는 순서(§constants ⓓ): 밖으로 = 디딤 먼저, 안으로 = 리저 먼저.
+  //   반대로 하면 리저 꼭대기에서 r이 안 움직인 채 벽면만 올라와 벽 속으로 들어간다.
+  const runs = []          // {kind:'tread'|'landing', r0, r1, y, flight, lane}
+  let r = rEdge(y0) + IN, y = y0, dir = 1
+  hs.forEach((h, i) => {
+    const nSt = Math.max(1, Math.ceil(h / SLOT_STEP_R))
+    const rise = h / nSt, tread = rise * k
+    for (let j = 0; j < nSt; j++) {
+      if (dir > 0) { runs.push({ kind: 'tread', r0: r, r1: r + tread, y, flight: i, lane: i % 2 }); r += tread; y += rise }
+      else { y += rise; runs.push({ kind: 'tread', r0: r - tread, r1: r, y, flight: i, lane: i % 2 }); r -= tread }
+    }
+    //  ⚠구판은 여기서 마지막 디딤의 y를 참 높이로 끌어올렸다(참과 면을 맞추려고). 그러면 그 한 단만
+    //   **2배(0.99)로 튀어** 올라갈 수 없다(현도 로컬 신고 → 실측 확인). 밖으로 가는 갈래의 마지막 디딤은
+    //   참보다 **한 단 아래**가 정상이다 — 거기서 참으로 한 단 올라선다.
+    if (i < hs.length - 1) {
+      //  ★참 = 돌아서는 점에서 진행 방향으로 뻗은 **온전한 수평판**. r은 **안 움직인다** —
+      //   다음 갈래가 돌아서는 점에서 그대로 출발하므로 이 판 위를 덮지 않는다.
+      runs.push({ kind: 'landing', r0: Math.min(r, r + dir * L), r1: Math.max(r, r + dir * L), y, flight: i, lane: -1 })
+      dir = -dir
+    }
+  })
+  const back = Math.max(...runs.map(q => q.r1)) + IN
+  return { deg, k, m, L, Lwant: SLOT_LANDING, Lclamped, hs, runs, back, rise: H,
+    stepRise: hs.map((h) => h / Math.max(1, Math.ceil(h / SLOT_STEP_R))),
+    endR: runs[runs.length - 1][dir > 0 ? 'r1' : 'r0'], endY: y, lanes: hs.map((_, i) => i % 2) }
+}
+
+// ── ★104-a 계단 기하 — 차선 둘. 아래에 아무것도 없는 갈래는 **속 찬 매스**, 되돌아온 갈래는 **매달린 슬래브** ──
+export function buildSlotStairs() {
+  const P = [], Nn = []
+  if (!SLOT_ON || SLOT_STAIR === 'off') return finish(P, Nn)
+  const g = slotSpec(), t = stairSolve(g.y0, g.y1, g.rEdge)
+  const az = g.az, IN = SLOT_STAIR_INSET, GA = SLOT_LANE_GAP / 2
+  const uOut = g.HW - IN
+  const laneU = (lane) => lane === 0 ? [-uOut, -GA] : (lane === 1 ? [GA, uOut] : [-uOut, uOut])
+  const box = (r0, r1, u0, u1, ya, yb) => {
+    if (r1 - r0 < 1e-9 || yb - ya < 1e-9) return
+    const p = (r, u, y) => fp(az, r, u, y)
+    const eT = [-Math.sin(az), 0, Math.cos(az)], eR = [Math.cos(az), 0, Math.sin(az)]
+    quadTo(P, Nn, p(r0, u0, yb), p(r1, u0, yb), p(r1, u1, yb), p(r0, u1, yb), [0, 1, 0])
+    quadTo(P, Nn, p(r0, u0, ya), p(r1, u0, ya), p(r1, u1, ya), p(r0, u1, ya), [0, -1, 0])
+    quadTo(P, Nn, p(r0, u0, ya), p(r0, u0, yb), p(r0, u1, yb), p(r0, u1, ya), [-eR[0], 0, -eR[2]])
+    quadTo(P, Nn, p(r1, u0, ya), p(r1, u0, yb), p(r1, u1, yb), p(r1, u1, ya), eR)
+    for (const [u, sg] of [[u0, -1], [u1, 1]])
+      quadTo(P, Nn, p(r0, u, ya), p(r1, u, ya), p(r1, u, yb), p(r0, u, yb), [sg * eT[0], 0, sg * eT[2]])
+  }
+  //  갈래 0·1과 첫 참은 밑이 비어 있으므로 **바닥까지 채운다**(§2-D 2). 갈래 2와 둘째 참은
+  //  갈래 0 위로 되돌아오므로 **슬래브**여야 한다 — 매스로 하면 아래 갈래의 머리 위를 통째로 메운다.
+  for (const q of t.runs) {
+    const [u0, u1] = laneU(q.lane)
+    const solid = q.flight <= 1 && !(q.kind === 'landing' && q.flight === 1)
+    if (solid) box(q.r0, q.r1, u0, u1, g.y0, q.y)
+    else box(q.r0, q.r1, u0, u1, q.y - SLOT_SLAB_T, q.y)
+  }
+  return finish(P, Nn)
+}
+
 // ── ①-b 입술 띠(rTop~rRim, 수평, 판과 같은 높이) = 구멍의 두꺼운 테두리. **밟는 면.** ──
 //   판 고리(rRim~ROOM_R)와 정확히 이어 붙는다 — 겹침 0·틈 0(둘 다 rRim에서 만난다).
+//   ★103: 슬롯이 걸친 두 면은 이 띠도 **같은 상수 cut만큼** 물러난다(안·바깥 변 모두).
+//    ⚠전제 = `SLOT_BACK_R ≥ rRim` — 뒷벽이 입술 바깥보다 안쪽이면 띠가 통째로 안 뚫려 슬롯이 덮인다.
+//    검사가 이 전제를 잰다.
 export function buildPitRim() {
   const s = pitSpec(), N = s.N, P = [], Nn = []
-  const iT = ring(s.rTop, s.yTop, N, PIT_PHASE)
-  const oT = ring(s.rRim, s.yTop, N, PIT_PHASE)
+  const sq = SLOT_ON ? slotSpec() : null
+  const tanH = Math.tan(Math.PI / N), cosH = Math.cos(Math.PI / N)
+  const apoIn = s.rTop * cosH, apoOut = s.rRim * cosH
   for (let i = 0; i < N; i++) {
-    const j = (i + 1) % N
-    quad(P, Nn, iT[i], oT[i], oT[j], iT[j], [0, 1, 0])
+    const az = s.faceAz[i]
+    const side = !sq ? 0 : (i === sq.faceHi ? -1 : (i === sq.faceLo ? +1 : 0))
+    const lo = (apo) => (side === -1 ? -apo * tanH + sq.cut : -apo * tanH)
+    const hi = (apo) => (side === +1 ? apo * tanH - sq.cut : apo * tanH)
+    quadTo(P, Nn,
+      fp(az, apoIn, lo(apoIn), s.yTop), fp(az, apoIn, hi(apoIn), s.yTop),
+      fp(az, apoOut, hi(apoOut), s.yTop), fp(az, apoOut, lo(apoOut), s.yTop), [0, 1, 0])
   }
+  return finish(P, Nn)
+}
+
+// ── ★103-a 슬롯 속 = 바닥(밟는 면) + 옆벽 둘 + 뒷벽. 천장은 없다(판으로 열린다) ──
+//   `walk`=true면 바닥만, false면 나머지만 — 감실과 같은 분리 규약(태그가 빗면까지 밟게 하면 안 된다).
+//   ★바닥이 **오각형**인 이유: 안쪽 경계가 모서리에서 가장 바깥으로 튀어나온 V자이기 때문이다
+//    (모서리 = 팔각형의 최원점). 사각형으로 잡으면 모서리 살을 먹어 벽에 구멍이 난다.
+export function buildPitSlot(walk) {
+  const P = [], Nn = []
+  if (!SLOT_ON) return finish(P, Nn)
+  const g = slotSpec()
+  const az = g.az, HW = g.HW, B = g.back
+  const p = (r, u, y) => fp(az, r, u, y)
+  const eT = [-Math.sin(az), 0, Math.cos(az)]
+  const eR = [Math.cos(az), 0, Math.sin(az)]
+  if (walk) {
+    const A = p(g.rSurf(-HW, g.y0), -HW, g.y0)
+    const Bp = p(g.rEdge(g.y0), 0, g.y0)
+    const C = p(g.rSurf(HW, g.y0), HW, g.y0)
+    const D = p(B, HW, g.y0)
+    const E = p(B, -HW, g.y0)
+    triTo(P, Nn, A, Bp, C, [0, 1, 0])
+    triTo(P, Nn, A, C, D, [0, 1, 0])
+    triTo(P, Nn, A, D, E, [0, 1, 0])
+    return finish(P, Nn)
+  }
+  for (const sgn of [-1, 1]) {            // 옆벽 둘 — 수직 평면 u = ±HW
+    quadTo(P, Nn,
+      p(g.rSurf(sgn * HW, g.y0), sgn * HW, g.y0), p(B, sgn * HW, g.y0),
+      p(B, sgn * HW, g.y1), p(g.rSurf(sgn * HW, g.y1), sgn * HW, g.y1),
+      [-sgn * eT[0], 0, -sgn * eT[2]])
+  }
+  quadTo(P, Nn, p(B, -HW, g.y0), p(B, HW, g.y0), p(B, HW, g.y1), p(B, -HW, g.y1),
+    [-eR[0], 0, -eR[2]])                  // 뒷벽
   return finish(P, Nn)
 }
 
@@ -352,7 +568,11 @@ export function buildNicheStairs() {
       const poly = yX <= s.yBot + 1e-9
         ? [[rIn, s.yBot], [A(s.yBot), s.yBot], [A(yk), yk], [rIn, yk]]
         : [[rIn, yX], [A(yk), yk], [rIn, yk]]                        // 그 아래는 벽 속 = 삼각형
-      if (yX < yk - 1e-9) prism(P, Nn, az, poly, -q.W, q.W)
+      //  ★105 전폭화: u 범위를 **그 단 바깥변(벽면)의 면 반폭**까지. 인접 면의 같은 단과 모서리에서
+      //   정확히 만나 쐐기 틈이 닫히고, 꼭대기 단이 슬롯 바닥과 같은 높이로 이어진다.
+      //   ⚠안쪽 변에서는 이 폭이 팔각을 살짝 넘는데, 넘어간 몫은 이웃 계단 속이라 합집합으로 묻힌다.
+      const hwK = NICHE_APP_WIDE ? A(yk) * Math.tan(Math.PI / s.N) : q.W
+      if (yX < yk - 1e-9) prism(P, Nn, az, poly, -hwK, hwK)
     }
     if (q.riseIn <= 0) continue
     // ② 감실 안 계단: 턱 → 안쪽 꼭대기. 바깥 변 = **뒷벽**(체제 따라 나란/수직).
@@ -395,18 +615,27 @@ export function buildPitFloor() {
 // ── ③ 구멍 뚫린 원판/슬래브 — 방 주 바닥(두께 0)과 성역 기단 2단(두께 有)이 같은 기계를 쓴다 ──
 //   바깥은 원(outSegs 등분), 안쪽은 정N각형. 같은 방위각에서 두 반경을 재 꿰맨다.
 //   thickness = 0 → 평판(DoubleSide 전제) · > 0 → 닫힌 슬래브(윗면 y=0 기준, 아래로 압출).
-export function buildHoledSlab(rOut, outSegs, rHole, holeSides, holePhase, thickness = 0) {
+//   ★103: `opts.holeRAt(theta)`가 있으면 구멍 반경을 그만큼 **밀어낸다**(모서리 슬롯 노치).
+//    노치는 5°쯤밖에 안 되므로 등분 격자만으로는 통째로 놓친다 → `opts.extraTh`로 방위각을 끼워 넣는다.
+//    ⚠뒤집힌 고리 가드: 밀린 구멍이 바깥 반경을 넘으면 안반경 > 바깥반경이라 면이 뒤집힌다(★102 전례).
+//    그 구간은 **안 그린다**.
+export function buildHoledSlab(rOut, outSegs, rHole, holeSides, holePhase, thickness = 0, opts = {}) {
   const P = [], Nn = []
-  const th = [], out = [], inn = []
-  for (let k = 0; k <= outSegs; k++) {
-    const a = k * 2 * Math.PI / outSegs
+  const th = [], out = [], inn = [], ok = []
+  const base = Array.from({ length: outSegs + 1 }, (_, k) => k * 2 * Math.PI / outSegs)
+  const extra = (opts.extraTh || []).map((a) => ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI))
+  const all = [...base, ...extra].sort((a, b) => a - b).filter((a, i, arr) => i === 0 || a - arr[i - 1] > 1e-7)
+  for (const a of all) {
     th.push(a)
     out.push([rOut * Math.cos(a), 0, rOut * Math.sin(a)])
-    const rp = polyRadiusAt(a, rHole, holeSides, holePhase)
+    let rp = polyRadiusAt(a, rHole, holeSides, holePhase)
+    if (opts.holeRAt) rp = Math.max(rp, opts.holeRAt(a))
+    ok.push(rp < rOut - 1e-6)
     inn.push([rp * Math.cos(a), 0, rp * Math.sin(a)])
   }
   const drop = (v) => [v[0], -thickness, v[2]]
-  for (let k = 0; k < outSegs; k++) {
+  for (let k = 0; k < th.length - 1; k++) {
+    if (!ok[k] || !ok[k + 1]) continue
     quad(P, Nn, out[k], out[k + 1], inn[k + 1], inn[k], [0, 1, 0])                       // 윗면 고리
     if (thickness > 0) {
       quad(P, Nn, drop(out[k + 1]), drop(out[k]), drop(inn[k]), drop(inn[k + 1]), [0, -1, 0])   // 밑면

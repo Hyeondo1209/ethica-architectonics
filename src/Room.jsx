@@ -11,14 +11,14 @@ import {
   ROOM_STAIR_BIAS, ROOM_STAIR_SLAB, ROOM_STAIR_ROUT, ROOM_STAIR_RIN, ROOM_STAIR_PHASE, ROOM_STAIR_TOTAL_ANG,
   COR_Y0, COR_THICK, BOX_X0, BOX_X1, BOX_HW, BOX_TOP,
   RAD_ANG0, RAD_T_IN, RAD_T_HW, RAD_TOP, RAD_DOOR_HW,
-  DAIS_R, DAIS_STEP_H, DAIS_STEP_IN, DAIS_STEPS, DAIS_H, POOL_R, SHAFT_TOP_Y, SHAFT_TOP_R, SPOT_I,
+  DAIS_R, DAIS_STEP_H, DAIS_STEP_IN, DAIS_STEPS, DAIS_H, DAIS_ON, POOL_R, SHAFT_TOP_Y, SHAFT_TOP_R, SPOT_I,
   DEF_OCT_R, DEF_OCT_PHASE, AX_F0, AX_F1, AX_OFFSET, AX_PLAT_R, AX_MONO_SCALE,
   ROOM_FLOOR_LIFT,
   PIT_ON, PIT_SIDES, PIT_PHASE, PIT_MARK_MODE, PIT_MARK_GAP, PIT_SHAFT_DROP, DEF_OCT_ON,
-  NICHE_ON, NICHE_FLOOR,
+  NICHE_ON, NICHE_FLOOR, SLOT_ON, SLOT_STAIR,
 } from './constants'
-import { pitSpec, buildPitWalls, buildPitRim, buildPitFloor, buildHoledSlab,
-  buildNiches, buildNicheStairs } from './defPitGeometry'   // ★101 각뿔대 · ★102 감실(순수 기하 — 사본 금지)
+import { pitSpec, slotSpec, buildPitWalls, buildPitRim, buildPitFloor, buildHoledSlab,
+  buildNiches, buildNicheStairs, buildPitSlot, buildSlotStairs } from './defPitGeometry'   // ★101 각뿔대 · ★102 감실(순수 기하 — 사본 금지)
 
 // ════════ 지하 정의·공리 방 ════════
 export function DefAxiomRoom({ stairKind }) {
@@ -181,7 +181,14 @@ export function DefAxiomRoom({ stairKind }) {
   // ── ★101 정의 각뿔대(2026.08.02 현도 그림) — 기하는 전부 defPitGeometry가 만든다(사본 금지) ──
   //  판 = 팔각 구멍 뚫린 고리 · 각뿔대 = 옆벽 껍질 + 바닥 슬래브. 셋 다 노브(깊이·상면·하면) 자동 추종.
   const PIT = useMemo(() => pitSpec(), [])
-  const floorRingGeo = useMemo(() => buildHoledSlab(ROOM_R, 96, PIT.rRim, PIT_SIDES, PIT_PHASE, 0), [PIT])
+  //  ★103 모서리 슬롯 — 뒷벽이 판 구멍(rRim)을 넘으면 판·기단에 **노치**를 판다(현도 08.02 승인).
+  //   같은 구멍 함수를 판과 기단이 공유해야 노치가 어긋나지 않는다(사본 금지).
+  const SLOTOPT = useMemo(() => {
+    if (!PIT_ON || !SLOT_ON) return {}
+    const g = slotSpec()
+    return g.slabBite > 0 ? { holeRAt: g.holeRAt, extraTh: g.extraTh } : {}
+  }, [])
+  const floorRingGeo = useMemo(() => buildHoledSlab(ROOM_R, 96, PIT.rRim, PIT_SIDES, PIT_PHASE, 0, SLOTOPT), [PIT, SLOTOPT])
   const pitWallGeo   = useMemo(() => buildPitWalls(), [])
   const pitRimGeo    = useMemo(() => buildPitRim(), [])
   const pitFloorGeo  = useMemo(() => buildPitFloor(), [])
@@ -189,6 +196,10 @@ export function DefAxiomRoom({ stairKind }) {
   const nicheWalkGeo = useMemo(() => buildNiches(true), [])
   const nicheWallGeo = useMemo(() => buildNiches(false), [])
   const nicheStepGeo = useMemo(() => buildNicheStairs(), [])
+  //  ★103 슬롯 — 감실과 같은 분리 규약(밟는 바닥 ↔ 안 밟는 옆·뒤).
+  const slotWalkGeo  = useMemo(() => buildPitSlot(true), [])
+  const slotWallGeo  = useMemo(() => buildPitSlot(false), [])
+  const slotStepGeo  = useMemo(() => buildSlotStairs(), [])   // ★104 A/B 체제 — 'off'면 빈 기하
   //  빛 하절의 밑끝 — 기본은 구세계(기단 위)에서 그대로 끊는다. 각뿔대가 뚫리면 '허공에서 잘린 빛'이
   //  보이는데, 그것을 **보고 판정하는 것**이 이번 조각의 목적 중 하나다(현도 지시). PIT_SHAFT_DROP로 전환.
   const SHAFT_BOT_Y = (PIT_ON && PIT_SHAFT_DROP) ? PIT.yBot : ROOM_FLOOR_Y + DAIS_H
@@ -240,6 +251,19 @@ export function DefAxiomRoom({ stairKind }) {
           {NICHE_FLOOR === 'stair' && (
             <mesh geometry={nicheStepGeo} userData={{ walkable: true }}>  {/* ⓑ 바닥→감실 안 계단 */}
               <meshStandardMaterial color="#463823" roughness={0.9} fog={false} />
+            </mesh>
+          )}
+        </>)}
+        {SLOT_ON && (<>
+          <mesh geometry={slotWallGeo} userData={{ walkable: false }}>   {/* 슬롯 옆벽 둘 · 뒷벽 */}
+            <meshStandardMaterial color="#3a2f1c" roughness={0.95} side={THREE.DoubleSide} fog={false} />
+          </mesh>
+          <mesh geometry={slotWalkGeo} userData={{ walkable: true }}>    {/* 슬롯 바닥(턱 높이) */}
+            <meshStandardMaterial color="#463823" roughness={0.92} fog={false} />
+          </mesh>
+          {SLOT_STAIR !== 'off' && (
+            <mesh geometry={slotStepGeo} userData={{ walkable: true }}>  {/* ★104 꺾인 상승 계단 */}
+              <meshStandardMaterial color="#4d3e27" roughness={0.9} fog={false} />
             </mesh>
           )}
         </>)}
@@ -303,7 +327,9 @@ function DefPrecinct() {
     ? Array.from({ length: DAIS_STEPS }, (_, k) => {
         const R = DAIS_R - DAIS_STEP_IN * k
         return R > PIT.rRim + 0.05
-          ? buildHoledSlab(R, 96, PIT.rRim, PIT_SIDES, PIT_PHASE, DAIS_STEP_H)
+          ? buildHoledSlab(R, 96, PIT.rRim, PIT_SIDES, PIT_PHASE, DAIS_STEP_H,
+              (PIT_ON && SLOT_ON && slotSpec().slabBite > 0)
+                ? { holeRAt: slotSpec().holeRAt, extraTh: slotSpec().extraTh } : {})
           : null
       })
     : null), [PIT])
@@ -313,7 +339,7 @@ function DefPrecinct() {
   const markPhase = PIT_ON && PIT_MARK_MODE === 'rim' ? PIT_PHASE : DEF_OCT_PHASE
   return (
     <group>
-      {Array.from({ length: DAIS_STEPS }, (_, k) => (PIT_ON ? (tierGeos[k] === null ? null : (
+      {!DAIS_ON ? null : Array.from({ length: DAIS_STEPS }, (_, k) => (PIT_ON ? (tierGeos[k] === null ? null : (
         <mesh key={k} geometry={tierGeos[k]} position={[0, ROOM_FLOOR_Y + DAIS_STEP_H * (k + 1), 0]} userData={{ walkable: true }}>
           <meshStandardMaterial color="#322817" roughness={0.95} side={THREE.DoubleSide} fog={false} />
         </mesh>
@@ -330,11 +356,13 @@ function DefPrecinct() {
         <meshStandardMaterial color="#6b5942" roughness={1} side={THREE.DoubleSide} fog={false} />   {/* v2.2 반전: 암실에선 각인이 밝은 쪽 */}
       </mesh>
       )}
-      {/* 상단 가장자리 링 */}
+      {/* 상단 가장자리 링 — ★106: 기단이 폐기되면 함께 사라진다(구세계 각인 어휘) */}
+      {DAIS_ON && (
       <mesh position={[0, ROOM_FLOOR_Y + DAIS_H + 0.03, 0]} rotation-x={-Math.PI / 2}>
         <ringGeometry args={[DAIS_TOP_R - 1.6, DAIS_TOP_R - 1.0, 96]} />
         <meshStandardMaterial color="#6b5942" roughness={1} side={THREE.DoubleSide} fog={false} />   {/* v2.2 반전: 암실에선 각인이 밝은 쪽 */}
       </mesh>
+      )}
     </group>
   )
 }

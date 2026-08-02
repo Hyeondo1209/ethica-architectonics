@@ -22,12 +22,16 @@ import { wpById } from './waypoints.js'   // ★2026.07.13: 스폰 정본이 웨
 import {
   PIT_ON, PIT_SIDES, PIT_PHASE, PIT_R_TOP, PIT_R_BOT, PIT_DEPTH, PIT_WALL_T, PIT_FLOOR_T,
   PIT_MARK_MODE, PIT_MARK_GAP, DEF_OCT_ON, DEF_OCT_R, DEF_OCT_PHASE,
-  NICHE_ON, NICHE_FLOOR, NICHE_BACK, NICHE_DEPTH, NICHE_SILL, NICHE_W_F, NICHE_H_F, NICHE_STAIR_DEG, NICHE_RISE, NICHE_STEP_R,
+  NICHE_ON, NICHE_FLOOR, NICHE_BACK, NICHE_DEPTH, NICHE_SILL, NICHE_W_F, NICHE_H_F, NICHE_STAIR_DEG, NICHE_RISE, NICHE_STEP_R, NICHE_APP_WIDE,
+  SLOT_ON, SLOT_EDGE, SLOT_W, SLOT_BACK_R, ROOM_CX,
+  SLOT_STAIR, SLOT_CLEAR, SLOT_SLAB_T, SLOT_STEP_R, SLOT_STAIR_INSET, SLOT_LANDING, SLOT_LANE_GAP, SLOT_SPIRAL_PAD,
+  DAIS_ON, DAIS_H, ROOM_FLOOR_LIFT as _RFL,
   ROOM_FLOOR_Y, ROOM_FLOOR_LIFT, ROOM_R, ROOM_HEIGHT, ROOM_STAIR_ROUT,
   DAIS_R, DAIS_STEP_IN, DAIS_STEPS, POOL_R,
 } from './constants.js'
 import { pitSpec, pitProbe, buildPitWalls, buildPitRim, buildPitFloor, buildHoledSlab, polyRadiusAt,
-  nicheSpec, buildNiches, buildNicheStairs, nicheFloorYAt } from './defPitGeometry.js'   // ★101·★102
+  nicheSpec, buildNiches, buildNicheStairs, nicheFloorYAt,
+  slotSpec, buildPitSlot, stairSolve, buildSlotStairs } from './defPitGeometry.js'   // ★101·★102·★103
 import { STEP_UP } from './waypoints.js'
 import { DESC_RISE_MAX, wallR } from './constants.js'
 
@@ -439,8 +443,10 @@ if (PIT_ON && NICHE_ON) {
   ok(Q.W < S2.hwAt(Q.yS), `입구 반폭 ${Q.W.toFixed(2)} < 턱 높이 면 반폭 ${S2.hwAt(Q.yS).toFixed(2)}`)
   ok(Q.sideFlesh > 0.3,
     `면 살 ${Q.sideFlesh.toFixed(2)}(반쪽) — 모서리에서 두 감실 사이 ${(2 * Q.sideFlesh).toFixed(2)}. ⚠W_F를 1로 밀면 0이 되어 여덟 감실이 붙는다`)
-  ok(Q.openW > 2 * S2.hwAt(S2.yBot) * 0.9,
-    `입구 폭 ${Q.openW.toFixed(2)} — 턱을 올린 만큼 아랫변(${(2 * S2.hwAt(S2.yBot)).toFixed(2)})보다 넓게 잡을 수 있다`)
+  //  ⚠★103(08.02)로 하한을 내렸다 — 모서리 슬롯 폭 3.0을 감실 침범 0으로 통과시키려고 W_F를 0.9 → 0.783으로
+  //   양보했다(현도 채택). 그래도 입구는 여전히 **아랫변보다 넓다**는 것이 이 절의 취지다.
+  ok(Q.openW > 2 * S2.hwAt(S2.yBot) * 0.82,
+    `입구 폭 ${Q.openW.toFixed(2)} — 턱을 올린 만큼 아랫변(${(2 * S2.hwAt(S2.yBot)).toFixed(2)})보다 넓다(W_F ${NICHE_W_F})`)
 
   console.log('── ★102 입구가 면 평면 안에 눕는가 (현도 확정 #1의 코드 잠금) ──')
   {
@@ -571,6 +577,23 @@ if (PIT_ON && NICHE_ON) {
       `감실 안 웨이포인트 y ${w.y.toFixed(2)} = 그 자리 발 높이(체제 자동 추종)`)
   }
 
+  console.log('── ★106 기단 찌꺼기 철거(현도 2026.08.02) ──')
+  {
+    ok(DAIS_ON === !PIT_ON,
+      `기단 ${DAIS_ON ? 'ON' : '폐기'} — 각뿔대가 서면 자동으로 꺼진다(구세계 잔재: 얇은 고리 단·팔각 각인선·원형 가장자리 링)`)
+    ok(!DAIS_ON ? DAIS_H === 0 : DAIS_H > 0,
+      `DAIS_H ${DAIS_H} — **파생으로 묶었다.** 안 그리면서 높이만 남기면 'room' 시작점·선돌 baseY·빛 하절 밑끝이 허공에 뜬다`)
+    ok(!PIT_ON || PIT_MARK_MODE === 'off',
+      `팔각 각인선 ${PIT_MARK_MODE} — 현도 철거 지시(2026.08.02)`)
+    const RS3 = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+    ok(/\{DAIS_ON && \(/.test(RS3) && /!DAIS_ON \? null :/.test(RS3),
+      '가장자리 링·기단 단 둘 다 DAIS_ON으로 배선돼 있다')
+    //  ⚠선언 — 시작점이 구멍 위에 떠 있다(★101 이후 계속. 시작점 이설이 열린 결정이라 여기선 안 옮긴다)
+    const wr = wpById('room')
+    const inHole = Math.hypot(wr.x - ROOM_CX, wr.z) < pitSpec().rRim * Math.cos(Math.PI / PIT_SIDES)
+    ok(true, `⚠선언 — 'room' 시작점 r ${Math.hypot(wr.x - ROOM_CX, wr.z).toFixed(2)} y ${wr.y.toFixed(2)}: ${inHole ? `**구멍 위 허공**(각뿔대 바닥까지 ${(wr.y - pitSpec().yBot).toFixed(2)} 낙차)` : '판 위'} — 시작점 이설(열린 결정) 때 함께 고친다`)
+  }
+
   console.log('── ★102 성역 기단 가드 ──')
   {
     const drawn = Array.from({ length: DAIS_STEPS }, (_, k) => DAIS_R - DAIS_STEP_IN * k)
@@ -579,6 +602,304 @@ if (PIT_ON && NICHE_ON) {
       `기단 ${DAIS_STEPS}단 중 ${drawn.length}단만 그린다(구멍 ${pitSpec().rRim} 밖: ${drawn.map(r => r.toFixed(1)).join(',') || '없음'}) — 안쪽 단은 뒤집힌 고리가 되므로 안 그린다`)
     const ROOM_SRC = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
     ok(/R > PIT\.rRim \+ 0\.05/.test(ROOM_SRC), '가드가 소스에 배선돼 있다 — 노브를 밀어도 뒤집힌 고리가 안 생긴다')
+  }
+
+  //  ══ ★103 모서리 슬롯 (2026.08.02 현도 그림 — 평행 3.0 · 뒷벽 38.0) ══
+  if (SLOT_ON) {
+    console.log('── ★103 슬롯 스펙(파생 잠금) ──')
+    const G = slotSpec(), S3 = G.s, phi = Math.PI / S3.N
+    const fpE = (r, u, y) => [r * Math.cos(G.az) - u * Math.sin(G.az), y, r * Math.sin(G.az) + u * Math.cos(G.az)]
+    ok(Math.abs(G.cut - (SLOT_W / 2) / Math.cos(phi)) < 1e-12,
+      `인접 면이 잃는 u 폭 cut ${G.cut.toFixed(4)} = (W/2)/cos(π/N) — **높이와 무관한 상수**(그래서 면 위에서도 평행하다)`)
+    ok(NICHE_ON ? Math.abs(G.y0 - nicheSpec().yS) < 1e-12 : true,
+      `출발 ${G.y0.toFixed(2)} = 턱(현도 08.02 "계단은 턱에서 출발") · 도착 ${G.y1.toFixed(2)} = 판 · 오를 높이 ${G.rise.toFixed(2)}`)
+    ok(G.faceHi !== G.faceLo && [G.faceHi, G.faceLo].every(i => i >= 0 && i < S3.N),
+      `슬롯이 걸친 면 둘 = #${G.faceLo}(+u 쪽) · #${G.faceHi}(−u 쪽) — 모서리 #${SLOT_EDGE} 양옆`)
+
+    console.log('── ★103 감실 침범 0 (현도 조건 ⓐ) — 스펙과 실측 둘 다 ──')
+    if (NICHE_ON) {
+      const Q3 = nicheSpec()
+      ok(G.nicheClear > 0,
+        `감실 여유 ${G.nicheClear.toFixed(3)} > 0 (턱 높이가 최협착) — 슬롯 폭 ${SLOT_W} 상한은 ${(2 * Math.cos(phi) * (S3.hwAt(Q3.yS) - Q3.W)).toFixed(3)}`)
+      //  ⚠스펙을 믿지 않고 **점을 찍어 다시 잰다** — 슬롯 옆벽 위의 점을 인접 면 좌표로 옮겨 개구 밖인지 본다.
+      let worst = Infinity
+      for (let k = 0; k <= 200; k++) {
+        const y = Q3.yS + (Math.min(G.y1, Q3.yT) - Q3.yS) * k / 200
+        for (const sgn of [-1, 1]) {
+          const P0 = fpE(G.rSurf(sgn * G.HW, y), sgn * G.HW, y)
+          for (const fi of [G.faceHi, G.faceLo]) {
+            const a = S3.faceAz[fi]
+            const uF = -P0[0] * Math.sin(a) + P0[2] * Math.cos(a)
+            worst = Math.min(worst, Math.abs(uF) - Q3.W)
+          }
+        }
+      }
+      ok(worst > 0, `실측: 슬롯 옆벽 위 802점 전부 감실 개구 밖 — 최소 여유 ${worst.toFixed(3)}`)
+      ok(Q3.sideFlesh - G.cut > 0,
+        `면 살 ${Q3.sideFlesh.toFixed(3)}(반쪽) − cut ${G.cut.toFixed(3)} = ${(Q3.sideFlesh - G.cut).toFixed(3)} — W_F ${NICHE_W_F}가 이 양보의 대가다`)
+    }
+
+    console.log('── ★103 벽 절개 ↔ 슬롯 옆벽 봉합(경계 공유) ──')
+    {
+      let worst = 0
+      for (let k = 0; k <= 100; k++) {
+        const y = G.y0 + (G.y1 - G.y0) * k / 100
+        for (const [fi, side] of [[G.faceHi, -1], [G.faceLo, +1]]) {
+          const a = S3.faceAz[fi], hw = S3.hwAt(y)
+          const uF = side === -1 ? -hw + G.cut : hw - G.cut
+          const A = [S3.apoAt(y) * Math.cos(a) - uF * Math.sin(a), y, S3.apoAt(y) * Math.sin(a) + uF * Math.cos(a)]
+          let best = Infinity
+          for (const sgn of [-1, 1]) {
+            const B = fpE(G.rSurf(sgn * G.HW, y), sgn * G.HW, y)
+            best = Math.min(best, Math.hypot(A[0] - B[0], A[1] - B[1], A[2] - B[2]))
+          }
+          worst = Math.max(worst, best)
+        }
+      }
+      ok(worst < 1e-9, `벽이 물러난 가장자리와 슬롯 옆벽이 **같은 선**이다(최대 어긋남 ${worst.toExponential(1)}) — 틈도 겹침도 없다`)
+    }
+
+    console.log('── ★103 깊이·경사·판 수술 ──')
+    ok(SLOT_BACK_R >= S3.rRim - 1e-9,
+      `뒷벽 ${SLOT_BACK_R} ≥ 판 구멍 ${S3.rRim} — **전제**다. 이보다 안쪽이면 입술 띠가 안 뚫려 슬롯이 덮인다`)
+    ok(G.depthSill > G.depthTop && G.depthTop > 0,
+      `깊이 = 턱 ${G.depthSill.toFixed(2)} → 판 ${G.depthTop.toFixed(2)} (아래가 깊은 쐐기 — 감실 'vertical'과 같은 어법)`)
+    ok(true,
+      `⚠연성 보고 — 슬롯 안 **직선** 주행 ${G.runStraight.toFixed(2)} → 경사 ${G.straightDeg.toFixed(1)}°. 33°에는 주행 ${(G.rise / Math.tan(33 * Math.PI / 180)).toFixed(2)}(뒷벽 ${(G.rEdge(G.y0) + G.rise / Math.tan(33 * Math.PI / 180)).toFixed(2)}) 필요 = 판을 뚫는다. **계단은 꺾거나 감아야 한다**`)
+    ok(G.slabBite > 0 ? G.extraTh.length > 20 : true,
+      `판 초과 ${G.slabBite.toFixed(2)} — 노치를 판다(현도 08.02 승인). 스윕에 방위각 ${G.extraTh.length}개를 끼워 넣는다(등분 격자만으론 5°짜리 노치를 놓친다)`)
+    {
+      const ring = buildHoledSlab(ROOM_R, 96, S3.rRim, PIT_SIDES, PIT_PHASE, 0,
+        G.slabBite > 0 ? { holeRAt: G.holeRAt, extraTh: G.extraTh } : {})
+      const pos = ring.getAttribute('position').array
+      const C = fpE((S3.rRim + SLOT_BACK_R) / 2, 0, 0)
+      let near = Infinity
+      for (let i = 0; i < pos.length; i += 3) near = Math.min(near, Math.hypot(pos[i] - C[0], pos[i + 2] - C[2]))
+      ok(near > 0.8, `판 노치 한복판(r ${((S3.rRim + SLOT_BACK_R) / 2).toFixed(1)})에서 가장 가까운 판 정점이 ${near.toFixed(2)} 밖 — 실제로 뚫렸다`)
+      ok([...pos].every(Number.isFinite), `노치 판 NaN 없음 (삼각 ${pos.length / 9})`)
+    }
+
+    console.log('── ★103 슬롯 메시 무결(법선·감김·사발 여유) ──')
+    {
+      const gs = { 'slot-walk': buildPitSlot(true), 'slot-wall': buildPitSlot(false), 'rim': buildPitRim(), 'walls': buildPitWalls() }
+      for (const [k, g] of Object.entries(gs)) {
+        const pos = g.getAttribute('position').array, nor = g.getAttribute('normal').array
+        let worst = 0, bad = 0, degen = 0
+        for (let i = 0; i < nor.length; i += 3) worst = Math.max(worst, Math.abs(Math.hypot(nor[i], nor[i + 1], nor[i + 2]) - 1))
+        for (let i = 0; i < pos.length; i += 9) {
+          const ax = pos[i], ay = pos[i + 1], az2 = pos[i + 2]
+          const ux = pos[i + 3] - ax, uy = pos[i + 4] - ay, uz = pos[i + 5] - az2
+          const vx = pos[i + 6] - ax, vy = pos[i + 7] - ay, vz = pos[i + 8] - az2
+          const wx = uy * vz - uz * vy, wy = uz * vx - ux * vz, wz = ux * vy - uy * vx
+          const L = Math.hypot(wx, wy, wz)
+          if (L < 1e-9) { degen++; continue }
+          if ((wx * nor[i] + wy * nor[i + 1] + wz * nor[i + 2]) / L < 0.5) bad++
+        }
+        ok([...pos].every(Number.isFinite) && worst < 1e-6 && bad === 0 && degen === 0,
+          `${k}: 삼각 ${pos.length / 9} · 법선 편차 ${worst.toExponential(1)} · 감김 불일치 ${bad} · 퇴화 ${degen}`)
+      }
+      let gap = Infinity
+      for (let k = 0; k <= 100; k++) {
+        const y = G.y0 + (G.y1 - G.y0) * k / 100
+        for (const sgn of [-1, 1]) {
+          const P0 = fpE(SLOT_BACK_R, sgn * G.HW, y)
+          gap = Math.min(gap, wallR(y) - Math.hypot(P0[0], P0[2]))
+        }
+      }
+      ok(gap > 0, `슬롯 뒷벽 바깥 모서리 ↔ 방 아랫반 셸 여유 ${gap.toFixed(2)} — 뚫으면 밖에서 '떠 있는 구'에 구멍이 보인다(치명)`)
+    }
+
+    console.log('── ★103 밟는 면 분리·웨이포인트 ──')
+    {
+      const RS = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+      ok(/slotWalkGeo[\s\S]{0,140}walkable:\s*true/.test(RS), '슬롯 바닥 = walkable:true')
+      ok(/slotWallGeo[\s\S]{0,140}walkable:\s*false/.test(RS), '슬롯 옆·뒷벽 = walkable:false')
+      const w = wpById('defslot')
+      ok(!!w && Math.abs(w.y - G.y0) < 1e-12, `슬롯 웨이포인트 y ${w ? w.y.toFixed(2) : '—'} = 슬롯 바닥(턱)`)
+      const rr = (G.rEdge(G.y0) + G.back) / 2
+      ok(!!w && Math.abs(Math.hypot(w.x - ROOM_CX, w.z) - rr) < 1e-9,
+        `슬롯 웨이포인트가 슬롯 한가운데(r ${rr.toFixed(2)})에 선다`)
+    }
+
+    //  ══ ★104 슬롯 안 꺾인 계단 (2026.08.02 — A/B 두 체제) ══
+    if (SLOT_STAIR !== 'off') {
+      console.log(`── ★104 계단 체제 '${SLOT_STAIR}' — 갈래 해(닫힌 식) ──`)
+      const T = stairSolve(G.y0, G.y1, G.rEdge)
+      ok(Math.abs(T.hs.reduce((a, b) => a + b, 0) - G.rise) < 1e-9,
+        `${T.hs.length}갈래 ${T.deg}° · 상승 ${T.hs.map(h => h.toFixed(2)).join(' / ')} = 합 ${G.rise.toFixed(2)}`)
+      {   //  ★★참은 **온전한 수평판**이어야 한다(현도 08.02 정정: "지나가는 길이면 늘린 의미가 없다").
+        //   구판은 다음 갈래가 참 끝에서 출발해 **참 위를 덮었고**, L을 키워도 밟을 판은 안 늘었다.
+        //   → 여기서 재는 것은 노브가 아니라 **머리 위가 트인 실제 수평판 깊이**다.
+        const laneW = G.HW - SLOT_STAIR_INSET - SLOT_LANE_GAP / 2
+        const fullW = 2 * (G.HW - SLOT_STAIR_INSET)
+        ok(!T.Lclamped
+          ? Math.abs(T.L - SLOT_LANDING) < 1e-9
+          : T.L > 0,
+          `참 요청 ${SLOT_LANDING} → 사용 ${T.L.toFixed(2)}${T.Lclamped ? ` ⚠**나선 천장 클램프**(뒷벽 ${G.back.toFixed(2)} ↔ 발치 ${G.spiralIn.toFixed(2)} · 여유 ${SLOT_SPIRAL_PAD})` : ''}`)
+        let worstOpen = Infinity, rep = []
+        for (const a of T.runs.filter(q => q.kind === 'landing')) {
+          let open = 0
+          const N = 400
+          for (let i = 0; i < N; i++) {
+            const rr = a.r0 + (a.r1 - a.r0) * (i + 0.5) / N
+            let cover = Infinity                                  // 이 반경에서 머리 위로 가장 낮은 면
+            for (const b of T.runs) {
+              if (b === a || b.y <= a.y + 1e-9) continue
+              if (rr < b.r0 - 1e-9 || rr > b.r1 + 1e-9) continue   // 반경이 안 겹치면 머리 위가 아니다
+              cover = Math.min(cover, b.y - SLOT_SLAB_T)
+            }
+            if (cover - a.y >= SLOT_CLEAR - 1e-9) open += (a.r1 - a.r0) / N
+          }
+          rep.push(open)
+          worstOpen = Math.min(worstOpen, open)
+        }
+        ok(worstOpen >= T.L - 1e-3,
+          `**머리 위가 트인 수평판 깊이** ${rep.map(x => x.toFixed(2)).join(' / ')} = 참 깊이 ${T.L.toFixed(2)} 전부 — 되돌아오는 갈래가 참을 안 덮는다`)
+        ok(worstOpen >= laneW - 1e-9,
+          `트인 판 ${worstOpen.toFixed(2)} ≥ 차선 폭 ${laneW.toFixed(2)}(절대 하한) · 계단 유효 폭 ${fullW.toFixed(2)} 대비 ${(worstOpen / fullW).toFixed(2)}배${worstOpen >= fullW - 1e-9 ? ' — 표준 규칙(참 ≥ 폭) 충족' : ' ⚠규칙 미달'}`)
+      }
+      ok(T.lanes.length === T.hs.length && T.lanes.every((L2, i) => L2 === i % 2),
+        `차선 배치 ${T.lanes.join('·')} — 갈래를 **나란히** 놓는다(같은 수직면에 겹치면 참에서 기어야 한다). 차선 폭 ${(G.HW - SLOT_STAIR_INSET - SLOT_LANE_GAP / 2).toFixed(2)}`)
+      ok(Math.abs(G.back - (Math.max(...T.runs.map(q => q.r1)) + SLOT_STAIR_INSET)) < 1e-12,
+        `뒷벽 ${G.back.toFixed(2)} = 참의 바깥 끝 + 인셋 ${SLOT_STAIR_INSET} — 계단이 정한다(결합 설계)`)
+      ok(T.stepRise.every(r => r <= DESC_RISE_MAX + 1e-9),
+        `단높이 ${T.stepRise.map(r => r.toFixed(3)).join(' / ')} ≤ DESC_RISE_MAX ${DESC_RISE_MAX} — 되돌아 내려올 수 있다`)
+      ok(T.stepRise.every(r => r <= STEP_UP + 1e-9), `단높이 ≤ STEP_UP ${STEP_UP} — 올라설 수 있다`)
+      {   //  ★★스펙 단높이가 아니라 **실제로 걸어 올라가며** 밟는 면 사이 점프를 잰다.
+        //   ⚠구판은 밖으로 가는 갈래의 **마지막 디딤만** 참 높이로 끌어올려 그 한 단이 2배(0.99)로 튀었다.
+        //   `stepRise`는 전부 0.48이라 green이었고 **이 검사가 없어서 통과했다**(현도 로컬 신고).
+        let worst = -Infinity, at = -1, prev = G.y0
+        T.runs.forEach((q, i) => { const j = q.y - prev; if (j > worst) { worst = j; at = i }; prev = q.y })
+        const last = G.y1 - prev
+        ok(worst <= STEP_UP + 1e-9 && last <= STEP_UP + 1e-9 && last >= -1e-9,
+          `실측 연속 점프 최대 ${Math.max(worst, last).toFixed(3)} ≤ STEP_UP ${STEP_UP} (최악 #${at}) · 마지막 디딤 → 판 ${last.toFixed(3)}`)
+        ok(T.runs.every(q => q.y >= G.y0 - 1e-9 && q.y <= G.y1 + 1e-9),
+          `밟는 면 ${T.runs.length}개가 전부 턱 ${G.y0.toFixed(2)} ~ 판 ${G.y1.toFixed(2)} 사이`)
+      }
+
+      console.log('── ★104 ⛔공리 나선 천장 · 채널 수납 · 도착 ──')
+      ok(G.back < G.spiralIn,
+        `뒷벽 ${G.back.toFixed(2)} < 공리 나선 발치 ${G.spiralIn.toFixed(2)} — 여유 **${(G.spiralIn - G.back).toFixed(2)}**${G.spiralIn - G.back < 1 ? ' ⚠아슬(체제 A의 대가)' : ''}`)
+      {   //  ⚠벽면은 모서리(u=0)에서 가장 바깥이다 — 디딤의 **안쪽 변**을 그 정점 기준으로 잰다.
+        //   (정점을 |u|=폭끝에서만 재면 0.60의 헛여유가 생겨 벽 속 관입을 놓친다 — 실제로 놓쳤다.)
+        let worst = Infinity, at = null
+        for (const q of T.runs) { const d = q.r0 - G.rEdge(q.y); if (d < worst) { worst = d; at = q } }
+        ok(worst > -1e-9,
+          `디딤·참 ${T.runs.length}개 전부 채널 안(벽면 여유 최소 ${worst.toFixed(3)} @ y ${at.y.toFixed(2)}) — 허공 다리 없음`)
+      }
+      ok(T.endR >= G.rEdge(G.y1) - 1e-9,
+        `도착 r ${T.endR.toFixed(2)} ≥ 판 안쪽 끝 ${G.rEdge(G.y1).toFixed(2)} — 허공이 아니라 판 높이에 닿는다`)
+      ok(true, `⚠연성 — 도착 위치: ${T.endR > G.s.rRim ? '노치 **바깥 끝**(판으로 곧장 나간다)' : '판 **입술**(양옆으로 비켜서 나간다 — 안쪽은 각뿔대 허공)'}`)
+
+      console.log('── ★104 헤드룸 실측(스펙 말고 점으로) ──')
+      {   //  **같은 차선**에서만 머리 위가 생긴다(차선이 다르면 나란히 지나간다).
+        //   참은 두 차선을 다 덮으므로 양쪽과 비교한다.
+        let worst = Infinity, pair = null
+        const shares = (a, b) => a.lane === -1 || b.lane === -1 || a.lane === b.lane
+        //  ⚠'올라서는 단'은 천장이 아니다 — 참 위에 얹힌 다음 갈래의 첫 단들, 그리고 갈래 꼭대기의
+        //   참은 **밟고 지나가는 것**이지 머리 위가 아니다. 이 둘을 빼지 않으면 계단마다 오검출이 난다.
+        const stepOff = (a, b) => (b.kind === 'landing' && b.flight === a.flight) ||
+                                  (a.kind === 'landing' && b.flight === a.flight + 1)
+        for (const a of T.runs) for (const b of T.runs) {
+          if (b.y <= a.y + 1e-9 || !shares(a, b) || stepOff(a, b)) continue
+          if (Math.min(a.r1, b.r1) - Math.max(a.r0, b.r0) < 1e-6) continue   // 반경이 안 겹치면 머리 위가 아니다
+          const c = (b.y - SLOT_SLAB_T) - a.y
+          if (c < worst) { worst = c; pair = [a, b] }
+        }
+        ok(!Number.isFinite(worst) || worst >= SLOT_CLEAR - 1e-6,
+          `같은 차선 겹침 최소 순 헤드룸 ${Number.isFinite(worst) ? worst.toFixed(2) : '겹침 없음'} ≥ ${SLOT_CLEAR}${pair ? ` (갈래 ${pair[0].flight}↔${pair[1].flight})` : ''}`)
+      }
+
+      console.log('── ★104 계단 메시 무결·슬롯 안 수납 ──')
+      {
+        const g2 = buildSlotStairs(), pos = g2.getAttribute('position').array, nor = g2.getAttribute('normal').array
+        let worst = 0, bad = 0, degen = 0
+        for (let i = 0; i < nor.length; i += 3) worst = Math.max(worst, Math.abs(Math.hypot(nor[i], nor[i + 1], nor[i + 2]) - 1))
+        for (let i = 0; i < pos.length; i += 9) {
+          const ax = pos[i], ay = pos[i + 1], az2 = pos[i + 2]
+          const ux = pos[i + 3] - ax, uy = pos[i + 4] - ay, uz = pos[i + 5] - az2
+          const vx = pos[i + 6] - ax, vy = pos[i + 7] - ay, vz = pos[i + 8] - az2
+          const wx = uy * vz - uz * vy, wy = uz * vx - ux * vz, wz = ux * vy - uy * vx
+          const Lm = Math.hypot(wx, wy, wz)
+          if (Lm < 1e-9) { degen++; continue }
+          if ((wx * nor[i] + wy * nor[i + 1] + wz * nor[i + 2]) / Lm < 0.5) bad++
+        }
+        ok([...pos].every(Number.isFinite) && worst < 1e-6 && bad === 0 && degen === 0,
+          `계단: 삼각 ${pos.length / 9} · 법선 편차 ${worst.toExponential(1)} · 감김 불일치 ${bad} · 퇴화 ${degen}`)
+        //  전 정점이 슬롯 안인가 — 폭·뒷벽·벽면 셋 다
+        let uMax = 0, rMax = 0, wallWorst = Infinity, yLo = Infinity, yHi = -Infinity
+        for (let i = 0; i < pos.length; i += 3) {
+          const X = pos[i], Y = pos[i + 1], Z = pos[i + 2]
+          const rr = X * Math.cos(G.az) + Z * Math.sin(G.az)
+          const uu = -X * Math.sin(G.az) + Z * Math.cos(G.az)
+          uMax = Math.max(uMax, Math.abs(uu)); rMax = Math.max(rMax, rr)
+          yLo = Math.min(yLo, Y); yHi = Math.max(yHi, Y)
+          //  ⚠벽면 최원점은 모서리(u=0)다 — rSurf(uu,·)로 재면 폭끝에서 0.60의 헛여유가 생긴다.
+          wallWorst = Math.min(wallWorst, rr - G.rEdge(Math.max(G.y0, Y)))
+        }
+        //  ⚠공차 1e-4: 메시 좌표는 **Float32**다(BufferAttribute). 배정밀도 스펙값과 직접 비교하면
+        //   상대 1e-7 오차가 그대로 뜬다(체제 A에서 1.1e-6로 오검출 — 기하가 아니라 정밀도 문제였다).
+        ok(uMax <= G.HW - SLOT_STAIR_INSET + 1e-4 && rMax <= G.back - SLOT_STAIR_INSET + 1e-4,
+          `계단이 슬롯 안에 완전 수납 — |u|max ${uMax.toFixed(2)} ≤ ${(G.HW - SLOT_STAIR_INSET).toFixed(2)} · r max ${rMax.toFixed(2)} ≤ ${(G.back - SLOT_STAIR_INSET).toFixed(2)} (동일 평면 회피 = z-파이팅 방지)`)
+        ok(wallWorst > -1e-4, `계단 전 정점이 벽면 밖으로 안 나간다(최소 여유 ${wallWorst.toFixed(4)})`)
+        ok(yLo >= G.y0 - 1e-4 && yHi <= G.y1 + 1e-4 && G.y1 - yHi <= STEP_UP + 1e-4,
+          `높이 범위 ${yLo.toFixed(2)} ~ ${yHi.toFixed(2)} — 꼭대기 디딤이 판 ${G.y1.toFixed(2)} 아래 ${(G.y1 - yHi).toFixed(3)}(한 단)`)
+      }
+      const RS2 = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+      ok(/slotStepGeo[\s\S]{0,160}walkable:\s*true/.test(RS2), '★104 계단 = walkable:true')
+
+      //  ══ ★105 슬롯까지 걸어갈 수 있는가 — 모서리 광선을 따라 실측 ══
+      //   ⚠이 절이 없으면 ★103·★104가 전부 green이어도 **아무도 슬롯에 못 간다**(현도 로컬 적발).
+      if (NICHE_ON && NICHE_FLOOR === 'stair') {
+        console.log('── ★105 접근 계단 전폭화 · 모서리 경로 ──')
+        const Q3 = nicheSpec(), cosH = Math.cos(Math.PI / S3.N), tanH = Math.tan(Math.PI / S3.N)
+        //  단 k가 모서리 광선에서 덮는 반경 구간 = [안쪽 변, 바깥 변(벽면)] ÷ cos(π/N)
+        const seg = []
+        for (let k = 1; k <= Q3.nApp; k++) {
+          const yk = S3.yBot + Q3.riseApp * k
+          const rIn = Q3.rFoot + Q3.run * (k - 1) / Q3.nApp
+          const hwK = NICHE_APP_WIDE ? S3.apoAt(yk) * tanH : Q3.W
+          //  이 단이 모서리(u_f = −apo·tanH)까지 닿는가 — 안 닿으면 그 높이에서 쐐기 틈이 남는다
+          seg.push({ k, y: yk, lo: rIn / cosH, hi: S3.apoAt(yk) / cosH, reach: hwK >= S3.apoAt(yk) * tanH - 1e-9 })
+        }
+        ok(seg.every(t => t.reach),
+          `단 ${seg.filter(t => t.reach).length}/${seg.length}이 모서리까지 닿는다(전폭화 ${NICHE_APP_WIDE ? 'ON' : '⛔OFF — 경로 끊김'})`)
+        {   //  모서리 광선을 마당에서 턱까지 걸어 본다 — 끊긴 구간과 단차를 동시에 잰다
+          let gap = 0, worstStep = 0, prevY = null, prevHi = null
+          for (const t of seg) {
+            if (prevHi !== null && t.lo > prevHi + 1e-9) gap = Math.max(gap, t.lo - prevHi)
+            if (prevY !== null) worstStep = Math.max(worstStep, t.y - prevY)
+            prevY = t.y; prevHi = t.hi
+          }
+          ok(gap === 0,
+            `모서리 광선 ρ ${seg[0].lo.toFixed(2)} → ${seg[seg.length - 1].hi.toFixed(2)} 끊김 ${gap.toFixed(3)} — 마당에서 턱까지 발 디딜 곳이 이어진다`)
+          ok(worstStep <= STEP_UP + 1e-9,
+            `모서리 단차 최대 ${worstStep.toFixed(3)} ≤ STEP_UP ${STEP_UP} — 올라설 수 있다`)
+        }
+        //  ★꼭대기 단 ↔ 슬롯 바닥 이음(같은 높이·같은 반경에서 만나야 한다)
+        const topRho = S3.apoAt(Q3.yS) / cosH
+        ok(Math.abs(topRho - G.rEdge(G.y0)) < 1e-9,
+          `꼭대기 단 모서리 바깥끝 ρ ${topRho.toFixed(3)} = 슬롯 바닥 안쪽 경계 ${G.rEdge(G.y0).toFixed(3)} — 정확히 맞물린다`)
+        ok(Math.abs((S3.yBot + Q3.riseApp * Q3.nApp) - G.y0) < 1e-9,
+          `꼭대기 단 높이 ${(S3.yBot + Q3.riseApp * Q3.nApp).toFixed(2)} = 슬롯 바닥 ${G.y0.toFixed(2)} — 단차 0(문턱 없음)`)
+        {   //  전폭화한 계단 메시 무결 — 폭을 바꿨으니 감김·법선을 다시 센다
+          const g3 = buildNicheStairs(), pos = g3.getAttribute('position').array, nor = g3.getAttribute('normal').array
+          let worst = 0, bad = 0, degen = 0
+          for (let i = 0; i < nor.length; i += 3) worst = Math.max(worst, Math.abs(Math.hypot(nor[i], nor[i + 1], nor[i + 2]) - 1))
+          for (let i = 0; i < pos.length; i += 9) {
+            const ax = pos[i], ay = pos[i + 1], az3 = pos[i + 2]
+            const ux = pos[i + 3] - ax, uy = pos[i + 4] - ay, uz = pos[i + 5] - az3
+            const vx = pos[i + 6] - ax, vy = pos[i + 7] - ay, vz = pos[i + 8] - az3
+            const wx = uy * vz - uz * vy, wy = uz * vx - ux * vz, wz = ux * vy - uy * vx
+            const Lm = Math.hypot(wx, wy, wz)
+            if (Lm < 1e-9) { degen++; continue }
+            if ((wx * nor[i] + wy * nor[i + 1] + wz * nor[i + 2]) / Lm < 0.5) bad++
+          }
+          ok([...pos].every(Number.isFinite) && worst < 1e-6 && bad === 0 && degen === 0,
+            `전폭 접근 계단: 삼각 ${pos.length / 9} · 법선 편차 ${worst.toExponential(1)} · 감김 불일치 ${bad} · 퇴화 ${degen}`)
+        }
+      }
+    }
   }
 }
 
