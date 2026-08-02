@@ -22,6 +22,8 @@ import {
   PIT_SIDES, PIT_PHASE, PIT_R_TOP, PIT_R_BOT, PIT_DEPTH, PIT_WALL_T, PIT_FLOOR_T,
   ROOM_FLOOR_Y, ROOM_R, ROOM_HEIGHT, ROOM_FLOOR_LIFT, wallR,
   ROOM_STAIR_ROUT, ROOM_STAIR_WIDTH, DAIS_R, DAIS_STEP_IN, DAIS_STEPS,
+  NICHE_ON, NICHE_FLOOR, NICHE_BACK, NICHE_DEPTH, NICHE_SILL, NICHE_W_F, NICHE_H_F,
+  NICHE_STAIR_DEG, NICHE_RISE, NICHE_STEP_R,
 } from './constants.js'
 
 // ── 스펙(단일 유도점) — 검사·웨이포인트·Room.jsx가 전부 여기서 읽는다(사본 금지) ──
@@ -40,9 +42,16 @@ export function pitSpec() {
     apoBot:     rBot * cosH,
     sideTop:    2 * rTop * Math.sin(Math.PI / N),    // 상면 한 변 길이
     sideBot:    2 * rBot * Math.sin(Math.PI / N),
-    // 옆면: 수평으로 (rTop−rBot) 물러나며 PIT_DEPTH 내려간다 → 수평 기준 경사각
-    slopeDeg:   Math.atan2(PIT_DEPTH, rTop - rBot) * 180 / Math.PI,
-    faceH:      Math.hypot(rTop - rBot, PIT_DEPTH),  // 경사면 위에서 잰 면의 실제 높이
+    //  ★★면과 모서리는 다른 값이다(2026.08.02 정정 — 구 `slopeDeg`/`faceH`는 사실 모서리 값이었다).
+    //   면(사다리꼴)의 높이·기울기는 **내접반경**으로 잰다. 감실 입구가 면 평면 안에 눕으므로 정본은 이쪽.
+    faceDip:    Math.atan2(PIT_DEPTH, rTop * cosH - rBot * cosH) * 180 / Math.PI,   // 65.20°
+    faceSlant:  Math.hypot((rTop - rBot) * cosH, PIT_DEPTH),                        // 26.44
+    //   모서리(꼭짓점을 잇는 다리)는 **외접반경**으로 잰다 — 상승 계단이 앉을 후보축이다.
+    edgeDeg:    Math.atan2(PIT_DEPTH, rTop - rBot) * 180 / Math.PI,                  // 63.43°
+    edgeLen:    Math.hypot(rTop - rBot, PIT_DEPTH),                                  // 26.83
+    //   높이 y에서의 내접반경(면까지의 수직거리)과 면 반폭 — 감실 기하가 전부 이 둘에서 나온다
+    apoAt:      (y) => rBot * cosH + (y - (ROOM_FLOOR_Y + ROOM_FLOOR_LIFT - PIT_DEPTH)) * ((rTop - rBot) * cosH / PIT_DEPTH),
+    hwAt:       (y) => (rBot * cosH + (y - (ROOM_FLOOR_Y + ROOM_FLOOR_LIFT - PIT_DEPTH)) * ((rTop - rBot) * cosH / PIT_DEPTH)) * Math.tan(Math.PI / N),
     floorBotY:  yBot - PIT_FLOOR_T,                  // 바닥 슬래브 밑면
     // 면 중심 방위(라디안) — 정의 D1~D8이 앉을 자리. 현 선돌 방위와 같아야 한다(검사가 잠근다).
     faceAz:     Array.from({ length: N }, (_, i) => PIT_PHASE + (i + 0.5) * (2 * Math.PI / N)),
@@ -112,23 +121,170 @@ function finish(P, Nn) {
   return g
 }
 
-// ── ① 각뿔대 옆벽(경사면) — **밟는 면이 아니다**(62° 빗면). 두께 PIT_WALL_T로 §2-D 2 '종잇장 금지'.
+// ── ★102 감실 스펙 — 여덟 면에 파이는 직사각 개구(입구 평면 = 면 평면 안) ──
+//   좌표계: 면마다 (반경 r, 접선 오프셋 u, 높이 y). 면 위의 점 = 축에서 r만큼 나가 u만큼 옆으로.
+//   ★입구가 면 안에 눕는다 = 좌우 변이 면의 최급경사선과 나란하고(수직 평면 u=±W가 낸다),
+//    아래위 변이 수평선이다(수평 평면 y=yS·yT가 낸다). 넷 다 면 평면 위에 있으니 직사각형.
+export function nicheSpec() {
+  const s = pitSpec()
+  const dip = s.faceDip * Math.PI / 180
+  const yS  = s.yBot + NICHE_SILL                       // 턱(감실 바닥) 높이
+  const yT  = yS + (s.yTop - yS) * NICHE_H_F            // 입구 윗변
+  const W   = s.hwAt(yS) * NICHE_W_F                    // 입구 반폭 — **턱 높이의 면 폭**이 상한
+  const RAD = NICHE_DEPTH / Math.sin(dip)              // 면 수직 깊이 → 반경 방향 오프셋(파생)
+  const K   = (s.apoTop - s.apoBot) / s.depth          // 높이 1당 면이 물러나는 반경(0.4617)
+  //  ★뒷벽 체제(2026.08.02 현도 지시) — 'vertical'은 **입구 윗변**을 기준으로 삼을 수밖에 없다.
+  //   아랫변 기준이면 위로 갈수록 면이 물러나 뒷벽이 면 **안쪽**으로 들어간다(깊이 음수 = 뒤집힘).
+  //   그 대가로 아래쪽이 깊어진다 — 턱에서의 수평 깊이가 RAD가 아니라 RAD + K·(입구 높이)가 된다.
+  const backAt = NICHE_BACK === 'vertical'
+    ? () => s.apoAt(yT) + RAD
+    : (y) => s.apoAt(y) + RAD
+  //  ⓑ 접근 계단: 각뿔대 바닥에서 턱까지. 면 자신이 내주는 수평 몫은 SILL·(면기울기 여분)뿐이라
+  //   나머지는 바닥 쪽으로 튀어나온다 — 그 양이 아래 `into`다(여덟이 바닥을 얼마나 먹는지).
+  //  ★경사는 하나다(2026.08.02 현도: "계단의 경사가 바뀌던데 그렇지 않은 게 자연스럽다").
+  //   접근 구간과 감실 안 구간이 **같은 `NICHE_STAIR_DEG`**를 쓴다 → 단높이·디딤 폭이 전 구간 동일.
+  //   구판은 감실 안 경사가 '남은 깊이에 rise를 억지로 나눈 값'이라 뒷벽 체제에 따라 12°~24°로 흔들렸다.
+  const tanS  = Math.tan(NICHE_STAIR_DEG * Math.PI / 180)
+  const run   = NICHE_SILL / tanS
+  const runIn = NICHE_RISE / tanS                      // ★감실 안에서 계단이 쓰는 수평 거리(나머지는 수평 바닥)
+  const rFoot = s.apoAt(yS) - run
+  const nApp  = Math.max(1, Math.ceil(NICHE_SILL / NICHE_STEP_R))
+  const nIn   = Math.max(1, Math.ceil(NICHE_RISE / NICHE_STEP_R))
+  return {
+    s, dip, yS, yT, W, RAD, K, backAt, run, runIn, rFoot, nApp, nIn,
+    backConst:  NICHE_BACK === 'vertical' ? s.apoAt(yT) + RAD : null,
+    depthAtS:   backAt(yS) - s.apoAt(yS),          // 턱에서의 **수평** 깊이
+    depthAtT:   backAt(yT) - s.apoAt(yT),          // 윗변에서의 수평 깊이('parallel'이면 같다)
+    riseApp:  NICHE_SILL / nApp,                        // 실제 단높이(파생 — STEP_UP 아래여야)
+    riseIn:   NICHE_RISE > 0 ? NICHE_RISE / nIn : 0,
+    into:     s.apoAt(yS) - s.apoAt(s.yBot) < run ? run - (s.apoAt(yS) - s.apoAt(s.yBot)) : 0,
+    openW:    2 * W,
+    openH:    yT - yS,                                  // 세계 높이
+    openSlant: (yT - yS) / Math.sin(dip),               // 면 위에서 잰 입구 높이
+    sideFlesh: s.hwAt(yS) - W,                          // 입구 옆에 남는 면 살(반쪽)
+    yTopIn:   yS + NICHE_RISE,                          // ⓑ 감실 안 계단 꼭대기 = **수평 바닥(착지)** 높이
+    //  ★착지 = 계단이 끝난 뒤 뒷벽까지 남는 수평 바닥(현도 2026.08.02). 음수면 계단이 감실을 뚫는다.
+    landing:  (backAt(yS) - s.apoAt(yS)) - runIn,
+    tread:    NICHE_RISE > 0 ? runIn / Math.max(1, Math.ceil(NICHE_RISE / NICHE_STEP_R)) : 0,
+    treadApp: run / Math.max(1, Math.ceil(NICHE_SILL / NICHE_STEP_R)),
+    // 뒷벽 바깥 모서리가 방 아랫반 셸을 뚫지 않는가 — 뚫으면 밖에서 보인다(치명)
+    shellGap: (() => {
+      let m = Infinity
+      for (let k = 0; k <= 100; k++) {
+        const y = yS + (yT - yS) * k / 100
+        m = Math.min(m, wallR(y) - Math.hypot(backAt(y), W))
+      }
+      return m
+    })(),
+  }
+}
+
+//  감실 안 어느 반경에서 발이 닿는 높이 — 'flat'은 턱, 'stair'는 그 단의 윗면.
+//  ⚠웨이포인트가 이걸 부른다(불변식 2: y = 밟는 면). 착지 스냅 레이가 나머지 오차를 먹는다.
+export function nicheFloorYAt(rr) {
+  const q = nicheSpec()
+  if (NICHE_FLOOR !== 'stair' || q.riseIn <= 0) return q.yS
+  const out = Math.max(0, rr - q.s.apoAt(q.yS))
+  const j = Math.min(q.nIn, Math.ceil(out / (q.runIn / q.nIn)))   // 계단 구간을 지나면 j가 nIn에 고정 = 착지
+  return q.yS + q.riseIn * j
+}
+
+// 면 로컬 (r, u, y) → 월드
+const fp = (az, r, u, y) => [r * Math.cos(az) - u * Math.sin(az), y, r * Math.sin(az) + u * Math.cos(az)]
+
+//  법선 방향을 지정해 **삼각형** 하나를 놓는다. ⚠사각형 헬퍼에 네 번째 점을 첫 점과 같게 넘기면
+//   퇴화 삼각형이 생기고 그 감김 판정이 0벡터가 된다(2026.08.02 실측: 퇴화 416·불일치 208).
+function triTo(P, Nn, a, b, c, want) {
+  const n = faceN(a, b, c)
+  if (!Number.isFinite(n[0]) || Math.hypot(n[0], n[1], n[2]) < 0.5) return   // 퇴화 = 버린다
+  const fwd = n[0] * want[0] + n[1] * want[1] + n[2] * want[2] >= 0
+  const [x, y, z] = fwd ? [a, b, c] : [a, c, b]
+  const m = faceN(x, y, z)
+  for (const v of [x, y, z]) P.push(v[0], v[1], v[2])
+  for (let i = 0; i < 3; i++) Nn.push(m[0], m[1], m[2])
+}
+//  법선 방향을 지정해 사각형을 놓는다 — 감김을 손으로 세지 않고 원하는 쪽으로 뒤집는다.
+function quadTo(P, Nn, a, b, c, d, want) {
+  let n = faceN(a, b, c)
+  if (n[0] * want[0] + n[1] * want[1] + n[2] * want[2] < 0) { quad(P, Nn, a, d, c, b, faceN(a, d, c)); return }
+  quad(P, Nn, a, b, c, d, n)
+}
+//  (r,y) **볼록 다각형**을 접선 방향 u0~u1로 밀어 만든 기둥 하나(계단 한 단 = 이것 하나).
+//  ★2026.08.02 일반화: 구판은 사각형 고정이었고, 안쪽 변이 벽면보다 바깥으로 나가면 **나비넥타이**가
+//   돼 옆면 감김이 뒤집혔다(현도 신고 "계단 앞면이 안 보인다" — 8면×2단×2장 = 32삼각 컬링).
+//   이제 호출자가 벽면과의 교차점을 넣어 3~5각형을 주고, 여기서 **부채 삼각분할**한다.
+function prism(P, Nn, az, poly, u0, u1) {
+  const pts = []
+  for (const q of poly) {                                  // 인접 중복점 제거(교차점이 꼭짓점과 겹칠 때)
+    const last = pts[pts.length - 1]
+    if (!last || Math.hypot(q[0] - last[0], q[1] - last[1]) > 1e-9) pts.push(q)
+  }
+  if (pts.length > 1) {
+    const f = pts[0], l = pts[pts.length - 1]
+    if (Math.hypot(f[0] - l[0], f[1] - l[1]) < 1e-9) pts.pop()
+  }
+  if (pts.length < 3) return
+  let A2 = 0                                               // 부호 있는 넓이 — 링 방향 판정
+  for (let i = 0; i < pts.length; i++) {
+    const j = (i + 1) % pts.length
+    A2 += pts[i][0] * pts[j][1] - pts[j][0] * pts[i][1]
+  }
+  if (Math.abs(A2) < 1e-9) return
+  const ring = A2 > 0 ? pts : pts.slice().reverse()         // (r,y) 평면에서 항상 CCW로 통일
+  const p = (ru, u) => fp(az, ru[0], u, ru[1])
+  const t = [-Math.sin(az), 0, Math.cos(az)]
+  const cen = ring.reduce((a, q) => [a[0] + q[0] / ring.length, a[1] + q[1] / ring.length], [0, 0])
+  for (let i = 1; i + 1 < ring.length; i++) {               // 두 캡 — 부채 삼각분할(볼록 전제)
+    triTo(P, Nn, p(ring[0], u0), p(ring[i], u0), p(ring[i + 1], u0), [-t[0], 0, -t[2]])
+    triTo(P, Nn, p(ring[0], u1), p(ring[i], u1), p(ring[i + 1], u1), t)
+  }
+  for (let i = 0; i < ring.length; i++) {                   // 옆면 — 링 방향이 통일돼 있어 감김이 안 꼬인다
+    const j = (i + 1) % ring.length
+    const mid = [(ring[i][0] + ring[j][0]) / 2, (ring[i][1] + ring[j][1]) / 2]
+    const w = [Math.cos(az) * (mid[0] - cen[0]), mid[1] - cen[1], Math.sin(az) * (mid[0] - cen[0])]
+    const wl = Math.hypot(w[0], w[1], w[2]) || 1
+    quadTo(P, Nn, p(ring[i], u0), p(ring[j], u0), p(ring[j], u1), p(ring[i], u1),
+      [w[0] / wl, w[1] / wl, w[2] / wl])
+  }
+}
+
+// ── ① 각뿔대 옆벽(경사면) — **밟는 면이 아니다**(65.2° 빗면). 두께 PIT_WALL_T로 §2-D 2 '종잇장 금지'.
 //   ⚠입술 띠는 여기 없다 — 그건 수평이고 실제로 밟으므로 **다른 메시**(buildPitRim)로 뗀다.
-//    한 메시에 몰면 `walkable` 태그 하나가 빗면까지 밟게 만든다(W4 인구조사가 그걸 잡는다).
+//   ★102: 감실이 켜지면 안·바깥 면에 **직사각 구멍**이 뚫린다. 구멍 둘레를 네 띠로 갈라 그린다
+//    (아래·위 사다리꼴 + 좌·우 사다리꼴) — 구멍의 좌우 변이 최급경사선과 나란해서 이 분해가 정확하다.
 export function buildPitWalls() {
   const s = pitSpec(), N = s.N, P = [], Nn = []
-  const iT = ring(s.rTop, s.yTop, N, PIT_PHASE)                  // 안쪽 위
-  const iB = ring(s.rBot, s.yBot, N, PIT_PHASE)                  // 안쪽 아래
-  const oT = ring(s.rRim, s.yTop, N, PIT_PHASE)                  // 바깥 위
-  const oB = ring(s.rBot + PIT_WALL_T, s.yBot, N, PIT_PHASE)     // 바깥 아래
+  const nq = NICHE_ON ? nicheSpec() : null
+  const tanH = Math.tan(Math.PI / N)
+  const hwI = (y) => s.apoAt(y) * tanH
+  const hwO = (y) => (s.apoAt(y) + PIT_WALL_T) * tanH
   for (let i = 0; i < N; i++) {
-    const j = (i + 1) % N
-    // 안쪽 면(보이는 면 — 정의 감실이 앞으로 여기에 파인다). 축을 향한다
-    quad(P, Nn, iT[i], iT[j], iB[j], iB[i], faceN(iT[i], iT[j], iB[j]))
-    // 바깥 면(사발 봉인 공간 쪽 — 아무도 못 보지만 닫아 둔다)
-    quad(P, Nn, oT[j], oT[i], oB[i], oB[j], faceN(oT[j], oT[i], oB[i]))
-    // 밑띠(아래, 수평)
-    quad(P, Nn, iB[j], oB[j], oB[i], iB[i], [0, -1, 0])
+    const az = s.faceAz[i]
+    const inward = [-Math.sin(s.faceDip * Math.PI / 180) * Math.cos(az),
+      Math.cos(s.faceDip * Math.PI / 180),
+      -Math.sin(s.faceDip * Math.PI / 180) * Math.sin(az)]
+    const outward = [-inward[0], -inward[1], -inward[2]]
+    const band = (rOf, hw, y0, y1, uL, uR, want) => {        // uL/uR = null이면 면 가장자리
+      const l0 = uL === null ? -hw(y0) : uL, l1 = uL === null ? -hw(y1) : uL
+      const r0 = uR === null ? hw(y0) : uR, r1 = uR === null ? hw(y1) : uR
+      if (Math.abs(r0 - l0) < 1e-9 && Math.abs(r1 - l1) < 1e-9) return
+      quadTo(P, Nn, fp(az, rOf(y0), l0, y0), fp(az, rOf(y0), r0, y0),
+        fp(az, rOf(y1), r1, y1), fp(az, rOf(y1), l1, y1), want)
+    }
+    for (const [rOf, hw, want] of [
+      [(y) => s.apoAt(y), hwI, inward],
+      [(y) => s.apoAt(y) + PIT_WALL_T, hwO, outward]]) {
+      if (!nq) { band(rOf, hw, s.yBot, s.yTop, null, null, want); continue }
+      band(rOf, hw, s.yBot, nq.yS, null, null, want)          // 아래 사다리꼴
+      band(rOf, hw, nq.yT, s.yTop, null, null, want)          // 위 사다리꼴(갓)
+      band(rOf, hw, nq.yS, nq.yT, null, -nq.W, want)          // 왼쪽 살
+      band(rOf, hw, nq.yS, nq.yT, nq.W, null, want)           // 오른쪽 살
+    }
+    // 밑띠(아래, 수평) — 안팎을 잇는다
+    const p = (r, u, y) => fp(az, r, u, y)
+    quadTo(P, Nn, p(s.apoAt(s.yBot), -hwI(s.yBot), s.yBot), p(s.apoAt(s.yBot), hwI(s.yBot), s.yBot),
+      p(s.apoAt(s.yBot) + PIT_WALL_T, hwO(s.yBot), s.yBot), p(s.apoAt(s.yBot) + PIT_WALL_T, -hwO(s.yBot), s.yBot),
+      [0, -1, 0])
   }
   return finish(P, Nn)
 }
@@ -142,6 +298,76 @@ export function buildPitRim() {
   for (let i = 0; i < N; i++) {
     const j = (i + 1) % N
     quad(P, Nn, iT[i], oT[i], oT[j], iT[j], [0, 1, 0])
+  }
+  return finish(P, Nn)
+}
+
+// ── ★102-a 감실 속 = 바닥·천장·옆벽 둘·뒷벽. 뒷벽은 **면과 나란하다**(깊이가 전 구간 일정) ──
+//   `walk`=true면 밟는 면(바닥)만, false면 나머지만 담는다 — 한 메시에 몰면 태그가 빗면까지 밟게 한다.
+export function buildNiches(walk) {
+  const P = [], Nn = []
+  if (!NICHE_ON) return finish(P, Nn)
+  const q = nicheSpec(), s = q.s
+  for (let i = 0; i < s.N; i++) {
+    const az = s.faceAz[i]
+    const p = (r, u, y) => fp(az, r, u, y)
+    const aS = s.apoAt(q.yS), aT = s.apoAt(q.yT)
+    const bS = q.backAt(q.yS), bT = q.backAt(q.yT)      // 뒷벽 — 'parallel'이면 면과 나란, 'vertical'이면 bS=bT
+    if (walk) {   // 바닥(수평) — ⓑ에서는 이 위에 계단이 얹힌다
+      quadTo(P, Nn, p(aS, -q.W, q.yS), p(aS, q.W, q.yS), p(bS, q.W, q.yS), p(bS, -q.W, q.yS), [0, 1, 0])
+      continue
+    }
+    quadTo(P, Nn, p(aT, -q.W, q.yT), p(aT, q.W, q.yT), p(bT, q.W, q.yT), p(bT, -q.W, q.yT), [0, -1, 0])  // 천장
+    const t = [-Math.sin(az), 0, Math.cos(az)]
+    for (const sgn of [-1, 1]) {   // 옆벽 둘(수직 평면 u=±W)
+      quadTo(P, Nn, p(aS, sgn * q.W, q.yS), p(bS, sgn * q.W, q.yS),
+        p(bT, sgn * q.W, q.yT), p(aT, sgn * q.W, q.yT), [-sgn * t[0], 0, -sgn * t[2]])
+    }
+    quadTo(P, Nn, p(bS, -q.W, q.yS), p(bS, q.W, q.yS),   // 뒷벽
+      p(bT, q.W, q.yT), p(bT, -q.W, q.yT),
+      [-Math.cos(az), 0, -Math.sin(az)])
+  }
+  return finish(P, Nn)
+}
+
+// ── ★102-b ⓑ 계단 = 각뿔대 바닥에서 출발해 턱을 오르고 **감실 안까지 이어진다**(현도 정정) ──
+//   어휘 = §2-D 2 '속 찬 매스': 단마다 **자기 뒤쪽 끝까지 닿는 판**을 겹쳐 쌓는다(낱장 디딤판 아님).
+//   ★쌓는 방향이 정본이다(2026.08.02 정정): 높은 단일수록 **안쪽 변이 바깥으로** 가고 뒤쪽 끝까지 닿아야
+//    낮은 단의 디딤이 드러난다. 구판은 감실 안 계단이 전부 벽면에서 출발해 **꼭대기 단이 나머지를 덮었다**
+//    (현도 신고 "감실 안까지 연결되지 않는다" — 계단이 아니라 단상 하나로 보였다).
+//   ★벽면 교차 처리: 벽이 65.2°로 누워 있어 높은 단의 안쪽 변은 낮은 높이에서 **벽 속**이다.
+//    그 높이(yCross)에서 프로파일을 꺾어 벽면을 타게 한다 — 이걸 안 하면 사각형이 꼬인다.
+export function buildNicheStairs() {
+  const P = [], Nn = []
+  if (!NICHE_ON || NICHE_FLOOR !== 'stair') return finish(P, Nn)
+  const q = nicheSpec(), s = q.s
+  const A = (y) => s.apoAt(y)
+  for (let i = 0; i < s.N; i++) {
+    const az = s.faceAz[i]
+    // ① 접근 계단: 각뿔대 바닥 → 턱. 바깥 변 = **벽면 자신**.
+    for (let k = 1; k <= q.nApp; k++) {
+      const yk  = s.yBot + q.riseApp * k
+      const rIn = q.rFoot + q.run * (k - 1) / q.nApp
+      const yX  = s.yBot + Math.max(0, (rIn - A(s.yBot)) / q.K)      // 벽면이 rIn에 닿는 높이
+      const poly = yX <= s.yBot + 1e-9
+        ? [[rIn, s.yBot], [A(s.yBot), s.yBot], [A(yk), yk], [rIn, yk]]
+        : [[rIn, yX], [A(yk), yk], [rIn, yk]]                        // 그 아래는 벽 속 = 삼각형
+      if (yX < yk - 1e-9) prism(P, Nn, az, poly, -q.W, q.W)
+    }
+    if (q.riseIn <= 0) continue
+    // ② 감실 안 계단: 턱 → 안쪽 꼭대기. 바깥 변 = **뒷벽**(체제 따라 나란/수직).
+    //    ★디딤 폭은 접근 구간과 **같은 경사**에서 나온다(`runIn`) — 남은 깊이는 마지막 단이 그대로
+    //     뒷벽까지 밀고 나가 **수평 바닥(착지)**이 된다(현도 2026.08.02).
+    for (let j = 1; j <= q.nIn; j++) {
+      const yj  = q.yS + q.riseIn * j
+      const rIn = A(q.yS) + q.runIn * (j - 1) / q.nIn                // 이 단의 챌판(수직) 위치
+      const yX  = q.yS + Math.max(0, (rIn - A(q.yS)) / q.K)          // 벽면이 rIn을 넘어서는 높이
+      const poly = []
+      poly.push([rIn, q.yS], [q.backAt(q.yS), q.yS], [q.backAt(yj), yj])
+      poly.push([Math.max(rIn, A(yj)), yj])
+      if (yX > q.yS + 1e-9 && yX < yj - 1e-9) poly.push([rIn, yX])   // 벽면과 만나는 꺾임
+      prism(P, Nn, az, poly, -q.W, q.W)
+    }
   }
   return finish(P, Nn)
 }

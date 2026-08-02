@@ -15,8 +15,10 @@ import {
   DEF_OCT_R, DEF_OCT_PHASE, AX_F0, AX_F1, AX_OFFSET, AX_PLAT_R, AX_MONO_SCALE,
   ROOM_FLOOR_LIFT,
   PIT_ON, PIT_SIDES, PIT_PHASE, PIT_MARK_MODE, PIT_MARK_GAP, PIT_SHAFT_DROP, DEF_OCT_ON,
+  NICHE_ON, NICHE_FLOOR,
 } from './constants'
-import { pitSpec, buildPitWalls, buildPitRim, buildPitFloor, buildHoledSlab } from './defPitGeometry'   // ★101 정의 각뿔대(순수 기하 — 사본 금지)
+import { pitSpec, buildPitWalls, buildPitRim, buildPitFloor, buildHoledSlab,
+  buildNiches, buildNicheStairs } from './defPitGeometry'   // ★101 각뿔대 · ★102 감실(순수 기하 — 사본 금지)
 
 // ════════ 지하 정의·공리 방 ════════
 export function DefAxiomRoom({ stairKind }) {
@@ -183,6 +185,10 @@ export function DefAxiomRoom({ stairKind }) {
   const pitWallGeo   = useMemo(() => buildPitWalls(), [])
   const pitRimGeo    = useMemo(() => buildPitRim(), [])
   const pitFloorGeo  = useMemo(() => buildPitFloor(), [])
+  //  ★102 감실 — 밟는 면(바닥)과 안 밟는 면(천장·옆·뒤)을 **다른 메시로** 뗀다.
+  const nicheWalkGeo = useMemo(() => buildNiches(true), [])
+  const nicheWallGeo = useMemo(() => buildNiches(false), [])
+  const nicheStepGeo = useMemo(() => buildNicheStairs(), [])
   //  빛 하절의 밑끝 — 기본은 구세계(기단 위)에서 그대로 끊는다. 각뿔대가 뚫리면 '허공에서 잘린 빛'이
   //  보이는데, 그것을 **보고 판정하는 것**이 이번 조각의 목적 중 하나다(현도 지시). PIT_SHAFT_DROP로 전환.
   const SHAFT_BOT_Y = (PIT_ON && PIT_SHAFT_DROP) ? PIT.yBot : ROOM_FLOOR_Y + DAIS_H
@@ -224,6 +230,19 @@ export function DefAxiomRoom({ stairKind }) {
         <mesh geometry={pitFloorGeo} userData={{ walkable: true }}>
           <meshStandardMaterial color="#332918" roughness={0.95} fog={false} />
         </mesh>
+        {NICHE_ON && (<>
+          <mesh geometry={nicheWallGeo} userData={{ walkable: false }}>   {/* 천장·옆벽·뒷벽 */}
+            <meshStandardMaterial color="#3a2f1c" roughness={0.95} side={THREE.DoubleSide} fog={false} />
+          </mesh>
+          <mesh geometry={nicheWalkGeo} userData={{ walkable: true }}>    {/* 감실 바닥 */}
+            <meshStandardMaterial color="#3f331e" roughness={0.95} fog={false} />
+          </mesh>
+          {NICHE_FLOOR === 'stair' && (
+            <mesh geometry={nicheStepGeo} userData={{ walkable: true }}>  {/* ⓑ 바닥→감실 안 계단 */}
+              <meshStandardMaterial color="#463823" roughness={0.9} fog={false} />
+            </mesh>
+          )}
+        </>)}
       </>)}
       {/* 내부 채움광 — v2 감광(1.05→0.55): 판테온 무브의 상대 어둑함. 중앙에서 퍼지므로 선돌의 '중심을 보는 앞면'을 비추는 방향 */}
       <pointLight position={[0, ROOM_FLOOR_Y + ROOM_HEIGHT * 0.45, 0]} intensity={0.12} distance={ROOM_R * 4} decay={1.4} color="#ffe2b0" />   {/* v2.2: 거의 소등 — 어둠은 여기서 나온다 */}
@@ -277,9 +296,16 @@ function DefPrecinct() {
   //  ★101(2026.08.02): 각뿔대가 서면 기단 2단(속 찬 원판 r34·r31.8)이 정통으로 뚫린다 → **고리**로 다시 잘린다.
   //   구멍은 판과 **같은 팔각**(같은 반경·위상)이라 입술이 두 번 그려지지 않는다.
   const PIT = useMemo(() => (PIT_ON ? pitSpec() : null), [])
+  //  ⚠★102 가드(2026.08.02): 구멍이 커지면(상면 32 → 구멍 33.5) **단이 구멍보다 안쪽**이 된다.
+  //   그 상태로 고리를 만들면 안반경 > 바깥반경이라 면이 뒤집혀 깜빡이는 띠가 된다(현도 로컬 목격).
+  //   구멍 최대반경보다 작은 단은 **그리지 않는다** — 사라지는 것이 정직하다(검사가 수를 보고한다).
   const tierGeos = useMemo(() => (PIT_ON
-    ? Array.from({ length: DAIS_STEPS }, (_, k) =>
-        buildHoledSlab(DAIS_R - DAIS_STEP_IN * k, 96, PIT.rRim, PIT_SIDES, PIT_PHASE, DAIS_STEP_H))
+    ? Array.from({ length: DAIS_STEPS }, (_, k) => {
+        const R = DAIS_R - DAIS_STEP_IN * k
+        return R > PIT.rRim + 0.05
+          ? buildHoledSlab(R, 96, PIT.rRim, PIT_SIDES, PIT_PHASE, DAIS_STEP_H)
+          : null
+      })
     : null), [PIT])
   //  각인선 반경 — 'rim'이면 구멍 테두리 바깥으로 파생 이동(원위치 r26은 구멍 위 허공이다).
   const markR = PIT_ON && PIT_MARK_MODE === 'rim' ? PIT.rRim + PIT_MARK_GAP : DEF_OCT_R
@@ -287,11 +313,11 @@ function DefPrecinct() {
   const markPhase = PIT_ON && PIT_MARK_MODE === 'rim' ? PIT_PHASE : DEF_OCT_PHASE
   return (
     <group>
-      {Array.from({ length: DAIS_STEPS }, (_, k) => (PIT_ON ? (
+      {Array.from({ length: DAIS_STEPS }, (_, k) => (PIT_ON ? (tierGeos[k] === null ? null : (
         <mesh key={k} geometry={tierGeos[k]} position={[0, ROOM_FLOOR_Y + DAIS_STEP_H * (k + 1), 0]} userData={{ walkable: true }}>
           <meshStandardMaterial color="#322817" roughness={0.95} side={THREE.DoubleSide} fog={false} />
         </mesh>
-      ) : (
+      )) : (
         <mesh key={k} position={[0, ROOM_FLOOR_Y + DAIS_STEP_H * (k + 0.5), 0]} userData={{ walkable: true }}>
           <cylinderGeometry args={[DAIS_R - DAIS_STEP_IN * k, DAIS_R - DAIS_STEP_IN * k, DAIS_STEP_H, 96]} />
           <meshStandardMaterial color="#322817" roughness={0.95} fog={false} />   {/* v2.2 암실화 — 여전히 바닥보다 한 단 위(성역) */}

@@ -1260,7 +1260,7 @@ console.log('\n— W. 보행 (FREE_WALK를 끄면 걸어서 완주할 수 있는
       ['Lens.jsx',           1,  0, 0, 0],
       ['Radial.jsx',        12,  5, 0, 0],   // ★91 +1 = 원기둥 받침(밟는 면 아님 — 매달린 관벽)
       ['RadialEvents.jsx',   6,  1, 0, 0],
-      ['Room.jsx',          18,  7, 0, 3],   // ★101(08.02) +5 = 판 고리·각뿔대 입술·바닥 슬래브·기단 고리 분기(전부 walkable) + 각뿔대 빗면(walkable:false)
+      ['Room.jsx',          21,  9, 0, 4],   // ★101(08.02) +5 = 판 고리·각뿔대 입술·바닥 슬래브·기단 고리 분기 + 빗면(false) · ★102 +3 = 감실 바닥·ⓑ계단(walkable) + 감실 천장/옆/뒤(false)
       ['Steles.jsx',         5,  0, 0, 0],
     ]
     let sumAll = 0, sumWalk = 0
@@ -1277,7 +1277,7 @@ console.log('\n— W. 보행 (FREE_WALK를 끄면 걸어서 완주할 수 있는
     const WANT_WALK = LEDGER.reduce((a, r) => a + r[2] + r[3], 0)
     const WANT_FALSE = LEDGER.reduce((a, r) => a + r[4], 0)
     ok(sumAll === WANT_ALL && sumWalk === WANT_WALK,
-      `합계 메시 ${sumAll}/${WANT_ALL} 중 밟는 면 ${sumWalk}/${WANT_WALK} · 무선언 ${sumAll - sumWalk - WANT_FALSE} = 벽·지붕·챌판·기둥`)   // ★87 +1 임시 판 · ★90 +1 리드 연결 계단 · ★91 +1 원기둥 받침 · ★92 +2 드럼 하판 · ★93 +1 고리판 · ★101 +5 정의 각뿔대
+      `합계 메시 ${sumAll}/${WANT_ALL} 중 밟는 면 ${sumWalk}/${WANT_WALK} · 무선언 ${sumAll - sumWalk - WANT_FALSE} = 벽·지붕·챌판·기둥`)   // ★87 +1 임시 판 · ★90 +1 리드 연결 계단 · ★91 +1 원기둥 받침 · ★92 +2 드럼 하판 · ★93 +1 고리판 · ★101 +5 정의 각뿔대 · ★102 +3 감실
     //  ★챌판(riser)은 밟는 면이 아니다 — 회랑·등불 방 계단의 '밟는 면'은 ring 헬퍼(조건부 태그)가 낸다.
     //   이 한 줄이 W4가 "무선언 = 버그"로 읽히는 것을 막는다(무선언 대부분은 정상이다).
   }

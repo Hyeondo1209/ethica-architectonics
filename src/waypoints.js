@@ -32,8 +32,8 @@ import {
   ROOM_CX, ROOM_FLOOR_Y, DAIS_H, ROOM_DISC_HOLE, ROOM_LAND_R,
   RAD_ANG0, RAD_R, RAD_JX, RAD_FLOOR_Y,
   P_FLOOR_TOP, P_SPAWN_LX, P1_ON,
-  PIT_ON,} from './constants.js'
-import { pitSpec } from './defPitGeometry.js'   // ★101 정의 각뿔대(좌표 사본 금지 — 스펙 파생)
+  PIT_ON, NICHE_ON,} from './constants.js'
+import { pitSpec, nicheSpec, nicheFloorYAt } from './defPitGeometry.js'   // ★101 각뿔대 · ★102 감실(좌표 사본 금지 — 스펙 파생)
 import { p1HeightAt } from './radialEventsGeometry.js'   // 1p1 볼록 바닥 보정(모드·노브 자동 추종)
 import { buildHallStairs, incaStairSpec, incaBladesSpec, descentSpec } from './corridorStairsGeometry.js'   // ★㊳ 계단 끝 4곳 + ★㊷ 날 끝 4곳(못 닿음 판정 지점) — 빌더 파생(자동 추종)
 import { INCA_ON, INCA_GAP, FRIEZE_ROOM_ON, FR_FLOOR_Y, FR_WALL_T, TEMPLE_X0 } from './constants.js'   // ★55 프리즈 방
@@ -210,11 +210,22 @@ const PIT_WP = PIT_ON ? (() => {
   }
 })() : null
 
+// ★102 감실 안(2026.08.02) — D1 감실의 절반쯤 들어가 **뒷벽**을 본다(정의가 앉을 면).
+//  y는 nicheFloorYAt이 정한다 → 'flat'이면 턱, 'stair'면 그 자리 단의 윗면(체제 자동 추종).
+const NICHE_WP = (PIT_ON && NICHE_ON) ? (() => {
+  const q = nicheSpec(), az = q.s.faceAz[0]
+  const rr = q.s.apoAt(q.yS) + (q.backAt(q.yS) - q.s.apoAt(q.yS)) * 0.75   // 뒷벽 체제 자동 추종 · ⓑ에선 착지(수평 바닥) 위
+  return { x: rr * Math.cos(az), z: rr * Math.sin(az), y: nicheFloorYAt(rr),
+    yaw: yawTo(Math.cos(az), Math.sin(az)) }
+})() : null
+
 export const WAYPOINTS = [
   { id: 'room', group: '지상', label: '정의·공리 방 (기단 위)', prop: 'D1~8 · A1~7',
     x: ROOM_CX, y: ROOM_FLOOR_Y + DAIS_H, z: 0, yaw: FACE_NX, pitch: 0 },
   ...(PIT_ON ? [{ id: 'defpit', group: '지상', label: '정의 각뿔대 바닥 (★101 블록아웃)', prop: 'D1~8',
     x: ROOM_CX, y: PIT_WP.y, z: 0, yaw: PIT_WP.yaw, pitch: PIT_WP.pitch }] : []),
+  ...(PIT_ON && NICHE_ON ? [{ id: 'defniche', group: '지상', label: 'D1 감실 안 (★102)', prop: 'D1',
+    x: ROOM_CX + NICHE_WP.x, y: NICHE_WP.y, z: NICHE_WP.z, yaw: NICHE_WP.yaw, pitch: 0 }] : []),
 
   // 허브 = 빛우물 원뿔대 안. 디스크는 고리(r 6~18)이고 +x에 59° 슬롯(구멍)이 뚫려 있으므로
   //  슬롯 반대편(φ=180°)의 고리 위에 선다. 정면(+x)에 슬롯·빛우물, 좌우 뒤로 대각 문 4.

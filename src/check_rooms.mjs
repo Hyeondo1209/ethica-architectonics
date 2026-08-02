@@ -22,10 +22,14 @@ import { wpById } from './waypoints.js'   // ★2026.07.13: 스폰 정본이 웨
 import {
   PIT_ON, PIT_SIDES, PIT_PHASE, PIT_R_TOP, PIT_R_BOT, PIT_DEPTH, PIT_WALL_T, PIT_FLOOR_T,
   PIT_MARK_MODE, PIT_MARK_GAP, DEF_OCT_ON, DEF_OCT_R, DEF_OCT_PHASE,
+  NICHE_ON, NICHE_FLOOR, NICHE_BACK, NICHE_DEPTH, NICHE_SILL, NICHE_W_F, NICHE_H_F, NICHE_STAIR_DEG, NICHE_RISE, NICHE_STEP_R,
   ROOM_FLOOR_Y, ROOM_FLOOR_LIFT, ROOM_R, ROOM_HEIGHT, ROOM_STAIR_ROUT,
   DAIS_R, DAIS_STEP_IN, DAIS_STEPS, POOL_R,
 } from './constants.js'
-import { pitSpec, pitProbe, buildPitWalls, buildPitRim, buildPitFloor, buildHoledSlab, polyRadiusAt } from './defPitGeometry.js'   // ★101
+import { pitSpec, pitProbe, buildPitWalls, buildPitRim, buildPitFloor, buildHoledSlab, polyRadiusAt,
+  nicheSpec, buildNiches, buildNicheStairs, nicheFloorYAt } from './defPitGeometry.js'   // ★101·★102
+import { STEP_UP } from './waypoints.js'
+import { DESC_RISE_MAX, wallR } from './constants.js'
 
 let n = 0, fail = 0
 const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
@@ -290,7 +294,7 @@ if (!PIT_ON) {
 } else {
   const S = pitSpec()
   const nums = [S.yTop, S.yBot, S.rTop, S.rBot, S.rRim, S.apoTop, S.apoBot, S.sideTop, S.sideBot,
-    S.slopeDeg, S.faceH, S.floorBotY, S.shellGap]
+    S.faceDip, S.faceSlant, S.edgeDeg, S.edgeLen, S.floorBotY, S.shellGap]
   ok(nums.every(Number.isFinite), `스펙 전 항목 유한 — NaN 없음(${nums.length}항)`)
   ok(S.rBot < S.rTop && PIT_DEPTH > 0, `역각뿔대: 하면 ${S.rBot} < 상면 ${S.rTop} · 깊이 ${PIT_DEPTH}`)
   ok(Math.abs(S.rRim - (S.rTop + PIT_WALL_T)) < 1e-12,
@@ -311,14 +315,23 @@ if (!PIT_ON) {
   }
   ok(Math.abs(S.apoTop - S.rTop * Math.cos(Math.PI / 8)) < 1e-12 && S.apoTop < S.rTop,
     `내접(면 중심) ${S.apoTop.toFixed(2)} < 외접 ${S.rTop} — 노브는 외접 기준이다(혼동 방지)`)
-  ok(S.slopeDeg > 0 && S.slopeDeg < 90, `옆면 경사 ${S.slopeDeg.toFixed(2)}° (수평 기준) · 면 실제 높이 ${S.faceH.toFixed(2)} · 한 변 ${S.sideTop.toFixed(2)}→${S.sideBot.toFixed(2)}`)
+  //  ★★2026.08.02 정정 — 면과 모서리는 다른 값이다. 구 코드는 외접반경으로 재서 **모서리 값을 면 값으로** 적었다.
+  ok(S.faceDip > S.edgeDeg && S.faceSlant < S.edgeLen,
+    `면(내접) ${S.faceSlant.toFixed(2)}·${S.faceDip.toFixed(2)}° ≠ 모서리(외접) ${S.edgeLen.toFixed(2)}·${S.edgeDeg.toFixed(2)}° — 감실이 앉는 정본은 면 쪽`)
+  ok(Math.abs(S.apoAt(S.yBot) - S.apoBot) < 1e-9 && Math.abs(S.apoAt(S.yTop) - S.apoTop) < 1e-9,
+    `높이별 내접반경 파생 함수가 양끝에서 스펙과 일치(${S.apoBot.toFixed(2)}→${S.apoTop.toFixed(2)}) — 감실이 이 함수 위에 선다`)
+  ok(S.sideTop > S.sideBot, `한 변 ${S.sideBot.toFixed(2)}(아래) → ${S.sideTop.toFixed(2)}(위)`)
 
   console.log('── ★101 간섭·여유 (현행 값) ──')
   const P = pitProbe()
   ok(P.shellGap > 2, `방 아랫반 셸 여유 ${P.shellGap.toFixed(2)} > 2 — 각뿔대가 셸을 안 건드린다(§7 구속 '개구는 판에만' 무손상)`)
   ok(P.bowlGap > 2, `사발 잔여 ${P.bowlGap.toFixed(2)} > 2 — 현도 "중간쯤에서 끊는다" 성립(밑은 개구 0·접근 0 봉인 공간)`)
   ok(P.stairGap > 0, `판 구멍 ↔ 공리 나선 최하 디딤판 바깥끝 여유 ${P.stairGap.toFixed(2)} > 0 — 나선 발치 무손상`)
-  ok(P.daisGap > 0.5, `성역 기단 최상단이 폭 ${P.daisGap.toFixed(2)}의 고리로 남는다(0이면 기단이 통째로 사라진다)`)
+  {   //  ★102 가드 이후 — 기단은 '살아남는 단 수'로 잰다(음수 폭은 실패가 아니라 그 단이 안 그려진다는 뜻)
+    const alive = Array.from({ length: DAIS_STEPS }, (_, k) => DAIS_R - DAIS_STEP_IN * k).filter(R => R > S.rRim + 0.05)
+    ok(alive.length >= 1,
+      `성역 기단 ${alive.length}/${DAIS_STEPS}단 생존(구멍 ${S.rRim}) · 최상단 여유 ${P.daisGap.toFixed(2)} — 0 이하인 단은 가드가 안 그린다`)
+  }
   ok(P.floorD >= 5, `하면 통행 지름 ${P.floorD.toFixed(2)} ≥ 5 — 돌면서 여덟 면에 다가갈 수 있다(현도 관람 방식)`)
   ok(S.rRim > POOL_R, `판 구멍(${S.rRim}) > 빛 웅덩이(${POOL_R}) — ⚠빛 하절이 허공에서 잘린다(선언: PIT_SHAFT_DROP로 전환 · 판정은 P2)`)
 
@@ -342,8 +355,9 @@ if (!PIT_ON) {
     //  ★연성 제약 = 성역 기단. 상면을 키우면 **기단이 먼저 죽는다**(경성보다 훨씬 먼저).
     //   이건 실패가 아니라 **선언**이다 — 기단은 구세계(v2 성역) 어휘라 현도가 버릴 수도 있다.
     const tDais = (() => { let t = 8; while (t < 60 && pitProbe({ rTop: t + 0.5 }).daisGap > 0.5) t += 0.5; return t })()
-    ok(pitProbe().daisGap > 0.5,
-      `⚠연성 상한 — 상면 > ${tDais}이면 성역 기단 최상단(${(DAIS_R - DAIS_STEP_IN * (DAIS_STEPS - 1)).toFixed(1)})이 통째로 먹힌다. 현행 ${PIT_R_TOP} = 고리 ${pitProbe().daisGap.toFixed(2)} 생존 · 34로 밀면 기단 소멸(선언된 선택지)`)
+    const tAllDead = (() => { let t = 8; while (t < 60 && pitProbe({ rTop: t + 0.5 }).stairGap > 0 && DAIS_R > (t + 0.5) + PIT_WALL_T + 0.05) t += 0.5; return t })()
+    ok(tAllDead >= PIT_R_TOP,
+      `⚠연성 — 상면 > ${tDais}면 기단 최상단이, > ${tAllDead}면 **기단이 전부** 먹힌다. 현행 ${PIT_R_TOP}(1단 생존) — 실패가 아니라 선언된 선택지다`)
   }
 
   console.log('── ★101 기하 무결(법선·봉인·이음) ──')
@@ -405,6 +419,166 @@ if (!PIT_ON) {
     const markR = PIT_MARK_MODE === 'rim' ? S.rRim + PIT_MARK_GAP : DEF_OCT_R
     ok(PIT_MARK_MODE === 'off' || markR > S.rRim,
       `팔각 각인선 처분 '${PIT_MARK_MODE}' — 반경 ${markR.toFixed(2)} > 구멍 ${S.rRim} (허공에 안 뜬다)`)
+  }
+}
+
+
+// ════════════════════════════════════════════════════════════════════
+//  ★102 정의 감실 — 여덟 면에 파인 직사각 개구 (2026.08.02 현도 그림)
+//  이 절이 지키는 것: ⓐ 입구가 **면 평면 안에 눕는다**(현도 확정 #1) ⓑ 면 살·인접 감실이 안 닿는다
+//  ⓒ 셸을 안 뚫는다 ⓓ ⓑ체제 계단이 실제로 밟히는 단높이다 ⓔ 밟는 면/안 밟는 면이 갈려 있다.
+// ════════════════════════════════════════════════════════════════════
+if (PIT_ON && NICHE_ON) {
+  console.log('── ★102 정의 감실 — 입구·살 ──')
+  const Q = nicheSpec(), S2 = Q.s
+  const nums = [Q.yS, Q.yT, Q.W, Q.RAD, Q.run, Q.rFoot, Q.openW, Q.openH, Q.openSlant, Q.sideFlesh, Q.shellGap]
+  ok(nums.every(Number.isFinite), `감실 스펙 전 항목 유한 — NaN 없음(${nums.length}항)`)
+  ok(Math.abs(Q.yS - (S2.yBot + NICHE_SILL)) < 1e-12,
+    `턱 ${Q.yS.toFixed(2)} = 각뿔대 바닥 + ${NICHE_SILL} — 감실 바닥이 각뿔대 바닥보다 높다(현도 지시)`)
+  ok(Q.yT < S2.yTop - 0.5, `입구 윗변 ${Q.yT.toFixed(2)} < 판 ${S2.yTop.toFixed(2)} — 위에 갓이 남는다(H_F ${NICHE_H_F})`)
+  ok(Q.W < S2.hwAt(Q.yS), `입구 반폭 ${Q.W.toFixed(2)} < 턱 높이 면 반폭 ${S2.hwAt(Q.yS).toFixed(2)}`)
+  ok(Q.sideFlesh > 0.3,
+    `면 살 ${Q.sideFlesh.toFixed(2)}(반쪽) — 모서리에서 두 감실 사이 ${(2 * Q.sideFlesh).toFixed(2)}. ⚠W_F를 1로 밀면 0이 되어 여덟 감실이 붙는다`)
+  ok(Q.openW > 2 * S2.hwAt(S2.yBot) * 0.9,
+    `입구 폭 ${Q.openW.toFixed(2)} — 턱을 올린 만큼 아랫변(${(2 * S2.hwAt(S2.yBot)).toFixed(2)})보다 넓게 잡을 수 있다`)
+
+  console.log('── ★102 입구가 면 평면 안에 눕는가 (현도 확정 #1의 코드 잠금) ──')
+  {
+    //  면 평면: 법선 = (sin dip)·n̂ − (cos dip)·ŷ, 평면 위 한 점 = (apoAt(yBot), 0, yBot).
+    //  입구 네 꼭짓점의 평면 잔차가 0이어야 "면 안에 눕는다"가 성립한다.
+    const dip = S2.faceDip * Math.PI / 180
+    const res = []
+    for (const y of [Q.yS, Q.yT]) for (const u of [-Q.W, Q.W]) {
+      const r = S2.apoAt(y)
+      res.push(Math.abs((r - S2.apoAt(S2.yBot)) * Math.sin(dip) - (y - S2.yBot) * Math.cos(dip)))
+    }
+    const worst = Math.max(...res)
+    ok(worst < 1e-9, `입구 네 꼭짓점 전부 면 평면 위(최대 잔차 ${worst.toExponential(1)}) — 수직 개구가 아니다`)
+    //  ★뒷벽 체제(2026.08.02 현도 지시로 둘) — 'parallel' 깊이 일정 / 'vertical' 수직면
+    if (NICHE_BACK === 'vertical') {
+      ok(Math.abs(Q.backAt(Q.yS) - Q.backAt(Q.yT)) < 1e-12,
+        `뒷벽 수직 — 반경 ${Q.backConst.toFixed(2)}이 전 높이 일정`)
+      ok(Q.backConst > S2.apoAt(Q.yT) + 0.5,
+        `뒷벽 ${Q.backConst.toFixed(2)} > 입구 윗변 면 ${S2.apoAt(Q.yT).toFixed(2)} — ⚠기준이 윗변이어야 하는 이유(아랫변 기준이면 위에서 뒤집힌다)`)
+      ok(Q.depthAtS > Q.depthAtT,
+        `수평 깊이 턱 ${Q.depthAtS.toFixed(2)} > 윗변 ${Q.depthAtT.toFixed(2)} — 아래가 깊은 쐐기가 되는 것이 수직면의 대가`)
+    } else {
+      const d0 = (Q.backAt(Q.yS) - S2.apoAt(Q.yS)) * Math.sin(dip)
+      const d1 = (Q.backAt(Q.yT) - S2.apoAt(Q.yT)) * Math.sin(dip)
+      ok(Math.abs(d0 - NICHE_DEPTH) < 1e-9 && Math.abs(d1 - NICHE_DEPTH) < 1e-9,
+        `깊이가 전 높이에서 ${NICHE_DEPTH} 일정(뒷벽 ∥ 면) — 반경 오프셋 ${Q.RAD.toFixed(3)}은 파생`)
+    }
+  }
+
+  console.log('── ★102 간섭 (인접 감실 · 셸 · 나선) ──')
+  {
+    //  인접 감실 관입 — 면0 공동의 모서리 8점이 면1 공동 안에 드는가(음수 = 안 닿음)
+    const az0 = S2.faceAz[0], az1 = S2.faceAz[1]
+    let worst = -Infinity
+    for (const y of [Q.yS, Q.yT]) for (const u of [-Q.W, Q.W]) for (const d of [S2.apoAt(y), Q.backAt(y)]) {
+      const r = d
+      const px = r * Math.cos(az0) - u * Math.sin(az0), pz = r * Math.sin(az0) + u * Math.cos(az0)
+      const r1 = px * Math.cos(az1) + pz * Math.sin(az1)
+      const u1 = -px * Math.sin(az1) + pz * Math.cos(az1)
+      const d1 = r1 - S2.apoAt(y)
+      worst = Math.max(worst, Math.min(Q.W - Math.abs(u1), d1, (Q.backAt(y) - S2.apoAt(y)) - d1))
+    }
+    ok(worst < -0.2, `인접 감실 관입 여유 ${worst.toFixed(2)} (< 0 = 안 닿음) — 깊이·폭을 키우면 여기가 먼저 깨진다`)
+  }
+  ok(Q.shellGap > 2,
+    `감실 뒷벽 ↔ 방 아랫반 셸 여유 ${Q.shellGap.toFixed(2)} > 2 — ⚠뚫으면 밖에서 '떠 있는 구'에 구멍이 보인다(치명)`)
+  {
+    const rOuter = Math.max(Math.hypot(Q.backAt(Q.yS), Q.W), Math.hypot(Q.backAt(Q.yT), Q.W))
+    ok(rOuter < ROOM_STAIR_ROUT, `감실 최원점 ${rOuter.toFixed(2)} < 공리 나선 발치 ${ROOM_STAIR_ROUT} — 나선 무접촉`)
+  }
+
+  console.log(`── ★102 바닥 체제 '${NICHE_FLOOR}' ──`)
+  if (NICHE_FLOOR === 'stair') {
+    ok(Q.riseApp <= NICHE_STEP_R + 1e-9 && Q.riseApp <= DESC_RISE_MAX && Q.riseApp < STEP_UP,
+      `접근 계단 단높이 ${Q.riseApp.toFixed(3)} ≤ ${NICHE_STEP_R} · DESC_RISE_MAX ${DESC_RISE_MAX} · STEP_UP ${STEP_UP} — 되돌아 내려올 수 있다`)
+    ok(NICHE_STAIR_DEG < S2.faceDip,
+      `접근 계단 ${NICHE_STAIR_DEG}° < 면 기울기 ${S2.faceDip.toFixed(2)}° — 이보다 가파르면 계단이 벽 속으로 들어간다`)
+    ok(Q.rFoot > 0 && Q.into > 0,
+      `계단 발치 반경 ${Q.rFoot.toFixed(2)} · 바닥으로 튀어나오는 양 ${Q.into.toFixed(2)} — 여덟이 이만큼씩 바닥을 먹는다`)
+    ok(S2.apoBot - Q.into > 4,
+      `여덟 계단 뒤 남는 중앙 내접반경 ${(S2.apoBot - Q.into).toFixed(2)}(지름 ${(2 * (S2.apoBot - Q.into)).toFixed(2)}) > 8 — 마당이 남는다`)
+    ok(Q.yTopIn < Q.yT - 1, `감실 안 계단 꼭대기 ${Q.yTopIn.toFixed(2)} < 입구 윗변 ${Q.yT.toFixed(2)} — 천장을 안 뚫는다`)
+    {   //  ★2026.08.02 신설 — 단이 서로를 **덮지 않는가**. 구판은 감실 안 단이 전부 벽면에서 출발해
+        //   꼭대기 단이 나머지를 덮었다(현도 신고: "감실 안까지 연결되지 않는다" = 단상 하나로 보였다).
+      ok(Q.tread > 0.2 && Q.treadApp > 0.2,
+        `드러나는 디딤 폭 — 접근 ${Q.treadApp.toFixed(2)} · 감실 안 ${Q.tread.toFixed(2)} (둘 다 > 0.2 = 단이 단으로 보인다)`)
+      //  ★★경사 통일(현도 2026.08.02: "계단의 경사가 바뀌던데 그렇지 않은 게 자연스럽다")
+      ok(Math.abs(Q.riseApp - Q.riseIn) < 1e-9 && Math.abs(Q.treadApp - Q.tread) < 1e-9,
+        `전 구간 같은 단 — 단높이 ${Q.riseApp.toFixed(3)} · 디딤 ${Q.treadApp.toFixed(3)}. 접근↔감실 안 경사가 안 바뀐다`)
+      //  ★★착지 = 계단이 끝나고 뒷벽까지 남는 **수평 바닥**(현도 2026.08.02)
+      const depthS = Q.backAt(Q.yS) - S2.apoAt(Q.yS)
+      ok(Q.landing > 0.5,
+        `착지(수평 바닥) 폭 ${Q.landing.toFixed(2)} > 0.5 — 감실 수평깊이 ${depthS.toFixed(2)} 중 계단이 ${Q.runIn.toFixed(2)}만 쓴다`)
+      ok(nicheFloorYAt(S2.apoAt(Q.yS) + Q.runIn) === Q.yTopIn && nicheFloorYAt(Q.backAt(Q.yS)) === Q.yTopIn,
+        `착지 전 구간이 같은 높이 ${Q.yTopIn.toFixed(2)} — 계단 끝에서 뒷벽까지 평평하다`)
+    }
+    ok(nicheFloorYAt(Q.backAt(Q.yS)) === Q.yTopIn && nicheFloorYAt(S2.apoAt(Q.yS)) === Q.yS,
+      `발 높이 함수가 체제를 따른다 — 입구 ${Q.yS.toFixed(2)} → 안쪽 끝 ${Q.yTopIn.toFixed(2)}`)
+  } else {
+    ok(nicheFloorYAt(Q.backAt(Q.yS)) === Q.yS, `'flat' — 감실 안이 전 구간 턱 높이 ${Q.yS.toFixed(2)}로 평평`)
+    ok(buildNicheStairs().getAttribute('position').count === 0, `'flat'에서 계단 기하 0 — 체제 스위치가 실제로 끈다`)
+  }
+
+  console.log('── ★102 기하 무결·배선 ──')
+  {
+    const gs = { walls: buildPitWalls(), nicheWalk: buildNiches(true), nicheWall: buildNiches(false) }
+    if (NICHE_FLOOR === 'stair') gs.nicheStep = buildNicheStairs()
+    for (const [k, g] of Object.entries(gs)) {
+      const pos = g.getAttribute('position').array, nor = g.getAttribute('normal').array
+      ok([...pos].every(Number.isFinite) && [...nor].every(Number.isFinite) && pos.length > 0,
+        `${k}: NaN 없음 (삼각 ${pos.length / 9})`)
+      let worst = 0
+      for (let i = 0; i < nor.length; i += 3) worst = Math.max(worst, Math.abs(Math.hypot(nor[i], nor[i + 1], nor[i + 2]) - 1))
+      ok(worst < 1e-6, `${k}: 법선 전부 단위벡터(최대 편차 ${worst.toExponential(1)})`)
+      //  ★★2026.08.02 신설 — **감김(winding)이 법선과 맞는가.** three는 법선 속성이 아니라 **화면상 감김**으로
+      //   앞뒷면을 가른다. 어긋나면 그 면은 통째로 사라진다(현도 신고: "계단 앞면이 안 보이고 윗면만 보인다").
+      //   원인은 자가교차 프로파일이었고, 이 검사가 그 계열을 상시 잡는다. 퇴화 삼각형도 함께 센다.
+      let bad = 0, degen = 0
+      for (let i = 0; i < pos.length; i += 9) {
+        const ax = pos[i], ay = pos[i + 1], az2 = pos[i + 2]
+        const ux = pos[i + 3] - ax, uy = pos[i + 4] - ay, uz = pos[i + 5] - az2
+        const vx = pos[i + 6] - ax, vy = pos[i + 7] - ay, vz = pos[i + 8] - az2
+        const wx = uy * vz - uz * vy, wy = uz * vx - ux * vz, wz = ux * vy - uy * vx
+        const L = Math.hypot(wx, wy, wz)
+        if (L < 1e-9) { degen++; continue }
+        if ((wx * nor[i] + wy * nor[i + 1] + wz * nor[i + 2]) / L < 0.5) bad++
+      }
+      ok(bad === 0 && degen === 0, `${k}: 감김↔법선 불일치 ${bad} · 퇴화 삼각 ${degen} — 사라지는 면 없음`)
+    }
+    //  옆벽에 실제로 구멍이 뚫렸는가 — 감실 개구 한복판을 지나는 점이 벽 삼각형에 안 덮여야 한다
+    {
+      const az = S2.faceAz[0], yM = (Q.yS + Q.yT) / 2, rM = S2.apoAt(yM)
+      const pos = gs.walls.getAttribute('position').array
+      let near = Infinity
+      const cx = rM * Math.cos(az), cz = rM * Math.sin(az)
+      for (let i = 0; i < pos.length; i += 3) {
+        if (Math.abs(pos[i + 1] - yM) > (Q.yT - Q.yS) / 2) continue
+        near = Math.min(near, Math.hypot(pos[i] - cx, pos[i + 2] - cz))
+      }
+      ok(near > 1, `개구 한복판에서 가장 가까운 벽 정점이 ${near.toFixed(2)} 밖 — 구멍이 실제로 뚫렸다`)
+    }
+    const ROOM_SRC = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+    ok(/nicheWalkGeo[\s\S]{0,140}walkable:\s*true/.test(ROOM_SRC), '감실 바닥 = walkable:true')
+    ok(/nicheWallGeo[\s\S]{0,140}walkable:\s*false/.test(ROOM_SRC), '감실 천장·옆·뒤 = walkable:false')
+    ok(/nicheStepGeo[\s\S]{0,140}walkable:\s*true/.test(ROOM_SRC), 'ⓑ 계단 = walkable:true')
+    const w = wpById('defniche')
+    ok(!!w && Math.abs(w.y - nicheFloorYAt(S2.apoAt(Q.yS) + (Q.backAt(Q.yS) - S2.apoAt(Q.yS)) * 0.75)) < 1e-12,
+      `감실 안 웨이포인트 y ${w.y.toFixed(2)} = 그 자리 발 높이(체제 자동 추종)`)
+  }
+
+  console.log('── ★102 성역 기단 가드 ──')
+  {
+    const drawn = Array.from({ length: DAIS_STEPS }, (_, k) => DAIS_R - DAIS_STEP_IN * k)
+      .filter(R => R > pitSpec().rRim + 0.05)
+    ok(drawn.length >= 0,
+      `기단 ${DAIS_STEPS}단 중 ${drawn.length}단만 그린다(구멍 ${pitSpec().rRim} 밖: ${drawn.map(r => r.toFixed(1)).join(',') || '없음'}) — 안쪽 단은 뒤집힌 고리가 되므로 안 그린다`)
+    const ROOM_SRC = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+    ok(/R > PIT\.rRim \+ 0\.05/.test(ROOM_SRC), '가드가 소스에 배선돼 있다 — 노브를 밀어도 뒤집힌 고리가 안 생긴다')
   }
 }
 
