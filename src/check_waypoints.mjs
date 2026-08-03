@@ -34,6 +34,7 @@ import {
 import { RM10_FLARE_ON, RM10_FLARE_MX, RM10_FLARE_MZ, RM10_FLARE_SWEEP, RM10_FLARE_R, RM10_ARC_TH1, TERRACE_ON } from './constants.js'   // ★80
 import { RM10_FLARE_RISE, RM10_FLARE_MY, RM10_FLARE_W1, TR_RIN, TR_ROUT, TR_AZ0, TR_AZ1, TR_Y, TERRACE_T, TR_W_F, terraceMouth } from './constants.js'   // ★85 테라스
 import { TR_STEP_ON, TR_STEP_MODE, TR_SOFFIT, TR_LAND_F, gatCap, GAT_CX, LK_DISC_T } from './constants.js'   // ★89 테라스 계단화
+import { SURVEY_START } from './constants.js'   // ★108 조형 검토 모드(개발 도구 — 배포 전 'off')
 import { TR_LINK_ON, TR_LINK_HW, TR_LINK_BITE, GAT_CROWN_R } from './constants.js'   // ★90 리드 연결 계단
 import { terraceSpec, terracePoint, terraceProfileY, terraceSoffitY, buildTerrace, terraceLinkSpec, buildTerraceLink } from './terraceGeometry.js'
 import { flareSpec } from './exitFlareGeometry.js'
@@ -1260,7 +1261,7 @@ console.log('\n— W. 보행 (FREE_WALK를 끄면 걸어서 완주할 수 있는
       ['Lens.jsx',           1,  0, 0, 0],
       ['Radial.jsx',        12,  5, 0, 0],   // ★91 +1 = 원기둥 받침(밟는 면 아님 — 매달린 관벽)
       ['RadialEvents.jsx',   6,  1, 0, 0],
-      ['Room.jsx',          24, 11, 0, 5],   // ★101(08.02) +5 = 판 고리·각뿔대 입술·바닥 슬래브·기단 고리 분기 + 빗면(false) · ★102 +3 = 감실 바닥·ⓑ계단(walkable) + 감실 천장/옆/뒤(false) · ★103 +2 = 슬롯 바닥(walkable) + 슬롯 옆·뒷벽(false) · ★104 +1 = 꺾인 상승 계단(walkable)
+      ['Room.jsx',          27, 12, 0, 7],   // ★107(08.03) +3 = 나선 매스(walkable) + ②기둥·①보(false) · ★101(08.02) +5 = 판 고리·각뿔대 입술·바닥 슬래브·기단 고리 분기 + 빗면(false) · ★102 +3 = 감실 바닥·ⓑ계단(walkable) + 감실 천장/옆/뒤(false) · ★103 +2 = 슬롯 바닥(walkable) + 슬롯 옆·뒷벽(false) · ★104 +1 = 꺾인 상승 계단(walkable)
       ['Steles.jsx',         5,  0, 0, 0],
     ]
     let sumAll = 0, sumWalk = 0
@@ -1490,6 +1491,20 @@ console.log('\n— W. 보행 (FREE_WALK를 끄면 걸어서 완주할 수 있는
   ok(/PoseProbe[\s\S]*useFrame/.test(hud), 'PoseProbe가 useFrame으로 매 프레임 갱신')
   ok(!/useState/.test(hud), '⚠HUD에 useState 없음 — 60fps 리렌더가 씬을 느리게 만들면 도구가 작품을 해친다')
   ok(hud.includes('DEV_TELEPORT'), '배포 스위치 DEV_TELEPORT로 통째 차단(텔레포트 패널과 같은 한 줄)')
+
+  //  ★108 조형 검토 모드 — ⚠**개발 도구다.** P3 출구 전에 'off'로 되돌려야 한다
+  //   (`DEV_TELEPORT`·`SPAWN='room'`과 같은 묶음). 여기서 **매 실행 소리를 낸다** — 조용히 배포되면
+  //   심사자가 점토 렌더를 보게 된다. ⛔실패로 박지 않는 이유: 지금(P1′)은 켜져 있어야 정상이다.
+  const surv = fs.readFileSync(new URL('./Survey.jsx', import.meta.url), 'utf8')
+  ok(surv.includes('scene.overrideMaterial = null'),
+    'Survey.jsx가 해제 시 overrideMaterial·fog·background를 원상 복귀 — 조명 정본 무손상')
+  ok(!surv.includes('castShadow={true}') && !surv.includes('castShadow ') ,
+    '검토 조명에 그림자 없음 — 그림자는 조형이 아니라 조명의 산물(P2 몫)')
+  ok(app.includes('<SurveyRig mode={survey} />') && app.includes("survey === 'off' &&"),
+    'App.jsx: 검토 모드가 켜지면 실제 대기·조명이 물러난다(정본 값은 그 자리에 남는다)')
+  ok(true, SURVEY_START === 'off'
+    ? "★108 SURVEY_START='off' — 배포 상태(정본 조명)"
+    : `⚠★108 SURVEY_START='${SURVEY_START}' — **조형 검토 모드가 켜져 있다.** P1′ 조형 판정용. P3 출구 전 'off' 필수`)
 
   //  ⑦ 웨이포인트 줄이 실제 WAYPOINTS 항목 모양과 같은 필드를 낸다(붙여 넣으면 바로 동작).
   const wline = formatWaypoint({ x: 1.5, y: 2.5, z: 3.5, yaw: 1.2345, pitch: -0.5 }, 'probe', '테스트')

@@ -1,7 +1,7 @@
 import { Canvas } from '@react-three/fiber'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import GraphScaffold from './GraphScaffold'
-import { SCALE, RIB_XFER_ON, RIB_DEST_PHI, TERRACE_ON } from './constants'
+import { SCALE, RIB_XFER_ON, RIB_DEST_PHI, TERRACE_ON, SURVEY_START } from './constants'
 import { FirstPersonControls } from './FirstPersonControls'
 import { WAYPOINTS, WP_GROUPS, SPAWN_ID, DEV_TELEPORT, wpIndexOf } from './waypoints'
 import { Ground, MirrorPads, DrumCup, DomeRibs, ExplorationRib, HallDoorRibs, RibStair, KneeWalk, RibJunction, Lookout, RevealPassage, CloisterLamps, Terrace, LampRoom, FriezeCrossing } from './Dome'
@@ -11,6 +11,7 @@ import { Corridor } from './Corridor'
 import { RadialRooms } from './Radial'
 import { RadialEvents } from './RadialEvents'
 import { PoseProbe, CoordHud } from './CoordHud'   // ★99 좌표 HUD(개발 도구 — DEV_TELEPORT로 일괄 차단)
+import { SurveyRig, SurveyLights, SURVEY_ORDER } from './Survey'   // ★108 조형 검토 모드(⚠조명 아님)
 
 // ============================================================
 //  App.jsx — 조립만 담당 (파일 분할 2026.07.03 · 스케일 리그 철거 2026.07.04 — ③ 고정)
@@ -22,6 +23,7 @@ import { PoseProbe, CoordHud } from './CoordHud'   // ★99 좌표 HUD(개발 �
 export default function App() {
   const [view, setView] = useState('dome')
   const [stair, setStair] = useState('circle')       // 원형 확정(기본). T키로 옥타곤 A/B 비교
+  const [survey, setSurvey] = useState(SURVEY_START) // ★108 조형 검토 모드(M키 순환 — ⚠조명 개편 아님)
 
   // ── 텔레포트(개발 도구, ★2026.07.13 — waypoints.js DEV_TELEPORT로 일괄 차단) ──
   //  좌표·시선은 전부 waypoints.js가 정본. 여기는 '어디로 갈지'만 고르고 CustomEvent로 쏜다
@@ -41,6 +43,7 @@ export default function App() {
     const onKey = (e) => {
       if (e.code === 'KeyG') setView(v => (v === 'dome' ? 'graph' : 'dome'))
       if (e.code === 'KeyT') setStair(s => (s === 'octagon' ? 'circle' : 'octagon'))
+      if (e.code === 'KeyM') setSurvey(s => SURVEY_ORDER[(SURVEY_ORDER.indexOf(s) + 1) % SURVEY_ORDER.length])
       if (!DEV_TELEPORT || e.repeat) return                              // ⚠오토리피트 차단(누르고 있으면 연속 순간이동)
       if (e.code === 'Tab') { e.preventDefault(); setWpOpen(o => !o) }   // 브라우저 포커스 이동 차단
       if (e.code === 'BracketLeft')  goWp(wpRef.current - 1)             // [ 이전 지점
@@ -55,12 +58,18 @@ export default function App() {
       <Canvas camera={{ fov: 70, near: 0.1, far: 3000, position: [0, 1.6, 0] }}>
         {view === 'dome' && (
           <>
-            <color attach="background" args={['#e7d6ad']} />
-            <fog attach="fog" args={['#e7d6ad', 30 * SCALE, 150 * SCALE]} />
+            {/* ★108: 검토 모드에서는 실제 대기·조명을 물린다. SurveyRig가 fog·background·overrideMaterial을
+                쥐었다 놓으므로 여기 값들은 정본 그대로 남는다(끄면 원상 복귀). */}
+            {survey === 'off' && <>
+              <color attach="background" args={['#e7d6ad']} />
+              <fog attach="fog" args={['#e7d6ad', 30 * SCALE, 150 * SCALE]} />
 
-            <hemisphereLight args={['#ffeccb', '#2e2618', 0.85]} />
-            <ambientLight intensity={0.25} />
-            <directionalLight position={[30 * SCALE, 120 * SCALE, 20 * SCALE]} intensity={0.3} color="#ffe6bf" />
+              <hemisphereLight args={['#ffeccb', '#2e2618', 0.85]} />
+              <ambientLight intensity={0.25} />
+              <directionalLight position={[30 * SCALE, 120 * SCALE, 20 * SCALE]} intensity={0.3} color="#ffe6bf" />
+            </>}
+            <SurveyRig mode={survey} />
+            <SurveyLights mode={survey} />
 
             <group>
               <Ground />
@@ -112,7 +121,9 @@ export default function App() {
         textShadow: view === 'graph' ? '0 1px 3px rgba(0,0,0,0.5)' : '0 1px 2px rgba(255,255,255,0.4)'
       }}>
         <div style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: view === 'graph' ? '#b9a36f' : '#7a6a48', marginBottom: 8 }}>
-          {view === 'graph' ? 'Ethica · 데이터 그래프 (1부 의존, 30노드)' : 'Ethica · 1부 — 신의 구성'}
+          {view === 'graph' ? 'Ethica · 데이터 그래프 (1부 의존, 30노드)'
+            : survey === 'off' ? 'Ethica · 1부 — 신의 구성'
+            : `Ethica · 1부 — 조형 검토 모드 [${survey}] · M키 전환`}
         </div>
         <div style={{ fontSize: 13, lineHeight: 1.7 }}>
           {view === 'graph' ? (

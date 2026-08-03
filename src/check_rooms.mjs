@@ -34,6 +34,15 @@ import { pitSpec, pitProbe, buildPitWalls, buildPitRim, buildPitFloor, buildHole
   slotSpec, buildPitSlot, stairSolve, buildSlotStairs } from './defPitGeometry.js'   // ★101·★102·★103
 import { STEP_UP } from './waypoints.js'
 import { DESC_RISE_MAX, wallR } from './constants.js'
+import {
+  SPIRAL_BODY, SPIRAL_SUP, SPIRAL_MASS_T, SPIRAL_CHAMF, SPIRAL_TREAD_ON, SPIRAL_RISE_SEED, SPIRAL_SOFFIT,
+  SUP_COL_GAP, SUP_COL_R, SUP_COL_MIN, SUP_COL_PAD,
+  SUP_BEAM_GAP, SUP_BEAM_DEPTH, SUP_BEAM_W, SUP_BEAM_MIN, SUP_BEAM_DMIN, SUP_WALL_CLR, SUP_HEAD_MIN,
+  SUP_BEAM_TAPER, SUP_BEAM_CURVE, SUP_BEAM_W_TAPER, SUP_BEAM_NOSE_LIP, SUP_BEAM_ROOT_GROW, SUP_BEAM_FILLET,
+  ROOM_STAIR_WIDTH, ROOM_STAIR_RIN, ROOM_STAIR_TURNS, AX_ON, CL_STEP_GO, CL_STEP_RISE,
+} from './constants.js'
+import { spiralSpec, buildSpiralMass, buildSpiralColumns, buildSpiralBeams,
+  columnSpec, beamSpec, beamProfile, beamHeadroom, unsupportedSpans, treadProbe } from './axiomSpiralGeometry.js'   // ★107
 
 let n = 0, fail = 0
 const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
@@ -900,6 +909,221 @@ if (PIT_ON && NICHE_ON) {
         }
       }
     }
+  }
+}
+
+
+// ════════════════════════════════════════════════════════════════════
+//  ★107 공리 나선 매스 + 지지 체계 (2026.08.03 현도 결정: ①벽 보 + ②판 기둥)
+//  이 절이 지키는 것:
+//   ⓐ **현도 잠금 무손상** — 평면 나선(r45→14 · 2바퀴 · 도착 방위)이 매스화로 안 움직였는가
+//   ⓑ 매스 기하 건전성(법선·감김·퇴화·NaN) + 밑면이 깎였는가(§2-D 2)
+//   ⓒ **기둥 발이 판 위인가** — 중심이 아니라 **발 안쪽 끝**으로 잰다(★105 계열: 실제로 딛는가)
+//   ⓓ **보가 셸을 안 뚫는가** — 셸 외곽 불변 구속. 마구리 네 점 전수
+//   ⓔ **헤드룸** — 보 밑면 ↔ 한 바퀴 아래 코일 윗면
+//   ⓕ **무지지 최대 공백** — "보를 몇 개 놓았나"가 아니라 "가장 긴 공백이 얼마인가"
+//   ⓖ 두께 위계(§2-D 3) 걷는 것 < 받치는 것 — ⚠정상부 자동 감쇠로 뒤집히는 구간을 **소리 내어 보고**
+// ════════════════════════════════════════════════════════════════════
+console.log('\n── ★107 공리 나선 — 매스 + 지지 ──')
+{
+  const S = spiralSpec()
+  ok(true, `공리 스테이션 AX_ON=${AX_ON} — ${AX_ON ? '켜짐(⚠보 경로 74~85% 지점과 겹친다)' : '소등: 어휘 재검토 중(현도 08.03) · 좌표 보존'}`)
+
+  //  ⓐ 현도 잠금 — 평면 궤적 불변
+  ok(Math.abs(S.rAt(0) - ROOM_STAIR_ROUT) < 1e-12 && Math.abs(S.rAt(1) - ROOM_STAIR_RIN) < 1e-12,
+    `★잠금: 반경 궤적 ${ROOM_STAIR_ROUT}→${ROOM_STAIR_RIN} 무손상`)
+  ok(Math.abs(S.TOTAL - ROOM_STAIR_TURNS * Math.PI * 2) < 1e-12,
+    `★잠금: 총 회전 ${ROOM_STAIR_TURNS}바퀴 무손상`)
+  {
+    const azEnd = ((S.azAt(1) * 180 / Math.PI) % 360 + 360) % 360
+    ok(Math.abs(azEnd - 37.5) < 1e-9, `★잠금: 도착 방위 ${azEnd.toFixed(4)}° = ROOM_TOP_AZ`)
+  }
+  ok(ROOM_STAIR_ROUT - ROOM_STAIR_WIDTH / 2 - SLOT_SPIRAL_PAD > 40.94 - 1e-9,
+    `★결합: 폭 ${ROOM_STAIR_WIDTH} -> 발치 안끝 ${(ROOM_STAIR_ROUT - ROOM_STAIR_WIDTH / 2).toFixed(2)} · 슬롯 뒷벽 천장 ${(ROOM_STAIR_ROUT - ROOM_STAIR_WIDTH / 2 - SLOT_SPIRAL_PAD).toFixed(2)} — 폭을 더 넓히면 슬롯 계단이 먼저 깨진다`)
+  ok(Math.abs(S.slopeDeg - 7.74) < 0.05,
+    `★잠금의 귀결: 평균 경사 ${S.slopeDeg.toFixed(2)}° (경로 ${S.pathLen.toFixed(1)} ÷ 상승 ${S.CLIMB.toFixed(2)}) — 계단이 아니라 램프다`)
+  ok(!PIT_ON || Math.abs(S.fHole - (ROOM_STAIR_ROUT - S.rHole) / (ROOM_STAIR_ROUT - ROOM_STAIR_RIN)) < 1e-12,
+    `지지 교대 경계 f ${S.fHole.toFixed(4)}(칸 ${Math.round(S.fHole * 141)}/141) = 판 구멍 ${S.rHole}의 파생 — ${PIT_ON ? '각뿔대를 밀면 따라 움직인다' : '⚠PIT_ON=false 구세계: 판이 통짜라 전 구간이 기둥 몫'}`)
+
+  if (SPIRAL_BODY === 'mass') {
+    //  ⓑ 매스 기하
+    const meshes = [['매스', buildSpiralMass()]]
+    if (SPIRAL_SUP === 'both' || SPIRAL_SUP === 'slab') meshes.push(['② 기둥', buildSpiralColumns()])
+    if (SPIRAL_SUP === 'both' || SPIRAL_SUP === 'wall') meshes.push(['① 보', buildSpiralBeams()])
+    for (const [name, g] of meshes) {
+      const pos = g.getAttribute('position').array, nor = g.getAttribute('normal').array
+      let worst = 0, bad = 0, degen = 0
+      for (let i = 0; i < nor.length; i += 3) worst = Math.max(worst, Math.abs(Math.hypot(nor[i], nor[i + 1], nor[i + 2]) - 1))
+      for (let i = 0; i < pos.length; i += 9) {
+        const ax = pos[i], ay = pos[i + 1], az = pos[i + 2]
+        const ux = pos[i + 3] - ax, uy = pos[i + 4] - ay, uz = pos[i + 5] - az
+        const vx = pos[i + 6] - ax, vy = pos[i + 7] - ay, vz = pos[i + 8] - az
+        const wx = uy * vz - uz * vy, wy = uz * vx - ux * vz, wz = ux * vy - uy * vx
+        const L = Math.hypot(wx, wy, wz)
+        if (L < 1e-9) { degen++; continue }
+        if ((wx * nor[i] + wy * nor[i + 1] + wz * nor[i + 2]) / L < 0.5) bad++
+      }
+      ok([...pos].every(Number.isFinite) && worst < 1e-6 && bad === 0 && degen === 0,
+        `${name}: 삼각 ${pos.length / 9} · 법선 편차 ${worst.toExponential(1)} · 감김 불일치 ${bad} · 퇴화 ${degen}`)
+    }
+    {
+      const pos = buildSpiralMass().getAttribute('position').array
+      let ymin = Infinity, ymax = -Infinity
+      for (let i = 1; i < pos.length; i += 3) { ymin = Math.min(ymin, pos[i]); ymax = Math.max(ymax, pos[i]) }
+      //  ⚠Float32 — 배정밀도 스펙과 비교하는 공차는 1e-4(★104-3 교훈)
+      //  ⚠밑면 어법이 밑끝을 정한다: 'ramp'는 선형선−T(발치 y52−T) · 'saw'는 첫 디딤−T(y52+rise−T)
+      const ymExp = ROOM_FLOOR_Y - SPIRAL_MASS_T + ((SPIRAL_TREAD_ON && SPIRAL_SOFFIT === 'saw') ? S.rise : 0)
+      ok(Math.abs(ymax - S.yTopEnd) < 1e-4 && Math.abs(ymin - ymExp) < 1e-4,
+        `매스 y ${ymin.toFixed(2)}~${ymax.toFixed(2)} = 발치 밑면('${SPIRAL_SOFFIT}') ~ 착지 디스크 윗면`)
+      ok(SPIRAL_CHAMF > 0 && SPIRAL_CHAMF < ROOM_STAIR_WIDTH / 2,
+        `밑면 깎임 ${SPIRAL_CHAMF} ∈ (0, ${ROOM_STAIR_WIDTH / 2}) — §2-D 2 '속 찬 매스 + 깎인 밑면'`)
+      ok(SPIRAL_MASS_T > 0.5,
+        `코일 두께 ${SPIRAL_MASS_T} — 구 낱장 0.35(종잇장)에서 ${(SPIRAL_MASS_T / 0.35).toFixed(1)}배`)
+    }
+
+    //  ★107-2 단 새김(★89 테라스 어법) — 공칭이 아니라 **밟는 면 사이 실제 점프**를 잰다(★104-2 교훈)
+    if (SPIRAL_TREAD_ON) {
+      const tp = treadProbe()
+      ok(tp.nSteps === tp.nPerSeg * 16,
+        `단 ${tp.nSteps}개 = 변 16 × 변당 ${tp.nPerSeg}단 — 변마다 정수라 단높이가 전 구간 균일하다`)
+      ok(Math.abs(tp.rise - S.CLIMB / 16 / tp.nPerSeg) < 1e-9,
+        `단높이 ${tp.rise.toFixed(4)} = 변당 상승 ${(S.CLIMB / 16).toFixed(3)} / ${tp.nPerSeg} (씨앗 ${SPIRAL_RISE_SEED}에서 파생) · 회랑·나팔 ${CL_STEP_RISE.toFixed(3)} 대비 ${(tp.rise / CL_STEP_RISE).toFixed(2)}배`)
+      ok(Math.abs(tp.maxJump - tp.rise) < 2e-3,
+        `★실측 최대 점프 ${tp.maxJump.toFixed(4)} = 공칭 단높이 ${tp.rise.toFixed(4)} — 두 배 단 없음(★104-2 계열)`)
+      ok(tp.maxJump <= STEP_UP,
+        `실측 점프 ${tp.maxJump.toFixed(3)} <= STEP_UP ${STEP_UP} — 실제로 올라갈 수 있다`)
+      //  ★하한을 상수로 박지 않는다 — `CL_STEP_GO`(회랑·나팔의 디딤 0.416) = 이 건물이 이미 걷는 최소.
+      //   ⚠촘촘함의 한계는 단높이가 아니라 **끝 변 디딤**이다(변이 33.75 → 11.60으로 줄어든다).
+      ok(tp.treadMin >= CL_STEP_GO - 1e-9,
+        `디딤 ${tp.treadMin.toFixed(2)}(끝 변) ~ ${tp.treadMax.toFixed(2)}(첫 변) ≥ 하한 ${CL_STEP_GO.toFixed(3)}(= 회랑·나팔 디딤) — 나선이라 안쪽이 촘촘하다`)
+      ok(['ramp', 'saw'].includes(SPIRAL_SOFFIT),
+        `밑면 어법 '${SPIRAL_SOFFIT}' — 'ramp' 경사 매스(★89 채택) / 'saw' 톱니. 두께 ${SPIRAL_MASS_T}~${(SPIRAL_MASS_T + (SPIRAL_SOFFIT === 'ramp' ? tp.rise : 0)).toFixed(2)}`)
+      ok(true,
+        `블롱델 2R+G ${tp.blondel[0].toFixed(2)}~${tp.blondel[1].toFixed(2)} (석조 통례 0.60~0.68) — 평면 나선이 경사를 잠그므로 통례 밖은 선언된 대가`)
+    } else {
+      ok(true, `SPIRAL_TREAD_ON=false — 매끈 램프(★107 1차, 현도 반려분). 단 절 건너뜀`)
+    }
+
+    //  ⓒ 기둥 — 발이 실제로 판 위인가
+    if (SPIRAL_SUP === 'both' || SPIRAL_SUP === 'slab') {
+      const cols = columnSpec()
+      ok(cols.length > 0, `② 판 기둥 ${cols.length}기 · 높이 ${Math.min(...cols.map(c => c.h)).toFixed(2)}~${Math.max(...cols.map(c => c.h)).toFixed(2)}`)
+      let worstFoot = Infinity
+      for (const c of cols) worstFoot = Math.min(worstFoot, c.r - SUP_COL_R - S.rHole)
+      ok(worstFoot >= SUP_COL_PAD - 1e-9,
+        `기둥 발 안쪽 끝 ↔ 판 구멍 최소 여유 ${worstFoot.toFixed(2)} ≥ ${SUP_COL_PAD} — ⚠중심이 판 위인 것과 발이 판 위인 것은 다르다`)
+      ok(cols.every(c => c.f <= S.fHole + 1e-9),
+        `기둥 전량이 판 구간(f ≤ ${S.fHole.toFixed(3)}) 안 — 정의 권역(각뿔대) 관통 0`)
+      ok(cols.every(c => c.h >= SUP_COL_MIN),
+        `기둥 최소 높이 ${Math.min(...cols.map(c => c.h)).toFixed(2)} ≥ ${SUP_COL_MIN} — 발치의 그루터기 없음`)
+      //  판 위 점유물 회피 — 슬롯·판 노치는 +x(0°) 모서리
+      let minAz = 180
+      for (const c of cols) {
+        const a = ((c.az * 180 / Math.PI) % 360 + 360) % 360
+        minAz = Math.min(minAz, Math.min(a, 360 - a))
+      }
+      //  ⚠슬롯·판 노치는 각뿔대가 서 있을 때만 존재한다(PIT_ON=false 구세계엔 판이 통짜)
+      ok(!(PIT_ON && SLOT_ON) || minAz > 10,
+        `기둥 ↔ 0°(슬롯·판 노치) 최소 각차 ${minAz.toFixed(1)}° — 발이 슬롯/노치 위에 안 선다${(PIT_ON && SLOT_ON) ? '' : ' [해당 없음]'}`)
+    }
+
+    //  ⓓⓔ 보 — 셸 무침범 · 헤드룸
+    if (SPIRAL_SUP === 'both' || SPIRAL_SUP === 'wall') {
+      const bms = beamSpec()
+      //  ⚠PIT_ON=false면 판이 통짜라 fHole=1 → 보가 0개인 것이 정상이다(전부 기둥 몫)
+      ok(!PIT_ON || bms.length > 0, `① 벽 보 ${bms.length}개 · 스팬 ${Math.min(...bms.map(b => b.span)).toFixed(2)}~${Math.max(...bms.map(b => b.span)).toFixed(2)}`)
+      if (bms.length) {
+      let over = 0, maxOver = -Infinity
+      for (const b of bms) {
+        for (const [rr, yy] of [[b.rOutT, b.yT], [b.rOutB, b.yB]]) {
+          const d = rr - wallR(yy)
+          maxOver = Math.max(maxOver, d)
+          if (d > -1e-9) over++
+        }
+      }
+      ok(over === 0, `보 바깥 마구리 셸 침범 ${over}건 (최대 접근 ${maxOver.toFixed(4)} — 여유 ${SUP_WALL_CLR}) — ★셸 외곽 불변 구속`)
+      ok(bms.every(b => b.flare <= b.span + 1e-9),
+        `바깥 마구리 기울기 ≤ 보 길이 (최대 비 ${Math.max(...bms.map(b => b.flare / b.span)).toFixed(2)}) — '지느러미' 아님`)
+      ok(bms.every(b => b.depth >= SUP_BEAM_DMIN - 1e-9 && b.depth <= SUP_BEAM_DEPTH + 1e-9),
+        `보춤 ${Math.min(...bms.map(b => b.depth)).toFixed(2)}~${Math.max(...bms.map(b => b.depth)).toFixed(2)} ∈ [${SUP_BEAM_DMIN}, ${SUP_BEAM_DEPTH}] — 정상부 자동 감쇠`)
+      ok(bms.every(b => b.span > SUP_BEAM_MIN), `전 보 스팬 > ${SUP_BEAM_MIN}`)
+      //  ★107-4 헌치 + ★108-2 접합부 마감 — **프로파일 정본**(beamProfile)으로 잰다.
+      {
+        let mono = true, breachB = 0, breachT = 0, maxNear = -Infinity
+        let worstLip = Infinity, worstTanDeg = 0, worstNoseW = Infinity, worstRootW = 0
+        for (const bm of bms) {
+          const pr = beamProfile(bm)
+          let prev = -Infinity
+          for (const q of pr) {
+            const d = bm.yT - q.yb
+            if (d < prev - 1e-6) mono = false
+            prev = d
+            const gB = q.r - wallR(q.yb), gT = q.rTop - wallR(bm.yT)
+            maxNear = Math.max(maxNear, gB, gT)
+            if (gB > -1e-9) breachB++
+            if (gT > -1e-9) breachT++
+          }
+          worstLip = Math.min(worstLip, bm.yT - pr[0].yb)
+          worstNoseW = Math.min(worstNoseW, 2 * pr[0].hw)
+          worstRootW = Math.max(worstRootW, 2 * pr[pr.length - 1].hw)
+          //  벽면 접선 — 밑면 끝 기울기 vs 셸 기울기
+          const a = pr[pr.length - 2], b2 = pr[pr.length - 1]
+          const mB = (b2.yb - a.yb) / Math.max(1e-9, b2.r - a.r)
+          const e = 1e-3
+          const mW = (2 * e) / (wallR(b2.yb + e) - wallR(b2.yb - e))
+          worstTanDeg = Math.max(worstTanDeg, Math.abs(Math.atan(mB) - Math.atan(mW)) * 180 / Math.PI)
+        }
+        ok(mono, `밑면 프로파일 단조 — 코 → 뿌리로 갈수록 깊어진다(헌치 ${SUP_BEAM_CURVE} · 필렛 R${SUP_BEAM_FILLET}) ★원호라 단조가 기하적으로 보장된다`)
+        ok(worstLip >= SUP_BEAM_NOSE_LIP - 1e-9 && worstLip > 0.1,
+          `★코 수직 립 ${worstLip.toFixed(2)} > 0 — **두께 0 금지**(접선 수렴은 종잇장이 된다 · 현도 반려 사유)`)
+        ok(worstNoseW > 0.5,
+          `코 폭 ${worstNoseW.toFixed(2)} · 뿌리 폭 ${worstRootW.toFixed(2)}(배율 ${SUP_BEAM_ROOT_GROW}) — 나무젓가락 아님`)
+        ok(worstTanDeg < 2,
+          `★벽면 접선 어긋남 ${worstTanDeg.toFixed(2)}° < 3° — 밑면이 셸 기울기와 같은 각으로 만난다(이음매 소멸)`)
+        ok(breachB === 0 && breachT === 0,
+          `셸 침범 밑면 ${breachB} · **상면 ${breachT}** · 최대 접근 ${maxNear.toFixed(4)} — ⚠코브가 밑면만 밖으로 민다(상면은 rOutT에서 끊는다)`)
+      }
+      const hr = beamHeadroom()
+      ok(hr.worst === null || hr.worst >= SUP_HEAD_MIN,
+        `보 밑면 ↔ 아래 코일 헤드룸 ${hr.worst === null ? '해당없음' : hr.worst.toFixed(2)} ≥ ${SUP_HEAD_MIN} — 보는 아래를 걷는 사람의 천장이다`)
+      //  ⓖ 두께 위계 — 뒤집히면 실패가 아니라 **보고**(정상부 감쇠는 의도된 것)
+      const inv = bms.filter(b => b.depth < SPIRAL_MASS_T).length
+      ok(true, `두께 위계(§2-D 3): 걷는 것 ${SPIRAL_MASS_T} < 받치는 것 — 역전 ${inv}/${bms.length}개(정상부 감쇠 구간, 선언됨)`)
+      //  구조 비례 — 최대 스팬의 1/10이 보춤 하한
+      //  ★노브 상·하한을 **매 실행 유도해 보고한다**(문서 값이 늙는 것을 막는다 — 실제로 늙었다:
+      //   구 주석 '2.5~22.1'은 낱장 두께 0.35 시절 값이었고, 매스 두께 1.0에서는 2.79~21.45다)
+      const dLo = Math.max(...bms.map(b => b.span)) / 10
+      const dHi = (S.CLIMB / ROOM_STAIR_TURNS) - SPIRAL_MASS_T - SUP_HEAD_MIN
+      ok(SUP_BEAM_DEPTH >= dLo - 1e-9,
+        `보춤 ${SUP_BEAM_DEPTH} ≥ 하한 ${dLo.toFixed(2)}(최대 스팬/10) — "실제로 받치고 있다"의 비례`)
+      ok(SUP_BEAM_DEPTH <= dHi + 1e-9,
+        `보춤 ${SUP_BEAM_DEPTH} ≤ 상한 ${dHi.toFixed(2)}(코일 간 ${(S.CLIMB / ROOM_STAIR_TURNS).toFixed(2)} − 두께 ${SPIRAL_MASS_T} − 헤드룸 ${SUP_HEAD_MIN}) ★노브 범위 정본`)
+      }
+    }
+
+    //  ⓕ 무지지 최대 공백 — 판·기둥·보·디스크를 전부 받침으로 보고 잰다
+    {
+      const us = unsupportedSpans()
+      //  발치 구간은 매스 밑면이 판에 묻혀 있다 = 접지. 그 뒤부터 잰다.
+      let Lc = 0
+      for (let L = 0; L < S.pathLen; L += 0.25) { if (S.yAt(S.fAtLen(L)) - SPIRAL_MASS_T > S.plateY) { Lc = L; break } }
+      //  ★두 수를 가른다: ⓐ 받침**끼리**의 공백(간격 노브가 지배 — 강제) ⓑ 판을 벗어난 뒤 첫 받침까지의
+      //   진입 거리(발치는 매스가 판에 묻혀 접지라 성격이 다르다 — 보고). 섞으면 두께를 키울 때 오검출이 난다.
+      const sup = [...columnSpec().map(c => c.L), ...beamSpec().map(b => b.L)].sort((a, b) => a - b)
+      let worst = 0, at = 0
+      for (let i = 0; i + 1 < sup.length; i++) if (sup[i + 1] - sup[i] > worst) { worst = sup[i + 1] - sup[i]; at = sup[i] }
+      const tail = sup.length ? S.pathLen - sup[sup.length - 1] : 0
+      const lead = sup.length ? sup[0] - Lc : 0
+      //  ⚠'off'·'slab'·'wall'은 **선언된 부분 지지**다 — 공백을 강제하지 않고 소리 내어 보고한다.
+      //  ⚠꼬리(마지막 보 → 착지 디스크)는 간격보다 길 수 있다 — 정상부는 셸이 닫혀 보가 못 서기 때문이고,
+      //   그 구간은 **디스크가 끝을 받는다**. 그래서 잣대는 간격이 아니라 '가장 성긴 받침 간격'으로 통일한다.
+      const gapMax = Math.max(SUP_COL_GAP, SUP_BEAM_GAP)
+      ok(SPIRAL_SUP !== 'both' || (worst <= gapMax + 1e-6 && tail <= gapMax + 1e-6),
+        `받침 사이 최대 공백 ${worst.toFixed(2)} (L${at.toFixed(1)}) · 꼬리 ${tail.toFixed(2)} ≤ ${gapMax} · 받침 ${us.nSupports}개 [체제 '${SPIRAL_SUP}']`)
+      ok(true, `진입: 판 매몰 L<${Lc.toFixed(1)} → 첫 받침까지 ${lead.toFixed(2)} (발치는 매스가 판에 묻혀 접지)`)
+    }
+  } else {
+    ok(true, `SPIRAL_BODY='${SPIRAL_BODY}' — 구세계 낱장 141칸 보존계(현도 복귀 경로). 매스 절 건너뜀`)
   }
 }
 

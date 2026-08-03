@@ -16,9 +16,11 @@ import {
   ROOM_FLOOR_LIFT,
   PIT_ON, PIT_SIDES, PIT_PHASE, PIT_MARK_MODE, PIT_MARK_GAP, PIT_SHAFT_DROP, DEF_OCT_ON,
   NICHE_ON, NICHE_FLOOR, SLOT_ON, SLOT_STAIR,
+  AX_ON, SPIRAL_BODY, SPIRAL_SUP,
 } from './constants'
 import { pitSpec, slotSpec, buildPitWalls, buildPitRim, buildPitFloor, buildHoledSlab,
   buildNiches, buildNicheStairs, buildPitSlot, buildSlotStairs } from './defPitGeometry'   // ★101 각뿔대 · ★102 감실(순수 기하 — 사본 금지)
+import { buildSpiralMass, buildSpiralColumns, buildSpiralBeams } from './axiomSpiralGeometry'   // ★107 나선 매스 + 지지(순수 기하 — 사본 금지)
 
 // ════════ 지하 정의·공리 방 ════════
 export function DefAxiomRoom({ stairKind }) {
@@ -69,6 +71,7 @@ export function DefAxiomRoom({ stairKind }) {
   const INST_COUNT = insts.length
 
   useLayoutEffect(() => {
+    if (!treadRef.current) return              // ★107: SPIRAL_BODY='mass'면 낱장 메시가 아예 없다
     const dum = new THREE.Object3D()
     insts.forEach((it, i) => {
       dum.position.set(it.p[0], it.p[1], it.p[2])
@@ -101,6 +104,7 @@ export function DefAxiomRoom({ stairKind }) {
   }, [])
 
   useLayoutEffect(() => {
+    if (!helixRef.current) return
     const dum = new THREE.Object3D()
     helixInsts.forEach((it, i) => {
       dum.position.set(it.p[0], it.p[1], it.p[2])
@@ -200,6 +204,10 @@ export function DefAxiomRoom({ stairKind }) {
   const slotWalkGeo  = useMemo(() => buildPitSlot(true), [])
   const slotWallGeo  = useMemo(() => buildPitSlot(false), [])
   const slotStepGeo  = useMemo(() => buildSlotStairs(), [])   // ★104 A/B 체제 — 'off'면 빈 기하
+  //  ★107 공리 나선 — 매스 몸통 + 지지 둘. 체제가 'off'면 빈 기하가 나온다(스위치가 기하 안에 있다).
+  const spiralMassGeo = useMemo(() => (SPIRAL_BODY === 'mass' ? buildSpiralMass() : null), [])
+  const spiralColGeo  = useMemo(() => (SPIRAL_BODY === 'mass' ? buildSpiralColumns() : null), [])
+  const spiralBeamGeo = useMemo(() => (SPIRAL_BODY === 'mass' ? buildSpiralBeams() : null), [])
   //  빛 하절의 밑끝 — 기본은 구세계(기단 위)에서 그대로 끊는다. 각뿔대가 뚫리면 '허공에서 잘린 빛'이
   //  보이는데, 그것을 **보고 판정하는 것**이 이번 조각의 목적 중 하나다(현도 지시). PIT_SHAFT_DROP로 전환.
   const SHAFT_BOT_Y = (PIT_ON && PIT_SHAFT_DROP) ? PIT.yBot : ROOM_FLOOR_Y + DAIS_H
@@ -283,19 +291,37 @@ export function DefAxiomRoom({ stairKind }) {
       <mesh material={shaftMat} position={[0, (SHAFT_TOP_Y + SHAFT_BOT_Y) / 2, 0]}>
         <cylinderGeometry args={[SHAFT_TOP_R, POOL_R, SHAFT_TOP_Y - SHAFT_BOT_Y, 40, 1, true]} />
       </mesh>
-      {/* 계단 — T키로 8각형(각짐) ↔ 원형(매끈) 전환 비교. 둘 다 같은 파라미터·낱장 디딤판. */}
-      <instancedMesh ref={treadRef} args={[undefined, undefined, INST_COUNT]} visible={stairKind === 'octagon'} userData={{ walkable: stairKind === 'octagon' }}>
-        <boxGeometry args={[ROOM_STAIR_WIDTH, ROOM_STAIR_SLAB, ROOM_STAIR_TREAD]} />
-        <meshStandardMaterial color="#d6ab68" roughness={0.8} />
-      </instancedMesh>
-      <instancedMesh ref={helixRef} args={[undefined, undefined, helixInsts.length]} visible={stairKind === 'circle'} userData={{ walkable: stairKind === 'circle' }}>
-        <boxGeometry args={[ROOM_STAIR_WIDTH, ROOM_STAIR_SLAB, ROOM_STAIR_TREAD]} />
-        <meshStandardMaterial color="#d6ab68" roughness={0.8} />
-      </instancedMesh>
+      {/* ★107 공리 나선 — 'mass'(속 찬 매스 + 지지) ↔ 'treads'(구세계 낱장 141칸 · 보존계).
+          ⚠매스는 윗면이 램프다 — 경사 7.74°가 평면 나선에 잠겨 있어 계단이 성립하지 않는다(constants 주석). */}
+      {SPIRAL_BODY === 'mass' ? (<>
+        <mesh geometry={spiralMassGeo} userData={{ walkable: true }}>      {/* 몸통 — 윗면이 밟는 면 */}
+          <meshStandardMaterial color="#d6ab68" roughness={0.82} />
+        </mesh>
+        {(SPIRAL_SUP === 'both' || SPIRAL_SUP === 'slab') && (
+          <mesh geometry={spiralColGeo} userData={{ walkable: false }}>   {/* ② 판 기둥 — 하부 37% */}
+            <meshStandardMaterial color="#b8905a" roughness={0.9} />
+          </mesh>
+        )}
+        {(SPIRAL_SUP === 'both' || SPIRAL_SUP === 'wall') && (
+          <mesh geometry={spiralBeamGeo} userData={{ walkable: false }}>  {/* ① 벽 보 — 상부 63% */}
+            <meshStandardMaterial color="#c09a63" roughness={0.88} />
+          </mesh>
+        )}
+      </>) : (<>
+        {/* 구세계 낱장 — T키로 8각형(각짐) ↔ 원형(매끈) 비교. 둘 다 같은 파라미터. */}
+        <instancedMesh ref={treadRef} args={[undefined, undefined, INST_COUNT]} visible={stairKind === 'octagon'} userData={{ walkable: stairKind === 'octagon' }}>
+          <boxGeometry args={[ROOM_STAIR_WIDTH, ROOM_STAIR_SLAB, ROOM_STAIR_TREAD]} />
+          <meshStandardMaterial color="#d6ab68" roughness={0.8} />
+        </instancedMesh>
+        <instancedMesh ref={helixRef} args={[undefined, undefined, helixInsts.length]} visible={stairKind === 'circle'} userData={{ walkable: stairKind === 'circle' }}>
+          <boxGeometry args={[ROOM_STAIR_WIDTH, ROOM_STAIR_SLAB, ROOM_STAIR_TREAD]} />
+          <meshStandardMaterial color="#d6ab68" roughness={0.8} />
+        </instancedMesh>
+      </>)}
       {/* 주어진 것들 — 성역 기단·각인 + 정의 옥타곤 + 공리 스테이션(나선 왼쪽 동행). 형태 = 선돌(잠정) */}
       <DefPrecinct />
       {DEF_OCT_ON && <DefOctagon />}   {/* ★101: 각뿔대가 서면 r26은 구멍 위 허공 — 정의는 감실로 간다(다음 조각) */}
-      <AxiomStations />
+      {AX_ON && <AxiomStations />}   {/* ★107: 어휘 재검토 중 소등(현도 08.03). 좌표·형태는 보존 — AX_ON 한 줄로 복귀 */}
       {/* 꼭대기 착지 디스크(고리) — 가운데를 뚫어(천장 개방) 나선이 그 구멍으로 올라오고 빛우물이 위로 트임. 바깥 고리(6~18)는 걷는 발판.
           ★두께 슬랩화(2026.07.11): 두께 0 ring 판이 슬롯 가장자리에서 종잇장으로 보임 → 부양 판 어휘(ROOM_STAIR_SLAB=0.35)로 압출.
           윗면 49.32(디딤판 꼭대기 49.3보다 +0.02 — 병합 구간 코플레이너 z파이팅 방지, 보행 단차 무감), 밑면 48.97 */}
