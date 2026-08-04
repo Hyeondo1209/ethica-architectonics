@@ -1194,11 +1194,65 @@ console.log('\n── ★107 공리 나선 — 매스 + 지지 ──')
       const rootWorst = Math.max(...VL.map(v => Math.abs(v.Lc - v.Ls)))
       ok(rootWorst <= AX_VAULT_LEN / 2 - 0.6 + 1e-9,
         `받침↔볼트중심 최대 어긋남 ${rootWorst.toFixed(2)} ≤ ${(AX_VAULT_LEN / 2 - 0.6).toFixed(1)} — 뿌리가 발자국 안에 남는다`)
-      //  ⓖ 코너는 볼트 끝 언저리로만 — 몸통 한가운데 45° 꺾임 금지
-      let coreCorner = 0
-      for (const v of VL) for (let k = 1; k < S.N_SEG; k++)
-        if (Math.abs(v.Lc - S.cum[k]) < AX_VAULT_LEN / 2 - 1.2 - 1e-6) coreCorner++
-      ok(coreCorner === 0, `몸통 중앙부(끝 1.2 제외)에 코너 0곳 — 꺾인 탑 없음`)
+      //  ⓖ ★★★112 코너 밑동 — ⛔현도 로컬 적발(2026.08.04): "꺾이는 부분의 망루가 너무 얇아
+      //   절단면이 이상하다". 구판 검사는 **볼트 끝에서의 거리**만 봤고 끝면 기울기를 안 셌다.
+      //   그래서 밑동이 −0.08(칼날)인데도 green이었다 — ★83 '죽은 검사' 계열. **밟는 면이 아니라
+      //   칼라 밑에서 재야 한다.** 여기서 기하 모듈을 안 믿고 기울기를 다시 푼다(독립 계산).
+      {
+        const { AX_VAULT_CORNER_MIN: TMIN, AX_VAULT_END_TILT: TLT,
+          AX_VAULT_SPRING: SPR, AX_VAULT_ARCH_W: AW, SPIRAL_MASS_T: MT } = await import('./constants.js')
+        const kk = Math.tan(TLT * Math.PI / 180)
+        let bent = 0, worstStub = Infinity, worstId = '—', capped = 0, worstMax = Infinity
+        for (const v of VL) {
+          const colBot = v.yF0 - MT - v.collar.drop
+          const bIn = (v.yF0 - colBot) * kk, bOut = (v.yF1 - colBot) * kk
+          const aIn = (v.yCrownI - v.yF0) * kk, aOut = (v.yCrownI - v.yF1) * kk
+          for (let k = 1; k < S.N_SEG; k++) {
+            const c = S.cum[k]
+            if (c <= v.L0 - aIn || c >= v.L1 + aOut) continue
+            bent++
+            const stub = Math.min((c - v.L0) - bIn, (v.L1 - c) - bOut)
+            if (stub < worstStub) { worstStub = stub; worstId = v.id }
+            const stubMax = (AX_VAULT_LEN - bIn - bOut) / 2
+            worstMax = Math.min(worstMax, stubMax)
+            if (TMIN > stubMax + 1e-9) capped++
+          }
+        }
+        if (bent === 0) ok(true, `코너를 문 볼트 0기 — 밑동 검사 불요`)
+        else {
+          ok(worstStub > 0, `★코너 너머 토막 밑동 최악 ${worstStub.toFixed(2)} > 0 — ⛔구판은 **−0.08**(밑에서 0으로 사라지는 쐐기)`)
+          //  ⚠하한은 **파생**이다 — 두 밑동의 합이 (LEN − bIn − bOut)로 고정이라 min은 그 절반을 못 넘는다.
+          //   구판 초안이 2.30을 손으로 박았다가 LEN 5·TILT 22 체제를 조용히 죽였다(스윕 적발, 정정 기록).
+          ok(worstStub >= Math.min(TMIN, worstMax) - 0.05,
+            `밑동 최악 ${worstStub.toFixed(2)}(${worstId}) ≥ min(목표 ${TMIN}, 산술 상한 ${worstMax.toFixed(2)}) — ${capped ? '**상한에 물림**(균형점 = 두 밑동 동일)' : '목표 그대로 달성'}`)
+          ok(bent <= 4, `코너를 문 볼트 ${bent}기 ≤ 4 — 배치 B에서 늘지 않았다`)
+        }
+        //  ★코너 하나만 — 발자국 안에 코너가 둘이면 밑동 정의 자체가 깨진다
+        let multi = 0
+        for (const v of VL) {
+          let n = 0
+          for (let k = 1; k < S.N_SEG; k++) if (S.cum[k] > v.L0 - 1 && S.cum[k] < v.L1 + 1) n++
+          if (n > 1) multi++
+        }
+        ok(multi === 0, `발자국 안 코너 ≤ 1기 — 최단변 ${S.segLen[S.N_SEG - 1].toFixed(2)} > 볼트 ${AX_VAULT_LEN}`)
+        //  ⚠★112가 만든 **새 결합**(2026.08.04 스윕 적발 — 기록. 현도 판정 대기).
+        //   밑동을 최대로 하면 코너가 볼트 **한가운데**로 온다. 그런데 창·감실도 `frameAt(Lc)` 한 프레임에
+        //   세운 곧은 브러시라 **같은 자리**에 있다 → 개구가 45° 주름 위에 앉는다. 광선은 통과하므로
+        //   ('만들었다'는 성립) 기존 검사로는 안 잡힌다 — 여기서 겹침 양을 매번 보고한다.
+        {
+          const { AX_VAULT_WIN_W: WW, AX_VAULT_JAMB: JB, AX_VAULT_WIN_SPLAY: SPL,
+            AX_VAULT_NICHE_W: NW } = await import('./constants.js')
+          const winW = WW + 2 * JB * Math.tan(SPL * Math.PI / 180)
+          let over = 0, worstOff = Infinity
+          for (const v of VL) {
+            if (!v.corner) continue
+            const off = Math.abs(v.corner.c - v.Lc)
+            if (off < Math.max(winW, NW) / 2) over++
+            worstOff = Math.min(worstOff, off)
+          }
+          ok(true, `⚠**선언된 비용** — 코너↔볼트중심 최소 ${(worstOff === Infinity ? 0 : worstOff).toFixed(2)} vs 창 반폭 ${(winW / 2).toFixed(2)}·감실 반폭 ${(NW / 2).toFixed(2)} → 개구가 주름을 타는 볼트 ${over}기 (★112 미해결·현도 판정 대기)`)
+        }
+      }
       //  ★★★v5 칼라 면 정합 — "입구면을 도장 찍으면 닫힌 도형"(현도 2026.08.04).
       //   ⛔v3·v4 사고: 볼트는 `Lc`(코너 회피로 밀린 중심) 기준인데 칼라는 `Ls`(받침) 중심이라
       //   **최대 2.17 어긋났다** — 한쪽 끝은 입구면 밖으로 튀고 반대쪽은 안으로 들어갔다.

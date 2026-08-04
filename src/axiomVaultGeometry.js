@@ -17,6 +17,7 @@ import {
   AX_VAULT_WIN_Y, AX_VAULT_WIN_W, AX_VAULT_WIN_SPLAY,
   AX_VAULT_NICHE_W, AX_VAULT_NICHE_H, AX_VAULT_NICHE_D, AX_VAULT_NICHE_SILL,
   AX_VAULT_COVE, AX_VAULT_GRIP, AX_VAULT_DROP, AX_VAULT_END_TILT, SPIRAL_MASS_T,
+  AX_VAULT_CORNER_MIN,
 } from './constants.js'
 import { spiralSpec, stationList, frameAt, beamSpec, columnSpec } from './axiomSpiralGeometry.js'
 
@@ -24,6 +25,8 @@ import { spiralSpec, stationList, frameAt, beamSpec, columnSpec } from './axiomS
 //  ⚠보7(맨 위)은 **어느 배치에서도 빈 보**(현도 2026.08.04 확정 — 디스크 밑 여유 3.70뿐이기도 하다).
 //  ★코너 회피: 볼트가 코너를 물면(발자국 안에 코너가 들어오면) 꺾인 탑이 된다. 스펙이 중심을
 //   같은 변 안으로 **밀어낸다** — 단, 받침이 발자국 안에 남아야 뿌리 이야기가 산다(검사 항).
+const TILT_K = Math.tan(AX_VAULT_END_TILT * Math.PI / 180)
+
 export function vaultSpec() {
   const s = spiralSpec()
   const B = beamSpec(), C = columnSpec()
@@ -34,29 +37,66 @@ export function vaultSpec() {
   const out = []
   picks.forEach(({ sup, isBeam }, i) => {
     const Ls = sup.L
-    let Lc = Ls
-    //  ★코너 회피 — 받침이 코너 근처면 회피가 받침을 발자국 밖으로 밀 수 있다(실측: 캡 없이 3.77).
-    //   규칙: 코너는 볼트 **끝 1.2 안쪽**까지만 허용(입구 언저리의 작은 윈더 꺾임은 수용 — frameAt이
-    //   어차피 정확히 꺾어 준다). 필요한 최소만 밀고, 받침이 발자국 안에 남도록 ±(half−0.6)로 캡.
-    const D = half - 1.2, cap = half - 0.6
-    for (let k = 1; k < s.N_SEG; k++) {
-      const c = s.cum[k]
-      if (Math.abs(Lc - c) < D) Lc = (Lc < c) ? c - D : c + D
+    const cap = half - 0.6
+    //  ★칼라(v3) — 받침을 무는 깊이는 받침 몸통이 허락하는 만큼만(§안전: 기둥0은 높이 1.61뿐)
+    //   ⚠Lc와 무관하므로 코너 반복 **앞에서** 정한다(밑동 계산이 이 값을 쓴다).
+    const supDepth = isBeam ? sup.depth : sup.h              // 보 춤 4.0 / 기둥 높이 1.61~13.93
+    const drop = Math.min(AX_VAULT_DROP, Math.max(0.6, supDepth - 0.4))
+    const supHW = 0.6                                        // 받침 폭(경로 방향)의 절반 — 보폭 1.2 기준
+
+    //  ★★★112 코너 밑동 규칙(구 '끝 1.2 안쪽' 규칙 폐기) ──────────────────────────
+    //  ⛔구판의 병: 코너를 볼트 끝에서 1.20 안쪽에 고정했는데 **끝면 기울기를 안 셌다**.
+    //   기울기가 칼라 밑을 1.28 뒤로 당기므로 코너 너머 토막의 밑동이 1.20−1.28 = **−0.08**,
+    //   즉 밑에서 0으로 사라지는 쐐기가 됐다(현도 로컬: "너무 얇아 절단면이 이상하다").
+    //  ★정본 = **밑동 길이로 잰다.** 목표 `AX_VAULT_CORNER_MIN`이되 산술 상한에 물린다 —
+    //   두 밑동의 합은 (LEN − bIn − bOut)로 고정이므로 min은 그 절반을 못 넘는다. 상한이면
+    //   두 밑동이 **같아지는** 자리(균형점)에 앉힌다 = 코너를 걸터앉은 대칭 탑.
+    //  ⚠기울기 몫(bIn·bOut)은 밟는 면 높이에 딸리고 그 높이는 Lc에 딸린다 → **반복 수렴**.
+    //  ⚠코너가 애초에 몸통 밖이면 아무것도 안 한다(끌어들이지 않는다). 밖으로 미는 편이
+    //   싸면 그쪽을 고른다 — 꺾임이 아예 없는 편이 언제나 낫다.
+    let Lc = Ls, corner = null
+    for (let it = 0; it < 8; it++) {
+      const yF0i = s.yTread(Math.max(Lc - half, 1e-6) + 1e-6)
+      const yF1i = s.yTread(Math.min(Lc + half, s.pathLen - 1e-6))
+      const colBoti = yF0i - SPIRAL_MASS_T - drop
+      const yCrowni = yF0i + AX_VAULT_SPRING + AX_VAULT_ARCH_W / 2
+      const bIn  = (yF0i - colBoti) * TILT_K      // 입구 칼라 밑이 안으로 물러난 양
+      const bOut = (yF1i - colBoti) * TILT_K      // 진출 칼라 밑이 안으로 물러난 양
+      const aIn  = (yCrowni - yF0i) * TILT_K      // 입구 크라운이 밖으로 내민 양
+      const aOut = (yCrowni - yF1i) * TILT_K      // 진출 크라운이 밖으로 내민 양
+      //  몸통 실제 범위(크라운 내밀기 포함) 안의 코너 — 가장 가까운 하나
+      let c = null
+      for (let k = 1; k < s.N_SEG; k++) {
+        const cc = s.cum[k]
+        if (cc <= Lc - half - aIn || cc >= Lc + half + aOut) continue
+        if (c === null || Math.abs(cc - Lc) < Math.abs(c - Lc)) c = cc
+      }
+      if (c === null) { corner = null; break }
+      const dBal    = (2 * half + bIn - bOut) / 2            // 두 밑동이 같아지는 코너 위치(L0 기준)
+      const stubMax = dBal - bIn
+      const T   = Math.min(AX_VAULT_CORNER_MIN, Math.max(0, stubMax))
+      const dLo = T + bIn, dHi = 2 * half - bOut - T
+      const d0  = c - (Lc - half)
+      const dWant = dLo <= dHi ? Math.min(Math.max(d0, dLo), dHi) : dBal
+      //  후보 셋 — 코너를 몸 안 목표 깊이에 두거나, 몸 밖(앞/뒤)으로 내보내거나
+      const cands = [c - dWant + half, c + half + aIn + 0.05, c - half - aOut - 0.05]
+        .map((L) => Math.min(Math.max(L, Ls - cap), Ls + cap))
+        .map((L) => Math.min(Math.max(L, half + 0.2), s.pathLen - half - 0.2))
+      let next = cands[0]
+      for (const L of cands) if (Math.abs(L - Ls) < Math.abs(next - Ls) - 1e-9) next = L
+      corner = { c, stubIn: (c - (next - half)) - bIn, stubOut: ((next + half) - c) - bOut, stubMax }
+      if (Math.abs(next - Lc) < 1e-6) break
+      Lc = next
     }
-    Lc = Math.min(Math.max(Lc, Ls - cap), Ls + cap)
-    Lc = Math.min(Math.max(Lc, half + 0.2), s.pathLen - half - 0.2)
+
     const L0 = Lc - half, L1 = Lc + half
     const yF0 = s.yTread(Math.max(L0, 1e-6) + 1e-6)          // 진입 바닥(밟는 면)
     const yF1 = s.yTread(Math.min(L1, s.pathLen - 1e-6))     // 진출 바닥
     const ySpring = yF0 + AX_VAULT_SPRING                    // 아치 어깨(진입 기준 — 크라운 수평)
     const yCrownI = ySpring + AX_VAULT_ARCH_W / 2            // 반원 아치 안쪽 정점
     const yBot    = yF0 - SPIRAL_MASS_T                      // 옆구리 밑끝 = 진입 코일 밑면(전 구간 옆면을 덮음)
-    //  ★칼라(v3) — 받침을 무는 깊이는 받침 몸통이 허락하는 만큼만(§안전: 기둥0은 높이 1.61뿐)
-    const supDepth = isBeam ? sup.depth : sup.h              // 보 춤 4.0 / 기둥 높이 1.61~13.93
-    const drop = Math.min(AX_VAULT_DROP, Math.max(0.6, supDepth - 0.4))
-    const supHW = 0.6                                        // 받침 폭(경로 방향)의 절반 — 보폭 1.2 기준
     out.push({ id: `AX${i + 1}`, Ls, Lc, L0, L1, isBeam, sup,
-      yF0, yF1, ySpring, yCrownI, yBot,
+      yF0, yF1, ySpring, yCrownI, yBot, corner,
       head: yCrownI - yF1,                                   // 진출 지점 실측 머리 여유
       collar: { drop, half: supHW + AX_VAULT_GRIP, ease: AX_VAULT_COVE } })
   })
