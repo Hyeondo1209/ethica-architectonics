@@ -15,6 +15,7 @@ import {
   DEF_OCT_R, DEF_OCT_PHASE, AX_F0, AX_F1, AX_OFFSET, AX_PLAT_R, AX_MONO_SCALE,
   ROOM_FLOOR_LIFT,
   PIT_ON, PIT_SIDES, PIT_PHASE, PIT_MARK_MODE, PIT_MARK_GAP, PIT_SHAFT_DROP, DEF_OCT_ON,
+  ROOM_DIM, ROOM_SHAFT_ON,
   NICHE_ON, NICHE_FLOOR, SLOT_ON, SLOT_STAIR,
   AX_ON, SPIRAL_BODY, SPIRAL_SUP,
 } from './constants'
@@ -215,66 +216,80 @@ export function DefAxiomRoom({ stairKind }) {
   //  보이는데, 그것을 **보고 판정하는 것**이 이번 조각의 목적 중 하나다(현도 지시). PIT_SHAFT_DROP로 전환.
   const SHAFT_BOT_Y = (PIT_ON && PIT_SHAFT_DROP) ? PIT.yBot : ROOM_FLOOR_Y + DAIS_H
 
+  //  ★★★113 팔레트 — v2.2 암실은 알베도 눈속임이었다(현도 2026.08.05). ROOM_DIM=false면 방이
+  //   **건물 나머지와 같은 석재**가 된다. 밝은 값은 전부 Corridor.jsx(드럼)에서 **역할별로 인용**했다 —
+  //   새 색을 만들지 않았다: 벽 #b89a6a · 걷는 면 #c2a062 · 디딤 #cdb074 · 움푹한 면 #a98f5e.
+  const P = ROOM_DIM
+    ? { shell: '#221b10', floor: '#241d12', pitWall: '#2b2216', pitRim: '#2b2216', pitFloor: '#332918',
+        nicheWall: '#3a2f1c', nicheFloor: '#3f331e', nicheStep: '#463823',
+        slotWall: '#3a2f1c', slotFloor: '#463823', slotStep: '#4d3e27' }
+    : { shell: '#b89a6a', floor: '#c2a062', pitWall: '#b89a6a', pitRim: '#c2a062', pitFloor: '#c2a062',
+        nicheWall: '#a98f5e', nicheFloor: '#c2a062', nicheStep: '#cdb074',
+        slotWall: '#a98f5e', slotFloor: '#c2a062', slotStep: '#cdb074' }
+  //  fog 제외도 암실 패키지의 일부였다("밀폐 공간에 크림색 대기 미적용 — 먼 벽 뿌염 방지").
+  //  눈속임을 걷으면 방도 건물과 같은 대기를 쓴다. ⚠분리하고 싶으면 이 한 줄만 false로 고정하면 된다.
+  const RFOG = !ROOM_DIM
+
   return (
     <group position={[ROOM_CX, 0, 0]}>
       {/* 지상 돔 껍질(불투명) + 작은 오큘러스(박스 폭 안 → 박스+디스크가 리브 시야 차단) */}
       <mesh position={[0, ROOM_FLOOR_Y, 0]} scale={[ROOM_R, ROOM_HEIGHT, ROOM_R]}>
         <sphereGeometry args={[1, 48, 28, 0, Math.PI * 2, ROOM_OCULUS, Math.PI / 2 - ROOM_OCULUS]} />
-        <meshStandardMaterial color="#221b10" roughness={0.95} side={THREE.DoubleSide} fog={false} />   {/* v2.2 암실화(노브) */}
+        <meshStandardMaterial color={P.shell} roughness={0.95} side={THREE.DoubleSide} fog={RFOG} />   {/* ★113 ROOM_DIM 노브 */}
       </mesh>
       {/* ★㊵ 구화: 아랫반 셸(윗반의 거울 — 수직 반축 동일) → 반타원 돔이 완전한 타원구가 되어 공중 부양.
           내부에서는 수평 주 바닥(아래 circle)이 아랫반을 가림 — 아랫반은 바깥에서 '떠 있는 구'로만 읽힌다 */}
       <mesh position={[0, ROOM_FLOOR_Y, 0]} scale={[ROOM_R, ROOM_HEIGHT, ROOM_R]}>
         <sphereGeometry args={[1, 48, 28, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2]} />
-        <meshStandardMaterial color="#221b10" roughness={0.95} side={THREE.DoubleSide} fog={false} />
+        <meshStandardMaterial color={P.shell} roughness={0.95} side={THREE.DoubleSide} fog={RFOG} />
       </mesh>
       {/* ★㊵ 주 바닥(수평 유지) — 구 내부를 반으로 가르는 수평 판 = 관람 레벨. 부양으로 지면(y0)과 분리돼
           구 z-fighting 근거는 소멸했으나 ROOM_FLOOR_LIFT(0.05)는 벽 밑선 봉합 여유로 유지.
           ★101(2026.08.02): PIT_ON이면 가운데에 팔각 구멍이 뚫린 **고리**가 된다(구멍 = 각뿔대 입술 바깥면). */}
       {PIT_ON ? (
         <mesh geometry={floorRingGeo} position={[0, ROOM_FLOOR_Y + ROOM_FLOOR_LIFT, 0]} userData={{ walkable: true }}>
-          <meshStandardMaterial color="#241d12" roughness={0.95} side={THREE.DoubleSide} fog={false} />
+          <meshStandardMaterial color={P.floor} roughness={0.95} side={THREE.DoubleSide} fog={RFOG} />
         </mesh>
       ) : (
         <mesh position={[0, ROOM_FLOOR_Y + ROOM_FLOOR_LIFT, 0]} rotation-x={-Math.PI / 2} userData={{ walkable: true }}>
           <circleGeometry args={[ROOM_R, 64]} />
-          <meshStandardMaterial color="#241d12" roughness={0.95} side={THREE.DoubleSide} fog={false} />   {/* v2.2 암실화: 전역광은 못 꺼도 알베도×빛 곱셈으로 어둠을 만든다. fog=false: 밀폐 공간에 크림색 대기 미적용(먼 벽 뿌염 방지) */}
+          <meshStandardMaterial color={P.floor} roughness={0.95} side={THREE.DoubleSide} fog={RFOG} />
         </mesh>
       )}
       {/* ★101 정의 각뿔대 — 옆벽(닫힌 껍질·입술 띠 포함) + 바닥 슬래브. 감실·계단은 다음 조각. */}
       {PIT_ON && (<>
         <mesh geometry={pitWallGeo} userData={{ walkable: false }}>   {/* 62° 빗면 — 밟는 면 아님 */}
-          <meshStandardMaterial color="#2b2216" roughness={0.95} fog={false} />
+          <meshStandardMaterial color={P.pitWall} roughness={0.95} fog={RFOG} />
         </mesh>
         <mesh geometry={pitRimGeo} userData={{ walkable: true }}>       {/* 입술 띠 — 판과 같은 높이 */}
-          <meshStandardMaterial color="#2b2216" roughness={0.95} fog={false} />
+          <meshStandardMaterial color={P.pitRim} roughness={0.95} fog={RFOG} />
         </mesh>
         <mesh geometry={pitFloorGeo} userData={{ walkable: true }}>
-          <meshStandardMaterial color="#332918" roughness={0.95} fog={false} />
+          <meshStandardMaterial color={P.pitFloor} roughness={0.95} fog={RFOG} />
         </mesh>
         {NICHE_ON && (<>
           <mesh geometry={nicheWallGeo} userData={{ walkable: false }}>   {/* 천장·옆벽·뒷벽 */}
-            <meshStandardMaterial color="#3a2f1c" roughness={0.95} side={THREE.DoubleSide} fog={false} />
+            <meshStandardMaterial color={P.nicheWall} roughness={0.95} side={THREE.DoubleSide} fog={RFOG} />
           </mesh>
           <mesh geometry={nicheWalkGeo} userData={{ walkable: true }}>    {/* 감실 바닥 */}
-            <meshStandardMaterial color="#3f331e" roughness={0.95} fog={false} />
+            <meshStandardMaterial color={P.nicheFloor} roughness={0.95} fog={RFOG} />
           </mesh>
           {NICHE_FLOOR === 'stair' && (
             <mesh geometry={nicheStepGeo} userData={{ walkable: true }}>  {/* ⓑ 바닥→감실 안 계단 */}
-              <meshStandardMaterial color="#463823" roughness={0.9} fog={false} />
+              <meshStandardMaterial color={P.nicheStep} roughness={0.9} fog={RFOG} />
             </mesh>
           )}
         </>)}
         {SLOT_ON && (<>
           <mesh geometry={slotWallGeo} userData={{ walkable: false }}>   {/* 슬롯 옆벽 둘 · 뒷벽 */}
-            <meshStandardMaterial color="#3a2f1c" roughness={0.95} side={THREE.DoubleSide} fog={false} />
+            <meshStandardMaterial color={P.slotWall} roughness={0.95} side={THREE.DoubleSide} fog={RFOG} />
           </mesh>
           <mesh geometry={slotWalkGeo} userData={{ walkable: true }}>    {/* 슬롯 바닥(턱 높이) */}
-            <meshStandardMaterial color="#463823" roughness={0.92} fog={false} />
+            <meshStandardMaterial color={P.slotFloor} roughness={0.92} fog={RFOG} />
           </mesh>
           {SLOT_STAIR !== 'off' && (
             <mesh geometry={slotStepGeo} userData={{ walkable: true }}>  {/* ★104 꺾인 상승 계단 */}
-              <meshStandardMaterial color="#4d3e27" roughness={0.9} fog={false} />
+              <meshStandardMaterial color={P.slotStep} roughness={0.9} fog={RFOG} />
             </mesh>
           )}
         </>)}
@@ -288,12 +303,16 @@ export function DefAxiomRoom({ stairKind }) {
       <pointLight position={[0, ROOM_FLOOR_Y + DAIS_H + 2.5, 0]} intensity={1.4} distance={42} decay={1.7} color="#ffdf9e" />
       {/* 빛 샤프트 2절 — 출처 = 원뿔대 '꼭대기 구멍'(y=CYL_TOP, r=WELL_RT). 상절: 우물 안 낙하 · 하절: 디스크 구멍→웅덩이.
           두 절의 이음(디스크 높이)에서 하절 상단이 다시 밝아지는 건 의도 — 아래에서 보면 '구멍에서 빛이 나온다'로 읽힘 */}
-      <mesh material={shaftMat} position={[0, (ROOM_CYL_TOP + SHAFT_TOP_Y) / 2, 0]}>
-        <cylinderGeometry args={[ROOM_WELL_RT - 0.3, SHAFT_TOP_R - 0.3, ROOM_CYL_TOP - SHAFT_TOP_Y, 40, 1, true]} />
-      </mesh>
-      <mesh material={shaftMat} position={[0, (SHAFT_TOP_Y + SHAFT_BOT_Y) / 2, 0]}>
-        <cylinderGeometry args={[SHAFT_TOP_R, POOL_R, SHAFT_TOP_Y - SHAFT_BOT_Y, 40, 1, true]} />
-      </mesh>
+      {/*  ★★★113 소등(현도 2026.08.05) — 이 둘은 빛이 아니라 **빛처럼 보이는 물체**다(가짜 볼륨).
+           `ROOM_SHAFT_ON=true` 한 줄로 복원된다 — 셰이더·상수·기하 전부 보존. */}
+      {ROOM_SHAFT_ON && (<>
+        <mesh material={shaftMat} position={[0, (ROOM_CYL_TOP + SHAFT_TOP_Y) / 2, 0]}>
+          <cylinderGeometry args={[ROOM_WELL_RT - 0.3, SHAFT_TOP_R - 0.3, ROOM_CYL_TOP - SHAFT_TOP_Y, 40, 1, true]} />
+        </mesh>
+        <mesh material={shaftMat} position={[0, (SHAFT_TOP_Y + SHAFT_BOT_Y) / 2, 0]}>
+          <cylinderGeometry args={[SHAFT_TOP_R, POOL_R, SHAFT_TOP_Y - SHAFT_BOT_Y, 40, 1, true]} />
+        </mesh>
+      </>)}
       {/* ★107 공리 나선 — 'mass'(속 찬 매스 + 지지) ↔ 'treads'(구세계 낱장 141칸 · 보존계).
           ⚠매스는 윗면이 램프다 — 경사 7.74°가 평면 나선에 잠겨 있어 계단이 성립하지 않는다(constants 주석). */}
       {SPIRAL_BODY === 'mass' ? (<>

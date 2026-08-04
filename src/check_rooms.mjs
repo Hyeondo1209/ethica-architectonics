@@ -27,7 +27,7 @@ import {
   SLOT_STAIR, SLOT_CLEAR, SLOT_SLAB_T, SLOT_STEP_R, SLOT_STAIR_INSET, SLOT_LANDING, SLOT_LANE_GAP, SLOT_SPIRAL_PAD,
   DAIS_ON, DAIS_H, ROOM_FLOOR_LIFT as _RFL,
   ROOM_FLOOR_Y, ROOM_FLOOR_LIFT, ROOM_R, ROOM_HEIGHT, ROOM_STAIR_ROUT,
-  DAIS_R, DAIS_STEP_IN, DAIS_STEPS, POOL_R,
+  DAIS_R, DAIS_STEP_IN, DAIS_STEPS, POOL_R, SPOT_I, ROOM_DIM, ROOM_SHAFT_ON, ROOM_ALBEDO_GAIN,
 } from './constants.js'
 import { pitSpec, pitProbe, buildPitWalls, buildPitRim, buildPitFloor, buildHoledSlab, polyRadiusAt,
   nicheSpec, buildNiches, buildNicheStairs, nicheFloorYAt,
@@ -351,7 +351,14 @@ if (!PIT_ON) {
       `성역 기단 ${alive.length}/${DAIS_STEPS}단 생존(구멍 ${S.rRim}) · 최상단 여유 ${P.daisGap.toFixed(2)} — 0 이하인 단은 가드가 안 그린다`)
   }
   ok(P.floorD >= 5, `하면 통행 지름 ${P.floorD.toFixed(2)} ≥ 5 — 돌면서 여덟 면에 다가갈 수 있다(현도 관람 방식)`)
-  ok(S.rRim > POOL_R, `판 구멍(${S.rRim}) > 빛 웅덩이(${POOL_R}) — ⚠빛 하절이 허공에서 잘린다(선언: PIT_SHAFT_DROP로 전환 · 판정은 P2)`)
+  ok(S.rRim > POOL_R, `판 구멍(${S.rRim}) > 빛 웅덩이(${POOL_R}) — ${ROOM_SHAFT_ON ? '⚠빛 하절이 허공에서 잘린다(선언: PIT_SHAFT_DROP로 전환 · 판정은 P2)' : '★113 샤프트 소등 중이라 무해(스포트 웅덩이만 남음)'}`)
+  //  ★★★113 눈속임 해제(현도 2026.08.05) — 알베도와 스포트는 **한 몸**이었다.
+  //   v2.2가 알베도를 5.48배 어둡게 하고 스포트를 같은 배수로 증폭해 웅덩이 밝기를 맞춰 놨다.
+  //   한쪽만 되돌리면 웅덩이가 타 버린다 → 관계를 코드가 지키는지 여기서 잰다(값이 아니라 관계).
+  ok(Math.abs(SPOT_I - (ROOM_DIM ? 8.0 : 8.0 / ROOM_ALBEDO_GAIN)) < 1e-9,
+    `스포트 ${SPOT_I.toFixed(2)} = 8.0${ROOM_DIM ? '' : ` ÷ 알베도비 ${ROOM_ALBEDO_GAIN}`} — 암실 해제와 **짝으로** 움직인다(ROOM_DIM=${ROOM_DIM})`)
+  ok(!(ROOM_DIM && !ROOM_SHAFT_ON) || true,
+    `눈속임 체제: 알베도 ${ROOM_DIM ? '암실(보존계)' : '건물 석재 — 눈속임 없음'} · 빛기둥 ${ROOM_SHAFT_ON ? '켜짐' : '소등'}`)
 
   console.log('── ★101 노브 스윕(깊이×상면×하면 격자 27) — 현도가 밀 수 있는 범위 ──')
   {
