@@ -21,6 +21,7 @@ import {
 import { pitSpec, slotSpec, buildPitWalls, buildPitRim, buildPitFloor, buildHoledSlab,
   buildNiches, buildNicheStairs, buildPitSlot, buildSlotStairs } from './defPitGeometry'   // ★101 각뿔대 · ★102 감실(순수 기하 — 사본 금지)
 import { buildSpiralMass, buildSpiralColumns, buildSpiralBeams } from './axiomSpiralGeometry'   // ★107 나선 매스 + 지지(순수 기하 — 사본 금지)
+import { buildAxiomVaults } from './axiomVaultGeometry'   // ★111 공리 볼트(문) — 총안 창 + 감실
 
 // ════════ 지하 정의·공리 방 ════════
 export function DefAxiomRoom({ stairKind }) {
@@ -208,6 +209,8 @@ export function DefAxiomRoom({ stairKind }) {
   const spiralMassGeo = useMemo(() => (SPIRAL_BODY === 'mass' ? buildSpiralMass() : null), [])
   const spiralColGeo  = useMemo(() => (SPIRAL_BODY === 'mass' ? buildSpiralColumns() : null), [])
   const spiralBeamGeo = useMemo(() => (SPIRAL_BODY === 'mass' ? buildSpiralBeams() : null), [])
+  //  ★111 공리 볼트 — 걷는 사람이 통과하는 문 7기(AX_VAULT_ON/LAYOUT은 기하 안의 스위치)
+  const axVaultGeo = useMemo(() => (SPIRAL_BODY === 'mass' ? buildAxiomVaults() : null), [])
   //  빛 하절의 밑끝 — 기본은 구세계(기단 위)에서 그대로 끊는다. 각뿔대가 뚫리면 '허공에서 잘린 빛'이
   //  보이는데, 그것을 **보고 판정하는 것**이 이번 조각의 목적 중 하나다(현도 지시). PIT_SHAFT_DROP로 전환.
   const SHAFT_BOT_Y = (PIT_ON && PIT_SHAFT_DROP) ? PIT.yBot : ROOM_FLOOR_Y + DAIS_H
@@ -305,6 +308,11 @@ export function DefAxiomRoom({ stairKind }) {
         {(SPIRAL_SUP === 'both' || SPIRAL_SUP === 'wall') && (
           <mesh geometry={spiralBeamGeo} userData={{ walkable: false }}>  {/* ① 벽 보 — 상부 63% */}
             <meshStandardMaterial color="#c09a63" roughness={0.88} />
+          </mesh>
+        )}
+        {axVaultGeo && (
+          <mesh geometry={axVaultGeo} userData={{ walkable: false }}>    {/* ★111 공리 볼트(문) 7기 */}
+            <meshStandardMaterial color="#cfa261" roughness={0.86} />
           </mesh>
         )}
       </>) : (<>

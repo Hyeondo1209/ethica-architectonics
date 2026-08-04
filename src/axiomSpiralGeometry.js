@@ -31,12 +31,13 @@ import {
   COR_Y0, COR_THICK,
   PIT_ON, PIT_R_TOP, PIT_WALL_T,
   SPIRAL_MASS_T, SPIRAL_CHAMF, SPIRAL_SUP, SPIRAL_TREAD_ON, SPIRAL_RISE_SEED, SPIRAL_SOFFIT,
+  SPIRAL_CORNER_EASE,
   SUP_COL_GAP, SUP_COL_R, SUP_COL_MIN, SUP_COL_SIDES, SUP_COL_INSET, SUP_COL_PAD,
   SUP_BEAM_GAP, SUP_BEAM_DEPTH, SUP_BEAM_W, SUP_WALL_CLR, SUP_BEAM_MIN, SUP_BEAM_DMIN,
   SUP_BEAM_TAPER, SUP_BEAM_CURVE, SUP_BEAM_SEGS, SUP_BEAM_W_TAPER,
   SUP_BEAM_NOSE_LIP, SUP_BEAM_NOSE_RUN, SUP_BEAM_W_NOSE,
-  SUP_BEAM_ROOT_SPLAY, SUP_BEAM_ROOT_GROW, SUP_BEAM_FILLET,
-  SUP_HEAD_MIN,
+  SUP_BEAM_ROOT_SPLAY, SUP_BEAM_ROOT_GROW, SUP_BEAM_FILLET, SUP_ROOT_HUG,
+  SUP_HEAD_MIN, CL_STEP_GO,
 } from './constants.js'
 
 // ── 좌표 규약: 방위 az에서 반경 r · 접선 오프셋 u · 높이 y ──
@@ -158,12 +159,86 @@ export function spiralSpec() {
 
 //  ★링 열 — 계단을 새기려면 변 내부에도 링이 필요하다. 각 단마다 **챌판 두 링 + 디딤 끝 한 링**.
 //   ⚠챌판 위치의 두 링은 x·z가 같고 y만 다르다 → 그 사이 옆면이 챌판 면이 된다.
-//   마이터(빗각)는 **코너에서만** 필요하다(변 내부는 방향이 안 바뀐다). 45° 꺾임 → 배율 1.082.
+//
+//  ★★★★109 코너 처리 (2026.08.03 현도 로컬 적발: "꺾이는 부분에 틈 · 처리가 어색")
+//   ⛔**구판의 마이터 가지는 한 번도 안 걸렸다 — 죽은 코드였다**(실측 0/417 · ★83 계열).
+//    `atLen`은 코너를 **항상 t=1(들어오는 변)**로 돌려준다(`cum[k+1] < Lc`가 거짓이라 k에서 멈춘다).
+//    그래서 `kIn = a.t<1e-9 ? a.k-1 : a.k` = `a.k` = `kOut`이 되어 `kIn !== kOut`이 영원히 거짓이었다.
+//    결과 = 코너 15곳 전부 단면이 **들어오는 변 기준**으로만 서고, 바깥 모서리에 0.748~0.764 결손이 생겼다.
+//    ⚠매스 자체는 워터타이트였다(경계 엣지 0) — **구멍이 아니라 실루엣의 결손**이라 매니폴드 검사로는
+//    안 잡힌다. 그래서 ★109에서 **모서리 선 정합**을 따로 재는 검사를 신설했다.
+//
+//   ★정본 = 마이터 + **윈더 부챗살**. 코너에서 단면을 두 변 법선의 **이등분선**으로 세우고(배율 1/cos φ),
+//    그 회전을 코너 앞뒤 `SPIRAL_CORNER_EASE`단에 나눠 준다.
+//   ★배율이 보정하므로 **모서리 선 자체는 E와 무관하게 동일**하다 — 각 스테이션의 오프셋 점은 언제나
+//    자기 변의 오프셋 선 위에 정확히 얹히고, 코너 점만 두 선의 **교점**으로 간다. 즉 틈은 어느 E에서도 0.
+//    E가 정하는 것은 **코너 부근 모서리 디딤의 최소 깊이**뿐이다(중심선 디딤은 불변 — 마이터 선이 코너 점을 지난다).
 function norm2(x, z) { const L = Math.hypot(x, z) || 1; return [x / L, z / L] }
+const rot2 = (v, a) => { const c = Math.cos(a), s = Math.sin(a); return [v[0] * c - v[1] * s, v[0] * s + v[1] * c] }
 
-function stationList(s) {
+//  ★★이징 단수 E — **파생이 기본값**이다(`SPIRAL_CORNER_EASE='auto'`).
+//   E를 상수로 박으면 다른 노브를 조용히 좁힌다: 실제로 폭 5.2와 20단 체제가 고정 E=2에서 깨졌다
+//   (모서리 디딤 0.34·0.20 < 하한 0.416). 그건 ★109가 만든 **새 결합**이므로 검사로 막을 게 아니라
+//   **따라 움직이게** 하는 것이 정본이다(★107 '각뿔대를 밀면 지지가 따라 온다'와 같은 규약).
+//   ★유도: 코너에서 가장 크게 깎이는 곳은 j=0↔1 사이다 — 감소량 = 반폭×(tan 반각 − tan(반각·(1−1/E))).
+//   그 값이 `CL_STEP_GO`(회랑·나팔 디딤 = 이 건물이 이미 걷는 최소)를 지키는 **최소 E**를 고른다.
+//   상한 = ⌊(변당 단수−1)/2⌋ — 이웃한 두 코너의 부챗살이 겹치지 않게.
+export function easeFor(s, turnAt) {
+  if (SPIRAL_CORNER_EASE !== 'auto') return Math.max(0, SPIRAL_CORNER_EASE | 0)
+  const hw = s.W / 2
+  const cap = Math.max(1, Math.floor((s.nPerSeg - 1) / 2))
+  const okAt = (E) => {
+    for (let kc = 1; kc < s.N_SEG; kc++) {
+      const h = Math.abs(turnAt(kc)) / 2
+      const drop = hw * (Math.tan(h) - Math.tan(h * (1 - 1 / E)))
+      const spanIn  = (s.cum[kc]     - s.cum[kc - 1]) / s.nPerSeg
+      const spanOut = (s.cum[kc + 1] - s.cum[kc])     / s.nPerSeg
+      if (Math.min(spanIn, spanOut) - drop < CL_STEP_GO - 1e-9) return false
+    }
+    return true
+  }
+  for (let E = 1; E <= cap; E++) if (okAt(E)) return E
+  return cap                                       // 못 지키면 상한 — 검사가 소리 내어 보고한다
+}
+
+//  ★★★111 `frameAt` — 임의 호길이 L의 **단면 좌표계**(위치 x·z, 법선 m, 마이터 배율, 접선 t).
+//   ★109의 마이터+윈더 수학의 단일 정본. stationList와 공리 볼트(★111 스윕)가 **둘 다 이것을 부른다** —
+//   사본을 두면 갈라진다(render_views 전례). 여기 말고 다른 곳에 이 수학을 다시 쓰지 말 것.
+export function frameAt(s, L) {
   const dirOf = (k) => norm2(s.corners[k + 1][0] - s.corners[k][0], s.corners[k + 1][1] - s.corners[k][1])
   const nrm   = (d) => [-d[1], d[0]]
+  const turnAt = (kc) => {
+    if (kc < 1 || kc > s.N_SEG - 1) return 0
+    const n1 = nrm(dirOf(kc - 1)), n2 = nrm(dirOf(kc))
+    return Math.atan2(n1[0] * n2[1] - n1[1] * n2[0], n1[0] * n2[0] + n1[1] * n2[1])
+  }
+  const E = easeFor(s, turnAt)
+  const ramp = (j) => j <= 1e-9 ? 1 : (E <= 0 ? 0 : Math.max(0, 1 - j / E))
+  const a = s.atLen(L)
+  const kSeg = Math.min(a.k, s.N_SEG - 1)
+  const d2   = dirOf(kSeg)
+  const span = (s.cum[kSeg + 1] - s.cum[kSeg]) / s.nPerSeg
+  const jBack  = span > 1e-9 ? (L - s.cum[kSeg])     / span : 0
+  const jFwd   = span > 1e-9 ? (s.cum[kSeg + 1] - L) / span : 0
+  const phi = turnAt(kSeg + 1) / 2 * ramp(jFwd) - turnAt(kSeg) / 2 * ramp(jBack)
+  const m = rot2(nrm(d2), phi)
+  const cphi = Math.cos(phi)
+  const scale = Math.abs(cphi) > 1e-6 ? 1 / Math.abs(cphi) : 1
+  return { x: a.x, z: a.z, m, scale, t: d2, k: kSeg, yLin: a.yLin }
+}
+
+export function stationList(s) {
+  const dirOf = (k) => norm2(s.corners[k + 1][0] - s.corners[k][0], s.corners[k + 1][1] - s.corners[k][1])
+  const nrm   = (d) => [-d[1], d[0]]
+  //  코너 kc(=1..N_SEG-1)에서 법선이 도는 **부호 있는** 각. 8각이라 ≈45°지만 반경이 줄어 45.14~46.00°다(실측).
+  const turnAt = (kc) => {
+    if (kc < 1 || kc > s.N_SEG - 1) return 0
+    const n1 = nrm(dirOf(kc - 1)), n2 = nrm(dirOf(kc))
+    return Math.atan2(n1[0] * n2[1] - n1[1] * n2[0], n1[0] * n2[0] + n1[1] * n2[1])
+  }
+  //  코너에서 j단 떨어진 스테이션이 받을 회전 비율(1 = 반각 전부, 0 = 안 돎)
+  const E = easeFor(s, turnAt)
+  const ramp = (j) => j <= 1e-9 ? 1 : (E <= 0 ? 0 : Math.max(0, 1 - j / E))
   const Ls = []
   if (SPIRAL_TREAD_ON) {
     for (let k = 0; k < s.N_SEG; k++) {
@@ -181,17 +256,9 @@ function stationList(s) {
   for (let i = 0; i < Ls.length; i++) {
     const { L, kind } = Ls[i]
     const a = s.atLen(L)
-    const kIn  = a.t < 1e-9 && a.k > 0 ? a.k - 1 : a.k          // 코너에서는 들어오는 변
-    const kOut = Math.min(a.k, s.N_SEG - 1)
-    const isCorner = (Math.abs(a.t) < 1e-9 || Math.abs(a.t - 1) < 1e-9)
-    const d1 = dirOf(Math.min(kIn, s.N_SEG - 1)), d2 = dirOf(kOut)
-    let m, scale
-    if (isCorner && kIn !== kOut) {
-      const n1 = nrm(d1), n2 = nrm(d2)
-      m = norm2(n1[0] + n2[0], n1[1] + n2[1])
-      const dot = m[0] * n1[0] + m[1] * n1[1]
-      scale = Math.abs(dot) > 1e-6 ? 1 / dot : 1
-    } else { m = nrm(d2); scale = 1 }
+    //  ★단면 좌표계는 frameAt이 정본이다(★109 마이터+윈더 · ★111에서 추출). 여기서 다시 풀지 않는다.
+    const F = frameAt(s, L)
+    const m = F.m, scale = F.scale, d2 = F.t
     //  높이: 챌판 아래 링은 '직전 디딤' 높이 = L에서 ε만큼 뒤의 밟는 면
     let yTop
     if (kind === 'riser0') yTop = L < 1e-9 ? ROOM_FLOOR_Y : s.yTread(L - 1e-6)
@@ -368,7 +435,14 @@ export function beamProfile(b, segs = SUP_BEAM_SEGS) {
   const wRoot = wMid * SUP_BEAM_ROOT_GROW
   const rSpl = b.rIn + (b.rOutT - b.rIn) * SUP_BEAM_ROOT_SPLAY   // 스플레이·코브 시작 반경
   const rNose = Math.min(b.rIn + SUP_BEAM_NOSE_RUN, rSpl - 0.2)  // 코 빗면 끝
-  const hwAt = (r) => {
+  //  ⛔★외삽 금지(현도 2026.08.04 적발 — 보7 "난도질 자국 + 면 한쪽이 안 보임"). 스플레이 식은
+  //   r = rOutT에서 wRoot에 닿도록 정규화돼 있는데, **코브는 밑면을 rOutT 밖으로 밀어낸다**
+  //   (보7: rOutT 28.91 → 밑면 35.8). 그 r을 그대로 넣으면 비율이 1을 크게 넘어 ^1.6이 폭주했다 —
+  //   실측 뿌리 반폭 배율: 보0~5 1.8~3.8x · 보6 6.7x · **보7 8.9x**(5.32). 게다가 필렛만 rOutT로
+  //   잘라 놔서 **한 열 만에 5.32 → 1.11로 떨어지는 절벽**이 생겨 얇은 가시와 어두운 쐐기가 났다.
+  //   ★정본 = hwAt 안에서 **한 번에** 클램프한다. 절벽도 폭주도 동시에 사라진다(전 보 최대 1.11).
+  const hwAt = (rIn0) => {
+    const r = Math.min(rIn0, b.rOutT)
     if (r <= rNose) return wNose + (wMid - wNose) * ((r - b.rIn) / Math.max(1e-9, rNose - b.rIn))
     if (r <= rSpl)  return wMid
     return wMid + (wRoot - wMid) * Math.pow((r - rSpl) / Math.max(1e-9, b.rOutT - rSpl), 1.6)
@@ -415,7 +489,7 @@ export function beamProfile(b, segs = SUP_BEAM_SEGS) {
     const th = th0 + (th1 - th0) * ((i - 0.5) / nC)
     rc += Math.cos(th) * ds
     yc += Math.sin(th) * ds
-    pts.push({ r: rc, yb: yc, hw: hwAt(Math.min(rc, b.rOutT)) })
+    pts.push({ r: rc, yb: yc, hw: hwAt(rc) })       // ★클램프는 hwAt이 한다(외삽 금지)
   }
   //  ⚠⚠**상면과 밑면의 반경이 다르다.** 코브가 밑면을 벽 아래쪽으로 밀어내는데(셸이 아래로 갈수록
   //   넓으니 당연하다), 상면까지 따라 나가면 **상면이 셸을 뚫는다**(실측 적발: 밑면 59.73 vs 상면 한계
@@ -445,10 +519,55 @@ export function buildSpiralBeams() {
     //  두 마구리 — 코는 **립 높이만큼만** 수직(빗면이 나머지를 먹었다) · 뿌리는 벽에 붙는다
     const F = cols[0], Lc = cols[cols.length - 1]
     quadTo(P, Nn, p(F.rTop, -F.hw, b.yT), p(F.rTop, F.hw, b.yT), p(F.r, F.hw, F.yb), p(F.r, -F.hw, F.yb), [-Math.cos(b.az), 0, -Math.sin(b.az)])
-    quadTo(P, Nn, p(Lc.rTop, -Lc.hw, b.yT), p(Lc.rTop, Lc.hw, b.yT), p(Lc.r, Lc.hw, Lc.yb), p(Lc.r, -Lc.hw, Lc.yb), [Math.cos(b.az), 0, Math.sin(b.az)])
+    //  ★★뿌리 마구리는 **셸 곡률을 따라 분할**한다(현도 2026.08.04 적발 — "커터칼로 난도질한 절삭면").
+    //   ⛔구판은 곧은 사각형 하나였다: 위(rOutT)와 아래(Lc.r)가 둘 다 셸 위에 있는데 그 사이를 **현(chord)**
+    //   으로 이어 셸과의 사이에 렌즈 모양 틈이 남았다 — 그게 벤 자국으로 읽혔다.
+    //   ★셸은 뚫을 수 없으므로(§셸 외곽 불변) 마구리가 셸을 **핥고 지나가게** 한다. CLR 0.05는 유지.
+    //   ⛔한도 없이 붙였더니 **보7이 나팔처럼 벌어졌다**(현도 2차 적발). 보7은 성격이 다르다 —
+    //   뿌리 밑면이 벽에 **5.5 못 미친 채** 끝나므로 그 5.24는 렌즈 틈이 아니라 '안 닿음'이다.
+    //   실측 렌즈 틈: 보0~6 = 0.14~0.42 (진짜 틈) · 보7 = 5.24 (안 닿음).
+    //   ★껴안기를 `SUP_ROOT_HUG`(0.5)로 **한도** 짓는다 — 현 + HUG 와 셸 중 작은 쪽.
+    {
+      const NR = 10
+      const chordR = (y) => Lc.r + (Lc.rTop - Lc.r) * ((y - Lc.yb) / (b.yT - Lc.yb))
+      const rAtY = (y) => Math.min(wallR(y) - SUP_WALL_CLR, chordR(y) + SUP_ROOT_HUG)
+      for (let i = 0; i < NR; i++) {
+        const y0 = Lc.yb + (b.yT - Lc.yb) * (i / NR), y1 = Lc.yb + (b.yT - Lc.yb) * ((i + 1) / NR)
+        const r0 = rAtY(y0), r1 = rAtY(y1)
+        quadTo(P, Nn, p(r1, -Lc.hw, y1), p(r1, Lc.hw, y1), p(r0, Lc.hw, y0), p(r0, -Lc.hw, y0),
+          [Math.cos(b.az), 0, Math.sin(b.az)])
+      }
+      //  옆면·상면·밑면과의 이음 — 곡면 마구리가 생기며 남는 좁은 삼각 틈을 메운다
+      //  ⚠양 끝(y0=yb, y1=yT)에서는 현과 곡면이 만나 폭 0 = 퇴화 사각이 된다(실측 퇴화 2). 건너뛴다.
+      for (const sgn of [-1, 1]) {
+        for (let i = 0; i < NR; i++) {
+          const y0 = Lc.yb + (b.yT - Lc.yb) * (i / NR), y1 = Lc.yb + (b.yT - Lc.yb) * ((i + 1) / NR)
+          const rl0 = chordR(y0), rl1 = chordR(y1)
+          const a0 = rAtY(y0), a1 = rAtY(y1)
+          if (Math.abs(a0 - rl0) < 1e-7 && Math.abs(a1 - rl1) < 1e-7) continue
+          //  ⚠감김: sgn=+1과 −1은 **정점 순서를 뒤집어야** 둘 다 바깥을 본다.
+          //   구판은 한쪽이 뒤집혀 앱(단면 렌더)에서 **면이 사라졌다**(현도 적발).
+          const nn = [-sgn * Math.sin(b.az), 0, sgn * Math.cos(b.az)]
+          const A1 = p(rl1, sgn * Lc.hw, y1), B1 = p(a1, sgn * Lc.hw, y1)
+          const B0 = p(a0, sgn * Lc.hw, y0), A0 = p(rl0, sgn * Lc.hw, y0)
+          if (sgn > 0) quadTo(P, Nn, A1, B1, B0, A0, nn)
+          else         quadTo(P, Nn, A0, B0, B1, A1, nn)
+        }
+      }
+    }
   }
-  g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3))
-  g.setAttribute('normal',   new THREE.Float32BufferAttribute(Nn, 3))
+  //  ★퇴화 삼각 제거 — 곡면 마구리와 현(chord) 옆면이 한쪽 끝에서 만나 폭 0이 되는 자리가 있다(실측 2).
+  //   §2-D: 퇴화 삼각은 법선이 없어 셰이딩이 튄다. 위상 계산 전에 턴다.
+  const Pk = [], Nk = []
+  for (let i = 0; i < P.length / 9; i++) {
+    const b = i * 9
+    const e1 = [P[b + 3] - P[b], P[b + 4] - P[b + 1], P[b + 5] - P[b + 2]]
+    const e2 = [P[b + 6] - P[b], P[b + 7] - P[b + 1], P[b + 8] - P[b + 2]]
+    const cr = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
+    if (Math.hypot(...cr) / 2 > 1e-9) for (let k = 0; k < 9; k++) { Pk.push(P[b + k]); Nk.push(Nn[b + k]) }
+  }
+  g.setAttribute('position', new THREE.Float32BufferAttribute(Pk, 3))
+  g.setAttribute('normal',   new THREE.Float32BufferAttribute(Nk, 3))
   return g
 }
 

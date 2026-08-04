@@ -40,9 +40,14 @@ import {
   SUP_BEAM_GAP, SUP_BEAM_DEPTH, SUP_BEAM_W, SUP_BEAM_MIN, SUP_BEAM_DMIN, SUP_WALL_CLR, SUP_HEAD_MIN,
   SUP_BEAM_TAPER, SUP_BEAM_CURVE, SUP_BEAM_W_TAPER, SUP_BEAM_NOSE_LIP, SUP_BEAM_ROOT_GROW, SUP_BEAM_FILLET,
   ROOM_STAIR_WIDTH, ROOM_STAIR_RIN, ROOM_STAIR_TURNS, AX_ON, CL_STEP_GO, CL_STEP_RISE,
+  SPIRAL_CORNER_EASE, AX_VAULT_ON, AX_VAULT_LAYOUT, AX_VAULT_ARCH_W, AX_VAULT_ARCH_CLR, AX_VAULT_SPRING,
+  AX_VAULT_SHELL, AX_VAULT_JAMB, AX_VAULT_LEN, AX_VAULT_WIN_Y,
+  AX_VAULT_NICHE_W, AX_VAULT_NICHE_H, AX_VAULT_NICHE_D, AX_VAULT_NICHE_SILL,
 } from './constants.js'
 import { spiralSpec, buildSpiralMass, buildSpiralColumns, buildSpiralBeams,
-  columnSpec, beamSpec, beamProfile, beamHeadroom, unsupportedSpans, treadProbe } from './axiomSpiralGeometry.js'   // ★107
+  columnSpec, beamSpec, beamProfile, beamHeadroom, unsupportedSpans, treadProbe,
+  stationList, easeFor, frameAt } from './axiomSpiralGeometry.js'   // ★107 · ★109 · frameAt=★111
+import { vaultSpec, buildAxiomVaults } from './axiomVaultGeometry.js'   // ★111 공리 볼트
 
 let n = 0, fail = 0
 const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
@@ -1002,6 +1007,360 @@ console.log('\n── ★107 공리 나선 — 매스 + 지지 ──')
         `블롱델 2R+G ${tp.blondel[0].toFixed(2)}~${tp.blondel[1].toFixed(2)} (석조 통례 0.60~0.68) — 평면 나선이 경사를 잠그므로 통례 밖은 선언된 대가`)
     } else {
       ok(true, `SPIRAL_TREAD_ON=false — 매끈 램프(★107 1차, 현도 반려분). 단 절 건너뜀`)
+    }
+
+    //  ★★★109 코너(변↔변 이음) — ⛔현도 로컬 적발(2026.08.03): "꺾이는 부분에 틈 · 처리가 어색".
+    //   ⛔병의 정체 = **마이터 가지가 한 번도 안 걸렸다**(실측 0/417 · ★83 '죽은 검사'와 같은 계열).
+    //   ⚠★이 절이 없었던 이유를 남긴다: 매스는 **워터타이트였다**(경계 엣지 0). 즉 구멍이 아니라
+    //    **실루엣의 결손**이라 기존 건전성 검사(법선·감김·퇴화)로는 원리적으로 못 잡는다.
+    //    → 여기서 재는 것은 '메시가 닫혔는가'가 아니라 **'모서리 선이 제자리에 있는가'**다.
+    if (SPIRAL_BODY === 'mass') {
+      const st = stationList(S)
+      const hwT = S.W / 2, hwB = S.W / 2 - S.chamf
+      const nrm2 = (x, z) => { const L = Math.hypot(x, z) || 1; return [x / L, z / L] }
+      const dirOf = (k) => nrm2(S.corners[k + 1][0] - S.corners[k][0], S.corners[k + 1][1] - S.corners[k][1])
+      const nOf   = (k) => { const d = dirOf(k); return [-d[1], d[0]] }
+      //  스테이션이 얹힌 변(코너는 '들어오는 변' — `atLen` 규약과 같다)
+      const segOf = (L) => { let k = 0; while (k < S.N_SEG - 1 && S.cum[k + 1] < L) k++; return k }
+
+      //  ⓐ **마이터가 실제로 걸리는가** — 이 한 항이 이번 병의 재발을 막는다.
+      let mit = 0, mitBad = 0
+      for (let kc = 1; kc < S.N_SEG; kc++) {
+        const j = st.findIndex(a => Math.abs(a.L - S.cum[kc]) < 1e-9)
+        if (j < 0) { mitBad++; continue }
+        const n1 = nOf(kc - 1), n2 = nOf(kc)
+        const half = Math.acos(Math.max(-1, Math.min(1, n1[0] * n2[0] + n1[1] * n2[1]))) / 2
+        if (Math.abs(st[j].scale - 1 / Math.cos(half)) > 1e-9) mitBad++; else mit++
+      }
+      ok(mit === S.N_SEG - 1 && mitBad === 0,
+        `★코너 마이터 실적 ${mit}/${S.N_SEG - 1}곳 배율 = 1/cos(반각) — ⛔구판은 **0곳**이었다(죽은 가지)`)
+
+      //  ⓑ **틈 0의 일반형** — 모든 오프셋 점이 '자기 변의 오프셋 선' 위에 정확히 얹혀 있는가.
+      //   배율 1/cos φ가 이것을 보장한다. 어긋나면 그 자리에 결손·겹침이 생긴다(= 현도가 본 틈).
+      let worstOff = 0
+      for (const a of st) {
+        const k = segOf(a.L), n = nOf(k)
+        for (const [hw, sgn] of [[hwT, +1], [hwT, -1], [hwB, +1], [hwB, -1]]) {
+          const px = a.x + sgn * a.m[0] * hw * a.scale, pz = a.z + sgn * a.m[1] * hw * a.scale
+          //  변 중심선(코너 k → k+1)까지의 수직거리
+          const d = (px - S.corners[k][0]) * n[0] + (pz - S.corners[k][1]) * n[1]
+          worstOff = Math.max(worstOff, Math.abs(Math.abs(d) - hw))
+        }
+      }
+      ok(worstOff < 1e-9,
+        `★모서리 선 정합: 오프셋 점 ${st.length * 4}개 전부 자기 변에서 정확히 반폭 — 최악 어긋남 ${worstOff.toExponential(1)}`)
+
+      //  ⓒ **코너 점 = 두 오프셋 선의 교점인가**(독립 계산 — 기하 모듈을 안 믿고 여기서 다시 푼다)
+      let worstX = 0
+      for (let kc = 1; kc < S.N_SEG; kc++) {
+        const j = st.findIndex(a => Math.abs(a.L - S.cum[kc]) < 1e-9)
+        const a = st[j], n1 = nOf(kc - 1), n2 = nOf(kc), d1 = dirOf(kc - 1), d2 = dirOf(kc)
+        for (const sgn of [+1, -1]) {
+          //  선1: corners[kc-1] + n1·sgn·hw + u·d1   /   선2: corners[kc] + n2·sgn·hw + v·d2
+          const A = [S.corners[kc - 1][0] + sgn * n1[0] * hwT, S.corners[kc - 1][1] + sgn * n1[1] * hwT]
+          const B = [S.corners[kc][0]     + sgn * n2[0] * hwT, S.corners[kc][1]     + sgn * n2[1] * hwT]
+          const det = d1[0] * (-d2[1]) - d1[1] * (-d2[0])
+          const u = ((B[0] - A[0]) * (-d2[1]) - (B[1] - A[1]) * (-d2[0])) / det
+          const X = [A[0] + u * d1[0], A[1] + u * d1[1]]
+          const P = [a.x + sgn * a.m[0] * hwT * a.scale, a.z + sgn * a.m[1] * hwT * a.scale]
+          worstX = Math.max(worstX, Math.hypot(P[0] - X[0], P[1] - X[1]))
+        }
+      }
+      ok(worstX < 1e-9,
+        `★코너 결손 0: 코너 ${S.N_SEG - 1}곳의 바깥·안쪽 점 = 두 오프셋 선의 교점(최악 ${worstX.toExponential(1)}) — ⛔구판은 **0.748~0.764 결손**`)
+
+      //  ⓓ **부챗살의 대가** — 코너 부근 모서리 디딤이 얼마나 얕아지는가(중심선 디딤은 불변).
+      //   E=0·1이면 여기서 깨진다(실측 0.128 < 0.416). 그래서 `SPIRAL_CORNER_EASE`의 하한이 2다.
+      const uniq = []
+      for (const a of st) if (!uniq.length || Math.abs(a.L - uniq[uniq.length - 1].L) > 1e-9) uniq.push(a)
+      let edgeMin = Infinity, edgeWhere = ''
+      for (let i = 0; i + 1 < uniq.length; i++) {
+        const A = uniq[i], B = uniq[i + 1]
+        for (const sgn of [+1, -1]) {
+          const P = [A.x + sgn * A.m[0] * hwT * A.scale, A.z + sgn * A.m[1] * hwT * A.scale]
+          const Q = [B.x + sgn * B.m[0] * hwT * B.scale, B.z + sgn * B.m[1] * hwT * B.scale]
+          const d = Math.hypot(Q[0] - P[0], Q[1] - P[1])
+          if (d < edgeMin) { edgeMin = d; edgeWhere = `L${A.L.toFixed(1)} ${sgn > 0 ? '안쪽' : '바깥'}` }
+        }
+      }
+      //  ★E는 파생이 기본값이다 — 실제로 쓰인 값을 기하 모듈에서 받아 온다(사본 금지).
+      const turnAt = (kc) => {
+        if (kc < 1 || kc > S.N_SEG - 1) return 0
+        const n1 = nOf(kc - 1), n2 = nOf(kc)
+        return Math.atan2(n1[0] * n2[1] - n1[1] * n2[0], n1[0] * n2[0] + n1[1] * n2[1])
+      }
+      const Eused = easeFor(S, turnAt)
+      ok(edgeMin >= CL_STEP_GO - 1e-9,
+        `★모서리 최소 디딤 ${edgeMin.toFixed(3)}(${edgeWhere}) ≥ ${CL_STEP_GO.toFixed(3)} — 이징 E=${Eused}('${SPIRAL_CORNER_EASE}')의 대가(E=0·1이면 0.128로 깨진다)`)
+      ok(Eused >= 0 && Eused <= Math.max(1, Math.floor((S.nPerSeg - 1) / 2)),
+        `이징 E=${Eused} ≤ 상한 ⌊(변당 ${S.nPerSeg}단−1)/2⌋=${Math.max(1, Math.floor((S.nPerSeg - 1) / 2))} — 두 코너의 부챗살이 안 겹친다`)
+
+      //  ⓔ **워터타이트 회귀** — 이번엔 안 깨졌지만(구판도 닫혀 있었다) 코너를 만졌으니 못을 박는다.
+      {
+        const pos = buildSpiralMass().getAttribute('position').array, Q = 1e4
+        const key = (i) => `${Math.round(pos[i] * Q)},${Math.round(pos[i + 1] * Q)},${Math.round(pos[i + 2] * Q)}`
+        const em = new Map()
+        for (let tI = 0; tI < pos.length / 9; tI++) {
+          const b = tI * 9, k3 = [key(b), key(b + 3), key(b + 6)]
+          if (k3[0] === k3[1] || k3[1] === k3[2] || k3[0] === k3[2]) continue
+          for (let e = 0; e < 3; e++) {
+            const x1 = k3[e], x2 = k3[(e + 1) % 3]
+            const id = x1 < x2 ? x1 + '|' + x2 : x2 + '|' + x1
+            em.set(id, (em.get(id) || 0) + 1)
+          }
+        }
+        let open = 0, over = 0
+        for (const n of em.values()) { if (n === 1) open++; else if (n > 2) over++ }
+        ok(open === 0 && over === 0,
+          `매스 워터타이트: 엣지 ${em.size} · 경계 0 · 비매니폴드 0`)
+      }
+
+      //  ⓕ **마이터가 밀어낸 반경** — 코너에서 바깥은 0.15 나가고 안쪽은 0.15 들어온다. 결합 재확인.
+      {
+        //  ★비교 기준을 반경 공식으로 잡지 않는다 — 8각 변의 법선은 방사가 아니라서 `r − 반폭`은 근사다.
+        //   대신 **마이터를 끈 같은 점**(scale 1 · m = 자기 변 법선)을 같이 계산해 '마이터가 더 민 양'을 잰다.
+        let rIn = Infinity, rOut = 0, rInFoot = Infinity, rIn0 = Infinity, rOut0 = 0, movMax = 0
+        for (const a of st) {
+          const n0 = nOf(segOf(a.L))
+          for (const sgn of [+1, -1]) {
+            const px = a.x + sgn * a.m[0] * hwT * a.scale, pz = a.z + sgn * a.m[1] * hwT * a.scale
+            const r = Math.hypot(px, pz)
+            rIn = Math.min(rIn, r); rOut = Math.max(rOut, r)
+            if (a.L < 1e-9) rInFoot = Math.min(rInFoot, r)       // ★발치 마구리 = 슬롯 결합이 읽는 그 자리
+            const qx = a.x + sgn * n0[0] * hwT, qz = a.z + sgn * n0[1] * hwT
+            const q = Math.hypot(qx, qz)
+            rIn0 = Math.min(rIn0, q); rOut0 = Math.max(rOut0, q)
+            //  ★스테이션마다의 실제 이동량 — 극값끼리 빼면 0이 나와 **공허하게 통과**한다(공허 참 가드).
+            movMax = Math.max(movMax, Math.hypot(px - qx, pz - qz))
+          }
+        }
+        //  마이터가 바깥으로 미는 양 = 반폭×(1/cos(반각) − 1). 반각은 **실측**한다(반경이 줄어 45°가 아니다).
+        let pushMax = 0
+        for (let kc = 1; kc < S.N_SEG; kc++) {
+          const n1 = nOf(kc - 1), n2 = nOf(kc)
+          const half = Math.acos(Math.max(-1, Math.min(1, n1[0] * n2[0] + n1[1] * n2[1]))) / 2
+          pushMax = Math.max(pushMax, hwT * (1 / Math.cos(half) - 1))
+        }
+        ok(rOut <= ROOM_STAIR_ROUT + hwT + pushMax + 1e-6,
+          `실측 반경 ${rIn.toFixed(2)}~${rOut.toFixed(2)} — 마이터가 바깥으로 미는 양 ≤ ${pushMax.toFixed(3)}(반폭×(1/cos 반각−1))`)
+        //  ★★결합이 읽는 자리는 **발치(L=0)**뿐이다 — 마이터는 첫 코너(L=33.7)부터 걸리고 발치의 φ는 0이다.
+        //   ⚠공칭 `ROUT − 반폭`(43.20)은 **보수적 근사**다: 8각 변의 법선은 방사가 아니라서 실측은 43.38로
+        //    더 넉넉하다. 검사는 '실측 ≥ 공칭'만 요구한다(공칭이 안전측이라는 것을 확인하는 항).
+        ok(rInFoot >= ROOM_STAIR_ROUT - S.W / 2 - 1e-6 && rInFoot > 40.94 - 1e-9,
+          `★결합 불변: 발치 안끝 실측 ${rInFoot.toFixed(2)} ≥ 공칭 ${(ROOM_STAIR_ROUT - S.W / 2).toFixed(2)}(보수적) > 슬롯 뒷벽 40.94 — 발치 φ=0이라 ★109는 슬롯 결합에 무영향`)
+        //  마이터가 실제로 민 양 = 마이터 끈 같은 점과의 차. 반폭×(1/cos 반각−1) 안에 묶여야 한다(폭주 없음).
+        //  ⚠극값(rIn/rOut)끼리 빼면 0이 나온다 — 극값은 φ=0 자리에서 잡히기 때문(공허 참 가드).
+        //   **스테이션별 이동량**을 재고, 상한은 실측 반각에서 유도한다: 반폭 × tan(반각).
+        let movLim = 0
+        for (let kc = 1; kc < S.N_SEG; kc++) {
+          const n1 = nOf(kc - 1), n2 = nOf(kc)
+          const half = Math.acos(Math.max(-1, Math.min(1, n1[0] * n2[0] + n1[1] * n2[1]))) / 2
+          movLim = Math.max(movLim, hwT * Math.tan(half))
+        }
+        ok(movMax > 1e-6 && movMax <= movLim + 1e-9,
+          `마이터가 옮긴 최대 거리 ${movMax.toFixed(4)} ≤ 유도 상한 ${movLim.toFixed(4)}(반폭×tan 반각) — **0이면 마이터가 또 죽은 것**(★109 재발 감지)`)
+      }
+    }
+
+    //  ★★★111 공리 볼트(문) — 현도 스케치 2026.08.04. 공리 = 통과하는 문 · 총안 창 + 감실.
+    if (AX_VAULT_ON) {
+      const { list: VL } = vaultSpec()
+      const hwA = AX_VAULT_ARCH_W / 2, hwC = ROOM_STAIR_WIDTH / 2
+      ok(VL.length === 7, `볼트 ${VL.length}기 = 공리 7 (배치 '${AX_VAULT_LAYOUT}')`)
+      //  ⓐ 보7(맨 위)은 빈 보 — 현도 확정. 어느 배치에서도 마지막 보(L 346.6)에는 볼트가 없다.
+      const lastBeamL = beamSpec()[7].L
+      ok(VL.every(v => Math.abs(v.Ls - lastBeamL) > 1e-6),
+        `★맨 위 보(L ${lastBeamL.toFixed(1)})는 빈 보 — 현도 2026.08.04 확정(디스크 밑 여유 3.70뿐이기도)`)
+      //  ⓑ 아치가 코일을 삼킨다 — 볼트 전 구간에서 코일 바깥끝(마이터 포함) < 아치 안폭
+      //  ⚠스윕은 아치 프로필에도 코일과 **같은** frameAt 배율을 곱한다 — 여유 = (안폭−코일폭)×scale로
+      //   함께 커진다. 구판 검사는 아치에만 배율을 빼먹어 폭 5.2에서 0.098 오탐을 냈다(정정 기록).
+      let worstSide = Infinity
+      for (const v of VL) for (let q = 0; q <= 10; q++) {
+        const F = frameAt(S, v.L0 + (v.L1 - v.L0) * q / 10)
+        worstSide = Math.min(worstSide, (hwA - hwC) * F.scale)
+      }
+      ok(worstSide >= AX_VAULT_ARCH_CLR - 1e-9,
+        `아치 옆 여유 최악 ${worstSide.toFixed(3)} ≥ CLR ${AX_VAULT_ARCH_CLR} — 안폭이 코일 폭에서 파생 + 같은 배율(결합 확인)`)
+      //  ⓒ 머리 여유 — 진출 지점(바닥 최고점)에서 크라운 안쪽까지
+      const headMin = Math.min(...VL.map(v => v.head))
+      ok(headMin >= SUP_HEAD_MIN - 1e-9, `실내 머리 여유 최악 ${headMin.toFixed(2)} ≥ ${SUP_HEAD_MIN}`)
+      //  ⓓ 감실이 수직 잼브면 안에 있다 — 어깨(스프링) 아래. 넘으면 아치 곡면을 문다.
+      ok(AX_VAULT_NICHE_SILL + AX_VAULT_NICHE_H <= AX_VAULT_SPRING + 1e-9,
+        `감실 상단 ${(AX_VAULT_NICHE_SILL + AX_VAULT_NICHE_H).toFixed(1)} ≤ 어깨 ${AX_VAULT_SPRING} — 수직벽 안`)
+      //  ⓔ 감실은 관통이 아니다 — 등벽이 남는다
+      ok(AX_VAULT_JAMB - AX_VAULT_NICHE_D >= 1.0,
+        `감실 등벽 ${(AX_VAULT_JAMB - AX_VAULT_NICHE_D).toFixed(1)} ≥ 1.0 — 총안 벽이 뚫리지 않는다`)
+      //  ⓕ 받침이 발자국 안 — 뿌리 선언(§2-D)이 살아 있다
+      const rootWorst = Math.max(...VL.map(v => Math.abs(v.Lc - v.Ls)))
+      ok(rootWorst <= AX_VAULT_LEN / 2 - 0.6 + 1e-9,
+        `받침↔볼트중심 최대 어긋남 ${rootWorst.toFixed(2)} ≤ ${(AX_VAULT_LEN / 2 - 0.6).toFixed(1)} — 뿌리가 발자국 안에 남는다`)
+      //  ⓖ 코너는 볼트 끝 언저리로만 — 몸통 한가운데 45° 꺾임 금지
+      let coreCorner = 0
+      for (const v of VL) for (let k = 1; k < S.N_SEG; k++)
+        if (Math.abs(v.Lc - S.cum[k]) < AX_VAULT_LEN / 2 - 1.2 - 1e-6) coreCorner++
+      ok(coreCorner === 0, `몸통 중앙부(끝 1.2 제외)에 코너 0곳 — 꺾인 탑 없음`)
+      //  ★★★v5 칼라 면 정합 — "입구면을 도장 찍으면 닫힌 도형"(현도 2026.08.04).
+      //   ⛔v3·v4 사고: 볼트는 `Lc`(코너 회피로 밀린 중심) 기준인데 칼라는 `Ls`(받침) 중심이라
+      //   **최대 2.17 어긋났다** — 한쪽 끝은 입구면 밖으로 튀고 반대쪽은 안으로 들어갔다.
+      //   ★정본 = 칼라 구간 = 볼트 구간 [L0,L1] 그 자체 + 공유 링 집합(`ringLs`).
+      //   ⚠검사 방법: 절대 좌표로 재면 안 된다 — 볼트 자신도 곡률 때문에 끝 평면을 넘는다(최대 1.48 실측).
+      //   **칼라와 스윕의 넘침이 같은가**를 잰다. 같으면 두 마구리가 같은 평면 위에 있다는 뜻이다.
+      {
+        const { collarGeo, sweepVault: SW, ringLs } = await import('./axiomVaultGeometry.js')
+        const { AX_VAULT_END_TILT: TILT, AX_VAULT_LEN: LEN111 } = await import('./constants.js')
+        const { endL, capRing, profilePts: PROF, collarSection: COLSEC } = await import('./axiomVaultGeometry.js')
+        //  ★★v7 끝면 평면성 — 현도 로컬 적발: "지우개를 커터칼로 난도질한 절삭면".
+        //   ⛔v6는 점마다 frameAt(L−kΔy)로 배치해 끝면이 **휜 면**이 됐고, 크라운(바깥)과 칼라 밑(안쪽)이
+        //   반대로 밀리는데 사이 링이 제자리라 뒤집힌 사각형이 났다. ★정본 = 끝 프레임 하나 기준 평행이동.
+        //   ⚠판정 도구를 이 세션에서 네 번 틀렸다(평면식 부호 2회 · 직선 평면식의 곡률 오차 0.54 ·
+        //   호길이 역산 비단조 2.7). 결론: **위치를 역산하지 말고 생성 규약을 재라.**
+        //   여기서는 `capRing`이 낸 점들이 **한 평면 위에 있는가**를 직접 잰다(볼트·칼라를 한 무리로).
+        const planarDev = (v, which) => {
+          const P2 = PROF(v), SEC = COLSEC(v, which === 'entry' ? v.L0 : v.L1)
+          const pts = [...capRing(S, v, which, P2), ...capRing(S, v, which, SEC)]
+          const c = pts.reduce((a2, p) => [a2[0] + p[0] / pts.length, a2[1] + p[1] / pts.length, a2[2] + p[2] / pts.length], [0, 0, 0])
+          //  공분산 최소 고유방향 = 평면 법선 (멱반복)
+          const M = [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
+          for (const p of pts) { const d = [p[0] - c[0], p[1] - c[1], p[2] - c[2]]
+            for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) M[i][j] += d[i] * d[j] }
+          let tr = M[0][0] + M[1][1] + M[2][2]
+          const A = M.map((r, i) => r.map((x, j) => (i === j ? tr : 0) - x))   // trI − M : 최소 고유 → 최대
+          let vv = [0.3, 0.5, 0.81]
+          for (let it = 0; it < 60; it++) {
+            const w = [0, 1, 2].map((i) => A[i][0] * vv[0] + A[i][1] * vv[1] + A[i][2] * vv[2])
+            const nrm = Math.hypot(...w); if (nrm < 1e-12) break
+            vv = w.map((x) => x / nrm)
+          }
+          let dev = 0
+          for (const p of pts) dev = Math.max(dev, Math.abs((p[0] - c[0]) * vv[0] + (p[1] - c[1]) * vv[1] + (p[2] - c[2]) * vv[2]))
+          return dev
+        }
+        const uOutC = -(AX_VAULT_ARCH_W / 2 + AX_VAULT_SHELL), uInC = AX_VAULT_ARCH_W / 2 + AX_VAULT_JAMB
+        let worstEnd = 0, worstSide = 0, minSpanCover = Infinity
+        for (const v of VL) {
+          const co = collarGeo(S, v)
+          worstEnd = Math.max(worstEnd, planarDev(v, 'entry'), planarDev(v, 'exit'))
+          //  좌우 — 칼라 정점이 볼트 발자국 u[uOut, uIn]을 벗어나지 않는가(자기 링에서 역산)
+          const pc = co.getAttribute('position').array
+          const Lsc = ringLs(S, v)
+          for (let i = 0; i < pc.length; i += 3) {
+            let best = Infinity, bu = 0
+            for (const L of Lsc) {
+              const F = frameAt(S, L)
+              const dx = pc[i] - F.x, dz = pc[i + 2] - F.z
+              const al = Math.abs(dx * F.t[0] + dz * F.t[1])
+              if (al < best) { best = al; bu = (dx * F.m[0] + dz * F.m[1]) / F.scale }
+            }
+            if (best > 1e-6) continue
+            worstSide = Math.max(worstSide, bu - uInC, uOutC - bu)
+          }
+          //  ★가운데(아치 통로 밑)도 채워져 있다(현도 확정 ⓐ) — 밴드가 전폭을 덮는지
+          minSpanCover = Math.min(minSpanCover, uInC - uOutC)
+        }
+        ok(worstEnd < 1e-4,
+          `★입구·출구면이 **평면**이고 볼트·칼라가 같은 평면 위 — 최대 이탈 ${worstEnd.toExponential(1)} (${TILT}° · 도장 = 닫힌 도형)`)
+        ok(worstSide < 1e-4,
+          `★칼라가 볼트 발자국을 좌우로 안 벗어난다 — 최대 초과 ${worstSide.toExponential(1)}`)
+        //  ★기울기가 실제로 걸렸고, 튀어나온 양이 과하지 않은가(현도: "너무 많이 튀어나오지 않게")
+        {
+          const { endL, capRing, profilePts: PROF, collarSection: COLSEC } = await import('./axiomVaultGeometry.js')
+          let overMax = 0
+          for (const v of VL) {
+            const yTopE = v.yCrownI + AX_VAULT_SHELL
+            overMax = Math.max(overMax, v.L0 - endL(v, 'entry', yTopE), endL(v, 'exit', yTopE) - v.L1)
+          }
+          ok(TILT === 0 || overMax > 0.3, `끝면 기울기 실적 — 크라운이 앞으로 ${overMax.toFixed(2)} (수직 단면 아님)`)
+          ok(overMax < AX_VAULT_LEN / 3, `튀어나온 양 ${overMax.toFixed(2)} < 볼트 길이/3 ${(AX_VAULT_LEN / 3).toFixed(2)} — 과하지 않다`)
+        }
+        ok(minSpanCover > AX_VAULT_ARCH_W,
+          `★칼라가 전폭을 덮는다(가운데 통로 밑도 채움 — 현도 확정) — 밴드 폭 ${minSpanCover.toFixed(2)} > 아치 ${AX_VAULT_ARCH_W}`)
+      }
+      //  ★v3 칼라 — 받침을 실제로 문다(받침 몸통 깊이 안에서)
+      for (const v of VL) {
+        const supBot = v.isBeam ? v.sup.yB : v.sup.yBot
+        const collarBot = v.yBot - v.collar.drop
+        ok(collarBot > supBot - 1e-6 && v.collar.drop >= 0.6,
+          `${v.id} 칼라 밑 ${collarBot.toFixed(2)} ≥ 받침 밑 ${supBot.toFixed(2)} · 무는 깊이 ${v.collar.drop.toFixed(2)} ≥ 0.6 (${v.isBeam ? '보' : '기둥'})`)
+      }
+      //  ⓗ 위 간섭 — 크라운 겉면이 착지 디스크 밑면 아래
+      const { ROOM_STAIR_SLAB: SLAB111 } = await import('./constants.js')
+      const discB = COR_Y0 + COR_THICK / 2 + 0.02 - SLAB111
+      const crownWorst = Math.max(...VL.map(v => v.yCrownI + AX_VAULT_SHELL))
+      ok(crownWorst < discB - 0.3, `크라운 겉 최고 ${crownWorst.toFixed(1)} < 디스크 밑 ${discB.toFixed(2)} − 0.3`)
+      //  ⓘ 창이 실제로 뚫렸고 감실은 막혔다 — 볼트 중앙 단면에서 광선으로 잰다(빌드 결과를 직접).
+      //   ⚠★109·★110의 교훈: '만들었다'와 '뚫렸다'는 다른 질문이다. 빌드된 메시에 대고 쏜다.
+      {
+        const g = buildAxiomVaults()
+        ok(g && g.getAttribute('position').count > 0, `볼트 기하 빌드 — 삼각 ${g ? g.getAttribute('position').count / 3 : 0}`)
+        const THREE = await import('three')
+        const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }))
+        mesh.updateMatrixWorld()
+        const rc = new THREE.Raycaster()
+        let winOpen = 0, nicheClosed = 0
+        for (const v of VL) {
+          const F = frameAt(S, v.Lc)
+          const inw = [F.m[0], F.m[1]]                         // 안쪽(방 중심) = **+m**(실측 — 좌우 반전 사고의 정본)
+          //  창: 아치 안 중심에서 창 높이로, 안쪽으로 발사 — 뚫렸으면 잼브를 지나 아무것도 안 맞거나 먼 것만 맞는다
+          const oW = new THREE.Vector3(F.x, v.yF0 + AX_VAULT_WIN_Y, F.z)
+          rc.set(oW, new THREE.Vector3(inw[0], 0, inw[1]).normalize())
+          const hitsW = rc.intersectObject(mesh, false)
+          const nearW = hitsW.length ? hitsW[0].distance : Infinity
+          if (nearW > hwA + AX_VAULT_JAMB + 0.5) winOpen++
+          //  감실: 감실 중앙 높이로 같은 방향 — 등벽에 막혀야 한다(감실 깊이보다 멀리, 잼브 두께 안에서)
+          const oN = new THREE.Vector3(F.x, v.yF0 + AX_VAULT_NICHE_SILL + AX_VAULT_NICHE_H / 2, F.z)
+          rc.set(oN, new THREE.Vector3(inw[0], 0, inw[1]).normalize())
+          const hitsN = rc.intersectObject(mesh, false)
+          const nearN = hitsN.length ? hitsN[0].distance : Infinity
+          if (nearN > hwA + AX_VAULT_NICHE_D - 0.2 && nearN < hwA + AX_VAULT_JAMB + 0.2) nicheClosed++
+        }
+        //  ★★ⓙ 감김 감사 — v2 사고의 영구 봉인. ⚠셀프 렌더(양면·무컬링)는 감김 반전에 **눈이 먼다**:
+        //   마구리 감김이 옆면과 반대(불일치 72)여도 그림은 멀쩡했고, 그 섞인 솔리드를 CSG에 먹이자
+        //   내부/외부 판정이 깨져 구멍이 쏟아졌다(경계 0→179 실측). 앱에서 "채워질 곳이 빈" 결함.
+        //   판정: 스윕·코브(=CSG 입력)는 경계 0·불일치 0·부피 양수 **엄격**. 최종본은 부피 보존.
+        {
+          const { sweepVault, collarGeo, vaultSpec: VS } = await import('./axiomVaultGeometry.js')
+          const { s: S2, list: VL2 } = VS()
+          const audit = (geom) => {
+            const pp = (geom.index ? geom.toNonIndexed() : geom).getAttribute('position').array
+            const nT = pp.length / 9
+            let vol = 0
+            const Q = 1e4, vkey = (i) => Math.round(pp[i]*Q)+','+Math.round(pp[i+1]*Q)+','+Math.round(pp[i+2]*Q)
+            const em = new Map()
+            for (let ti = 0; ti < nT; ti++) {
+              const b = ti*9
+              const A=[pp[b],pp[b+1],pp[b+2]],B=[pp[b+3],pp[b+4],pp[b+5]],C=[pp[b+6],pp[b+7],pp[b+8]]
+              vol += (A[0]*(B[1]*C[2]-B[2]*C[1]) - A[1]*(B[0]*C[2]-B[2]*C[0]) + A[2]*(B[0]*C[1]-B[1]*C[0])) / 6
+              const ks=[vkey(b),vkey(b+3),vkey(b+6)]
+              for(let e=0;e<3;e++){
+                const a2=ks[e], c2=ks[(e+1)%3], rev=c2+'|'+a2
+                if(em.has(rev)) em.set(rev, em.get(rev)+1)
+                else em.set(a2+'|'+c2, (em.get(a2+'|'+c2)||0)+1000)
+              }
+            }
+            let open=0, bad=0
+            for(const vv of em.values()){ const f=Math.floor(vv/1000), r=vv%1000
+              if(f===1&&r===1) continue; else if(f+r===1) open++; else bad++ }
+            return { vol, open, bad }
+          }
+          let worstOpen = 0, worstBad = 0, minVol = Infinity, volKeep = true
+          for (const v2 of VL2) {
+            const sw = audit(sweepVault(S2, v2))
+            worstOpen = Math.max(worstOpen, sw.open); worstBad = Math.max(worstBad, sw.bad)
+            minVol = Math.min(minVol, sw.vol)
+            const cv = audit(collarGeo(S2, v2))   // ★v3 칼라 — 보·기둥 공통
+            worstOpen = Math.max(worstOpen, cv.open); worstBad = Math.max(worstBad, cv.bad); minVol = Math.min(minVol, cv.vol)
+          }
+          ok(worstOpen === 0 && worstBad === 0, `★감김 감사(CSG 입력): 7기 스윕+코브 전부 경계 0·불일치 0 (최악 ${worstOpen}/${worstBad})`)
+          ok(minVol > 0, `★감김 감사: 부호 있는 부피 전부 양수 (최소 ${minVol.toFixed(1)}) — 겉=바깥`)
+          //  최종 병합본 부피 보존 — CSG가 절단선 T-정점(위상 경계·기하 닫힘)은 내도 부피는 지켜야 한다
+          const volAll = audit(g).vol
+          const volParts = VL2.reduce((a2, v2) => a2 + audit(sweepVault(S2, v2)).vol + audit(collarGeo(S2, v2)).vol, 0)
+          ok(volAll > 0 && Math.abs(volAll - volParts) / volParts < 0.12,
+            `★최종본 부피 보존: ${volAll.toFixed(0)} ≈ 부품 합 ${volParts.toFixed(0)} (차 ${(Math.abs(volAll-volParts)/volParts*100).toFixed(1)}% < 12 — 창·감실 절제분)`)
+        }
+        ok(winOpen === VL.length, `★창 관통 실측 ${winOpen}/${VL.length} — 총안이 실제로 뚫려 있다(광선)`)
+        ok(nicheClosed === VL.length, `★감실 등벽 실측 ${nicheClosed}/${VL.length} — 파였으되 관통 아님(광선)`)
+      }
     }
 
     //  ⓒ 기둥 — 발이 실제로 판 위인가

@@ -13,7 +13,7 @@ import {
   ROOM_LAND_R, ROOM_WELL_RT, ROOM_CEIL_Y, ROOM_CYL_TOP,
   RAD_ANG0, RAD_R, RAD_PRX, RAD_PRY, RAD_PCY,
   RAD_T_HW, RAD_TOP, RAD_DOOR_H, RAD_DOOR_HW, RAD_ARC_IN,
-  RAD_JPHI, RAD_JX, RAD_FLOOR_Y, RAD_T_IN,
+  RAD_JPHI, RAD_JX, RAD_FLOOR_Y, RAD_T_IN, RAD_UNDER_LIP,
   RAD_DROP, RAD_ST_N, RAD_ST_T, RAD_ST_LAND, RAD_ST_W,
   RAD_SKIRT_MAX,
   ROOM_R, ROOM_FLOOR_Y, ROOM_HEIGHT,
@@ -270,6 +270,15 @@ function Tunnel({ ang }) {
   const n = [-Math.sin(ang), Math.cos(ang)]
   const sWall0 = S_WALL0                    // 원뿔벽(r≈16~17@문높이) 관통 시작 — 허브 문틀 몸통 안(HFR_BACK<15.5) 시작
   const s1 = RAD_R - RAD_PRX + 2.5          // 언더플로어(바닥판·스커트 하부·캡) 끝 — 깊은 관입(안 보임·밀폐 담당)
+  //  ★★★110(2026.08.04 현도 로컬 적발: "원판 밑에 붙은 찌꺼기") — **언더플로어의 안쪽 시작을 자른다.**
+  //   ⛔구판 전제가 틀렸다: 아래 바닥판 주석은 "방 안 부분은 방 원판 밑 = 안 보임"이라고 적혀 있었지만
+  //   **안 보이지 않는다.** 실측 — 디스크 밑면 100.970 vs 바닥판 밑면 100.680 → **0.290 아래로 노출**.
+  //   스커트는 더 심하다(밑끝 = 돔 표면 ≈99.1~100.1 → 최대 **2.1** 노출). 오큘러스(r17.45) 안쪽에는
+  //   받아 줄 돔이 아예 없어서 스커트가 허공에 매달린다. 방에서 올려다보면 4방×3조각이 원판에 붙어 보인다.
+  //   ★정본 = **언더플로어는 디스크 바깥(r ≥ ROOM_LAND_R)에서만 존재한다.** 디스크(r6~18)가 그 구간의
+  //   걷는 면을 이미 전담하므로 잘라도 밟을 것이 사라지지 않는다(윗면 단차 101.32→101.28 = 0.04).
+  const sUnder = Math.max(RAD_T_IN, ROOM_LAND_R + RAD_UNDER_LIP)   // 바닥판 안쪽 시작
+  const sSkirt = Math.max(sWall0, ROOM_LAND_R + RAD_UNDER_LIP)     // 스커트 안쪽 시작
   const sTube = RAD_R - TUBE_END            // ★바닥 위 벽·지붕 끝 스테이션 ≈47.0 — 문틀 안
   const wallGeo = useMemo(() => quadGeo((q) => {
     for (const sgn of [1, -1]) {
@@ -282,11 +291,11 @@ function Tunnel({ ang }) {
         const [bx, bz] = X(sWall0 + (sTube - sWall0) * ((i + 1) / seg))
         q(ax, Y_FTOP, az, bx, Y_FTOP, bz, bx, RAD_TOP, bz, ax, RAD_TOP, az)
       }
-      // 바닥 밑 스커트(돔 표면→49.28): sWall0→s1 깊은 관입
-      const segB = Math.max(3, Math.ceil((s1 - sWall0) / 4))
+      // 바닥 밑 스커트(돔 표면→49.28): sSkirt→s1 깊은 관입 (★110: 시작을 디스크 밖으로 물림)
+      const segB = Math.max(3, Math.ceil((s1 - sSkirt) / 4))
       for (let i = 0; i < segB; i++) {
-        const [ax, az] = X(sWall0 + (s1 - sWall0) * (i / segB))
-        const [bx, bz] = X(sWall0 + (s1 - sWall0) * ((i + 1) / segB))
+        const [ax, az] = X(sSkirt + (s1 - sSkirt) * (i / segB))
+        const [bx, bz] = X(sSkirt + (s1 - sSkirt) * ((i + 1) / segB))
         q(ax, clipY(ax, az), az, bx, clipY(bx, bz), bz, bx, Y_FTOP, bz, ax, Y_FTOP, az)
       }
     }
@@ -296,14 +305,15 @@ function Tunnel({ ang }) {
     const cbx = s1 * d[0] - RAD_T_HW * n[0], cbz = s1 * d[1] - RAD_T_HW * n[1]
     q(cax, clipY(cax, caz), caz, cbx, clipY(cbx, cbz), cbz, cbx, yCap, cbz, cax, yCap, caz)
   }), [ang])
-  const midF = (RAD_T_IN + s1) / 2, lenF = s1 - RAD_T_IN
+  const midF = (sUnder + s1) / 2, lenF = s1 - sUnder     // ★110: 바닥판도 디스크 밖에서 시작
   const midC = (sWall0 + sTube) / 2, lenC = sTube - sWall0   // 천장판도 문틀 안 종료
   return (
     <group>
       <mesh geometry={wallGeo}>
         <meshStandardMaterial color={MAT_WALL} roughness={0.9} side={THREE.DoubleSide} />
       </mesh>
-      {/* 바닥판(디스크 r6~18 밑을 지나 꽃잎까지 — 디스크가 위를 덮음, 0.02 립. 방 안 부분은 방 원판 밑 = 안 보임) */}
+      {/* 바닥판 — ★110: **디스크 바깥(r ≥ ROOM_LAND_R + 립)에서 시작**한다. 구판은 r12부터라 디스크 밑면보다
+          0.29 아래로 삐져나와 방에서 '원판에 붙은 찌꺼기'로 보였다(현도 2026.08.04 적발·실측 확인). */}
       <mesh position={[midF * d[0], RAD_FLOOR_Y, midF * d[1]]} rotation-y={-ang} userData={{ walkable: true }}>
         <boxGeometry args={[lenF, COR_THICK, RAD_T_HW * 2]} />
         <meshStandardMaterial color={MAT_FLOOR} roughness={0.9} side={THREE.DoubleSide} />

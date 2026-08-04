@@ -271,6 +271,30 @@ console.log('── 17. 착지 디스크 슬랩(2026.07.11) ──')
   ok('디스크 윗면이 터널판(49.28) 위 립', top > RAD_FLOOR_Y + COR_THICK / 2 + 0.01, `${r2(top)} > 49.28`)
   const domeAtRim = ROOM_FLOOR_Y + ROOM_HEIGHT * Math.sqrt(1 - (ROOM_LAND_R / RR) ** 2)
   ok('디스크 밑면 > 오큘러스 림 돔 표면', bot > domeAtRim + 0.3, `${r2(bot)} > ${r2(domeAtRim)}`)
+
+  //  ★★★110 — ⛔현도 로컬 적발(2026.08.04): "원판 밑에 붙은 찌꺼기".
+  //   구판은 터널 언더플로어를 r12부터 깔았고 주석이 "방 원판 밑 = 안 보임"이라 **단정**했다. 틀렸다:
+  //   바닥판 밑면 100.680 < 디스크 밑면 100.970 → **0.290 노출**. 스커트는 밑끝이 돔 표면이라 더 심했고,
+  //   오큘러스 안쪽(r<17.45)에는 받아 줄 돔이 없어 허공에 매달렸다.
+  //   ★검사가 재는 것 = **디스크 밑면보다 아래로 내려오는 것이 디스크 반경 안에 있는가.**
+  //   ⚠구판 검사는 '디스크 윗면이 터널판 위'만 봤다 — **윗면만 보면 밑면 노출이 안 잡힌다.**
+  const { RAD_UNDER_LIP } = await import('./constants.js')
+  const S_WALL0_ = 15.5
+  const sUnder = Math.max(RAD_T_IN, ROOM_LAND_R + RAD_UNDER_LIP)
+  const sSkirt = Math.max(S_WALL0_, ROOM_LAND_R + RAD_UNDER_LIP)
+  const underBot = RAD_FLOOR_Y - COR_THICK / 2
+  ok('★언더플로어 밑면이 디스크 밑면보다 아래인 것은 사실이다(전제 확인)', underBot < bot,
+    `터널판 밑면 ${r2(underBot)} < 디스크 밑면 ${r2(bot)} — 차 ${r2(bot - underBot)}`)
+  ok('★110 바닥판 안쪽 시작 ≥ 디스크 반경 — 방에서 원판 밑에 안 보인다', sUnder >= ROOM_LAND_R,
+    `시작 r ${r2(sUnder)} ≥ ${ROOM_LAND_R} (구판 ${RAD_T_IN} — 디스크 한복판이었다)`)
+  ok('★110 스커트 안쪽 시작 ≥ 디스크 반경', sSkirt >= ROOM_LAND_R,
+    `시작 r ${r2(sSkirt)} ≥ ${ROOM_LAND_R} (구판 ${S_WALL0_})`)
+  ok('★110 립이 0 초과 — 디스크 모서리와 딱 붙어 z파이팅 나지 않게', RAD_UNDER_LIP > 0,
+    `RAD_UNDER_LIP ${RAD_UNDER_LIP}`)
+  //  잘라도 걷는 면이 안 끊긴다 — 디스크(r6~18)가 그 구간을 전담하고, 이음 단차는 립 두 개분뿐이다.
+  ok('★110 잘린 구간의 보행 연속: 디스크 윗면 ↔ 터널판 윗면 단차 ≤ STEP_UP',
+    Math.abs(top - (RAD_FLOOR_Y + COR_THICK / 2)) <= 0.8,
+    `단차 ${r2(Math.abs(top - (RAD_FLOOR_Y + COR_THICK / 2)))} (디스크가 r6~18을 전담)`)
 }
 
 console.log('── 18. 원기둥 받침(★2026.07.30 현도 "공중에 뜬 성") ──')
