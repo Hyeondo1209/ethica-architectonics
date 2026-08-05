@@ -664,13 +664,13 @@ export function eaveSpec() {
   const up      = EAVE_LEN * Math.sin(th)          // 위로
   const apoTip  = P.apoTop - inHoriz
   const rTip    = apoTip / Math.cos(Math.PI / P.N) // 끝 팔각 외접
-  //  슬롯이 잡아먹는 접선폭 → 그 모서리 양옆에서 물러나는 비율(뿌리 변 길이 기준)
-  const pull    = (S.HW + EAVE_SLOT_CLR) / P.sideTop
+  //  ★슬롯 옆벽 평면(u = ±HW)에서 헤어라인만 물러난 **클립 평면**. t비율이 아니라 평면이다.
+  const uClip   = S.HW + EAVE_SLOT_CLR
   return {
     N: P.N, yRoot: P.yTop, yTip: P.yTop + up,
     rRoot: P.rTop, rTip, apoRoot: P.apoTop, apoTip,
     inHoriz, up, t0: EAVE_T0, t1: EAVE_T1, tiltDeg: EAVE_TILT,
-    slotAz: S.az, slotHW: S.HW, pull,
+    slotAz: S.az, slotHW: S.HW, uClip,
     //  슬롯 모서리의 꼭짓점 번호(위상 0 = 꼭짓점이 0°이므로 0번)
     slotVertex: Math.round(((S.az - PIT_PHASE) / (2 * Math.PI / P.N))) % P.N,
   }
@@ -705,13 +705,26 @@ export function buildPitEaves() {
   const quad = (A, B, C, D, ref) => { tri(A, B, C, ref); tri(A, C, D, ref) }
 
   for (let f = 0; f < s.N; f++) {
-    //  이 면의 t 범위 — 슬롯 꼭짓점에 닿는 두 면만 물러난다(고리를 끊는다)
-    let t0 = 0, t1 = 1
-    if (f === s.slotVertex) t0 = s.pull                    // 면 f는 꼭짓점 f에서 시작
-    if ((f + 1) % s.N === s.slotVertex) t1 = 1 - s.pull    // 면 f는 꼭짓점 f+1에서 끝
     const A0 = vert(s.rRoot, f), A1 = vert(s.rRoot, (f + 1) % s.N)
     const B0 = vert(s.rTip,  f), B1 = vert(s.rTip,  (f + 1) % s.N)
     const lerp = (P, Q, t) => [P[0] + (Q[0] - P[0]) * t, P[1] + (Q[1] - P[1]) * t]
+    //  ★★슬롯 끊김 = **슬롯 옆벽과 같은 평면으로 클립**(현도 2026.08.05 지시).
+    //   슬롯 옆벽은 `buildPitSlot`이 `u = ±HW` 수직 평면으로 세운다 — 같은 u를 쓴다.
+    //   ⚠뿌리 현과 끝 현은 서로 다른 팔각이라 **t가 다르다.** 같은 t로 자르면 평면이 안 된다.
+    const uOf2 = (q) => -Math.sin(s.slotAz) * q[0] + Math.cos(s.slotAz) * q[1]   // [x,z] 평면좌표
+    const solveT = (Q0, Q1, target) => {
+      const u0 = uOf2(Q0), u1 = uOf2(Q1)
+      return Math.abs(u1 - u0) < 1e-9 ? 0 : Math.max(0, Math.min(1, (target - u0) / (u1 - u0)))
+    }
+    let t0 = 0, t1 = 1, t0Tip = 0, t1Tip = 1, uT0 = null, uT1 = null
+    if (f === s.slotVertex) {                       // 꼭짓점 f에서 시작하는 면
+      uT0 = Math.sign(uOf2(A1)) * s.uClip
+      t0 = solveT(A0, A1, uT0); t0Tip = solveT(B0, B1, uT0)
+    }
+    if ((f + 1) % s.N === s.slotVertex) {           // 꼭짓점 f+1에서 끝나는 면
+      uT1 = Math.sign(uOf2(A0)) * s.uClip
+      t1 = solveT(A0, A1, uT1); t1Tip = solveT(B0, B1, uT1)
+    }
     //  면 안쪽 법선(수평) — 두께를 이 방향과 아래로 섞어 잰다
     const faceAz = PIT_PHASE + (f + 0.5) * (2 * Math.PI / s.N)
     const inw = [-Math.cos(faceAz), -Math.sin(faceAz)]
@@ -720,9 +733,17 @@ export function buildPitEaves() {
     const pRootTop = (t) => { const q = lerp(A0, A1, t); return [q[0], s.yRoot, q[1]] }
     const pTipTop  = (t) => { const q = lerp(B0, B1, t); return [q[0], s.yTip,  q[1]] }
     const add = (p, d) => [p[0] + d[0], p[1] + d[1], p[2] + d[2]]
-    const RT0 = pRootTop(t0), RT1 = pRootTop(t1), TT0 = pTipTop(t0), TT1 = pTipTop(t1)
-    const RB0 = add(RT0, dn(s.t0)), RB1 = add(RT1, dn(s.t0))
-    const TB0 = add(TT0, dn(s.t1)), TB1 = add(TT1, dn(s.t1))
+    //  ★자름면을 **정확히 평면 위에** 놓는다 — 밑면 오프셋(dn)이 접선 성분을 가져서
+    //   t만 풀어서는 네 점이 한 평면에 안 온다. 마지막에 t̂ 방향으로 스냅한다.
+    const tHat = [-Math.sin(s.slotAz), 0, Math.cos(s.slotAz)]
+    const uOf3 = (q) => tHat[0] * q[0] + tHat[2] * q[2]
+    const snapU = (q, target) => (target === null ? q
+      : [q[0] + tHat[0] * (target - uOf3(q)), q[1], q[2] + tHat[2] * (target - uOf3(q))])
+    let RT0 = pRootTop(t0), RT1 = pRootTop(t1), TT0 = pTipTop(t0Tip), TT1 = pTipTop(t1Tip)
+    let RB0 = add(RT0, dn(s.t0)), RB1 = add(RT1, dn(s.t0))
+    let TB0 = add(TT0, dn(s.t1)), TB1 = add(TT1, dn(s.t1))
+    RT0 = snapU(RT0, uT0); TT0 = snapU(TT0, uT0); RB0 = snapU(RB0, uT0); TB0 = snapU(TB0, uT0)
+    RT1 = snapU(RT1, uT1); TT1 = snapU(TT1, uT1); RB1 = snapU(RB1, uT1); TB1 = snapU(TB1, uT1)
     const ref = [(RT0[0] + RT1[0] + TT0[0] + TT1[0] + RB0[0] + RB1[0] + TB0[0] + TB1[0]) / 8,
                  (RT0[1] + RT1[1] + TT0[1] + TT1[1] + RB0[1] + RB1[1] + TB0[1] + TB1[1]) / 8,
                  (RT0[2] + RT1[2] + TT0[2] + TT1[2] + RB0[2] + RB1[2] + TB0[2] + TB1[2]) / 8]
@@ -732,8 +753,8 @@ export function buildPitEaves() {
     quad(RB0, RB1, RT1, RT0, ref)      // 뿌리 마구리(입술에 묻힌다)
     //  ⚠옆 마구리는 **끊긴 자리에만** 낸다 — 이어지는 모서리는 이웃 패널이 정확히 만나므로
     //   면을 내면 동일 평면 두 장이 겹쳐 z-파이팅이 난다.
-    if (t0 > 0) quad(RT0, TT0, TB0, RB0, ref)
-    if (t1 < 1) quad(RT1, RB1, TB1, TT1, ref)
+    if (uT0 !== null) quad(RT0, TT0, TB0, RB0, ref)
+    if (uT1 !== null) quad(RT1, RB1, TB1, TT1, ref)
   }
   g.setAttribute('position', new THREE.Float32BufferAttribute(P3, 3))
   g.setAttribute('normal',   new THREE.Float32BufferAttribute(N3, 3))

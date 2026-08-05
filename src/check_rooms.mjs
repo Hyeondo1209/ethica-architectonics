@@ -1831,14 +1831,24 @@ if (PIT_ON && EAVE_ON) {
 
   //  [3] ⛔**슬롯 통로가 열려 있어야 한다** — 0° 모서리에서 고리를 끊었다(현도 ⓐ).
   //   ★103 슬롯은 각뿔대의 **유일한 접근로**다(★105가 뚫었다). 막으면 여정이 끊긴다.
-  let block = 0
+  //  ★★자름면이 **슬롯 옆벽과 같은 평면**에 있어야 한다(현도 2026.08.05: "하나의 평평한 면").
+  //   ⛔구판은 팔각 변을 t비율로 잘라 자름면 **방향**이 슬롯 벽과 달랐다 — 두 덩어리로 보였다.
+  //   ⚠검산은 **코너 좌표계의 u**로 한다(방위각으로 재면 반경마다 값이 달라져 못 잡는다).
+  const eT = [-Math.sin(Sl.az), Math.cos(Sl.az)]
+  const eR = [Math.cos(Sl.az), Math.sin(Sl.az)]
+  let onPlane = 0, inside = 0, worst = 0
   for (let i = 0; i < pe.count; i++) {
-    const x = pe.getX(i), z = pe.getZ(i), r = Math.hypot(x, z)
-    let az = ((Math.atan2(z, x) - Sl.az) * 180 / Math.PI % 360 + 360) % 360
-    az = Math.min(az, 360 - az)
-    if (az < Math.atan(Sl.HW / Math.max(1e-6, r)) * 180 / Math.PI) block++
+    const x = pe.getX(i), z = pe.getZ(i)
+    if (eR[0] * x + eR[1] * z < 10) continue          // 슬롯 권역(코너 방향)만
+    const u = Math.abs(eT[0] * x + eT[1] * z)
+    if (Math.abs(u - E.uClip) < 1e-5) onPlane++
+    else if (u < E.uClip - 1e-5) { inside++; worst = Math.max(worst, E.uClip - u) }
   }
-  ok(block === 0, `슬롯 통로 침범 정점 ${block} = 0 — ★103 접근로가 열려 있다(물러남 ${(E.pull * 100).toFixed(1)}%)`)
+  ok(inside === 0, `슬롯 통로 침범 정점 ${inside} = 0 (최대 ${worst.toFixed(4)}) — ★103 접근로가 열려 있다`)
+  ok(onPlane >= 8,
+    `자름면 위 정점 ${onPlane} — 슬롯 옆벽 |u|=${Sl.HW}와 같은 평면(|u|=${E.uClip}, 헤어라인 ${(E.uClip - Sl.HW).toFixed(3)})`)
+  ok(E.uClip - Sl.HW > 0 && E.uClip - Sl.HW < 0.1,
+    `헤어라인 ${(E.uClip - Sl.HW).toFixed(3)} ∈ (0, 0.1) — 0이면 동일평면 z-파이팅, 크면 어긋난 두 덩어리(★64 교훈)`)
 
   //  [4] 건전성 + 감김(★116에서 드러난 계열의 가드)
   let V = 0, mism = 0, nan = 0, deg = 0
