@@ -25,7 +25,7 @@
 // ════════════════════════════════════════════════════════════════════
 import * as THREE from 'three'
 import {
-  ROOM_FLOOR_Y, ROOM_FLOOR_LIFT, wallR,
+  ROOM_FLOOR_Y, ROOM_FLOOR_LIFT, ROOM_HEIGHT, wallR,
   ROOM_STAIR_SIDES, ROOM_STAIR_TURNS, ROOM_STAIR_WIDTH, ROOM_STAIR_BIAS,
   ROOM_STAIR_ROUT, ROOM_STAIR_RIN, ROOM_STAIR_PHASE,
   COR_Y0, COR_THICK,
@@ -38,6 +38,8 @@ import {
   SUP_BEAM_NOSE_LIP, SUP_BEAM_NOSE_RUN, SUP_BEAM_W_NOSE,
   SUP_BEAM_ROOT_SPLAY, SUP_BEAM_ROOT_GROW, SUP_BEAM_FILLET, SUP_ROOT_HUG,
   SUP_HEAD_MIN, CL_STEP_GO,
+  ROOT_CROSS_ON, ROOT_CROSS_SIDE, ROOT_CROSS_BAR, ROOT_CROSS_RUN, ROOT_CROSS_INSET,
+  ROOT_CROSS_BACK, ROOT_CROSS_TIP, ROOT_CROSS_SEGS, ROOT_CROSS_VSEGS,
 } from './constants.js'
 
 // ── 좌표 규약: 방위 az에서 반경 r · 접선 오프셋 u · 높이 y ──
@@ -631,4 +633,119 @@ export function treadProbe(N = 4000) {
     treadMin: s.treadMin, treadMax: s.treadMax,
     blondel: [2 * s.rise + s.treadMin, 2 * s.rise + s.treadMax],
   }
+}
+
+
+// ══════════════════════════════════════════════════════════════
+//  ★115 뿌리 관통 장부 = 사다리꼴 뿔대 (2026.08.05 현도 스케치)
+//   "목공예 짜맞춤처럼" — 하나의 부재가 보를 가로질러 관통하고 양쪽으로 나온다.
+//   ⚠아래 마구리(헌치·코브)는 **건드리지 않는다**. 교체 대상은 좌우뿐(현도 정정).
+//   ★★벽과 **틈 0** — 바깥면을 평면(현)으로 두면 √(r²+u²) 때문에 렌즈 틈이 생긴다.
+//    셸 곡면을 그대로 떠서 붙인다(★108-2 '난도질 자국'과 같은 병의 예방).
+// ══════════════════════════════════════════════════════════════
+//  그 높이·그 접선오프셋에서 셸이 허용하는 최대 반경 = 틈 0의 수학적 형태
+const crossRLim = (y, u) => {
+  const R = wallR(y) - SUP_WALL_CLR
+  return Math.sqrt(Math.max(0, R * R - u * u))
+}
+
+export function rootCrossSpec() {
+  const wRoot = (SUP_BEAM_W / 2) * SUP_BEAM_ROOT_GROW
+  const U = wRoot + ROOT_CROSS_SIDE
+  //  접선 t에서의 축소율 — 보 안(|u| ≤ wRoot)은 온전, 밖으로 나오면서 선형으로 줄어든다(곡선 없음)
+  const scaleAtU = (u) => {
+    const a = Math.abs(u)
+    if (a <= wRoot) return 1
+    return 1 - (1 - ROOT_CROSS_TIP) * ((a - wRoot) / ROOT_CROSS_SIDE)
+  }
+  return beamSpec().map((b) => ({
+    az: b.az, yT: b.yT, rOut: b.rOutT,
+    wRoot, U, scaleAtU,
+    yKeyTop: b.yT - ROOT_CROSS_INSET,           // 장부 윗면(수평) — 보 춤 안에 가운데로 낀다
+    hOut: ROOT_CROSS_BAR,                        // 벽 쪽 높이(사다리꼴 앞변)
+    hIn:  ROOT_CROSS_BAR * ROOT_CROSS_BACK,      // 안쪽 높이(뒷변)
+    run:  ROOT_CROSS_RUN,
+    inset: ROOT_CROSS_INSET,
+    depth: b.depth,
+  }))
+}
+
+export function buildRootCrosses() {
+  const g = new THREE.BufferGeometry()
+  const P = [], Nn = []
+  if (!ROOT_CROSS_ON) {
+    g.setAttribute('position', new THREE.Float32BufferAttribute([], 3))
+    g.setAttribute('normal',   new THREE.Float32BufferAttribute([], 3))
+    return g
+  }
+  const NU = Math.max(4, ROOT_CROSS_SEGS) * 2, NV = Math.max(2, ROOT_CROSS_VSEGS)
+
+  for (const c of rootCrossSpec()) {
+    const p = (r, u, y) => fp(c.az, r, u, y)
+    const rvec = [Math.cos(c.az), 0, Math.sin(c.az)]
+    const tvec = [-Math.sin(c.az), 0, Math.cos(c.az)]
+
+    //  접선 표본마다 단면(사다리꼴)을 세운다. 표본은 보 옆면(±wRoot)을 정확히 밟는다.
+    const cols = []
+    for (let i = 0; i <= NU; i++) {
+      const u = -c.U + (2 * c.U) * (i / NU)
+      const s = c.scaleAtU(u)
+      const yTop = c.yKeyTop
+      const yBotOut = yTop - c.hOut * s          // 바깥(벽) 쪽 밑변 — 깊다
+      const yBotIn  = yTop - c.hIn  * s          // 안쪽 밑변 — 얕다 = 사다리꼴
+      const d = c.run * s
+      //  바깥면은 **셸 곡면**을 그대로 뜬다(틈 0). 안쪽면은 거기서 d만큼 들어온 곡면.
+      const rO = (y) => crossRLim(y, u)
+      cols.push({ u, s, yTop, yBotOut, yBotIn, d, rO })
+    }
+
+    for (let i = 0; i + 1 < cols.length; i++) {
+      const A = cols[i], B = cols[i + 1]
+      //  ⓐ 바깥면 — 셸을 따라 수직 분할(여기가 '틈 0'을 만드는 면)
+      for (let v = 0; v < NV; v++) {
+        const fa0 = v / NV, fa1 = (v + 1) / NV
+        const ya0 = A.yTop + (A.yBotOut - A.yTop) * fa0, ya1 = A.yTop + (A.yBotOut - A.yTop) * fa1
+        const yb0 = B.yTop + (B.yBotOut - B.yTop) * fa0, yb1 = B.yTop + (B.yBotOut - B.yTop) * fa1
+        quadTo(P, Nn, p(A.rO(ya0), A.u, ya0), p(B.rO(yb0), B.u, yb0),
+                      p(B.rO(yb1), B.u, yb1), p(A.rO(ya1), A.u, ya1), rvec)
+      }
+      //  ⓑ 안쪽면 — 바깥면에서 d만큼 들어온 곡면
+      for (let v = 0; v < NV; v++) {
+        const fa0 = v / NV, fa1 = (v + 1) / NV
+        const ya0 = A.yTop + (A.yBotIn - A.yTop) * fa0, ya1 = A.yTop + (A.yBotIn - A.yTop) * fa1
+        const yb0 = B.yTop + (B.yBotIn - B.yTop) * fa0, yb1 = B.yTop + (B.yBotIn - B.yTop) * fa1
+        quadTo(P, Nn, p(A.rO(ya1) - A.d, A.u, ya1), p(B.rO(yb1) - B.d, B.u, yb1),
+                      p(B.rO(yb0) - B.d, B.u, yb0), p(A.rO(ya0) - A.d, A.u, ya0),
+                      [-rvec[0], 0, -rvec[2]])
+      }
+      //  ⓒ 윗면(수평 — 위를 향해 밝게 뜬다)
+      quadTo(P, Nn, p(A.rO(A.yTop) - A.d, A.u, A.yTop), p(B.rO(B.yTop) - B.d, B.u, B.yTop),
+                    p(B.rO(B.yTop), B.u, B.yTop), p(A.rO(A.yTop), A.u, A.yTop), [0, 1, 0])
+      //  ⓓ 밑면(바깥이 깊고 안쪽이 얕은 빗면 = 사다리꼴의 빗변)
+      quadTo(P, Nn, p(A.rO(A.yBotOut), A.u, A.yBotOut), p(B.rO(B.yBotOut), B.u, B.yBotOut),
+                    p(B.rO(B.yBotIn) - B.d, B.u, B.yBotIn), p(A.rO(A.yBotIn) - A.d, A.u, A.yBotIn),
+                    [0, -1, 0])
+    }
+    //  ⓔ 양 끝 마구리 — 뿔대라 폭이 남는다(칼끝 아님, §2-D 3)
+    for (const idx of [0, cols.length - 1]) {
+      const A = cols[idx], sgn = idx === 0 ? -1 : 1
+      const nn = [sgn * tvec[0], 0, sgn * tvec[2]]
+      const q = [p(A.rO(A.yTop), A.u, A.yTop), p(A.rO(A.yBotOut), A.u, A.yBotOut),
+                 p(A.rO(A.yBotIn) - A.d, A.u, A.yBotIn), p(A.rO(A.yTop) - A.d, A.u, A.yTop)]
+      if (sgn > 0) quadTo(P, Nn, q[0], q[1], q[2], q[3], nn)
+      else         quadTo(P, Nn, q[3], q[2], q[1], q[0], nn)
+    }
+  }
+  //  퇴화 삼각 제거(보 매스와 같은 규약)
+  const Pk = [], Nk = []
+  for (let i = 0; i < P.length / 9; i++) {
+    const b = i * 9
+    const e1 = [P[b + 3] - P[b], P[b + 4] - P[b + 1], P[b + 5] - P[b + 2]]
+    const e2 = [P[b + 6] - P[b], P[b + 7] - P[b + 1], P[b + 8] - P[b + 2]]
+    const cr = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
+    if (Math.hypot(...cr) / 2 > 1e-9) for (let k = 0; k < 9; k++) { Pk.push(P[b + k]); Nk.push(Nn[b + k]) }
+  }
+  g.setAttribute('position', new THREE.Float32BufferAttribute(Pk, 3))
+  g.setAttribute('normal',   new THREE.Float32BufferAttribute(Nk, 3))
+  return g
 }

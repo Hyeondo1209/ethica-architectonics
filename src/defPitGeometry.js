@@ -27,6 +27,7 @@ import {
   SLOT_ON, SLOT_EDGE, SLOT_W, SLOT_BACK_R,
   SLOT_STAIR, SLOT_LANDING, SLOT_LANE_GAP, SLOT_SLAB_T, SLOT_STEP_R, SLOT_STAIR_INSET, SLOT_SPIRAL_PAD,
   ROOM_STAIR_ROUT as _RSR, ROOM_STAIR_WIDTH as _RSW,
+  EAVE_ON, EAVE_LEN, EAVE_TILT, EAVE_T0, EAVE_T1, EAVE_SLOT_CLR,
 } from './constants.js'
 
 // ── 스펙(단일 유도점) — 검사·웨이포인트·Room.jsx가 전부 여기서 읽는다(사본 금지) ──
@@ -646,4 +647,95 @@ export function buildHoledSlab(rOut, outSegs, rHole, holeSides, holePhase, thick
     }
   }
   return finish(P, Nn)
+}
+
+
+// ══════════════════════════════════════════════════════════════
+//  ★117 감실 처마 여덟 (2026.08.05 현도 지시)
+//   입술에 앉아 아가리 위로 내밀며 **위로 솟는** 평면 패널 여덟. 뿌리 두껍고 끝 얇다.
+//   ★뿌리 팔각과 끝 팔각이 **닮음**이라 이웃 패널이 공유 모서리에서 정확히 만난다
+//    → 마이터가 저절로 되고 틈이 없다. 부드럽게가 아니라 각지게(현도).
+//   ⚠0° 모서리 = ★103 슬롯 → 고리를 끊는다(현도 ⓐ). 그 두 끝에만 마구리가 생긴다.
+// ══════════════════════════════════════════════════════════════
+export function eaveSpec() {
+  const P = pitSpec(), S = slotSpec()
+  const th = EAVE_TILT * Math.PI / 180
+  const inHoriz = EAVE_LEN * Math.cos(th)          // 안으로
+  const up      = EAVE_LEN * Math.sin(th)          // 위로
+  const apoTip  = P.apoTop - inHoriz
+  const rTip    = apoTip / Math.cos(Math.PI / P.N) // 끝 팔각 외접
+  //  슬롯이 잡아먹는 접선폭 → 그 모서리 양옆에서 물러나는 비율(뿌리 변 길이 기준)
+  const pull    = (S.HW + EAVE_SLOT_CLR) / P.sideTop
+  return {
+    N: P.N, yRoot: P.yTop, yTip: P.yTop + up,
+    rRoot: P.rTop, rTip, apoRoot: P.apoTop, apoTip,
+    inHoriz, up, t0: EAVE_T0, t1: EAVE_T1, tiltDeg: EAVE_TILT,
+    slotAz: S.az, slotHW: S.HW, pull,
+    //  슬롯 모서리의 꼭짓점 번호(위상 0 = 꼭짓점이 0°이므로 0번)
+    slotVertex: Math.round(((S.az - PIT_PHASE) / (2 * Math.PI / P.N))) % P.N,
+  }
+}
+
+export function buildPitEaves() {
+  const g = new THREE.BufferGeometry()
+  const P3 = [], N3 = []
+  if (!EAVE_ON) {
+    g.setAttribute('position', new THREE.Float32BufferAttribute([], 3))
+    g.setAttribute('normal',   new THREE.Float32BufferAttribute([], 3))
+    return g
+  }
+  const s = eaveSpec(), P = pitSpec()
+  const th = s.tiltDeg * Math.PI / 180
+  const vert = (r, i) => {                          // 팔각 꼭짓점 i (반경 r)
+    const a = PIT_PHASE + i * (2 * Math.PI / s.N)
+    return [r * Math.cos(a), r * Math.sin(a)]
+  }
+  const tri = (A, B, C, ref) => {
+    const ux = B[0] - A[0], uy = B[1] - A[1], uz = B[2] - A[2]
+    const vx = C[0] - A[0], vy = C[1] - A[1], vz = C[2] - A[2]
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
+    const L = Math.hypot(nx, ny, nz)
+    if (!(L > 1e-12)) return
+    nx /= L; ny /= L; nz /= L
+    const cx = (A[0] + B[0] + C[0]) / 3, cy = (A[1] + B[1] + C[1]) / 3, cz = (A[2] + B[2] + C[2]) / 3
+    let a = A, b = B, c = C
+    if (nx * (cx - ref[0]) + ny * (cy - ref[1]) + nz * (cz - ref[2]) < 0) { nx = -nx; ny = -ny; nz = -nz; b = C; c = B }
+    for (const p of [a, b, c]) { P3.push(p[0], p[1], p[2]); N3.push(nx, ny, nz) }
+  }
+  const quad = (A, B, C, D, ref) => { tri(A, B, C, ref); tri(A, C, D, ref) }
+
+  for (let f = 0; f < s.N; f++) {
+    //  이 면의 t 범위 — 슬롯 꼭짓점에 닿는 두 면만 물러난다(고리를 끊는다)
+    let t0 = 0, t1 = 1
+    if (f === s.slotVertex) t0 = s.pull                    // 면 f는 꼭짓점 f에서 시작
+    if ((f + 1) % s.N === s.slotVertex) t1 = 1 - s.pull    // 면 f는 꼭짓점 f+1에서 끝
+    const A0 = vert(s.rRoot, f), A1 = vert(s.rRoot, (f + 1) % s.N)
+    const B0 = vert(s.rTip,  f), B1 = vert(s.rTip,  (f + 1) % s.N)
+    const lerp = (P, Q, t) => [P[0] + (Q[0] - P[0]) * t, P[1] + (Q[1] - P[1]) * t]
+    //  면 안쪽 법선(수평) — 두께를 이 방향과 아래로 섞어 잰다
+    const faceAz = PIT_PHASE + (f + 0.5) * (2 * Math.PI / s.N)
+    const inw = [-Math.cos(faceAz), -Math.sin(faceAz)]
+    //  경사면에 수직인 '아래' 방향 = (안쪽 sinθ, 위 −cosθ)
+    const dn = (t) => [inw[0] * Math.sin(th) * t, -Math.cos(th) * t, inw[1] * Math.sin(th) * t]
+    const pRootTop = (t) => { const q = lerp(A0, A1, t); return [q[0], s.yRoot, q[1]] }
+    const pTipTop  = (t) => { const q = lerp(B0, B1, t); return [q[0], s.yTip,  q[1]] }
+    const add = (p, d) => [p[0] + d[0], p[1] + d[1], p[2] + d[2]]
+    const RT0 = pRootTop(t0), RT1 = pRootTop(t1), TT0 = pTipTop(t0), TT1 = pTipTop(t1)
+    const RB0 = add(RT0, dn(s.t0)), RB1 = add(RT1, dn(s.t0))
+    const TB0 = add(TT0, dn(s.t1)), TB1 = add(TT1, dn(s.t1))
+    const ref = [(RT0[0] + RT1[0] + TT0[0] + TT1[0] + RB0[0] + RB1[0] + TB0[0] + TB1[0]) / 8,
+                 (RT0[1] + RT1[1] + TT0[1] + TT1[1] + RB0[1] + RB1[1] + TB0[1] + TB1[1]) / 8,
+                 (RT0[2] + RT1[2] + TT0[2] + TT1[2] + RB0[2] + RB1[2] + TB0[2] + TB1[2]) / 8]
+    quad(RT0, RT1, TT1, TT0, ref)      // ★윗면(위를 향한다 — 밝게 뜬다)
+    quad(TB0, TB1, RB1, RB0, ref)      // 밑면
+    quad(TT0, TT1, TB1, TB0, ref)      // 끝 마구리(얇은 쪽 — 립 t1 유지)
+    quad(RB0, RB1, RT1, RT0, ref)      // 뿌리 마구리(입술에 묻힌다)
+    //  ⚠옆 마구리는 **끊긴 자리에만** 낸다 — 이어지는 모서리는 이웃 패널이 정확히 만나므로
+    //   면을 내면 동일 평면 두 장이 겹쳐 z-파이팅이 난다.
+    if (t0 > 0) quad(RT0, TT0, TB0, RB0, ref)
+    if (t1 < 1) quad(RT1, RB1, TB1, TT1, ref)
+  }
+  g.setAttribute('position', new THREE.Float32BufferAttribute(P3, 3))
+  g.setAttribute('normal',   new THREE.Float32BufferAttribute(N3, 3))
+  return g
 }

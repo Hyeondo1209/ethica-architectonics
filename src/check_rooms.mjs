@@ -49,8 +49,14 @@ import { spiralSpec, buildSpiralMass, buildSpiralColumns, buildSpiralBeams,
   stationList, easeFor, frameAt } from './axiomSpiralGeometry.js'   // ★107 · ★109 · frameAt=★111
 import { vaultSpec, buildAxiomVaults } from './axiomVaultGeometry.js'   // ★111 공리 볼트
 import { wallBaseSpec, buildWallBase, beamBurial } from './wallBaseGeometry.js'   // ★114 벽 밑동
+import { roomRibSpec, buildRoomRibs } from './roomRibGeometry.js'   // ★116 방 돔 살
+import { eaveSpec, buildPitEaves } from './defPitGeometry.js'   // ★117 감실 처마
+import { EAVE_ON, EAVE_LEN, EAVE_TILT, EAVE_T0, EAVE_T1 } from './constants.js'
+import { RRIB_ON, RRIB_W, RRIB_T, RRIB_CLR, RRIB_HEAD, RRIB_HEAD_IN, ROOM_OCULUS_R as _OCR, ROOM_LAND_R as _LR } from './constants.js'
 import { WBASE_ON, WBASE_RB, WBASE_TILT, WBASE_H, WBASE_PHASE, WBASE_CLR } from './constants.js'
 import { beamSpec as _beamSpec } from './axiomSpiralGeometry.js'
+import { rootCrossSpec, buildRootCrosses } from './axiomSpiralGeometry.js'   // ★115 뿌리 십자
+import { ROOT_CROSS_ON, ROOT_CROSS_SIDE, ROOT_CROSS_BAR, ROOT_CROSS_RUN, ROOT_CROSS_INSET, ROOT_CROSS_BACK, ROOT_CROSS_TIP, SUP_WALL_CLR as _SWC, SUP_BEAM_DEPTH as _SBD, SUP_BEAM_W as _SBW, SUP_BEAM_ROOT_GROW as _SBRG } from './constants.js'
 
 let n = 0, fail = 0
 const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
@@ -1605,6 +1611,22 @@ if (WBASE_ON) {
     }
   ok(planar < 1e-9, `안쪽 면 평면성 편차 ${planar.toExponential(2)} = 0 (기울기 ${WBASE_TILT}° 균일)`)
 
+  //  [5-b] ★감김 정합(★116에서 드러난 병의 예방 — 밑동도 같은 ref 기계를 쓴다)
+  {
+    let V = 0, mism = 0
+    for (let i = 0; i < p114.count; i += 3) {
+      const a = [p114.getX(i), p114.getY(i), p114.getZ(i)]
+      const b = [p114.getX(i + 1), p114.getY(i + 1), p114.getZ(i + 1)]
+      const c = [p114.getX(i + 2), p114.getY(i + 2), p114.getZ(i + 2)]
+      V += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6
+      const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
+      const w = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
+      const L = Math.hypot(w[0], w[1], w[2]) || 1
+      if ((w[0] * n114.getX(i) + w[1] * n114.getY(i) + w[2] * n114.getZ(i)) / L < 0) mism++
+    }
+    ok(mism === 0 && V > 0, `밑동 감김↔법선 불일치 ${mism} · 부호 있는 부피 ${V.toFixed(0)} > 0`)
+  }
+
   //  [6] 나선 발치 무접촉 — 밑동이 나선을 먹으면 안 된다
   const clr114 = s114.a0 - (ROOM_STAIR_ROUT + ROOM_STAIR_WIDTH / 2)
   ok(clr114 > 0, `나선 발치 여유 ${clr114.toFixed(2)} > 0 (밑동 면중심 ${s114.a0.toFixed(2)} vs 발치 바깥끝)`)
@@ -1625,6 +1647,219 @@ if (WBASE_ON) {
   //  [9] ⚠결합 감시 — 기울기를 키우면 끝높이가 올라가 삼킴이 는다. 보 배치를 바꿔도 움직인다.
   ok(true,
     `결합: H 상한 둘 — 보 무접촉 ${lowestB.toFixed(2)} · 윗면 연속 ${s114.hMax.toFixed(2)}. 둘 중 낮은 쪽이 실효 상한이다(현재 ${Math.min(lowestB, s114.hMax).toFixed(2)})`)
+}
+
+// ── ★115 뿌리 관통 장부 = 사다리꼴 뿔대 (2026.08.05) ──
+if (ROOT_CROSS_ON) {
+  console.log('\n— ★115 뿌리 관통 장부(사다리꼴 뿔대) —')
+  const S = rootCrossSpec()
+  const G = buildRootCrosses()
+  const p115 = G.getAttribute('position'), n115 = G.getAttribute('normal')
+  const c0 = S[0]
+
+  //  [1] 치수는 헌치에서 인용한다 + **보 춤 안에 낀다**(현도 ⓒ)
+  ok(Math.abs(ROOT_CROSS_BAR - _SBW * _SBRG) < 1e-9,
+    `장부 벽쪽 높이 ${ROOT_CROSS_BAR.toFixed(2)} = 뿌리 폭(인용) · 안쪽 ${(ROOT_CROSS_BAR * ROOT_CROSS_BACK).toFixed(2)} = 사다리꼴`)
+  ok(ROOT_CROSS_INSET > 0 && ROOT_CROSS_INSET + ROOT_CROSS_BAR < _SBD + 1e-9,
+    `보 춤 ${_SBD} 안에 낌 — 위 살 ${ROOT_CROSS_INSET.toFixed(2)} · 장부 ${ROOT_CROSS_BAR.toFixed(2)} · 아래 살 ${(_SBD - ROOT_CROSS_INSET - ROOT_CROSS_BAR).toFixed(2)}`)
+  ok(ROOT_CROSS_BACK > 0 && ROOT_CROSS_BACK < 1, `사다리꼴 뒷변비 ${ROOT_CROSS_BACK} ∈ (0,1) — 1이면 직사각`)
+  ok(ROOT_CROSS_TIP > 0 && ROOT_CROSS_TIP < 1,
+    `뿔대 끝 축소율 ${ROOT_CROSS_TIP} ∈ (0,1) — 끝 마구리 ${(ROOT_CROSS_BAR * ROOT_CROSS_TIP).toFixed(2)}×${(ROOT_CROSS_RUN * ROOT_CROSS_TIP).toFixed(2)} (칼끝 아님)`)
+
+  //  [2] ★★**벽과 틈 0** — 현도 요구의 핵심. 바깥면을 평면(현)으로 두면 √(r²+u²) 때문에 렌즈 틈이
+  //   생긴다(★108-2 계열). 셸 곡면을 그대로 떴는지 **축거리로** 검산한다(반경으로 재면 통과하는 함정).
+  let gap = 0
+  for (const c of S) for (let i = 0; i <= 24; i++) {
+    const u = -c.U + 2 * c.U * (i / 24), sc = c.scaleAtU(u)
+    for (const f of [0, 0.5, 1]) {
+      const y = c.yKeyTop - c.hOut * sc * f
+      const lim = wallR(y) - _SWC
+      const rO = Math.sqrt(Math.max(0, lim * lim - u * u))
+      gap = Math.max(gap, lim - Math.hypot(rO, u))
+    }
+  }
+  ok(gap < 1e-9, `벽↔장부 바깥면 틈 최대 ${gap.toExponential(2)} = 0 (축거리로 검산 — 현도 "틈 없이 견고하게")`)
+
+  //  [3] 외곽 불변 + 건전성
+  let over = -1e9, nan = 0, nbad = 0, deg = 0
+  for (let i = 0; i < p115.count; i++) {
+    const x = p115.getX(i), y = p115.getY(i), z = p115.getZ(i)
+    if (!isFinite(x + y + z)) { nan++; continue }
+    over = Math.max(over, Math.hypot(x, z) - (wallR(y) - _SWC))
+    if (Math.abs(Math.hypot(n115.getX(i), n115.getY(i), n115.getZ(i)) - 1) > 1e-4) nbad++
+  }
+  for (let i = 0; i < p115.count; i += 3) {
+    const ax = p115.getX(i), ay = p115.getY(i), az2 = p115.getZ(i)
+    const ux = p115.getX(i + 1) - ax, uy = p115.getY(i + 1) - ay, uz = p115.getZ(i + 1) - az2
+    const vx = p115.getX(i + 2) - ax, vy = p115.getY(i + 2) - ay, vz = p115.getZ(i + 2) - az2
+    if (Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) < 1e-9) deg++
+  }
+  ok(nan === 0 && nbad === 0 && deg === 0, `NaN ${nan} · 비단위 법선 ${nbad} · 퇴화 ${deg} — 전부 0`)
+  ok(over < 1e-4, `셸 초과 최대 ${over.toExponential(2)} < 1e-4 (외곽 불변)`)
+
+  //  [4] 관통 — 장부가 보 옆면(±wRoot) 밖으로 실제로 나와야 '짜맞춤'으로 읽힌다
+  ok(c0.U > c0.wRoot + 1e-9,
+    `보 옆면 ±${c0.wRoot.toFixed(2)} → 장부 끝 ±${c0.U.toFixed(2)} · 돌출 ${ROOT_CROSS_SIDE} (관통해 양쪽으로 나온다)`)
+  //  [5] ⚠범위 감시 — 아래 마구리(헌치·코브)는 **손대지 않는다**(현도 정정). 그 노브가 살아 있는지 본다.
+  ok(SUP_BEAM_FILLET > 0 && SUP_BEAM_CURVE > 1,
+    `아래 마구리 무손상: 코브 필렛 ${SUP_BEAM_FILLET} · 헌치 곡선 ${SUP_BEAM_CURVE} — 교체 대상은 좌우뿐`)
+}
+
+// ── ★116 방 돔 살 여덟 (2026.08.05) ──
+if (RRIB_ON) {
+  console.log('\n— ★116 방 돔 살 여덟 —')
+  const S = roomRibSpec(), G = buildRoomRibs()
+  const pr = G.getAttribute('position'), nrr = G.getAttribute('normal')
+  const wb = wallBaseSpec()
+
+  //  [1] ★§2-C 예외의 경계 — ⓑ 여덟뿐 · 팔각 모서리와 방위가 정확히 같을 것
+  ok(S.N === wb.N && S.N === 8,
+    `살 ${S.N}기 = 팔각 모서리 수 (§2-C 예외 근거 ⓑ '여덟뿐' — 72와 혼동 불가)`)
+  let azErr = 0
+  for (let i = 0; i < S.N; i++) azErr = Math.max(azErr, Math.abs(S.az[i] - wb.edgeAz[i]))
+  ok(azErr < 1e-12, `살 방위 = 팔각 모서리 방위 편차 ${azErr.toExponential(2)} (근거 ⓓ 정의 여덟과 1:1)`)
+
+  //  [2] 발과 머리
+  ok(Math.abs(S.y0 - wb.yTop) < 1e-9,
+    `발 = 단 윗면 y${S.y0.toFixed(2)} (현도 ⓸) · 머리 y${S.y1.toFixed(2)} · 자오선 ${S.len.toFixed(1)}`)
+  ok(S.y1 <= S.yOc + 1e-9,
+    `머리 ${S.y1.toFixed(2)} ≤ 오큘러스 ${S.yOc.toFixed(2)} — 자동 절단 ${S.cut.toFixed(2)} (나선 여유 ${RRIB_CLR} 파생)`)
+
+  //  [3] ★외곽 불변 + 틈 0(★115와 같은 규약 — 축거리로 검산)
+  let over = -1e9, nan = 0, nbad = 0, deg = 0
+  for (let i = 0; i < pr.count; i++) {
+    const x = pr.getX(i), y = pr.getY(i), z = pr.getZ(i)
+    if (!isFinite(x + y + z)) { nan++; continue }
+    //  ⚠셸 포함 검사는 **아가리 아래에서만** 뜻이 있다 — 머리는 아가리 위 단차에 있고
+    //   그 높이에서 wallR은 0으로 수렴하므로 그대로 재면 거짓 실패가 난다(1차 구현에서 실측 적발).
+    if (y <= S.yOc + 1e-3) over = Math.max(over, Math.hypot(x, z) - (wallR(y) - SUP_WALL_CLR))
+    if (Math.abs(Math.hypot(nrr.getX(i), nrr.getY(i), nrr.getZ(i)) - 1) > 1e-4) nbad++
+  }
+  for (let i = 0; i < pr.count; i += 3) {
+    const ax = pr.getX(i), ay = pr.getY(i), az2 = pr.getZ(i)
+    const ux = pr.getX(i + 1) - ax, uy = pr.getY(i + 1) - ay, uz = pr.getZ(i + 1) - az2
+    const vx = pr.getX(i + 2) - ax, vy = pr.getY(i + 2) - ay, vz = pr.getZ(i + 2) - az2
+    if (Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) < 1e-9) deg++
+  }
+  ok(nan === 0 && nbad === 0 && deg === 0, `NaN ${nan} · 비단위 법선 ${nbad} · 퇴화 ${deg} — 전부 0`)
+  ok(over < 1e-4, `셸 초과 ${over.toExponential(2)} < 1e-4 (아가리 아래 구간 · 근거 ⓒ 밀폐 — 밖에서 안 보인다)`)
+
+  //  [4] ★굵기는 **셸 법선**으로 잰다 — 수평으로 재면 꼭대기에서 cos77.8 = 0.21배로 납작해진다
+  const tiltTop = Math.atan(Math.abs((wallR(S.y1) - wallR(S.y1 - 1e-4)) / 1e-4)) * 180 / Math.PI
+  ok(tiltTop > 60,
+    `머리 벽 기울기 ${tiltTop.toFixed(1)}° — 수평 측정이면 살이 ${(RRIB_T * Math.cos(tiltTop * Math.PI / 180)).toFixed(2)}로 납작해졌을 자리(법선 측정이라 ${RRIB_T} 유지)`)
+
+  //  [5] 이웃 살 사이가 살아 있는가(위로 갈수록 좁아진다)
+  ok(S.gapAt(S.y1) > RRIB_W,
+    `이웃 살 사이 빈 호길이 바닥 ${S.gapAt(S.y0).toFixed(1)} → 머리 ${S.gapAt(S.y1).toFixed(1)} > 살 폭 ${RRIB_W.toFixed(2)}`)
+
+  //  [6] ★★**감김 정합 — 현도 2026.08.05 적발("중심쪽 면이 안 보여")의 회귀 가드.**
+  //   ⛔원인: 법선 방향 판정에 **살 전체의 무게중심 하나**를 썼는데 이 살은 반경이 61.5 → 18로 준다.
+  //    아랫구간 안쪽면이 전역 기준점보다 바깥에 놓여 법선이 뒤집혔고, 방 안에서 컬링돼 사라졌다.
+  //   ★정본 = **구간마다 자기 무게중심**. ⚠길이가 길어질 때만 드러나는 병이라 ★114·★115는 안 걸렸다.
+  //   ★검사 방식 = **부호 있는 부피**(발산정리). 한 면이라도 뒤집히면 부피가 어긋난다 — 면마다
+  //    보는 것보다 이쪽이 확실하다(면 분류는 꼭대기에서 안팎 구분이 모호해져 오탐이 난다).
+  {
+    let V = 0, mism = 0
+    for (let i = 0; i < pr.count; i += 3) {
+      const a = [pr.getX(i), pr.getY(i), pr.getZ(i)]
+      const b = [pr.getX(i + 1), pr.getY(i + 1), pr.getZ(i + 1)]
+      const c = [pr.getX(i + 2), pr.getY(i + 2), pr.getZ(i + 2)]
+      V += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6
+      const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
+      const w = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
+      const L = Math.hypot(w[0], w[1], w[2]) || 1
+      if ((w[0] * nrr.getX(i) + w[1] * nrr.getY(i) + w[2] * nrr.getZ(i)) / L < 0) mism++
+    }
+    const expect = S.N * S.len * RRIB_W * RRIB_T
+    ok(mism === 0, `감김↔법선 불일치 ${mism} / ${pr.count / 3} — 0이어야 면이 안 사라진다`)
+    ok(V > 0 && Math.abs(V - expect) / expect < 0.10,
+      `부호 있는 부피 ${V.toFixed(0)} ≈ 기대 ${expect.toFixed(0)} (편차 ${(Math.abs(V - expect) / expect * 100).toFixed(1)}% < 10%) — 한 면이라도 뒤집히면 어긋난다`)
+  }
+
+  //  [6-b] ★머리 마감(현도 2026.08.05: "단차 사이에 녹아들어가 붙잡아주는 것처럼").
+  //   구판은 꼭대기가 그냥 잘린 단면이었다. 정본 = 아가리를 딛고 단차를 채워 디스크 밑면을 받는다.
+  //   ⚠**살마다 따로 판정한다** — 나선이 그 방위·그 높이대를 지나면 머리를 놓지 않는다.
+  //    전역 클램프였던 구판은 나선 하나 때문에 여덟을 다 낮췄다(현도 지시로 정정).
+  if (RRIB_HEAD) {
+    let yTopMax = -1e9
+    for (let i = 0; i < pr.count; i++) yTopMax = Math.max(yTopMax, pr.getY(i))
+    ok(S.nHead > 0 && S.nHead < S.N,
+      `머리 ${S.nHead}/${S.N}기 — 나선이 지나는 방위(${S.per.filter(r => !r.head).map(r => ((r.az * 180 / Math.PI) % 360 + 360).toFixed(0) % 360 + '°').join(' ')})는 머리 없음`)
+    //  ⚠Float32 — BufferGeometry는 배정밀도 사양값과 1e-6까지 못 맞춘다(프로젝트 전례: 1e-4를 쓴다)
+    ok(Math.abs(yTopMax - S.yDisc) < 1e-4,
+      `머리 꼭대기 ${yTopMax.toFixed(2)} = 착지 디스크 밑면 ${S.yDisc.toFixed(2)} — 단차(세로 ${(S.yDisc - S.yOc).toFixed(2)})를 정확히 채운다`)
+    ok(S.headIn < _OCR && S.headIn > 6,
+      `머리 안쪽 반경 ${S.headIn} ∈ (디스크 안 6, 아가리 ${_OCR}) — 디스크 밑으로 ${(_OCR - S.headIn).toFixed(2)} 파고들어 문다`)
+    ok(S.headW > RRIB_W,
+      `머리 폭 ${S.headW.toFixed(2)} > 살 폭 ${RRIB_W.toFixed(2)} — 머리가 살보다 굵어야 '붙잡는' 것으로 읽힌다`)
+  }
+
+  //  [7] ⚠**보4 관통은 선언된 것**(현도 2026.08.05). 막지 않고 매 실행 보고한다.
+  const ribDeg = S.az.map(a => ((a * 180 / Math.PI) % 360 + 360) % 360)
+  const hits = []
+  _beamSpec().forEach((b, i) => {
+    const az = ((b.az * 180 / Math.PI) % 360 + 360) % 360
+    let d = 1e9
+    for (const r of ribDeg) { let e = Math.abs(r - az); e = Math.min(e, 360 - e); d = Math.min(d, e) }
+    if (d < 6) hits.push(`보${i} ${d.toFixed(1)}°`)
+  })
+  ok(hits.length <= 1,
+    `살↔보 근접 ${hits.length}건 [${hits.join(' ')}] — 보4 관통은 선언된 비용(살=균등 45° vs 보=나선 불규칙, 동시 만족 불가)`)
+}
+
+// ── ★117 감실 처마 여덟 (2026.08.05) ──
+if (PIT_ON && EAVE_ON) {
+  console.log('\n— ★117 감실 처마 여덟 —')
+  const E = eaveSpec(), Pp = pitSpec(), Sl = slotSpec()
+  const G = buildPitEaves(), pe = G.getAttribute('position'), ne = G.getAttribute('normal')
+
+  //  [1] 입술에 앉는다(현도 정정 — 감실 상인방이 아니다) + 위로 솟는다
+  ok(Math.abs(E.yRoot - Pp.yTop) < 1e-9,
+    `뿌리 = 입술 y${E.yRoot.toFixed(2)} (⚠감실 상인방 y48.05가 아니다 — 현도 정정)`)
+  ok(E.up > 0 && E.yTip > E.yRoot,
+    `끝이 바닥보다 ${E.up.toFixed(2)} 솟는다 (경사 ${E.tiltDeg}° · 뻗음 ${EAVE_LEN})`)
+  ok(E.t0 > E.t1 && E.t1 > 0,
+    `두께 뿌리 ${E.t0} > 끝 ${E.t1} > 0 (§2-D 3 — 끝을 0으로 수렴시키지 않는다)`)
+
+  //  [2] ★마이터 — 뿌리·끝 팔각이 **닮음**이라 이웃 패널이 같은 꼭짓점을 쓴다 → 이음 틈이 정의상 0.
+  //   ⚠★109에서 마이터 가지가 417번 중 0번 걸려 실루엣이 결손됐던 계열의 예방이다.
+  ok(Math.abs(E.apoTip / E.rTip - Math.cos(Math.PI / E.N)) < 1e-12,
+    `끝 팔각이 뿌리 팔각과 닮음(내접/외접 = cos${(180 / E.N).toFixed(1)}°) — 마이터 각이 전 모서리 동일`)
+  ok(E.apoTip < E.apoRoot && E.apoTip > Pp.apoBot,
+    `아가리 내접 ${E.apoRoot.toFixed(2)} → ${E.apoTip.toFixed(2)} (${((E.apoRoot - E.apoTip) / E.apoRoot * 100).toFixed(1)}% 좁아짐) · 바닥 내접 ${Pp.apoBot.toFixed(2)}보다 넓다`)
+
+  //  [3] ⛔**슬롯 통로가 열려 있어야 한다** — 0° 모서리에서 고리를 끊었다(현도 ⓐ).
+  //   ★103 슬롯은 각뿔대의 **유일한 접근로**다(★105가 뚫었다). 막으면 여정이 끊긴다.
+  let block = 0
+  for (let i = 0; i < pe.count; i++) {
+    const x = pe.getX(i), z = pe.getZ(i), r = Math.hypot(x, z)
+    let az = ((Math.atan2(z, x) - Sl.az) * 180 / Math.PI % 360 + 360) % 360
+    az = Math.min(az, 360 - az)
+    if (az < Math.atan(Sl.HW / Math.max(1e-6, r)) * 180 / Math.PI) block++
+  }
+  ok(block === 0, `슬롯 통로 침범 정점 ${block} = 0 — ★103 접근로가 열려 있다(물러남 ${(E.pull * 100).toFixed(1)}%)`)
+
+  //  [4] 건전성 + 감김(★116에서 드러난 계열의 가드)
+  let V = 0, mism = 0, nan = 0, deg = 0
+  for (let i = 0; i < pe.count; i += 3) {
+    const a = [pe.getX(i), pe.getY(i), pe.getZ(i)]
+    const b = [pe.getX(i + 1), pe.getY(i + 1), pe.getZ(i + 1)]
+    const c = [pe.getX(i + 2), pe.getY(i + 2), pe.getZ(i + 2)]
+    if (![...a, ...b, ...c].every(Number.isFinite)) { nan++; continue }
+    V += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6
+    const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
+    const w = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
+    const L = Math.hypot(w[0], w[1], w[2])
+    if (L < 1e-9) { deg++; continue }
+    if ((w[0] * ne.getX(i) + w[1] * ne.getY(i) + w[2] * ne.getZ(i)) / L < 0) mism++
+  }
+  ok(nan === 0 && deg === 0 && mism === 0, `NaN ${nan} · 퇴화 ${deg} · 감김↔법선 불일치 ${mism} — 전부 0`)
+  ok(V > 0, `부호 있는 부피 ${V.toFixed(1)} > 0 — 겉이 바깥을 본다`)
+
+  //  [5] 나선 무간섭
+  ok(E.rRoot < ROOM_STAIR_ROUT - ROOM_STAIR_WIDTH / 2,
+    `처마 최대 반경 ${E.rRoot} < 나선 발치 안끝 ${(ROOM_STAIR_ROUT - ROOM_STAIR_WIDTH / 2).toFixed(2)} — 무간섭`)
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} check_rooms: ${n - fail}/${n} 통과`)

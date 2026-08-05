@@ -18,13 +18,17 @@ import {
   ROOM_DIM, ROOM_SHAFT_ON,
   NICHE_ON, NICHE_FLOOR, SLOT_ON, SLOT_STAIR,
   AX_ON, SPIRAL_BODY, SPIRAL_SUP,
+  ROOT_CROSS_ON,
+  RRIB_ON,
+  EAVE_ON,
   WBASE_ON,
 } from './constants'
 import { pitSpec, slotSpec, buildPitWalls, buildPitRim, buildPitFloor, buildHoledSlab,
-  buildNiches, buildNicheStairs, buildPitSlot, buildSlotStairs } from './defPitGeometry'   // ★101 각뿔대 · ★102 감실(순수 기하 — 사본 금지)
-import { buildSpiralMass, buildSpiralColumns, buildSpiralBeams } from './axiomSpiralGeometry'   // ★107 나선 매스 + 지지(순수 기하 — 사본 금지)
+  buildNiches, buildNicheStairs, buildPitSlot, buildSlotStairs, buildPitEaves } from './defPitGeometry'   // ★101 각뿔대 · ★102 감실(순수 기하 — 사본 금지)
+import { buildSpiralMass, buildSpiralColumns, buildSpiralBeams, buildRootCrosses } from './axiomSpiralGeometry'   // ★107 나선 매스 + 지지(순수 기하 — 사본 금지)
 import { buildAxiomVaults } from './axiomVaultGeometry'   // ★111 공리 볼트(문) — 총안 창 + 감실
-import { buildWallBase } from './wallBaseGeometry'   // ★114 벽 밑동 팔각 각뿔대(순수 기하 — 사본 금지)
+import { buildWallBase } from './wallBaseGeometry'
+import { buildRoomRibs } from './roomRibGeometry'   // ★116 방 돔 살 여덟(순수 기하 — 사본 금지)   // ★114 벽 밑동 팔각 각뿔대(순수 기하 — 사본 금지)
 
 // ════════ 지하 정의·공리 방 ════════
 export function DefAxiomRoom({ stairKind }) {
@@ -216,6 +220,12 @@ export function DefAxiomRoom({ stairKind }) {
   const axVaultGeo = useMemo(() => (SPIRAL_BODY === 'mass' ? buildAxiomVaults() : null), [])
   //  ★114 벽 밑동 — 셸 안쪽 − 팔각 각뿔대. 윗면 없음(셸이 잘라 아치 여덟을 만든다). 위상 두 체제.
   const wallBaseGeo = useMemo(() => (WBASE_ON ? buildWallBase() : null), [])
+  //  ★115 뿌리 십자 마구리 — 아래 헌치를 세 방향으로 인용. 보와 상호 관입(불리언 없음).
+  const rootCrossGeo = useMemo(() => ((SPIRAL_BODY === 'mass' && ROOT_CROSS_ON) ? buildRootCrosses() : null), [])
+  //  ★116 방 돔 살 — 팔각 단 모서리 여덟에서 오큘러스까지. §2-C 예외(현도 승인 근거 ⓐbcd).
+  const roomRibGeo = useMemo(() => (RRIB_ON ? buildRoomRibs() : null), [])
+  //  ★117 감실 처마 — 입술에 앉아 아가리 위로 내밀며 솟는 패널 여덟(0° 모서리 = 슬롯이라 끊김)
+  const eaveGeo = useMemo(() => ((PIT_ON && EAVE_ON) ? buildPitEaves() : null), [])
   //  빛 하절의 밑끝 — 기본은 구세계(기단 위)에서 그대로 끊는다. 각뿔대가 뚫리면 '허공에서 잘린 빛'이
   //  보이는데, 그것을 **보고 판정하는 것**이 이번 조각의 목적 중 하나다(현도 지시). PIT_SHAFT_DROP로 전환.
   const SHAFT_BOT_Y = (PIT_ON && PIT_SHAFT_DROP) ? PIT.yBot : ROOM_FLOOR_Y + DAIS_H
@@ -255,6 +265,13 @@ export function DefAxiomRoom({ stairKind }) {
           <meshStandardMaterial color={P.shell} roughness={0.95} fog={RFOG} />
         </mesh>
       )}
+      {/* ★116 방 돔 살 여덟(2026.08.05) — 팔각 단 모서리 → 셸 자오선 → 오큘러스.
+          바깥면은 셸 곡면 그대로(틈 0) · 굵기는 셸 법선 방향. ⚠밟는 면 아님. */}
+      {roomRibGeo && (
+        <mesh geometry={roomRibGeo} userData={{ walkable: false }}>
+          <meshStandardMaterial color={P.shell} roughness={0.95} fog={RFOG} />
+        </mesh>
+      )}
       {/* ★㊵ 주 바닥(수평 유지) — 구 내부를 반으로 가르는 수평 판 = 관람 레벨. 부양으로 지면(y0)과 분리돼
           구 z-fighting 근거는 소멸했으나 ROOM_FLOOR_LIFT(0.05)는 벽 밑선 봉합 여유로 유지.
           ★101(2026.08.02): PIT_ON이면 가운데에 팔각 구멍이 뚫린 **고리**가 된다(구멍 = 각뿔대 입술 바깥면). */}
@@ -276,6 +293,13 @@ export function DefAxiomRoom({ stairKind }) {
         <mesh geometry={pitRimGeo} userData={{ walkable: true }}>       {/* 입술 띠 — 판과 같은 높이 */}
           <meshStandardMaterial color={P.pitRim} roughness={0.95} fog={RFOG} />
         </mesh>
+        {/* ★117 감실 처마(2026.08.05) — 입술에 앉아 아가리 위로 내밀며 솟는다.
+            뿌리 팔각과 끝 팔각이 닮음이라 모서리 마이터가 저절로 맞는다. ⚠밟는 면 아님. */}
+        {eaveGeo && (
+          <mesh geometry={eaveGeo} userData={{ walkable: false }}>
+            <meshStandardMaterial color={P.pitRim} roughness={0.95} fog={RFOG} />
+          </mesh>
+        )}
         <mesh geometry={pitFloorGeo} userData={{ walkable: true }}>
           <meshStandardMaterial color={P.pitFloor} roughness={0.95} fog={RFOG} />
         </mesh>
@@ -338,6 +362,13 @@ export function DefAxiomRoom({ stairKind }) {
         )}
         {(SPIRAL_SUP === 'both' || SPIRAL_SUP === 'wall') && (
           <mesh geometry={spiralBeamGeo} userData={{ walkable: false }}>  {/* ① 벽 보 — 상부 63% */}
+            <meshStandardMaterial color="#c09a63" roughness={0.88} />
+          </mesh>
+        )}
+        {/* ★115 뿌리 십자 마구리(2026.08.05) — 위·좌·우 세 팔. 아래 팔(헌치)은 보가 그대로 갖고 있다.
+            보와 같은 석재·같은 색. 상호 관입이라 불리언 없음(㊷ 날 뿌리·★92 극점 전례). */}
+        {(SPIRAL_SUP === 'both' || SPIRAL_SUP === 'wall') && rootCrossGeo && (
+          <mesh geometry={rootCrossGeo} userData={{ walkable: false }}>
             <meshStandardMaterial color="#c09a63" roughness={0.88} />
           </mesh>
         )}
