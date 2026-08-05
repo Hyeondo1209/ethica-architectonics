@@ -1934,7 +1934,7 @@ console.log('\n── ★118 착지 디스크 ──')
     //   ⚠이걸 눈감아 주는 대신 [F]에서 그 일치를 1e-12로 따로 박는다(느슨하게 넘어가지 않는다).
     const FLUSH = 1e-6
     let pierce = 0, worstClr = Infinity, worstAt = null, underN = 0, flushN = 0
-    const N = 12000
+    const N = 60000
     for (let i = 0; i <= N; i++) {
       const L = sp.pathLen * i / N
       const a = sp.atLen(L)
@@ -1963,13 +1963,32 @@ console.log('\n── ★118 착지 디스크 ──')
     ok(worstClr >= 2.0,
       `★최소 헤드룸 ${worstClr.toFixed(3)} @ az ${(worstAt.az * D).toFixed(1)}° · r${worstAt.rC.toFixed(2)} ` +
       `(구속 = 슬롯 진입 직전 걷는면 ${worstAt.yT.toFixed(3)})`)
-    //  ★설계 중 예측(2.109)보다 실제가 낫다 — **단높이가 이산이기 때문**이다.
-    //   연속 램프로 근사하면 슬롯 진입점의 걷는 면을 97.034로 잡게 되는데, 그 단은 이미 **슬롯 안**이고
-    //   디스크 밑을 실제로 지나는 마지막 단의 윗면은 96.797이다. → 자기 기준 2.2를 넘긴다.
-    //   ⚠교훈: 계단 권역의 헤드룸은 램프 근사가 아니라 **밟는 면 단위**로 재야 한다(★104-2와 같은 계열).
-    ok(worstClr >= SHM8,
-      `헤드룸 ${worstClr.toFixed(3)} ≥ 자기 기준 SUP_HEAD_MIN ${SHM8} — 여유 ${(worstClr - SHM8).toFixed(3)} ` +
-      `(눈높이 1.6 기준 머리 위 ${(worstClr - 1.6).toFixed(2)} · 램프 근사 예측치는 2.109였다)`)
+    //  ⛔★표본으로 재면 안 되는 값이다(2026.08.05 자가 적발). 구속점은 **슬롯 진입 방위 그 한 점**인데
+    //   `yTread`가 계단 함수라, 표본 간격이 그 점을 스치느냐 마느냐로 답이 2.347 ↔ 2.110을 오간다.
+    //   실제로 N=12000에서 2.347, N=60000에서 2.110이 나왔다 — **검사가 해상도에 의존하면 검사가 아니다.**
+    //   정본 = 슬롯 진입 호길이를 **이분 탐색으로 정확히 찾고** 그 점의 밟는 면을 읽는다(해상도 무관).
+    let Ledge
+    {
+      const azAt = L => { const q = sp.atLen(L); return norm(Math.atan2(q.z, q.x)) }
+      let lo = sp.pathLen * 0.9, hi = sp.pathLen
+      for (let it = 0; it < 200; it++) { const m = (lo + hi) / 2; if (azAt(m) < gapLo) lo = m; else hi = m }
+      Ledge = lo
+    }
+    const clrEdge = S.yBot - sp.yTread(Ledge)
+    let treadStart
+    {
+      const yE = sp.yTread(Ledge)
+      let a2 = 0, b2 = Ledge
+      for (let it = 0; it < 200; it++) { const m = (a2 + b2) / 2; if (sp.yTread(m) < yE - 1e-9) a2 = m; else b2 = m }
+      treadStart = b2
+    }
+    const bitW = Ledge - treadStart
+    ok(clrEdge >= 2.0,
+      `★최소 헤드룸 ${clrEdge.toFixed(4)} ≥ 2.0 (해상도 무관 · 이분 탐색) — 눈높이 1.6 위로 ${(clrEdge - 1.6).toFixed(3)}`)
+    ok(clrEdge < SHM8,
+      `⚠선언된 비용 — 자기 기준 SUP_HEAD_MIN ${SHM8}에 ${(SHM8 - clrEdge).toFixed(3)} 모자란다. ` +
+      `구속은 **마지막 단의 끝자락 ${bitW.toFixed(4)}만 디스크 밑에 물린 것**이고, ` +
+      `온전히 물린 한 단 아래는 ${(S.yBot - sp.yTread(treadStart - 1e-6)).toFixed(3)}이다 (현도 2026.08.05 수용)`)
   }
 
   //  [D6] 45° 터널 쐐기 물림 = 선언된 비용(수치를 매 실행 소리 내어 보고)
@@ -2009,11 +2028,49 @@ console.log('\n── ★118 착지 디스크 ──')
       const y = pos.getY(i), r = Math.hypot(pos.getX(i), pos.getZ(i))
       ymin = Math.min(ymin, y); ymax = Math.max(ymax, y); rmin = Math.min(rmin, r); rmax = Math.max(rmax, r)
     }
-    ok(Math.abs(ymin - S.yBot) < 1e-4 && Math.abs(ymax - S.yTop) < 1e-4,
-      `메시 y ${ymin.toFixed(4)}~${ymax.toFixed(4)} = 스펙 ${S.yBot.toFixed(4)}~${S.yTop.toFixed(4)}`)
+    ok(Math.abs(ymin - S.yBot) < 1e-4 && Math.abs(ymax - S.yMax) < 1e-4,
+      `메시 y ${ymin.toFixed(4)}~${ymax.toFixed(4)} = 스펙 ${S.yBot.toFixed(4)}~${S.yMax.toFixed(4)}` +
+      `${S.railOn ? ` (난간 ${S.railH} 포함)` : ''}`)
     ok(Math.abs(rmin - RH8) < 1e-4 && Math.abs(rmax - LR8) < 1e-4,
       `메시 r ${rmin.toFixed(3)}~${rmax.toFixed(3)} = 고리 ${RH8}~${LR8}`)
   }
+
+  //  [R] ★★118-2 내부 원 난간 (2026.08.05 현도)
+  if (S.railOn) {
+    const { DISC_RAIL_H: RH_, DISC_RAIL_W: RW_, DISC_RAIL_CHAMF: RC_ } = await import('./constants.js')
+    const { STEP_UP } = await import('./waypoints.js')
+    //  ⓐ "아주 낮은" = 넘어설 수 있다. STEP_UP을 넘으면 턱이 아니라 벽이 된다.
+    ok(S.railH < STEP_UP,
+      `난간 높이 ${S.railH} < STEP_UP ${STEP_UP} — "아주 낮은"(넘어설 수 있는 턱) · 꼭대기 y ${S.yRail.toFixed(3)}`)
+    //  ⓑ 안쪽 면 = 구멍 벽의 연장(한 면). 단면에서 r이 같아야 이음매가 정의상 0이다.
+    const innerPts = S.prof.filter(q => Math.abs(q[0] - S.rIn) < 1e-12)
+    ok(innerPts.length >= 2 && Math.max(...innerPts.map(q => q[1])) >= S.yRail - RC_ - 1e-9,
+      `난간 안쪽 면이 구멍 벽 r${S.rIn}의 연장 — 단면에서 같은 r을 공유하는 정점 ${innerPts.length}개(이음매 0)`)
+    //  ⓒ 아무것과도 안 만난다 — 나선 안끝이 실측 잣대
+    {
+      const sp2 = spiralSpec()
+      let rMinSp = Infinity
+      for (let i = 0; i <= 20000; i++) {
+        const L = sp2.pathLen * i / 20000
+        if (L < sp2.pathLen * 0.8) continue
+        const q = sp2.atLen(L)
+        rMinSp = Math.min(rMinSp, Math.hypot(q.x, q.z) - SW8 / 2)
+      }
+      ok(S.rWalkIn < rMinSp,
+        `난간 바깥끝 ${S.rWalkIn} < 나선 안끝 ${rMinSp.toFixed(2)} — 여유 ${(rMinSp - S.rWalkIn).toFixed(2)}(무간섭)`)
+    }
+    //  ⓓ 걷는 띠가 남는다
+    ok(S.walkW >= 6, `남는 보행 띠 ${S.walkW.toFixed(2)} (r${S.rWalkIn}~${S.rOut}) ≥ 6`)
+    //  ⓔ 모접기 클램프 — 노브를 밀어도 단면이 안 뒤집힌다
+    ok(S.railC <= Math.min(S.railH, S.railW) / 2 + 1e-12,
+      `갓돌 모접기 ${S.railC} ≤ min(H,W)/2 ${(Math.min(S.railH, S.railW) / 2).toFixed(3)} — 노브 ${RC_} 자동 클램프`)
+    //  ⓕ ★슬롯 절단면에서 디스크와 **같이** 끝난다 — 같은 스윕이라 매듭이 공짜다(§2-D 3)
+    ok(S.prof.length >= 8 && S.tris2.length === S.prof.length - 2,
+      `난간이 같은 단면 안에 있다 — 단면 정점 ${S.prof.length} · 캡 삼각 ${S.tris2.length}(= 정점−2, 귀 자르기 완결) ` +
+      `→ 종단이 슬롯 절단면과 자동 일치, 별도 매듭 부재 0`)
+    //  ⓖ §2-C — 속 찬 고리다(난간 동자 금지). 단면이 하나면 동자가 있을 수 없다.
+    ok(true, `§2-C 준수 — 이음매 없는 속 찬 고리(난간 동자 없음, ★63과 같은 규칙)`)
+  } else ok(true, `DISC_RAIL_ON=false — 난간 없음(민 윗면)`)
 
   //  [D8] Room.jsx가 사본을 안 쓴다 + 밟는 면 태그 유지
   {

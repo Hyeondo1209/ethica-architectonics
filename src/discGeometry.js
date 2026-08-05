@@ -32,6 +32,7 @@ import {
   ROOM_R, ROOM_HEIGHT, ROOM_FLOOR_Y, ROOM_OCULUS_R,
   ROOM_LAND_R, ROOM_DISC_HOLE, ROOM_DISC_SLOT_START, ROOM_DISC_SLOT_LEN,
   DISC_MODE, ROOM_DISC_CHAMF, ROOM_DISC_SEGS,
+  DISC_RAIL_ON, DISC_RAIL_H, DISC_RAIL_W, DISC_RAIL_CHAMF,
 } from './constants.js'
 
 //  ── 감김을 손으로 세지 않는다: want 방향만 주고 여기서 맞춘다 ──
@@ -53,6 +54,58 @@ function triTo(P, N, a, b, c, want) {
   tri(P, N, a, b, c, n)
 }
 const quadTo = (P, N, a, b, c, d, want) => { triTo(P, N, a, b, c, want); triTo(P, N, a, c, d, want) }
+
+//  ★★단면이 볼록에서 **L자(난간)**로 바뀌면서 두 기계를 갈아 끼웠다(★118-2).
+//   ⛔구판은 (a) 변 법선을 **무게중심**으로 뽑고 (b) 캡을 **부채**로 냈다 — 둘 다 볼록 전제다.
+//    난간이 붙는 순간 무게중심이 L의 오목한 쪽으로 들어가 바깥 법선이 뒤집히고, 부채는 도형 밖으로 삼각을 낸다.
+//   정본 = (a) **부호 면적**으로 감김 방향을 정하고 변마다 수직을 돌린다(임의의 단순 다각형에서 정확)
+//         (b) **귀 자르기**(ear clipping) — 오목 꼭짓점이 있어도 도형 안에서만 삼각이 난다.
+const polyArea2 = (pts) => {
+  let A = 0
+  for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; A += p[0] * q[1] - q[0] * p[1] }
+  return A
+}
+//  변 j의 바깥 수직((r,y) 평면) — CCW면 진행 방향의 오른쪽이 바깥이다
+function edgeNormal2(pts, j, ccw) {
+  const p = pts[j], q = pts[(j + 1) % pts.length]
+  const dr = q[0] - p[0], dy = q[1] - p[1]
+  const L = Math.hypot(dr, dy) || 1
+  return ccw ? [dy / L, -dr / L] : [-dy / L, dr / L]
+}
+const cross2 = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+function inTri(p, a, b, c) {
+  const d1 = cross2(a, b, p), d2 = cross2(b, c, p), d3 = cross2(c, a, p)
+  const neg = d1 < -1e-12 || d2 < -1e-12 || d3 < -1e-12
+  const pos = d1 > 1e-12 || d2 > 1e-12 || d3 > 1e-12
+  return !(neg && pos)
+}
+//  ★단순 다각형 삼각분할 — 인덱스 삼각 배열을 돌려준다(단면 캡 전용, 정점 10개 수준)
+function earClip(pts) {
+  const n = pts.length
+  const ccw = polyArea2(pts) > 0
+  const idx = ccw ? [...pts.keys()] : [...pts.keys()].reverse()   // 항상 CCW로 세운다
+  const out = []
+  let guard = 0
+  while (idx.length > 3 && guard++ < 500) {
+    let cut = false
+    for (let i = 0; i < idx.length; i++) {
+      const a = pts[idx[(i + idx.length - 1) % idx.length]], b = pts[idx[i]], c = pts[idx[(i + 1) % idx.length]]
+      if (cross2(a, b, c) <= 1e-12) continue                      // 오목·퇴화 = 귀 아님
+      let ok = true
+      for (let k = 0; k < idx.length; k++) {
+        const j = idx[k]
+        if (j === idx[(i + idx.length - 1) % idx.length] || j === idx[i] || j === idx[(i + 1) % idx.length]) continue
+        if (inTri(pts[j], a, b, c)) { ok = false; break }
+      }
+      if (!ok) continue
+      out.push([idx[(i + idx.length - 1) % idx.length], idx[i], idx[(i + 1) % idx.length]])
+      idx.splice(i, 1); cut = true; break
+    }
+    if (!cut) break                                               // 자가교차 등 — 남은 것은 아래에서 부채로
+  }
+  for (let i = 1; i < idx.length - 1; i++) out.push([idx[0], idx[i], idx[i + 1]])
+  return out
+}
 
 // ══════════════════════════════════════════════════════════════
 //  스펙 — Room.jsx·검사·프로브가 전부 여기서 읽는다(사본 금지)
@@ -80,25 +133,45 @@ export function discSpec() {
   const sweep = wA - wB                          // 양수(= SLOT_LEN)
   const gap = Math.PI * 2 - sweep                // 트인 슬롯 폭
 
-  //  ── 단면(반경 r, 높이 y) — 닫힌 볼록 다각형. 밑모서리 넷이 챔퍼로 깎인다 ──
-  const prof = chamf > 1e-9
+  //  ── ★118-2 난간(현도 2026.08.05) — 별도 부재가 아니라 **같은 단면 안**이다 ──
+  //   높이·두께는 노브, 갓돌 모접기는 둘의 절반으로 자동 클램프(밀어도 단면이 안 뒤집힌다).
+  const bandW = ROOM_LAND_R - ROOM_DISC_HOLE
+  const railOn = DISC_RAIL_ON && DISC_RAIL_H > 1e-6 && DISC_RAIL_W > 1e-6
+  const railH = railOn ? DISC_RAIL_H : 0
+  const railW = railOn ? Math.min(DISC_RAIL_W, bandW * 0.5) : 0
+  const railC = railOn ? Math.max(0, Math.min(DISC_RAIL_CHAMF, railH * 0.5 - 0.01, railW * 0.5 - 0.01)) : 0
+  const yRail = yTop + railH
+
+  //  ── 단면(반경 r, 높이 y) — 닫힌 다각형. 밑모서리는 챔퍼, 안쪽 위는 난간(L자 = **오목**) ──
+  //   ★난간 안쪽 면은 구멍 벽(r = ROOM_DISC_HOLE)의 **연장**이다 — 한 면으로 이어져 이음매가 없다.
+  const base = chamf > 1e-9
     ? [[ROOM_LAND_R, yTop], [ROOM_LAND_R, yBot + chamf], [ROOM_LAND_R - chamf, yBot],
-       [ROOM_DISC_HOLE + chamf, yBot], [ROOM_DISC_HOLE, yBot + chamf], [ROOM_DISC_HOLE, yTop]]
-    : [[ROOM_LAND_R, yTop], [ROOM_LAND_R, yBot], [ROOM_DISC_HOLE, yBot], [ROOM_DISC_HOLE, yTop]]
+       [ROOM_DISC_HOLE + chamf, yBot], [ROOM_DISC_HOLE, yBot + chamf]]
+    : [[ROOM_LAND_R, yTop], [ROOM_LAND_R, yBot], [ROOM_DISC_HOLE, yBot]]
+  const cap = railOn
+    ? (railC > 1e-9
+        ? [[ROOM_DISC_HOLE, yRail - railC], [ROOM_DISC_HOLE + railC, yRail],
+           [ROOM_DISC_HOLE + railW - railC, yRail], [ROOM_DISC_HOLE + railW, yRail - railC],
+           [ROOM_DISC_HOLE + railW, yTop]]
+        : [[ROOM_DISC_HOLE, yRail], [ROOM_DISC_HOLE + railW, yRail], [ROOM_DISC_HOLE + railW, yTop]])
+    : [[ROOM_DISC_HOLE, yTop]]
+  const prof = [...base, ...cap]
 
-  //  단면 무게중심 — 면 법선의 want를 여기서 뽑는다(볼록이라 안전)
-  let cr = 0, cy = 0
-  for (const p of prof) { cr += p[0]; cy += p[1] }
-  cr /= prof.length; cy /= prof.length
-
+  const ccw = polyArea2(prof) > 0
+  const tris2 = earClip(prof)
   const segs = Math.max(24, Math.round(ROOM_DISC_SEGS * sweep / (Math.PI * 2)))
 
   return {
     yTop, yBot, thick, chamf, yOculus, yShellAtRim,
     rIn: ROOM_DISC_HOLE, rOut: ROOM_LAND_R,
-    t0, t1, wA, wB, sweep, gap, segs, prof, cr, cy,
+    railOn, railH, railW, railC, yRail,
+    rWalkIn: ROOM_DISC_HOLE + railW,          // 실제로 밟는 띠의 안쪽 끝
+    walkW: bandW - railW,                     // 남는 보행 폭
+    t0, t1, wA, wB, sweep, gap, segs, prof, ccw, tris2,
     //  두께가 셸을 뚫지 않는가(불변식 — 검사가 박는다)
     shellSafe: yBot >= yShellAtRim - 1e-9,
+    //  메시가 차지하는 높이 상한(난간 포함) — 검사가 메시 범위를 이걸로 잰다
+    yMax: railOn ? yRail : yTop,
   }
 }
 
@@ -110,25 +183,23 @@ export function buildDisc() {
   const P = [], N = []
   const pt = (w, p) => [p[0] * Math.cos(w), p[1], p[0] * Math.sin(w)]
 
-  //  옆·위·밑 — 단면 변마다 스윕 한 띠
+  //  옆·위·밑 — 단면 변마다 스윕 한 띠. ★법선은 **부호 면적**으로(무게중심 금지 — 난간이 오목을 만든다)
   for (let i = 0; i < s.segs; i++) {
     const w0 = s.wA - s.sweep * (i / s.segs)
     const w1 = s.wA - s.sweep * ((i + 1) / s.segs)
     const wm = (w0 + w1) / 2
     for (let j = 0; j < s.prof.length; j++) {
       const p0 = s.prof[j], p1 = s.prof[(j + 1) % s.prof.length]
-      //  변 중점이 무게중심에서 밖으로 향하는 방향 = 바깥 법선(볼록 단면)
-      const mr = (p0[0] + p1[0]) / 2, my = (p0[1] + p1[1]) / 2
-      const dr = mr - s.cr, dy = my - s.cy
-      const want = [dr * Math.cos(wm), dy, dr * Math.sin(wm)]
+      const [nr, ny] = edgeNormal2(s.prof, j, s.ccw)
+      const want = [nr * Math.cos(wm), ny, nr * Math.sin(wm)]
       quadTo(P, N, pt(w0, p0), pt(w1, p0), pt(w1, p1), pt(w0, p1), want)
     }
   }
-  //  끝 캡 둘 — 단면 다각형을 부채로(볼록이라 안전). want = 스윕 접선의 바깥쪽
+  //  끝 캡 둘 — ★귀 자르기 결과를 쓴다(부채 금지 — 오목 꼭짓점에서 도형 밖으로 샌다)
   for (const [w, sgn] of [[s.wA, +1], [s.wB, -1]]) {
     const want = [-Math.sin(w) * sgn, 0, Math.cos(w) * sgn]
-    for (let j = 1; j < s.prof.length - 1; j++)
-      triTo(P, N, pt(w, s.prof[0]), pt(w, s.prof[j]), pt(w, s.prof[j + 1]), want)
+    for (const [a, b, c] of s.tris2)
+      triTo(P, N, pt(w, s.prof[a]), pt(w, s.prof[b]), pt(w, s.prof[c]), want)
   }
 
   const g = new THREE.BufferGeometry()
