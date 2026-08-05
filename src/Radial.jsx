@@ -13,7 +13,7 @@ import {
   ROOM_LAND_R, ROOM_WELL_RT, ROOM_CEIL_Y, ROOM_CYL_TOP,
   RAD_ANG0, RAD_R, RAD_PRX, RAD_PRY, RAD_PCY,
   RAD_T_HW, RAD_TOP, RAD_DOOR_H, RAD_DOOR_HW, RAD_ARC_IN,
-  RAD_JPHI, RAD_JX, RAD_FLOOR_Y, RAD_T_IN, RAD_UNDER_LIP,
+  RAD_JPHI, RAD_JX, RAD_FLOOR_Y, RAD_T_IN, RAD_UNDER_LIP, RAD_WALL_R0,
   RAD_DROP, RAD_ST_N, RAD_ST_T, RAD_ST_LAND, RAD_ST_W,
   RAD_SKIRT_MAX,
   ROOM_R, ROOM_FLOOR_Y, ROOM_HEIGHT,
@@ -53,7 +53,7 @@ const FR_D    = FR_FRONT - FR_BACK           // 문틀 깊이(통로축) ≈1.93
 const FR_C    = (FR_FRONT + FR_BACK) / 2     // 문틀 중심의 꽃잎 중심거리 ≈14.96
 const TUBE_END = FR_BACK + 0.2               // 바닥 위 벽·지붕의 끝(중심거리) — 문틀 몸통 안에서 평면 종료
 const JAMB_H  = DTOP - Y_FTOP                // 잼 높이(바닥판 윗면 → 문 상단)
-const S_WALL0 = 15.5                         // 터널 벽·천장 시작(원뿔벽 관통) — 허브 문틀 파생이 참조
+const S_WALL0 = RAD_WALL_R0                  // ★118: constants 승격(검사가 읽어야 한다). 터널 벽·천장 시작 — 허브 문틀 파생이 참조
 // ★허브(원뿔대) 문틀(2026.07.11): 같은 문틀을 빛우물 원뿔벽 문 4곳에. 원뿔이 위로 좁아지는 사면이라 걸침 깊이만 다르게 파생.
 const coneR = (y) => ROOM_LAND_R - (ROOM_LAND_R - ROOM_WELL_RT) * (y - (ROOM_CEIL_Y - 3)) / (ROOM_CYL_TOP - (ROOM_CEIL_Y - 3))
 const HFR_BACK  = Math.min(Math.sqrt(Math.max(0.25, coneR(LIN_TOP) ** 2 - FR_OUT ** 2)) - 0.25, S_WALL0 - 0.15) // 뒷면(허브쪽) — 최심 요구 코너보다 깊게 & 벽 시작(15.5)도 몸통 안에 숨김

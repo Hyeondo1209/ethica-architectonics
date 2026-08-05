@@ -1353,8 +1353,9 @@ console.log('\n── ★107 공리 나선 — 매스 + 지지 ──')
           `${v.id} 칼라 밑 ${collarBot.toFixed(2)} ≥ 받침 밑 ${supBot.toFixed(2)} · 무는 깊이 ${v.collar.drop.toFixed(2)} ≥ 0.6 (${v.isBeam ? '보' : '기둥'})`)
       }
       //  ⓗ 위 간섭 — 크라운 겉면이 착지 디스크 밑면 아래
-      const { ROOM_STAIR_SLAB: SLAB111 } = await import('./constants.js')
-      const discB = COR_Y0 + COR_THICK / 2 + 0.02 - SLAB111
+      //  ★118: 디스크 밑면이 1.827 내려갔다 — 사본으로 재계산하지 말고 정본에서 읽는다.
+      const { discSpec: discSpec111 } = await import('./discGeometry.js')
+      const discB = discSpec111().yBot
       const crownWorst = Math.max(...VL.map(v => v.yCrownI + AX_VAULT_SHELL))
       ok(crownWorst < discB - 0.3, `크라운 겉 최고 ${crownWorst.toFixed(1)} < 디스크 밑 ${discB.toFixed(2)} − 0.3`)
       //  ⓘ 창이 실제로 뚫렸고 감실은 막혔다 — 볼트 중앙 단면에서 광선으로 잰다(빌드 결과를 직접).
@@ -1870,6 +1871,159 @@ if (PIT_ON && EAVE_ON) {
   //  [5] 나선 무간섭
   ok(E.rRoot < ROOM_STAIR_ROUT - ROOM_STAIR_WIDTH / 2,
     `처마 최대 반경 ${E.rRoot} < 나선 발치 안끝 ${(ROOM_STAIR_ROUT - ROOM_STAIR_WIDTH / 2).toFixed(2)} — 무간섭`)
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════
+//  ★★★118 착지 디스크 두껍게 (2026.08.05 현도 결정) — `discGeometry.js`
+//   ⚠두께와 슬롯 확장은 **한 몸**이다. 하나만 되돌리면 나선이 디스크를 뚫는다 — 아래 [S] 절이 그걸 박는다.
+// ══════════════════════════════════════════════════════════════════════════
+console.log('\n── ★118 착지 디스크 ──')
+{
+  const { discSpec, buildDisc, slotTunnelBite } = await import('./discGeometry.js')
+  const {
+    DISC_MODE, ROOM_DISC_CHAMF, ROOM_LAND_R: LR8, ROOM_DISC_HOLE: RH8,
+    ROOM_R: RR8, ROOM_HEIGHT: RH_8, ROOM_FLOOR_Y: RF8, ROOM_OCULUS_R: OR8,
+    COR_Y0: CY8, COR_THICK: CT8, ROOM_TOP_AZ: TAZ8, ROOM_STAIR_WIDTH: SW8,
+    RAD_ANG0: RA8, RAD_T_HW: RTHW8, RAD_WALL_R0: RW08, SUP_HEAD_MIN: SHM8,
+  } = await import('./constants.js')
+  const { spiralSpec } = await import('./axiomSpiralGeometry.js')
+  const D = 180 / Math.PI
+  const S = discSpec()
+
+  //  [D1] 윗면은 안 움직인다 — 걷는 면이자 문지방이 물린 레벨. 두께를 아래로만 늘린 근거.
+  ok(Math.abs(S.yTop - (CY8 + CT8 / 2 + 0.02)) < 1e-12,
+    `윗면 ${S.yTop.toFixed(3)} = 통로 접합 파생(불변) — 두께는 아래로만 자란다`)
+
+  //  [D2] 두께가 **파생**이다 — 하드코딩 금지(ROOM_R·오큘러스·LIFT_Y를 밀면 따라온다)
+  const yOcRef = RF8 + RH_8 * Math.sqrt(1 - (OR8 / RR8) ** 2)
+  ok(Math.abs(S.yOculus - yOcRef) < 1e-12, `오큘러스 림 높이 ${S.yOculus.toFixed(4)} = 타원체에서 역산(파생)`)
+  if (DISC_MODE === 'thick') {
+    ok(Math.abs(S.yBot - S.yOculus) < 1e-12,
+      `★밑면 ${S.yBot.toFixed(4)} = 오큘러스 림 — 구판의 "림 위 1.827 허공" 단차 소멸(현도 채택)`)
+    ok(Math.abs(S.thick - 2.1765) < 1e-3, `두께 ${S.thick.toFixed(4)} (구 0.35의 ${(S.thick / 0.35).toFixed(1)}배)`)
+  } else ok(true, `DISC_MODE='thin' — 구세계(두께 ${S.thick})`)
+
+  //  [D3] 절대 상한 — 바깥 모서리 r18이 셸 곡면을 뚫지 않는다(★118 ⓒ)
+  ok(S.shellSafe, `밑면 ${S.yBot.toFixed(4)} ≥ 셸이 r${LR8}에 닿는 높이 ${S.yShellAtRim.toFixed(4)} ` +
+    `— 여유 ${(S.yBot - S.yShellAtRim).toFixed(3)} (0 미만이면 디스크가 돔을 뚫는다)`)
+
+  //  [D4] 챔퍼 클램프 — 노브를 밀어도 매스가 안 뒤집힌다(파생)
+  const bandW = LR8 - RH8
+  ok(S.chamf <= Math.min(S.thick * 0.5, bandW * 0.5) + 1e-12 && S.chamf >= 0,
+    `챔퍼 ${S.chamf} ≤ min(두께/2 ${(S.thick / 2).toFixed(2)}, 고리폭/2 ${(bandW / 2).toFixed(2)}) — 노브 ${ROOM_DISC_CHAMF} 자동 클램프`)
+  ok(S.chamf > 0 || ROOM_DISC_CHAMF === 0,
+    `§2-D 2 '속 찬 매스 + 깎인 밑면' — 챔퍼 ${S.chamf > 0 ? '적용' : '0(현도 직각 선택)'}`)
+
+  //  [D5] 슬롯 = 두께의 전제. 빈 폭 67° · 뒷끝이 도착각에 정확히 붙는다
+  const wB = ((S.wB % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)
+  if (DISC_MODE === 'thick') {
+    ok(Math.abs(wB - TAZ8) < 1e-12, `슬롯 뒷끝 ${(wB * D).toFixed(2)}° = 나선 도착각 ${(TAZ8 * D).toFixed(2)}°`)
+    ok(Math.abs(S.gap * D - 67) < 1e-9, `빈 슬롯 ${(S.gap * D).toFixed(2)}° (구판 59° + 8°)`)
+  }
+
+  //  [S] ★★핵심 불변식 — **나선이 디스크 살을 뚫지 않는다.** 표본을 폭 방향까지 훑어 적분한다
+  //   (★109 교훈: 공칭 파라미터가 아니라 표면을 훑어 조건을 적분해야 실제 기하가 잡힌다).
+  {
+    const sp = spiralSpec()
+    const norm = a => { let x = a % (Math.PI * 2); if (x > Math.PI) x -= Math.PI * 2; if (x <= -Math.PI) x += Math.PI * 2; return x }
+    //  디스크 살이 있는 방위인가 = 빈 슬롯 밖인가. 빈 슬롯 = 월드 (−(2π−t1의 월드) … ) → 정본에서 유도
+    const gapLo = norm(S.wA), gapHi = norm(S.wB)          // wA=−29.5° · wB=+37.5°
+    const inGap = az => { const a = norm(az); return a > gapLo + 1e-9 && a < gapHi - 1e-9 }
+    //  ★도착점은 슬롯 절단면에 **정확히 맞닿는다**(설계된 맞댐) — 경계 표본은 관입이 아니다.
+    //   ⚠이걸 눈감아 주는 대신 [F]에서 그 일치를 1e-12로 따로 박는다(느슨하게 넘어가지 않는다).
+    const FLUSH = 1e-6
+    let pierce = 0, worstClr = Infinity, worstAt = null, underN = 0, flushN = 0
+    const N = 12000
+    for (let i = 0; i <= N; i++) {
+      const L = sp.pathLen * i / N
+      const a = sp.atLen(L)
+      const rC = Math.hypot(a.x, a.z), az = Math.atan2(a.z, a.x)
+      const rIn = rC - SW8 / 2, rOut = rC + SW8 / 2
+      if (rIn >= LR8 || rOut <= RH8) continue              // 평면에서 고리 밖
+      if (inGap(az)) continue                              // 슬롯 = 살 없음
+      if (Math.abs(norm(az) - gapHi) < FLUSH) { flushN++; continue }   // 절단면 맞댐(측도 0)
+      underN++
+      const yT = sp.yTread(L)
+      if (yT > S.yBot + 1e-9) pierce++                     // 걷는 면이 디스크 살 안으로
+      const clr = S.yBot - yT
+      if (clr < worstClr) { worstClr = clr; worstAt = { L, rC, az, yT } }
+    }
+    ok(pierce === 0,
+      `★나선 ↔ 디스크 관입 표본 ${pierce}/${underN} = 0 — 구판은 도착 8°가 파고들어 있었다('슬래브 관입 36정점')`)
+    //  [F] 맞댐이 **정확한가** — 나선 끝 방위 = 슬롯 절단면. 어긋나면 틈(밟을 수 없는 자리)이거나 관입이다.
+    {
+      const aEnd = sp.atLen(sp.pathLen)
+      const azEnd = norm(Math.atan2(aEnd.z, aEnd.x))
+      ok(Math.abs(azEnd - gapHi) < 1e-12,
+        `★나선 끝 ${(azEnd * D).toFixed(4)}° = 슬롯 절단면 ${(gapHi * D).toFixed(4)}° — 정확한 맞댐(경계 표본 ${flushN})`)
+      ok(Math.abs(sp.yTopEnd - (S.yTop - 0.02)) < 1e-9,
+        `나선 도착 윗면 ${sp.yTopEnd.toFixed(3)} = 디스크 윗면 ${S.yTop.toFixed(3)} − 0.02 헤어라인(코플레이너 z파이팅 회피)`)
+    }
+    ok(worstClr >= 2.0,
+      `★최소 헤드룸 ${worstClr.toFixed(3)} @ az ${(worstAt.az * D).toFixed(1)}° · r${worstAt.rC.toFixed(2)} ` +
+      `(구속 = 슬롯 진입 직전 걷는면 ${worstAt.yT.toFixed(3)})`)
+    //  ★설계 중 예측(2.109)보다 실제가 낫다 — **단높이가 이산이기 때문**이다.
+    //   연속 램프로 근사하면 슬롯 진입점의 걷는 면을 97.034로 잡게 되는데, 그 단은 이미 **슬롯 안**이고
+    //   디스크 밑을 실제로 지나는 마지막 단의 윗면은 96.797이다. → 자기 기준 2.2를 넘긴다.
+    //   ⚠교훈: 계단 권역의 헤드룸은 램프 근사가 아니라 **밟는 면 단위**로 재야 한다(★104-2와 같은 계열).
+    ok(worstClr >= SHM8,
+      `헤드룸 ${worstClr.toFixed(3)} ≥ 자기 기준 SUP_HEAD_MIN ${SHM8} — 여유 ${(worstClr - SHM8).toFixed(3)} ` +
+      `(눈높이 1.6 기준 머리 위 ${(worstClr - 1.6).toFixed(2)} · 램프 근사 예측치는 2.109였다)`)
+  }
+
+  //  [D6] 45° 터널 쐐기 물림 = 선언된 비용(수치를 매 실행 소리 내어 보고)
+  {
+    const b = slotTunnelBite(RA8, RTHW8, RW08)
+    ok(b.maxArc <= 0.25,
+      `⚠선언된 비용 — 45° 터널 입구 쐐기 물림 호 ${b.maxArc.toFixed(3)} ≤ 0.25 ` +
+      `(반경대 ${b.rLo.toFixed(2)}~${b.rHi.toFixed(2)} · 최대 각 ${b.maxDeg.toFixed(2)}°)`)
+    ok(b.rCrit < LR8, `임계 반경 ${b.rCrit.toFixed(2)} < ${LR8} — 문 개구(r18 문폭)는 무손상`)
+  }
+
+  //  [D7] 기하 건전성 — 빌드된 메시에 직접 댄다(★110 교훈: '만들었다'와 '섰다'는 다른 질문)
+  {
+    const g = buildDisc()
+    const pos = g.getAttribute('position'), nor = g.getAttribute('normal')
+    let nan = 0, degn = 0, mism = 0, V = 0, badN = 0
+    for (let i = 0; i < pos.count; i += 3) {
+      const A = [pos.getX(i), pos.getY(i), pos.getZ(i)]
+      const B = [pos.getX(i + 1), pos.getY(i + 1), pos.getZ(i + 1)]
+      const C = [pos.getX(i + 2), pos.getY(i + 2), pos.getZ(i + 2)]
+      if (![...A, ...B, ...C].every(Number.isFinite)) { nan++; continue }
+      V += (A[0] * (B[1] * C[2] - B[2] * C[1]) - A[1] * (B[0] * C[2] - B[2] * C[0]) + A[2] * (B[0] * C[1] - B[1] * C[0])) / 6
+      const u = [B[0] - A[0], B[1] - A[1], B[2] - A[2]], v = [C[0] - A[0], C[1] - A[1], C[2] - A[2]]
+      const w = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
+      const Lw = Math.hypot(w[0], w[1], w[2])
+      if (Lw < 1e-9) { degn++; continue }
+      if ((w[0] * nor.getX(i) + w[1] * nor.getY(i) + w[2] * nor.getZ(i)) / Lw < 0) mism++
+    }
+    for (let i = 0; i < nor.count; i++)
+      if (Math.abs(Math.hypot(nor.getX(i), nor.getY(i), nor.getZ(i)) - 1) > 1e-3) badN++
+    ok(nan === 0 && degn === 0 && mism === 0 && badN === 0,
+      `NaN ${nan} · 퇴화 ${degn} · 감김↔법선 불일치 ${mism} · 비단위 법선 ${badN} — 전부 0 (삼각 ${pos.count / 3})`)
+    ok(V > 0, `부호 있는 부피 ${V.toFixed(1)} > 0 — 겉이 바깥을 본다`)
+    //  범위가 스펙과 정확히 일치(사본 없음의 증거)
+    let ymin = Infinity, ymax = -Infinity, rmin = Infinity, rmax = -Infinity
+    for (let i = 0; i < pos.count; i++) {
+      const y = pos.getY(i), r = Math.hypot(pos.getX(i), pos.getZ(i))
+      ymin = Math.min(ymin, y); ymax = Math.max(ymax, y); rmin = Math.min(rmin, r); rmax = Math.max(rmax, r)
+    }
+    ok(Math.abs(ymin - S.yBot) < 1e-4 && Math.abs(ymax - S.yTop) < 1e-4,
+      `메시 y ${ymin.toFixed(4)}~${ymax.toFixed(4)} = 스펙 ${S.yBot.toFixed(4)}~${S.yTop.toFixed(4)}`)
+    ok(Math.abs(rmin - RH8) < 1e-4 && Math.abs(rmax - LR8) < 1e-4,
+      `메시 r ${rmin.toFixed(3)}~${rmax.toFixed(3)} = 고리 ${RH8}~${LR8}`)
+  }
+
+  //  [D8] Room.jsx가 사본을 안 쓴다 + 밟는 면 태그 유지
+  {
+    const fs = await import('node:fs')
+    const src = fs.readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+    ok(/buildDisc\(\)/.test(src) && !/new THREE\.ExtrudeGeometry\(sh/.test(src),
+      'Room.jsx가 discGeometry.buildDisc()를 쓴다 — 구 ExtrudeGeometry 사본 제거')
+    ok(/geometry=\{discGeo\}[^>]*walkable: true/.test(src.replace(/\s+/g, ' ')),
+      '디스크 walkable 태그 유지 — 밟는 면(P3 보행 절이 읽는다)')
+  }
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} check_rooms: ${n - fail}/${n} 통과`)

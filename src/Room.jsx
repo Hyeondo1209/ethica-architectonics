@@ -4,6 +4,7 @@ import { useRef, useMemo, useLayoutEffect } from 'react'
 import * as THREE from 'three'
 import { Brush, Evaluator, HOLLOW_SUBTRACTION } from 'three-bvh-csg'
 import { GivenMonolith } from './Steles'
+import { buildDisc } from './discGeometry.js'
 import {
   ROOM_CX, ROOM_FLOOR_Y, ROOM_R, ROOM_CEIL_Y, ROOM_HEIGHT, ROOM_OCULUS,
   ROOM_CYL_TOP, ROOM_WELL_RT, ROOM_LAND_R, ROOM_DISC_SLOT_START, ROOM_DISC_SLOT_LEN, ROOM_DISC_HOLE,
@@ -126,14 +127,11 @@ export function DefAxiomRoom({ stairKind }) {
   // 빛우물 원뿔대 벽(빗면) — ★방사 개편(2026.07.09): 동쪽 박스 문 → 대각 터널 문 4개(45°+90°k).
   //  BOX_X0=54로 단축돼 박스는 더는 원뿔대에 안 닿음(동쪽 자동 봉인). 디스크 아래·문 위 벽은 남겨 가짜 구멍 방지 + 리브 시야 차단(스포).
   // === 원뿔대(빛우물) 벽: 대각 터널 구멍 4 + 돔(구)과 겹친 부분을 CSG로 정확히 빼기 (three-bvh-csg) ===
-  // ★착지 디스크 슬랩 지오(2026.07.11): 링 부채꼴(슬롯 유지)을 ROOM_STAIR_SLAB 두께로 압출. Shape θ = ring θ와 동일 규약(월드 = −θ)
-  const discGeo = useMemo(() => {
-    const t0 = ROOM_DISC_SLOT_START, t1 = ROOM_DISC_SLOT_START + ROOM_DISC_SLOT_LEN
-    const sh = new THREE.Shape()
-    sh.absarc(0, 0, ROOM_LAND_R, t0, t1, false)
-    sh.absarc(0, 0, ROOM_DISC_HOLE, t1, t0, true)
-    return new THREE.ExtrudeGeometry(sh, { depth: ROOM_STAIR_SLAB, bevelEnabled: false, curveSegments: 64 })
-  }, [])
+  // ★★★118 착지 디스크(2026.08.05 현도) — 얇은 압출 판 폐기, 정본 = `discGeometry.js`.
+  //  두께는 노브가 아니라 **파생**(윗면 − 오큘러스 림 = 2.177)이고, 밑모서리는 §2-D 2대로 깎인다.
+  //  ⚠구판은 `ExtrudeGeometry` + `position`으로 높이를 맞췄다 — 신판은 **월드 좌표로 직접** 짓는다
+  //   (두께가 파생이라 position 보정식이 두 곳에 흩어지면 반드시 어긋난다).
+  const discGeo = useMemo(() => buildDisc(), [])
   const wellCut = useMemo(() => {
     const ev = new Evaluator()
     ev.attributes = ['position', 'normal']
@@ -393,10 +391,11 @@ export function DefAxiomRoom({ stairKind }) {
       {DEF_OCT_ON && <DefOctagon />}   {/* ★101: 각뿔대가 서면 r26은 구멍 위 허공 — 정의는 감실로 간다(다음 조각) */}
       {AX_ON && <AxiomStations />}   {/* ★107: 어휘 재검토 중 소등(현도 08.03). 좌표·형태는 보존 — AX_ON 한 줄로 복귀 */}
       {/* 꼭대기 착지 디스크(고리) — 가운데를 뚫어(천장 개방) 나선이 그 구멍으로 올라오고 빛우물이 위로 트임. 바깥 고리(6~18)는 걷는 발판.
-          ★두께 슬랩화(2026.07.11): 두께 0 ring 판이 슬롯 가장자리에서 종잇장으로 보임 → 부양 판 어휘(ROOM_STAIR_SLAB=0.35)로 압출.
-          윗면 49.32(디딤판 꼭대기 49.3보다 +0.02 — 병합 구간 코플레이너 z파이팅 방지, 보행 단차 무감), 밑면 48.97 */}
-      <mesh geometry={discGeo} position={[0, COR_Y0 + COR_THICK / 2 + 0.02 - ROOM_STAIR_SLAB, 0]} rotation-x={-Math.PI / 2} userData={{ walkable: true }}>
-        <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.DoubleSide} />
+          ★★118(2026.08.05 현도): 두께 0.35 압출 판 → **속 찬 매스 2.177**. 밑면이 오큘러스 림 평면에 앉아
+          구판의 "디스크가 림 위 1.827 허공에 뜬" 단차가 소멸한다. 윗면 101.320은 불변(걷는 면·문지방 물림).
+          ⚠이제 닫힌 솔리드라 `side`는 FrontSide다(구판 DoubleSide는 종잇장이라 필요했던 것). */}
+      <mesh geometry={discGeo} userData={{ walkable: true }}>
+        <meshStandardMaterial color="#c2a062" roughness={0.9} />
       </mesh>
       {/* 솟은 원뿔대(빛 우물) — 위는 막혀 리브 가림(스포), +x(통로)쪽 아래는 출입문으로 트여 통로로 나감.
           올려다보면 좁은 꼭대기로 빛만 보이고, 정면(통로쪽)으론 걸어 나갈 문이 있음. */}

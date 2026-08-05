@@ -23,6 +23,7 @@
 //  ⚠수치 정본 = constants.js ★116 블록 주석. 여기엔 '어떻게'만 둔다.
 // ════════════════════════════════════════════════════════════════════
 import * as THREE from 'three'
+import { discSpec } from './discGeometry.js'
 import {
   ROOM_R, ROOM_HEIGHT, ROOM_FLOOR_Y, ROOM_OCULUS_R, wallR, SUP_WALL_CLR,
   RRIB_ON, RRIB_W, RRIB_T, RRIB_SEGS, RRIB_CLR,
@@ -71,7 +72,10 @@ export function roomRibSpec() {
     }
     return false
   }
-  const yDisc = COR_Y0 + 0.02 - ROOM_STAIR_SLAB                     // 착지 디스크 **밑면**
+  //  ★118(2026.08.05): 구판은 `COR_Y0 + 0.02 − SLAB` = 100.670이었는데 **실제 밑면은 100.970**이었다
+  //   (COR_THICK/2를 빠뜨린 사본). 디스크가 두꺼워지면서 이 오차가 1.83으로 커지므로 정본에서 읽는다.
+  //   ⚠보존계(`RRIB_ON=false`)라 지금은 안 그리지만, P2 이후 되살릴 때 머리가 허공에 뜨는 것을 막는다.
+  const yDisc = discSpec().yBot                                     // 착지 디스크 **밑면**(정본 = discGeometry)
   //  살마다: ⓐ 아가리까지 올라갈 수 있나 ⓑ 단차(아가리~디스크 밑면)에 머리를 놓을 수 있나
   const per = wb.edgeAz.map((az) => {
     let top = yOc

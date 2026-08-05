@@ -1,6 +1,7 @@
 // _probe_ceiling.mjs — ★110 진단: 방에서 **위를 볼 때 원판 앞을 가리는 것이 무엇인가**를 광선으로 센다.
 //  ⚠눈(셀프 렌더 이미지) 없이 판정하기 위한 도구다. 카메라에서 위쪽 반구로 광선을 쏘고,
 //   착지 디스크보다 **가까이서** 맞는 물체를 출처별로 집계한다 = 화면에서 원판 위에 얹혀 보이는 것들.
+import { buildDisc } from './discGeometry.js'
 import * as THREE from 'three'
 import { buildSpiralMass, buildSpiralColumns, buildSpiralBeams, beamSpec } from './axiomSpiralGeometry.js'
 import {
@@ -17,15 +18,8 @@ const objs = [
   mk(buildSpiralColumns(), '판 기둥'),
   mk(buildSpiralBeams(), '벽 보'),
 ]
-{ // 착지 디스크(REPLICA — Room.jsx 인자 복제)
-  const t0 = ROOM_DISC_SLOT_START, t1 = ROOM_DISC_SLOT_START + ROOM_DISC_SLOT_LEN
-  const sh = new THREE.Shape()
-  sh.absarc(0, 0, ROOM_LAND_R, t0, t1, false)
-  sh.absarc(0, 0, ROOM_DISC_HOLE, t1, t0, true)
-  const g = new THREE.ExtrudeGeometry(sh, { depth: ROOM_STAIR_SLAB, bevelEnabled: false, curveSegments: 64 })
-  g.rotateX(-Math.PI / 2)
-  g.translate(0, COR_Y0 + COR_THICK / 2 + 0.02 - ROOM_STAIR_SLAB, 0)
-  objs.push(mk(g, '착지 디스크'))
+{ // ★118: 사본 폐기 — 정본 `discGeometry.buildDisc()`를 그대로 부른다(월드 좌표라 변환도 없다)
+  objs.push(mk(buildDisc(), '착지 디스크'))
 }
 for (const o of objs) o.geometry.computeBoundingSphere()
 

@@ -13,8 +13,10 @@ import {
   RAD_CYL_SEG, RAD_CYL_CLIP_ROOM, RAD_CYL_DOOR_ON, RAD_CYL_DOOR_RING_ONLY, RAD_CYL_DOOR_M,
   RAD_CYL_TERM, RAD_CYL_TERM_BY, RAD_CYL_TERM_TOP_BY, RAD_CYL_TERM_CLEAR, RAD_CYL_SPH_SEG,
   RAD_CYL_MASS_ORB, RAD_CYL_MASS_DRUM, termSpec,
+  DISC_MODE, RAD_WALL_R0,
 } from './constants.js'
 import { makeRibCurve } from './ribGeometry.js'
+import { discSpec, slotTunnelBite } from './discGeometry.js'
 
 let pass = 0, fail = 0
 const ok = (name, cond, detail = '') => {
@@ -125,23 +127,53 @@ console.log('── 9. 나선 도착·디스크 슬롯 ↔ 터널(2026.07.11 ③
   const slotSpan = norm(s1w - s0)
   const arrive = norm(ROOM_STAIR_PHASE + ROOM_STAIR_TOTAL_ANG)
   ok('도착각 = ROOM_TOP_AZ', Math.abs(arrive - norm(ROOM_TOP_AZ)) < 1e-9, `${r2(deg(arrive))}°`)
-  ok('슬롯 뒷끝 = 도착각 − 8°(플러시 병합 구간 보존)', Math.abs(norm(arrive - s1w) - 8 * Math.PI / 180) < 1e-9,
-    `슬롯 ${r2(deg(s0))}°~${r2(deg(s1w))}°`)
-  // 각 터널 판 footprint(가장 넓은 r=12 기준)와 슬롯의 원호 간극 ≥ 3°
+  //  ★★★118(2026.08.05): 슬롯 뒷끝이 **도착각까지** 왔다(구판 8° 못 미침 = 관입 36정점의 몸).
+  //   두께 2.177의 전제이므로 둘은 한 몸으로 검사한다 — 하나만 바뀌면 나선이 디스크를 뚫는다.
+  ok(`슬롯 뒷끝 = 도착각${DISC_MODE === 'thick' ? '' : ' − 8°(구세계 플러시 병합)'}`,
+    Math.abs(norm(arrive - s1w) - (DISC_MODE === 'thick' ? 0 : 8 * Math.PI / 180)) < 1e-9,
+    `슬롯 ${r2(deg(s0))}°~${r2(deg(s1w))}° · 빈 폭 ${r2(360 - deg(slotSpan))}°`)
+
+  //  ⛔★118에서 적발한 **죽은 검사**(★83 계열) — 구판은 터널 판의 최대폭을 **r12**로 잡고 잼을 쟀다.
+  //   ★110(2026.08.04)이 언더플로어 시작을 r18.05로 밀면서 그 전제가 죽었다: 터널이 방위를 실제로
+  //   점유하기 시작하는 곳은 벽 시작 `RAD_WALL_R0`(15.5)다. r12는 문 자르개의 관통 여유일 뿐이다.
+  //   정본 = ⓐ 트인 개구(걸어 들어가는 문폭)는 절대 안 먹는다 ⓑ 나머지 셋은 3° 간극 ⓒ 벽 시작~임계
+  //   반경 사이의 쐐기 물림은 **선언된 비용**으로 매 실행 수치를 보고한다.
   const inSlot = (a) => norm(a - s0) < slotSpan
-  let worstClear = 999
-  for (let k = 0; k < 4; k++) {
-    const c = norm(RAD_ANG0 + k * Math.PI / 2)
-    const h = Math.asin(RAD_T_HW / 12)
-    for (const e of [c - h, c + h]) {
-      if (inSlot(norm(e))) { worstClear = -1; break }
-      worstClear = Math.min(worstClear, deg(Math.min(norm(norm(e) - s1w), norm(s0 - norm(e)))))
+  //  ⓐ 디스크 바깥 반경에서의 문폭 — 여기를 먹으면 문지방 바닥이 사라진다(★60·★62·★63 계열)
+  {
+    const hOpen = Math.asin(RAD_T_HW / ROOM_LAND_R)
+    let worstOpen = 999
+    for (let k = 0; k < 4; k++) {
+      const c = norm(RAD_ANG0 + k * Math.PI / 2)
+      for (const e of [c - hOpen, c + hOpen]) {
+        if (inSlot(norm(e))) { worstOpen = -1; break }
+        worstOpen = Math.min(worstOpen, deg(Math.min(norm(norm(e) - s1w), norm(s0 - norm(e)))))
+      }
     }
-    // 판 구간이 슬롯을 통째로 삼키는 경우도 배제(슬롯 끝점이 판 안인지)
-    const inPlate = (a) => norm(a - (c - h)) < 2 * h
-    if (inPlate(s0) || inPlate(s1w)) worstClear = -1
+    ok('★문 개구(r18 문폭)는 슬롯이 안 먹는다 — 문지방 바닥 보존', worstOpen > 0,
+      `최소 간극 ${r2(worstOpen)}° (45° 문 근접 잼 ${r2(45 - deg(hOpen))}° vs 슬롯 끝 ${r2(deg(norm(s1w)))}°)`)
   }
-  ok('터널 판 4 ↔ 슬롯 원호 간극 ≥ 3°', worstClear >= 3, `최소 ${r2(worstClear)}°`)
+  //  ⓑ 45° 이외 셋은 종전대로 3° 간극(슬롯의 반대쪽 가장자리가 315° 터널에 붙는지)
+  {
+    let worstFar = 999
+    for (let k = 1; k < 4; k++) {
+      const c = norm(RAD_ANG0 + k * Math.PI / 2)
+      const h = Math.asin(RAD_T_HW / RAD_WALL_R0)
+      for (const e of [c - h, c + h]) {
+        if (inSlot(norm(e))) { worstFar = -1; break }
+        worstFar = Math.min(worstFar, deg(Math.min(norm(norm(e) - s1w), norm(s0 - norm(e)))))
+      }
+    }
+    ok('45° 외 터널 셋 ↔ 슬롯 간극 ≥ 3° (벽 시작 r15.5 기준)', worstFar >= 3, `최소 ${r2(worstFar)}°`)
+  }
+  //  ⓒ ★선언된 비용 — 45° 터널 입구 안쪽 모서리의 쐐기 물림(현도 2026.08.05 수용)
+  {
+    const b = slotTunnelBite(RAD_ANG0, RAD_T_HW, RAD_WALL_R0)
+    const bound = 0.25
+    ok(`★선언된 비용 — 45° 터널 입구 쐐기 물림 호 ≤ ${bound}`, b.maxArc <= bound,
+      `반경대 ${r2(b.rLo)}~${r2(b.rHi)} · 최대 각 ${r2(b.maxDeg)}° · 호 ${b.maxArc.toFixed(3)} @ r${r2(b.atR)}` +
+      ` — 임계 반경 ${r2(b.rCrit)} 바깥에선 안 문다(문폭 무손상)`)
+  }
 }
 
 console.log('── 10. 접선 문 고리정렬(2026.07.11 ②a) ──')

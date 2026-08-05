@@ -2,6 +2,7 @@
 //  ⚠이 도구는 `render_views`의 room 사각지대를 뚫으려는 진단용이다. 나선 3종은 **실제 모듈**을 부르고,
 //   셸·디스크·빛우물은 Room.jsx의 인자를 **복제**한다(복제분은 아래 REPLICA 표시 — 정본 아님).
 //  사용: node src/_probe_roomview.mjs "x,y,z,yawDeg,pitchDeg" out.png [fov]
+import { buildDisc } from './discGeometry.js'
 import fs from 'fs'
 import { PNG } from 'pngjs'
 import * as THREE from 'three'
@@ -56,16 +57,9 @@ pushGeo(buildSpiralColumns(), 1)
 pushGeo(buildSpiralBeams(),   2)
 { const gV = buildAxiomVaults(); if (gV) pushGeo(gV, 8) }   // ★111 공리 볼트
 
-// ── REPLICA: 착지 디스크(고리 + 슬롯) ───────────────────────────
+// ── 착지 디스크 — ★118: REPLICA 폐기, 정본 호출(사본이 거짓말하던 자리) ──
 {
-  const t0 = ROOM_DISC_SLOT_START, t1 = ROOM_DISC_SLOT_START + ROOM_DISC_SLOT_LEN
-  const sh = new THREE.Shape()
-  sh.absarc(0, 0, ROOM_LAND_R, t0, t1, false)
-  sh.absarc(0, 0, ROOM_DISC_HOLE, t1, t0, true)
-  const g = nonIndexed(new THREE.ExtrudeGeometry(sh, { depth: ROOM_STAIR_SLAB, bevelEnabled: false, curveSegments: 64 }))
-  const m = new THREE.Matrix4().makeRotationX(-Math.PI / 2)
-  m.premultiply(new THREE.Matrix4().makeTranslation(0, COR_Y0 + COR_THICK / 2 + 0.02 - ROOM_STAIR_SLAB, 0))
-  pushGeo(g, 3, m)
+  pushGeo(nonIndexed(buildDisc()), 3, new THREE.Matrix4())
 }
 // ── REPLICA: 빛우물 원뿔대(문 CSG 생략) ─────────────────────────
 {
