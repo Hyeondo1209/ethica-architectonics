@@ -18,11 +18,13 @@ import {
   ROOM_DIM, ROOM_SHAFT_ON,
   NICHE_ON, NICHE_FLOOR, SLOT_ON, SLOT_STAIR,
   AX_ON, SPIRAL_BODY, SPIRAL_SUP,
+  WBASE_ON,
 } from './constants'
 import { pitSpec, slotSpec, buildPitWalls, buildPitRim, buildPitFloor, buildHoledSlab,
   buildNiches, buildNicheStairs, buildPitSlot, buildSlotStairs } from './defPitGeometry'   // ★101 각뿔대 · ★102 감실(순수 기하 — 사본 금지)
 import { buildSpiralMass, buildSpiralColumns, buildSpiralBeams } from './axiomSpiralGeometry'   // ★107 나선 매스 + 지지(순수 기하 — 사본 금지)
 import { buildAxiomVaults } from './axiomVaultGeometry'   // ★111 공리 볼트(문) — 총안 창 + 감실
+import { buildWallBase } from './wallBaseGeometry'   // ★114 벽 밑동 팔각 각뿔대(순수 기하 — 사본 금지)
 
 // ════════ 지하 정의·공리 방 ════════
 export function DefAxiomRoom({ stairKind }) {
@@ -212,6 +214,8 @@ export function DefAxiomRoom({ stairKind }) {
   const spiralBeamGeo = useMemo(() => (SPIRAL_BODY === 'mass' ? buildSpiralBeams() : null), [])
   //  ★111 공리 볼트 — 걷는 사람이 통과하는 문 7기(AX_VAULT_ON/LAYOUT은 기하 안의 스위치)
   const axVaultGeo = useMemo(() => (SPIRAL_BODY === 'mass' ? buildAxiomVaults() : null), [])
+  //  ★114 벽 밑동 — 셸 안쪽 − 팔각 각뿔대. 윗면 없음(셸이 잘라 아치 여덟을 만든다). 위상 두 체제.
+  const wallBaseGeo = useMemo(() => (WBASE_ON ? buildWallBase() : null), [])
   //  빛 하절의 밑끝 — 기본은 구세계(기단 위)에서 그대로 끊는다. 각뿔대가 뚫리면 '허공에서 잘린 빛'이
   //  보이는데, 그것을 **보고 판정하는 것**이 이번 조각의 목적 중 하나다(현도 지시). PIT_SHAFT_DROP로 전환.
   const SHAFT_BOT_Y = (PIT_ON && PIT_SHAFT_DROP) ? PIT.yBot : ROOM_FLOOR_Y + DAIS_H
@@ -243,6 +247,14 @@ export function DefAxiomRoom({ stairKind }) {
         <sphereGeometry args={[1, 48, 28, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2]} />
         <meshStandardMaterial color={P.shell} roughness={0.95} side={THREE.DoubleSide} fog={RFOG} />
       </mesh>
+      {/* ★114 벽 밑동 팔각 각뿔대(2026.08.05) — 셸과 바닥이 만나는 곳을 여덟 기운 평면으로 받는다.
+          윗면은 만들지 않는다: 셸이 잘라 가며 생기는 교선이 위로 볼록한 **아치 여덟**이 된다.
+          ⚠밟는 면 아님. ⚠새 색 없음 — 셸과 같은 석재(★113 원칙). 면이 수직에 가까워 셸보다 밝게 읽힌다. */}
+      {wallBaseGeo && (
+        <mesh geometry={wallBaseGeo} userData={{ walkable: false }}>
+          <meshStandardMaterial color={P.shell} roughness={0.95} fog={RFOG} />
+        </mesh>
+      )}
       {/* ★㊵ 주 바닥(수평 유지) — 구 내부를 반으로 가르는 수평 판 = 관람 레벨. 부양으로 지면(y0)과 분리돼
           구 z-fighting 근거는 소멸했으나 ROOM_FLOOR_LIFT(0.05)는 벽 밑선 봉합 여유로 유지.
           ★101(2026.08.02): PIT_ON이면 가운데에 팔각 구멍이 뚫린 **고리**가 된다(구멍 = 각뿔대 입술 바깥면). */}

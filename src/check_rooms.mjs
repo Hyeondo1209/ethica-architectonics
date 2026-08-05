@@ -48,6 +48,9 @@ import { spiralSpec, buildSpiralMass, buildSpiralColumns, buildSpiralBeams,
   columnSpec, beamSpec, beamProfile, beamHeadroom, unsupportedSpans, treadProbe,
   stationList, easeFor, frameAt } from './axiomSpiralGeometry.js'   // ★107 · ★109 · frameAt=★111
 import { vaultSpec, buildAxiomVaults } from './axiomVaultGeometry.js'   // ★111 공리 볼트
+import { wallBaseSpec, buildWallBase, beamBurial } from './wallBaseGeometry.js'   // ★114 벽 밑동
+import { WBASE_ON, WBASE_RB, WBASE_TILT, WBASE_H, WBASE_PHASE, WBASE_CLR } from './constants.js'
+import { beamSpec as _beamSpec } from './axiomSpiralGeometry.js'
 
 let n = 0, fail = 0
 const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
@@ -1545,6 +1548,83 @@ console.log('\n── ★107 공리 나선 — 매스 + 지지 ──')
   } else {
     ok(true, `SPIRAL_BODY='${SPIRAL_BODY}' — 구세계 낱장 141칸 보존계(현도 복귀 경로). 매스 절 건너뜀`)
   }
+}
+
+// ── ★114 벽 밑동 팔각 각뿔대 (2026.08.05) ──
+//  ⛔수직 각기둥 1차 시도는 현도 반려. 정본 = **기울인 각뿔대**(WBASE_TILT). 0을 주면 구 체제 복원.
+if (WBASE_ON) {
+  console.log('\n— ★114 벽 밑동 팔각 각뿔대 —')
+  const s114 = wallBaseSpec()
+  const g114 = buildWallBase()
+  const p114 = g114.getAttribute('position')
+  const n114 = g114.getAttribute('normal')
+
+  //  [1] 팔각이 바닥 원 안에 있는가 — 모서리 두께가 살아 있어야 밑동이 소멸하지 않는다
+  ok(WBASE_RB <= ROOM_R, `Rb ${WBASE_RB} ≤ 바닥 원 ${ROOM_R} — 넘으면 모서리에서 밑동이 사라진다`)
+  ok(s114.thickCorner >= 0,
+    `바닥 두께 모서리 ${s114.thickCorner.toFixed(2)} ≥ 0 · 면중심 ${s114.thickFace.toFixed(2)} (면중심이 항상 더 두껍다)`)
+  ok(s114.thickFace > s114.thickCorner,
+    `면중심 ${s114.thickFace.toFixed(2)} > 모서리 ${s114.thickCorner.toFixed(2)} — 팔각↔원의 필연`)
+
+  //  [2] ★외곽 불변 — 밑동은 셸 **안쪽**에만 있어야 한다(밖에서 보이면 안 된다)
+  let over = -1e9, nan = 0, below = 0, yMax = -1e9
+  for (let i = 0; i < p114.count; i++) {
+    const x = p114.getX(i), y = p114.getY(i), z = p114.getZ(i)
+    if (!isFinite(x + y + z)) { nan++; continue }
+    over = Math.max(over, Math.hypot(x, z) - (wallR(y) - WBASE_CLR))
+    if (y < ROOM_FLOOR_Y - 1e-6) below++
+    yMax = Math.max(yMax, y)
+  }
+  ok(nan === 0, `NaN 정점 ${nan}`)
+  ok(below === 0, `바닥(y${ROOM_FLOOR_Y}) 아래로 새는 정점 ${below}`)
+  ok(over < 1e-4, `셸 초과 최대 ${over.toExponential(2)} < 1e-4 (외곽 불변 — 밖에서 안 보인다)`)
+
+  //  [3] ★윗면 = **수평 절단면**(현도 3차 정정). 최고점이 H와 정확히 같아야 한다.
+  //   ⛔여기가 깨지면 반려된 '아치 여덟'이 되살아난 것이다.
+  ok(Math.abs(yMax - s114.yTop) < 1e-6,
+    `최고점 ${(yMax - ROOM_FLOOR_Y).toFixed(3)} = 절단 높이 H ${s114.H} — 윗면이 수평(아치 아님)`)
+  ok(s114.H < s114.hMax,
+    `절단 높이 ${s114.H} < 상한 ${s114.hMax.toFixed(2)}(모서리가 셸에 닿는 높이) — 넘기면 윗면이 끊긴다`)
+  ok(s114.topCorner > 0 && s114.topFace > s114.topCorner,
+    `윗면 고리 폭 모서리 ${s114.topCorner.toFixed(2)} / 면중심 ${s114.topFace.toFixed(2)} — 둘 다 살아 있고 면중심이 넓다`)
+
+  //  [4] 법선은 직접 찍는다(computeVertexNormals 금지 — 패싯 보존)
+  let nbad = 0
+  for (let i = 0; i < n114.count; i++)
+    if (Math.abs(Math.hypot(n114.getX(i), n114.getY(i), n114.getZ(i)) - 1) > 1e-4) nbad++
+  ok(nbad === 0, `비단위 법선 ${nbad} / ${n114.count}`)
+
+  //  [5] ★안쪽 면은 **평면**이다(각뿔대의 옆면 — 기울기는 균일). 여기가 무너지면 위 값 전부가 거짓이다.
+  const tn = Math.tan(WBASE_TILT * Math.PI / 180)
+  let planar = 0
+  for (const t of [-s114.w * 0.9, -s114.w * 0.4, 0, s114.w * 0.4, s114.w * 0.9])
+    for (const dy of [0, 3, 6, 9]) {
+      const y = ROOM_FLOOR_Y + dy
+      const d = s114.rhoAt(y, t) * Math.cos(Math.atan2(t, s114.a0))
+      planar = Math.max(planar, Math.abs(d - (s114.a0 - dy * tn)))
+    }
+  ok(planar < 1e-9, `안쪽 면 평면성 편차 ${planar.toExponential(2)} = 0 (기울기 ${WBASE_TILT}° 균일)`)
+
+  //  [6] 나선 발치 무접촉 — 밑동이 나선을 먹으면 안 된다
+  const clr114 = s114.a0 - (ROOM_STAIR_ROUT + ROOM_STAIR_WIDTH / 2)
+  ok(clr114 > 0, `나선 발치 여유 ${clr114.toFixed(2)} > 0 (밑동 면중심 ${s114.a0.toFixed(2)} vs 발치 바깥끝)`)
+
+  //  [7] 위상 — 정의 각뿔대와의 관계가 두 체제 중 하나여야 한다
+  ok(WBASE_PHASE === 'align' || WBASE_PHASE === 'counter',
+    `위상 '${WBASE_PHASE}' ∈ {align(모서리 맞춤) · counter(22.5° 대구)}`)
+
+  //  [8] ⚠**보 삼킴은 선언된 비용이다**(현도 2026.08.05 수용). 막지 않고 **매 실행 보고**한다.
+  //   안 삼키려면 Rb ≥ 65.4가 필요한데 64를 넘으면 모서리에서 밑동이 소멸한다 — 창이 비어 있다.
+  const bu114 = beamBurial(_beamSpec())
+  const lowestB = _beamSpec().reduce((m, b) => Math.min(m, b.yB), 1e9) - ROOM_FLOOR_Y
+  ok(s114.H > lowestB ? bu114.length > 0 : bu114.length === 0,
+    `보 삼킴 ${bu114.length}기 — H ${s114.H} vs 최저 보 밑면 ${lowestB.toFixed(2)} (H가 낮으면 무접촉이 **강제**된다)`)
+  ok(bu114.length === 0,
+    `보 무접촉 ✓ — 현도 최초 요구('보를 삼키지 않는 선')가 수평 절단으로 충족됐다. H를 ${lowestB.toFixed(2)} 위로 올리면 깨진다`)
+
+  //  [9] ⚠결합 감시 — 기울기를 키우면 끝높이가 올라가 삼킴이 는다. 보 배치를 바꿔도 움직인다.
+  ok(true,
+    `결합: H 상한 둘 — 보 무접촉 ${lowestB.toFixed(2)} · 윗면 연속 ${s114.hMax.toFixed(2)}. 둘 중 낮은 쪽이 실효 상한이다(현재 ${Math.min(lowestB, s114.hMax).toFixed(2)})`)
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} check_rooms: ${n - fail}/${n} 통과`)
