@@ -2,7 +2,7 @@
 //  RadialEvents.jsx — 1p1~4 방별 사건 + 방사 비석 4기 (2026.07.12)
 //  마운트 전용 박층: 실기하는 radialEventsGeometry.js(순수 모듈 — check_rooms 공유).
 //  대응(㉕ 확정): NE=1p1 볼록 바닥 · NW=1p2 두 볼트 천장 · SW=1p3 두 팔 · SE=1p4 분류표.
-//  방 단위 독립: Pn_ON(constants) = 폐기 스위치. 비석은 사건과 무관하게 항상 4기(상수층).
+//  방 단위 독립: Pn_ON(constants) = 폐기 스위치. 비석 4기도 P_STELE_ON 한 줄(⛔현행 false = 소등).
 //  재질 = 각 사건이 속한 매체의 색 그대로(§10: 색으로 사건을 구분하지 않음 —
 //  Radial.jsx MAT_FLOOR/MAT_SHELL/MAT_WALL과 동일 헥사).
 // ════════════════════════════════════════════════════════════════════
@@ -11,7 +11,7 @@ import * as THREE from 'three'
 import {
   RAD_R, RAD_ANG0, P_ROOM, P_FLOOR_TOP,
   P1_ON, P2_ON, P3_ON, P4_ON, P2_SHEAR_AZ, P3_AZ,
-  P_ST_X, P_ST_NEAR, P_ST_FAR,
+  P_ST_X, P_ST_NEAR, P_ST_FAR, P_STELE_ON,
 } from './constants.js'
 import { buildP1Swells, buildP2Shear, buildP3Pulls, buildP4A, p1HeightAt } from './radialEventsGeometry.js'
 import { PropStele } from './Steles.jsx'
@@ -84,9 +84,10 @@ function P4Event() {
   )
 }
 
-// ── 조립: 사건 4종 + 비석 4기 ──
+// ── 조립: 사건 4종 + 비석 4기(⛔P_STELE_ON=false로 소등 — 2026.08.05 현도) ──
 //  비석: 전 방 로컬 +x 벽 앞·허브 문(−x) 정면·어휘 4방 동일(PropStele 무수정 재사용 —
 //  글자 페이드는 월드좌표라 회전 그룹 안에서도 정상). NE만 볼록 바닥 위 base 보정(살짝 매몰).
+//  ⚠소등해도 p1Lift 계산은 남긴다 — 복귀 시 P1 노브 변경분을 자동 추종해야 하고, 값 자체는 사건 기하다.
 export function RadialEvents() {
   const p1Lift = P1_ON ? p1HeightAt(P_ST_X, 0) - 0.08 : 0
   return (
@@ -95,7 +96,7 @@ export function RadialEvents() {
       {P2_ON && <PetalFrame k={P_ROOM.p2}><P2ShearCeilings /></PetalFrame>}
       {P3_ON && <PetalFrame k={P_ROOM.p3}><P3CeilingPulls /></PetalFrame>}
       {P4_ON && <PetalFrame k={P_ROOM.p4}><P4Event /></PetalFrame>}
-      {[['1p1', P_ROOM.p1, p1Lift], ['1p2', P_ROOM.p2, 0], ['1p3', P_ROOM.p3, 0], ['1p4', P_ROOM.p4, 0]].map(([id, k, lift]) => (
+      {P_STELE_ON && [['1p1', P_ROOM.p1, p1Lift], ['1p2', P_ROOM.p2, 0], ['1p3', P_ROOM.p3, 0], ['1p4', P_ROOM.p4, 0]].map(([id, k, lift]) => (
         <PetalFrame key={id} k={k}>
           <PropStele id={id} x={P_ST_X} z={0} faceY={P_FLOOR_TOP + lift} near={P_ST_NEAR} far={P_ST_FAR} />
         </PetalFrame>

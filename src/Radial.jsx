@@ -8,8 +8,9 @@
 import { useMemo } from 'react'
 import * as THREE from 'three'
 import { Brush, Evaluator, HOLLOW_SUBTRACTION, INTERSECTION } from 'three-bvh-csg'
+import { ascSpec, ascDoorCut, buildAscentMass, buildAscentWalls, buildAscentCeiling } from './ascentTunnelGeometry.js'
 import {
-  domeClipY, COR_Y0, COR_THICK, BOX_HW,
+  domeClipY, COR_Y0, COR_THICK, BOX_HW, RAD_ASC_ON,
   ROOM_LAND_R, ROOM_WELL_RT, ROOM_CEIL_Y, ROOM_CYL_TOP,
   RAD_ANG0, RAD_R, RAD_PRX, RAD_PRY, RAD_PCY,
   RAD_T_HW, RAD_TOP, RAD_DOOR_H, RAD_DOOR_HW, RAD_ARC_IN,
@@ -90,9 +91,18 @@ function buildPetalShell() {
     acc = ev.evaluate(acc, b, HOLLOW_SUBTRACTION); acc.updateMatrixWorld()
   }
   // 안쪽 문(허브 터널, −x): 터널이 정확히 방사축 위 → 축정렬 컷 그대로
+  //  ★119: 상승 체제에서도 존치(현도 2026.08.05 "우선 남겨봐") — 구 수평 터널이 꺼지면 이 문은
+  //  허공(상승 관 밑)으로 열린다. 선언된 상태 — 로컬 판정 후 봉인 여부 재결정.
   {
     const g = new THREE.BoxGeometry(8, H, RAD_DOOR_HW * 2)
     g.translate(-RAD_PRX + 1, YMID, 0)
+    cutBrush(g)
+  }
+  // ★★★119 상부 문(상승 터널 도착, −x 허브면 · 진입 바닥 RAD_ASC_Y1): 컷 바닥 = 평지 매스 안(슬리버 0)
+  if (RAD_ASC_ON) {
+    const c = ascDoorCut()
+    const g = new THREE.BoxGeometry(c.w, c.h, c.d)
+    g.translate(-RAD_PRX + 1, c.cy, 0)
     cutBrush(g)
   }
   // ★접선 문 2(고리 ±z) — 고리 정렬 컷(2026.07.11 ②a). 고리 중심선은 로컬 원(중심 (−R,0), 반경 R):
@@ -403,18 +413,42 @@ function ArcSection({ phi0, phi1, boxStart = false, boxEnd = false }) {
 // ── ★문틀(2026.07.11, 현도 지정): 잼 2 + 상인방 1. 꽃잎 로컬 프레임에서 문 3곳에 배치(등형 — 4방 동일) ──
 //  문틀이 셸 표면을 앞뒤로 걸쳐(깊이 FR_D) 곡면 이음선·구멍 가장자리(±2.3)·튜브 끝을 전부 몸통 안에 삼킨다.
 //  로컬: 깊이축 = group z / 좌우 = group x. 문지방(단차)은 안 올림 — 바닥판 윗면이 그대로 문지방(보행 무단차).
-function DoorFrame({ position, rotY, depth = FR_D }) {
+//  ★119 높이 일반화: yFloor/yDoorTop/yLinTop 프롭 신설(기본값 = 구 문 12곳 — 호출부 무수정).
+//  상부 문틀은 같은 어법을 진입 바닥 높이에서 재사용한다(잼 2 + 상인방 1 · 이음선을 몸통이 삼킴).
+function DoorFrame({ position, rotY, depth = FR_D, yFloor = Y_FTOP, yDoorTop = DTOP, yLinTop = LIN_TOP }) {
   return (
     <group position={position} rotation-y={rotY}>
       {[1, -1].map((sg) => (
-        <mesh key={sg} position={[sg * (RAD_T_HW + FR_T / 2), (Y_FTOP + DTOP) / 2, 0]}>
-          <boxGeometry args={[FR_T, JAMB_H, depth]} />
+        <mesh key={sg} position={[sg * (RAD_T_HW + FR_T / 2), (yFloor + yDoorTop) / 2, 0]}>
+          <boxGeometry args={[FR_T, yDoorTop - yFloor, depth]} />
           <meshStandardMaterial color={MAT_WALL} roughness={0.9} />
         </mesh>
       ))}
-      <mesh position={[0, (DTOP + LIN_TOP) / 2, 0]}>
-        <boxGeometry args={[FR_OUT * 2, LIN_TOP - DTOP, depth]} />
+      <mesh position={[0, (yDoorTop + yLinTop) / 2, 0]}>
+        <boxGeometry args={[FR_OUT * 2, yLinTop - yDoorTop, depth]} />
         <meshStandardMaterial color={MAT_WALL} roughness={0.9} />
+      </mesh>
+    </group>
+  )
+}
+
+// ── ★★★119 상승 터널(2026.08.05 현도 스케치): 허브→방 접근 = 오르는 계단 관 ──
+//  기하 정본 = ascentTunnelGeometry.js(순수 모듈 — check_radial 공유). 로컬 +x 프레임 한 번 → 4회 회전(등형).
+//  구 수평 터널(Tunnel)은 RAD_ASC_ON=false로 복귀하는 보존계.
+function AscentTunnel({ ang }) {
+  const massGeo = useMemo(buildAscentMass, [])
+  const wallGeo = useMemo(buildAscentWalls, [])
+  const ceilGeo = useMemo(buildAscentCeiling, [])
+  return (
+    <group rotation-y={-ang}>
+      <mesh geometry={massGeo} userData={{ walkable: true }}>
+        <meshStandardMaterial color={MAT_FLOOR} roughness={0.9} />
+      </mesh>
+      <mesh geometry={wallGeo}>
+        <meshStandardMaterial color={MAT_WALL} roughness={0.9} side={THREE.DoubleSide} />
+      </mesh>
+      <mesh geometry={ceilGeo}>
+        <meshStandardMaterial color={MAT_WALL} roughness={0.9} side={THREE.DoubleSide} />
       </mesh>
     </group>
   )
@@ -461,6 +495,12 @@ export function RadialRooms() {
           ))}
           {/* ★문틀 3(방사 1 + 접선 2) — 접선은 고리 중심선 위(FR_C 지점)·접선 방향 회전 */}
           <DoorFrame position={[-FR_C, 0, 0]} rotY={Math.PI / 2} />
+          {/* ★119 상부 문틀 — 같은 어법의 높이 일반화(파생 = ascSpec, 걸침에 컷 바닥 포함) */}
+          {RAD_ASC_ON && (() => {
+            const S = ascSpec()
+            return <DoorFrame position={[-S.frC, 0, 0]} rotY={Math.PI / 2} depth={S.frD}
+              yFloor={S.y1} yDoorTop={S.doorTop} yLinTop={S.linTop} />
+          })()}
           {(() => {
             const dc = 2 * Math.asin(FR_C / (2 * RAD_R))            // 중심거리 FR_C가 되는 고리 각 오프셋
             const fx = RAD_R * (Math.cos(dc) - 1), fz = RAD_R * Math.sin(dc)
@@ -470,8 +510,8 @@ export function RadialRooms() {
           })()}
         </group>
       ))}
-      {/* 대각 터널 4 */}
-      {angs.map((ang, k) => <Tunnel key={k} ang={ang} />)}
+      {/* 대각 터널 4 — ★119 체제: 상승 관 ↔ 구 수평 관(보존계) */}
+      {angs.map((ang, k) => RAD_ASC_ON ? <AscentTunnel key={k} ang={ang} /> : <Tunnel key={k} ang={ang} />)}
       {/* ★허브 문틀 4(원뿔대 문, 2026.07.11) — 사면 걸침 깊이(HFR_D)로 원뿔 이음선·벽 시작 모서리·컷 림을 삼킴 */}
       {angs.map((ang, k) => (
         <DoorFrame key={'h' + k} position={[HFR_C * Math.cos(ang), 0, HFR_C * Math.sin(ang)]}

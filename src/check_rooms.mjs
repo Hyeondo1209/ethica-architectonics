@@ -11,7 +11,7 @@ import {
   RAD_DROP, RAD_ST_N, RAD_ST_T, RAD_ST_LAND, RAD_ST_W,
   P2_SHEAR_Z, P2_EDGE_A, P2_EDGE_B, P2_RIM_A, P2_RIM_B,
   P3_GRAZE_GAP, P3_TIP_CLEAR, P3_REACH_MAX,
-  P4_TILT_MAX, P4_PATH_HW, P4_SCALE, P_ST_X, P_ST_NEAR, P_ST_FAR, P_SPAWN_LX,
+  P4_TILT_MAX, P4_PATH_HW, P4_SCALE, P_ST_X, P_ST_NEAR, P_ST_FAR, P_STELE_ON, P_SPAWN_LX,
   RAD_ANG0, RAD_R,
 } from './constants.js'
 import {
@@ -277,8 +277,18 @@ console.log('── 진입 계단(★계란화 — 문 3곳 × 4방) ──')
     `스폰(|${P_SPAWN_LX}|)이 허브 계단 발치(${foot.toFixed(2)})보다 ≥1.0 안쪽 — 계단 위 스폰 방지`)
 }
 
-console.log('── 방사 비석 4기 ──')
+console.log(`── 방사 비석 4기 (${P_STELE_ON ? '점등' : '⛔소등 — 보존계'}) ──`)
 {
+  //  ★2026.08.05 소등(현도 "4가지 방의 비석 전부 없애줘"). ⚠소등을 '검사 삭제'로 처리하지 않는다 —
+  //   ★83(죽은 검사) 계열을 또 내지 않으려면 ⓐ 소등이 **실제로 배선됐는지**를 재고
+  //   ⓑ 보존계 수치 검사는 계속 돌려 복귀 시점에 즉시 깨지게 둔다.
+  const REV_SRC = readFileSync(new URL('./RadialEvents.jsx', import.meta.url), 'utf8')
+  ok(/P_STELE_ON\s*&&\s*\[\['1p1'/.test(REV_SRC),
+    `마운트가 P_STELE_ON에 배선돼 있다 — 스위치가 실제로 4기를 끈다(현행 ${P_STELE_ON})`)
+  ok(/PropStele/.test(REV_SRC) && /P_ST_X/.test(REV_SRC),
+    '보존계 유지: PropStele 마운트 코드·좌표가 소스에 그대로 남아 있다(한 줄로 복귀)')
+
+  //  ↓ 아래 넷 = 보존계 수치(소등 중에도 돈다). 복귀 노브를 켰을 때 자리가 이미 어긋나 있는 일을 막는다.
   ok(P_ST_X + 0.8 <= petalR(P_FLOOR_TOP) - 0.05, `비석 x(${P_ST_X}) + 받침 뒷단 ≤ 물리 바닥단 (+x 벽 앞)`)
   ok(P_ST_NEAR < P_ST_FAR && P_ST_FAR >= 25, `페이드 near(${P_ST_NEAR}) < far(${P_ST_FAR}) — 문에서 어렴풋·다가가면 선명`)
   const stLift = p1HeightAt(P_ST_X, 0)
@@ -306,7 +316,9 @@ console.log('── 검수 스폰(NE) ──')
   ok(Number.isFinite(lift) && lift >= 0, `스폰 보정값 유효(${lift.toFixed(3)}) — 모드 ${'A' /* 라벨용 */}·B 공통`)
   ok(Math.abs(P_SPAWN_LX) + 1.0 <= P_FLOOR_R, `스폰 |x|(${Math.abs(P_SPAWN_LX)}) 바닥 원판 안`)
   const toStele = P_ST_X - P_SPAWN_LX
-  ok(toStele < P_ST_FAR && toStele > P_ST_NEAR, `스폰→비석 ${toStele.toFixed(1)} ∈ (near ${P_ST_NEAR}, far ${P_ST_FAR}) — 글자가 어렴풋이 뜬 채 시작`)
+  ok(toStele < P_ST_FAR && toStele > P_ST_NEAR,
+    `스폰→+x 벽 기준점 ${toStele.toFixed(1)} ∈ (near ${P_ST_NEAR}, far ${P_ST_FAR})` +
+    (P_STELE_ON ? ' — 글자가 어렴풋이 뜬 채 시작' : ' — ⛔비석 소등 중이라 지금은 담체 없음(보존계 수치)'))
 }
 
 

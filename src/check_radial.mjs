@@ -1,5 +1,6 @@
 // check_radial.mjs — 방사 복합체 의미 검증(실제 constants.js import + CSG 스모크). 리포 루트서 node src/check_radial.mjs
 import * as THREE from 'three'
+import { readFileSync } from 'node:fs'
 import { Brush, Evaluator, HOLLOW_SUBTRACTION } from 'three-bvh-csg'
 import {
   domeClipY, ROOM_R, ROOM_CEIL_Y, ROOM_LAND_R, ROOM_WELL_RT, ROOM_CYL_TOP,
@@ -683,6 +684,99 @@ console.log('── 15. 모듈 평가 스모크(런타임 상수 오류 — TDZ 
     evalOk = false; msg = (e.stderr || e.stdout || '').toString().split('\n')[0]
   }
   ok('Radial.jsx 번들 평가(임포트+계단 CSG) 성공', evalOk, msg)
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  ★★★119 상승 터널(2026.08.05 셋째 대화) — 허브→방 접근 = 오르는 계단 관
+//  잣대: ⓐ 유도가 닫힌 식(표본 무의존 — ★118 교훈)에서 나오고 ⓑ 계단 규격이 전례 대역
+//  (★80 나팔 30° 상한·rise 0.24 씨앗) 안이며 ⓒ 문틀이 컷 림·관 끝을 실제로 삼키고
+//  ⓓ 체제 스위치·보존계·셸 컷 게이트가 소스에 배선돼 있다.
+// ════════════════════════════════════════════════════════════════════
+{
+  const { ascSpec, ascDoorCut } = await import('./ascentTunnelGeometry.js')
+  const { RAD_ASC_ON, RAD_ASC_Y1, RAD_ASC_RISE_SEED, RAD_UNDER_LIP, petalR } = await import('./constants.js')
+  const S = ascSpec()
+  console.log(`\n── ★119 상승 터널 (${RAD_ASC_ON ? '점등' : '⛔소등 — 구 수평 체제'}) ──`)
+
+  // ⓐ 유도·결합
+  ok('상승 = 문지방→새 문지방(닫힌 식)', Math.abs(S.rise - (RAD_ASC_Y1 - (RAD_FLOOR_Y + COR_THICK / 2))) < 1e-9,
+    `rise ${S.rise.toFixed(3)}`)
+  ok('매스 시작 = 디스크 결합(ROOM_LAND_R + 립) 승계', Math.abs(S.s0 - (ROOM_LAND_R + RAD_UNDER_LIP)) < 1e-9,
+    `s0 ${S.s0} — ROOM_LAND_R를 밀면 따라온다(★110 결합)`)
+  ok('벽 시작 = RAD_WALL_R0(허브 문틀 몸통 안 — 어귀 접속 불변)', Math.abs(S.sWall0 - RAD_WALL_R0) < 1e-9)
+  ok('연직 내부고 = 구 터널 승계(RAD_TOP − 문지방)', Math.abs(S.clear - (RAD_TOP - S.y0)) < 1e-9,
+    `${S.clear.toFixed(2)} — RAD_TOP 노브에 자동 추종`)
+  ok('셸 면 스테이션 = petalR(y1) 파생', Math.abs(S.sFace - (RAD_R - petalR(S.y1))) < 1e-9, `sFace ${S.sFace.toFixed(2)}`)
+
+  // ⓑ 계단 규격(전례 대역)
+  ok('경사 ≤ 30°(★80 나팔 상한)', S.slopeDeg <= 30 + 1e-9, `${S.slopeDeg.toFixed(2)}°`)
+  ok('단높이 ∈ [0.20, 0.30](씨앗 0.24 근방)', S.stepRise >= 0.20 && S.stepRise <= 0.30,
+    `${S.stepRise.toFixed(4)} × ${S.N}단`)
+  ok('단높이 × 단수 = 상승(잔차 0)', Math.abs(S.stepRise * S.N - S.rise) < 1e-9)
+  ok('디딤 ≥ 0.40(★80 0.416 계열)', S.tread >= 0.40, `${S.tread.toFixed(3)}`)
+  ok('어귀 평지 ≥ 1.0(디스크 이탈 직후 단차 방지)', S.sSt0 - S.s0 >= 1.0, `${(S.sSt0 - S.s0).toFixed(2)}`)
+  ok('문 앞 평지 ≥ 1.0', S.sFace - S.sSt1 >= 1.0, `${(S.sFace - S.sSt1).toFixed(2)}`)
+  ok('최소 헤드룸 = 연직고(단코에서 정확히)', S.clear >= 4.4, `${S.clear.toFixed(2)} ≥ 4.4`)
+
+  // ⓒ 문 이음 — 문틀이 실제로 삼키는가(닫힌 식)
+  ok('관 끝이 문틀 몸통 안(구 TUBE_END 규칙)', S.sTube1 < RAD_R - S.frBack, 
+    `끝 ${S.sTube1.toFixed(2)} < 뒷면 ${(RAD_R - S.frBack).toFixed(2)}`)
+  ok('문틀 앞면이 컷 바닥 림을 삼킴(걸침에 컷 바닥 포함 — 구 규칙 확장)',
+    S.frFront >= petalR(S.cutBot) + 0.2, `앞 ${S.frFront.toFixed(2)} ≥ 면 ${petalR(S.cutBot).toFixed(2)} + 0.2`)
+  ok('문틀 뒷면이 상인방 상단 림을 삼킴', S.frBack <= Math.sqrt(Math.max(0.25, petalR(S.linTop) ** 2 - S.frOut ** 2)) - 0.2 + 1e-9,
+    `뒤 ${S.frBack.toFixed(2)}`)
+  ok('컷 폭(4.6) < 잼 바깥(5.4) — 컷 가장자리 삼킴', RAD_DOOR_HW * 2 < S.frOut * 2)
+  {
+    const c = ascDoorCut()
+    const faces = [S.cutBot, S.y1, S.doorTop].map(y => petalR(y))
+    const x0 = RAD_PRX - 1 - c.w / 2, x1 = RAD_PRX - 1 + c.w / 2   // 컷 상자 로컬 |x| 범위
+    ok('컷 상자가 셸 면을 전 높이에서 관통', faces.every(f => f > x0 && f < x1),
+      `면 ${faces.map(r2).join('·')} ∈ (${x0}, ${x1})`)
+    ok('노브 상한 준수: y1 ≤ y1Max(문+상인방이 셸 정수리 안)', RAD_ASC_Y1 <= S.y1Max,
+      `${RAD_ASC_Y1} ≤ ${S.y1Max.toFixed(2)} — 안전 대역 [${(S.y0 + 2).toFixed(0)}, ${S.y1Max.toFixed(1)}]`)
+  }
+
+  // 구 문·구 터널과의 관계(선언된 상태 감시)
+  {
+    const soffitAtOld = S.chordY(RAD_R - RAD_PRX + 1) - S.massT   // 구 셸 문 스테이션 부근 매스 밑면
+    ok('상승 매스가 구 문(상인방 106.6) 위로 통과 — 구 문 존치와 무간섭',
+      soffitAtOld > RAD_TOP + 0.6, `밑면 ${soffitAtOld.toFixed(1)} > ${(RAD_TOP + 0.6).toFixed(1)}`)
+  }
+
+  // ★119-감김: 매스는 단면 재질 — 오감김 = 비가시(현도 로컬 적발 2026.08.05 "계단 전면부가 안 보여":
+  //  챌면 120면 전원 +x·디딤 −y였음. 셀프 렌더 사각지대 — 부호 부피·방향 센서스로 잠근다)
+  {
+    const { buildAscentMass } = await import('./ascentTunnelGeometry.js')
+    const g = buildAscentMass()
+    const pos = g.attributes.position.array, idx = g.index.array
+    let vol = 0, riserWrong = 0, riserN = 0, up = 0
+    for (let i = 0; i < idx.length; i += 3) {
+      const [a, b, c] = [idx[i], idx[i + 1], idx[i + 2]].map(j => [pos[3 * j], pos[3 * j + 1], pos[3 * j + 2]])
+      const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
+      const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
+      const L = Math.hypot(...n); if (L < 1e-12) continue
+      vol += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6
+      const cx = (a[0] + b[0] + c[0]) / 3
+      if (Math.abs(n[0] / L) > 0.99 && cx > S.sSt0 + 0.01 && cx <= S.sSt1 + 0.01) { riserN++; if (n[0] / L > 0) riserWrong++ }   // 마지막 챌면 = 정확히 sSt1
+      if (n[1] / L > 0.99) up++
+    }
+    const analytic = 2 * S.massHW * ((S.massT - S.stepRise / 2) * S.runSt + S.massT * ((S.sSt0 - S.s0) + (S.sTube1 - S.sSt1)))
+    ok('★감김: 부호 부피 ≈ 해석값(닫힌 매스·전면 바깥)', vol > 0 && vol / analytic > 0.95 && vol / analytic < 1.10,
+      `${vol.toFixed(1)} / ${analytic.toFixed(1)} = ${(vol / analytic).toFixed(3)}`)
+    ok('★감김: 챌면 전원 −x(오르는 사람 정면 — 단면 재질 가시)', riserN >= S.N * 2 && riserWrong === 0,
+      `오감김 ${riserWrong}/${riserN}`)
+    ok('★감김: 위 보는 면 ≥ 단수(디딤이 하늘을 본다)', up >= S.N, `${up} ≥ ${S.N}`)
+  }
+
+  // ⓓ 배선(소스 — 스위치가 실제로 작동하는가·보존계·게이트)
+  {
+    const RSRC = readFileSync(new URL('./Radial.jsx', import.meta.url), 'utf8')
+    ok('체제 스위치 배선: RAD_ASC_ON ? AscentTunnel : Tunnel', /RAD_ASC_ON \? <AscentTunnel[\s\S]{0,40}: <Tunnel/.test(RSRC))
+    ok('보존계: 구 Tunnel 함수 존속(한 줄 복귀)', /function Tunnel\(\{ ang \}\)/.test(RSRC))
+    ok('셸 상부 컷 게이트: if (RAD_ASC_ON) 안 ascDoorCut', /if \(RAD_ASC_ON\) \{[\s\S]{0,120}ascDoorCut/.test(RSRC))
+    ok('상부 문틀 = DoorFrame 높이 일반화 재사용(신규 어법 아님)', /yFloor=\{S\.y1\}/.test(RSRC))
+    ok('매스 walkable 태그', /AscentTunnel[\s\S]{0,400}walkable: true/.test(RSRC))
+  }
 }
 
 console.log(`\n결과: ${pass} 통과 / ${fail} 실패`)

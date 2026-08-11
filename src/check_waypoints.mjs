@@ -141,9 +141,9 @@ for (const [id, k] of [['p1', 0], ['p2', 1], ['p3', 2], ['p4', 3]]) {
   const lz = -w.x * Math.sin(ang) + w.z * Math.cos(ang)
   ok(Math.hypot(lx, lz) < P_FLOOR_R - 1,
     `${id} 로컬(${lx.toFixed(1)}, ${lz.toFixed(1)}) — 바닥 반경 ${P_FLOOR_R.toFixed(2)} 안(여유 1)`)
-  ok(lx < 0, `${id} 발판이 허브 문 쪽(−x) — 비석(x=${P_ST_X})을 마주보고 선다`)
+  ok(lx < 0, `${id} 발판이 허브 문 쪽(−x) — +x 벽(x=${P_ST_X} 기준점)을 마주보고 선다 ⚠비석 소등 중`)
   ok(w.y >= P_FLOOR_TOP - 1e-9, `${id} y=${w.y.toFixed(2)} ≥ 평바닥 ${P_FLOOR_TOP.toFixed(2)}`)
-  ok(dot2(fwd(w.yaw), [Math.cos(ang), Math.sin(ang)]) > 0.99, `${id} 시선 = 로컬 +x(비석 벽) 정면`)
+  ok(dot2(fwd(w.yaw), [Math.cos(ang), Math.sin(ang)]) > 0.99, `${id} 시선 = 로컬 +x(막힌 벽 — 구 비석 벽) 정면`)
   ok(Math.hypot(lx, lz) < petalR(w.y + EYE) - 0.3,
     `${id} 눈높이 ${(w.y + EYE).toFixed(1)}에서 셸 내면 반경 ${petalR(w.y + EYE).toFixed(2)} 안`)
 }
@@ -1259,7 +1259,9 @@ console.log('\n— W. 보행 (FREE_WALK를 끄면 걸어서 완주할 수 있는
       ['Dome.jsx',          72, 21, 4, 6],   // ★87 +1 = MirrorPads · ★90 +1 = 리드 연결 계단 · ★93 +1 = 하판 고리판(전부 walkable)
       ['GraphScaffold.jsx',  1,  0, 0, 0],
       ['Lens.jsx',           1,  0, 0, 0],
-      ['Radial.jsx',        12,  5, 0, 0],   // ★91 +1 = 원기둥 받침(밟는 면 아님 — 매달린 관벽)
+      //  ★119(08.05) +3 = 상승 터널 매스(walkable)+벽+천장. 센서스는 소스 기준(★116 전례 — 게이트 무관):
+      //  구 Tunnel 3메시도 보존계로 남아 함께 세어진다. 체제를 바꿔도 이 수는 불변.
+      ['Radial.jsx',        15,  6, 0, 0],   // ★91 +1 = 원기둥 받침(밟는 면 아님) · ★119 +3
       ['RadialEvents.jsx',   6,  1, 0, 0],
       ['Room.jsx',          32, 12, 0, 12],   // ★117(08.05) +1 = 감실 처마 8기(false — 밟는 면 아님) · ★116(08.05) +1 = 방 돔 살 8기 — ⛔현도 반려로 RRIB_ON=false(보존계). 마운트 자체는 남아 있어 인벤토리 수는 유지 · ★115(08.05) +1 = 방 돔 살 8기(false — 밟는 면 아님) · ★115(08.05) +1 = 뿌리 십자 마구리(false — 밟는 면 아님) · ★114(08.05) +1 = 벽 밑동 팔각 각뿔대(false — 밟는 면 아님) · ★111(08.04) +1 = 공리 볼트(문) 7기(false — 아치 안 밟는 면은 코일이 담당) · ★107(08.03) +3 = 나선 매스(walkable) + ②기둥·①보(false) · ★101(08.02) +5 = 판 고리·각뿔대 입술·바닥 슬래브·기단 고리 분기 + 빗면(false) · ★102 +3 = 감실 바닥·ⓑ계단(walkable) + 감실 천장/옆/뒤(false) · ★103 +2 = 슬롯 바닥(walkable) + 슬롯 옆·뒷벽(false) · ★104 +1 = 꺾인 상승 계단(walkable)
       ['Steles.jsx',         5,  0, 0, 0],
