@@ -13,6 +13,7 @@ import {
   RSP_PARA_H, RSP_PARA_T, RSP_WIN_SILL, RSP_WIN_TOP, RSP_WIN_MARG,
   RSP_ENCL, RSP_CLR, RSP_WALL_T, RSP_LAND_MARG, RSP_BRIDGE_R, RSP_WFR_T, RSP_WFR_D, RSP_WFR_IN,
   RSP_CLEAR, RSP_SKIRT_H, RSP_SKIRT_D, RSP_SKIRT_IN, RSP_SKIRT_BACK, ASC_JUNC_HW, RSP_BR_BITE, RSP_BR_IN, RSP_LAND_BITE,
+  RSP_WIN_ON, RSP_WIN_LOW_ON, RSP_WFR_JAMB_DR,
 } from './constants.js'
 import { ascSpec } from './ascentTunnelGeometry.js'
 import { orientOutward } from './orientGeo.js'   // ★122-d 감김 자동 정렬
@@ -67,6 +68,14 @@ export function extSpiralSpec() {
     for (let k = 0; k <= 8; k++) m = Math.max(m, wallR(lo + (hi - lo) * k / 8))
     return m
   }
+  //  ★★123: 포탈의 **먼 쪽** = 셸. 가까운 쪽(wallR)은 하반부에서 원기둥이 된다.
+  //  요소의 세로 범위 최대 반경 기준(★122-O 규율)은 셸에도 그대로 적용한다.
+  const shellRMax = (ya, yb) => {
+    let m = 0
+    const lo = Math.min(ya, yb), hi = Math.max(ya, yb)
+    for (let k = 0; k <= 8; k++) m = Math.max(m, shellR(lo + (hi - lo) * k / 8))
+    return m
+  }
   const rIn = (y) => wallR(y) + RSP_CLEAR
   const stepY = (k) => y0 - rise * k                // 단 k 발판(k=0 = 문지방 레벨 → 마지막 단 = yEnd)
   //  ★122-b 층계참 → ★★122-e 대칭화(2026.08.12 현도 3차 "1번 여전히 이상해" 실측 결과):
@@ -87,7 +96,7 @@ export function extSpiralSpec() {
     doorAz, FR_C, dc, W: RSP_W, massT: RSP_MASS_T, wallR, rIn, yAt, stepY, shellR,
     turns: sweep / (2 * Math.PI),
     paraH: RSP_PARA_H, paraT: RSP_PARA_T,
-    landA0, landA1, phiL0, phiL1, clr: RSP_CLR, wallRMax, wallT: RSP_WALL_T, bridgeR: RSP_BRIDGE_R,
+    landA0, landA1, phiL0, phiL1, clr: RSP_CLR, wallRMax, shellRMax, wallT: RSP_WALL_T, bridgeR: RSP_BRIDGE_R,
   }
 }
 
@@ -372,13 +381,45 @@ export function windowSegs() {
   for (let i = 0; i < M; i++) {
     const a = S.phiStep0 + S.dir * S.sweepStep * i / M, b = S.phiStep0 + S.dir * S.sweepStep * (i + 1) / M
     const yA = S.yAt(a), yB = S.yAt(b)
-    if (Math.min(yA, yB) + RSP_WIN_SILL < RAD_CYL_Y0) continue     // 하반부(이중벽) = 다음 조각
+    //  ★★123: 하반부(이중벽 포탈) 개방 — 끄면 ★122 상태(상반부 단일벽만)로 한 줄 복귀
+    if (!RSP_WIN_LOW_ON && Math.min(yA, yB) + RSP_WIN_SILL < RAD_CYL_Y0) continue
     const offA = S.dir > 0 ? a - S.phiStep0 : S.phiStep0 - a
     const offB = S.dir > 0 ? S.phiEnd - b : b - S.phiEnd
     if (offA < RSP_WIN_MARG || offB < RSP_WIN_MARG) continue
     segs.push([a, b, yA, yB])
   }
   return segs
+}
+
+//  ★★★123 원기둥 개구용 — "이 방위에서 나선 창은 어느 높이 대역인가"의 **닫힌 역산**(격자 탐색 아님).
+//  나선은 방위 a를 최대 두 번 지난다(1.23바퀴). 원기둥은 적도 아래에만 있으므로, 창 대역을
+//  적도로 자른 뒤 남는 것이 원기둥 개구다 — 상반부 통과분은 자동으로 빈 대역이 되어 탈락한다.
+//  ⚠정본 = windowSegs()의 실제 양끝(문틀 마진 포함) — 리본과 개구가 같은 곳에서 시작·끝난다.
+export function winBandAt(a) {
+  if (!(RSP_ON && RSP_WIN_ON && RSP_WIN_LOW_ON)) return null
+  const S = extSpiralSpec()
+  const segs = windowSegs()
+  if (!segs.length) return null
+  const pA = segs[0][0], pB = segs[segs.length - 1][1]
+  const lo = Math.min(pA, pB), hi = Math.max(pA, pB)
+  for (let k = Math.ceil((lo - a) / (2 * Math.PI)); ; k++) {
+    const phi = a + k * 2 * Math.PI
+    if (phi > hi + 1e-12) break
+    if (phi < lo - 1e-12) continue
+    const y = S.yAt(phi)
+    const b0 = y + RSP_WIN_SILL, b1 = Math.min(y + RSP_WIN_TOP, RAD_CYL_Y0)
+    if (b1 - b0 > 1e-9) return [b0, b1]        // 상반부 통과분은 b1 ≤ b0 → 여기서 탈락
+  }
+  return null
+}
+
+//  ★구간 [a0,a1]에서 **보수적**(교집합) 대역 — 원기둥 개구가 창턱·인방 판 **몸통 안**에 들도록.
+//  규율 ④: 판이 개구를 삼키는 쪽이므로 개구가 좁아야 가장자리가 숨는다.
+export function winBandOver(a0, a1) {
+  const A = winBandAt(a0), B = winBandAt(a1)
+  if (!A || !B) return null
+  const lo = Math.max(A[0], B[0]), hi = Math.min(A[1], B[1])
+  return hi - lo > 1e-9 ? [lo, hi] : null
 }
 
 export function extWindowRibbonGeo() {
@@ -431,10 +472,13 @@ export function buildExtWindowFrame() {
     //  독립 6면 박스(단 블록 정신 — watertight·감김 단순) 하나를 만드는 로컬 공장
     const box = (a, b, y0a, y1a, y0b, y1b) => {
       const ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b)
-      //  ★122-R ③: 안쪽 관입은 WFR_IN(0.09)만 — 구 WFR_D/2(0.3)가 방 안 얇은 띠였다.
+      //  ★122-R ③: 안쪽 관입은 WFR_IN만 — 구 WFR_D/2가 방 안 얇은 띠였다.
       //  세로 범위 최대 반경 기준(★122-O 규율) · 바깥은 WFR_D−IN으로 두껍게 남는다.
-      const rIa0 = S.wallRMax(y0a, y1a) - RSP_WFR_IN, rIa1 = rIa0 + RSP_WFR_D
-      const rIb0 = S.wallRMax(y0b, y1b) - RSP_WFR_IN, rIb1 = rIb0 + RSP_WFR_D
+      //  ★★123: 판이 **두 rim을 다 삼킨다** — 먼 쪽(셸 컷 단면) ~ 가까운 쪽(원기둥 컷 단면).
+      //   상반부는 셸 = 원기둥이므로 rIa1 = rIa0 + WFR_D로 **축퇴**한다(구 식과 동일 — 분기 없음).
+      //   하반부에서만 판이 포탈 깊이만큼 길어져 창턱·인방이 된다(현도 ⓐ "드러낸다").
+      const rIa0 = S.shellRMax(y0a, y1a) - RSP_WFR_IN, rIa1 = S.wallRMax(y0a, y1a) + (RSP_WFR_D - RSP_WFR_IN)
+      const rIb0 = S.shellRMax(y0b, y1b) - RSP_WFR_IN, rIb1 = S.wallRMax(y0b, y1b) + (RSP_WFR_D - RSP_WFR_IN)
       const fw = (b > a)
       const V = {
         ai0b: [rIa0 * ca, y0a, rIa0 * sa], ai1b: [rIa1 * ca, y0a, rIa1 * sa],
@@ -457,14 +501,24 @@ export function buildExtWindowFrame() {
       box(a, b, yA + RSP_WIN_TOP - RSP_WFR_T / 2, yA + RSP_WIN_TOP + RSP_WFR_T / 2,
              yB + RSP_WIN_TOP - RSP_WFR_T / 2, yB + RSP_WIN_TOP + RSP_WFR_T / 2)        // 상연
     }
-    //  양끝 수직 몰딩(리본 절단면 — sill−T/2 ~ top+T/2 전高)
+    //  ★★★125 양끝 수직 몰딩(잼) — **셸 곡률 추종**(현도 3차: "직각삼각형 틈")
+    //  ⚠구판은 세로 전 범위(2.25)를 박스 하나로 잡고 `shellRMax` 한 값을 썼다 → 그 범위에서 셸 반경이
+    //   0.76 변하므로 반대편 끝이 그만큼 벌어졌다(끝0 위 +0.372 · 끝1 아래 +0.339 = 삼각형 틈).
+    //  ★수리 = ★122-L 어법(관 외피 끝 캡 세로 12분할) 재사용: 잼을 세로로 쪼개면 `box()`가 조각마다
+    //   그 높이의 `shellRMax`·`wallRMax`를 다시 잡으므로 **추종은 저절로** 된다(새 식 없음).
+    //  ★분할 수 = 파생: 조각당 반경 변화 ≤ `RSP_WFR_JAMB_DR`. 노브(SILL·TOP·y1)를 밀면 따라온다.
     for (const end of [0, 1]) {
       const seg = segs[end === 0 ? 0 : segs.length - 1]
       const phi = end === 0 ? seg[0] : seg[1]
       const y = end === 0 ? seg[2] : seg[3]
       const dA = 0.032 * (end === 0 ? 1 : -1) * Math.sign(segs[0][1] - segs[0][0])
-      box(phi, phi + dA, y + RSP_WIN_SILL - RSP_WFR_T / 2, y + RSP_WIN_TOP + RSP_WFR_T / 2,
-                          y + RSP_WIN_SILL - RSP_WFR_T / 2, y + RSP_WIN_TOP + RSP_WFR_T / 2)
+      const yA = y + RSP_WIN_SILL - RSP_WFR_T / 2, yB = y + RSP_WIN_TOP + RSP_WFR_T / 2
+      const dr = Math.abs(S.shellR(yB) - S.shellR(yA))
+      const nSub = RSP_WFR_JAMB_DR > 0 ? Math.max(1, Math.min(48, Math.ceil(dr / RSP_WFR_JAMB_DR))) : 1
+      for (let k = 0; k < nSub; k++) {
+        const s0 = yA + (yB - yA) * k / nSub, s1 = yA + (yB - yA) * (k + 1) / nSub
+        box(phi, phi + dA, s0, s1, s0, s1)
+      }
     }
   })
 }

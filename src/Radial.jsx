@@ -9,7 +9,7 @@ import { useMemo } from 'react'
 import * as THREE from 'three'
 import { Brush, Evaluator, HOLLOW_SUBTRACTION, INTERSECTION } from 'three-bvh-csg'
 import { ascSpec, ascDoorCut, buildAscentMass, buildAscentWalls, buildAscentCeiling, buildAscentColumns, buildAscentOverlook, buildAscentMouthSill } from './ascentTunnelGeometry.js'
-import { extSpiralSpec, buildExtSpiral, buildExtSpiralParapet, buildExtSpiralShell, buildExtSpiralSkirt, buildExtSpiralBridge, buildExtWindowFrame, extWindowRibbonGeo } from './extSpiralGeometry.js'   // ★122·★122-b·★122-c
+import { extSpiralSpec, buildExtSpiral, buildExtSpiralParapet, buildExtSpiralShell, buildExtSpiralSkirt, buildExtSpiralBridge, buildExtWindowFrame, extWindowRibbonGeo, winBandAt, winBandOver } from './extSpiralGeometry.js'   // ★122·★122-b·★122-c·★123
 import {
   domeClipY, COR_Y0, COR_THICK, BOX_HW, RAD_ASC_ON, HUB_DOOR_GATE,
   RAD_RING_ON, RSP_ON, RSP_WIN_ON,
@@ -24,6 +24,7 @@ import {
   RAD_CYL_ON, RAD_CYL_R, RAD_CYL_Y0, RAD_CYL_SEG, RAD_CYL_CLIP_ROOM,
   RAD_CYL_TERM_BY, RAD_CYL_TERM_TOP_BY, RAD_CYL_SPH_SEG, termSpec,
   RAD_CYL_DOOR_ON, RAD_CYL_DOOR_RING_ONLY, RAD_CYL_DOOR_M, CYL_TAN_DOOR_M,
+  RAD_CYL_COLLAR_ON, RAD_CYL_COLLAR_T,
 } from './constants'
 
 const MAT_WALL  = '#b89a6a'   // 터널·고리(통로 외피와 같은 가족)
@@ -81,6 +82,73 @@ function quadGeo(build) {
   const g = new THREE.BufferGeometry()
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
   g.setIndex(idx); g.computeVertexNormals()
+  return g
+}
+
+//  ★124: 검사 하네스(임시 디렉터리 번들)는 상대 임포트를 못 쓴다 → 나선 기하를 여기서 재수출한다.
+//  ⚠사본이 아니라 **재수출**이다(정본 = extSpiralGeometry.js 한 곳).
+export { buildExtWindowFrame, winBandAt, winBandOver } from './extSpiralGeometry.js'
+
+// ── ★★★123 적도 칼라(2026.08.12) — 원기둥 상단(적도)과 셸 사이 **환형 입**을 닫는 평판 링 ──
+//  ⚠발견 경위 = 실측: 통로 안 적도 바로 위에서 아래로 쏜 광선이 36방위 중 **27**에서 아무것도 안 맞고
+//   환형 공동으로 떨어졌다(원기둥 말단 y −20까지 관통). ★122까지는 하반부에 창이 없어 안 보였을 뿐이다.
+//  ★★124(현도 로컬 판정 — 스크린샷 + HUD 좌표): *"창 사이의 아주 얇은 링, 이물로 읽혀. 없애줘."*
+//   좌표를 풀어 확정 = NE 꽃잎 로컬 r18.64 φ32.6° y108.85. 그 시점을 레이캐스트로 렌더하니
+//   **칼라가 창 개구 한가운데를 수평으로 가로지르고 있었다**(화면 0.91%). 실측: 방위 **18.3°~85.3°(67°)**
+//   구간에서 창 상단이 적도 위로 올라가 창이 적도를 점유한다 = 그 구간에서 칼라는 창을 가로지른다.
+//  ⛔**내 잘못 = 규율 반복**: ★122-h에서 굽도리로 똑같은 실수를 하고 \"문 앞에는 문턱을 두지 않는다 —
+//   몰딩·굽도리를 두를 때 **모든 개구를 비우는지 전수 확인**\"을 규율로 적어 놓고, 칼라를 만들며 안 지켰다.
+//  ★수리 = 개구 방위에서 칼라를 **비운다**. 봉인은 무손상이다: 개구 안에서는 원기둥·셸이 이미 둘 다
+//   뚫려 있어 그 자리가 '공동'이 아니라 **창의 깊이**이고, 공동이 옆으로 새는 것은 개구 **밖**의 온전한
+//   원기둥·셸이 막는다(그 위는 칼라가 그대로 닫는다).
+//  ★관입 0(규율 ⑦): 안 반경 = **셸 적도 다각형의 그 방위 표면 반경**(닫힌 식 — 정점에서 RAD_PRX,
+//   변 중앙에서 PRX·cos(π/N)). 균등 48 정점만 쓰던 구판은 개구 경계각을 넣는 순간 새그(0.034)만큼
+//   방 안으로 튀었을 것이다 — 반경을 방위 파생으로 바꿔 **경계각을 자유롭게 넣을 수 있게** 했다.
+export function buildCylCollar() {
+  const pos = [], nrm = []
+  if (!(RAD_CYL_ON && RAD_CYL_COLLAR_ON)) {
+    const g0 = new THREE.BufferGeometry()
+    g0.setAttribute('position', new THREE.Float32BufferAttribute([], 3))
+    g0.setAttribute('normal', new THREE.Float32BufferAttribute([], 3))
+    return g0
+  }
+  const N = RAD_CYL_SEG, y = RAD_CYL_Y0, TAU = Math.PI * 2
+  //  셸 적도 다각형 표면 반경(방위 파생 — 정점 사이에서 안쪽으로 새그)
+  const step = TAU / N
+  const shellPolyR = (a) => {
+    const t = ((a % step) + step) % step - step / 2
+    return RAD_PRX * Math.cos(Math.PI / N) / Math.cos(t)
+  }
+  //  ★124: 창이 적도를 점유하는 방위 = 칼라가 개구를 가로지르는 방위 → 비운다
+  const crosses = (a) => {
+    const b = winBandAt(((a % TAU) + TAU) % TAU)
+    return !!b && b[1] >= RAD_CYL_Y0 - 1e-9
+  }
+  //  각 스테이션 = 균등 N + 개구 경계각(이분법 — 원기둥 문 어법과 동일)
+  const angs = []
+  for (let i = 0; i <= N; i++) angs.push((i / N) * TAU)
+  {
+    const FINE = N * 24
+    for (let i = 0; i < FINE; i++) {
+      let a0 = (i / FINE) * TAU, a1 = ((i + 1) / FINE) * TAU
+      if (crosses(a0) === crosses(a1)) continue
+      for (let q = 0; q < 40; q++) { const m = (a0 + a1) / 2; if (crosses(m) === crosses(a0)) a0 = m; else a1 = m }
+      angs.push((a0 + a1) / 2 - 1e-9, (a0 + a1) / 2 + 1e-9)
+    }
+  }
+  angs.sort((u, v) => u - v)
+  const put = (a, r) => { pos.push(r * Math.cos(a), y, r * Math.sin(a)); nrm.push(0, 1, 0) }
+  for (let i = 0; i < angs.length - 1; i++) {
+    const a0 = angs[i], a1 = angs[i + 1]
+    if (a1 - a0 < 1e-7) continue
+    if (crosses((a0 + a1) / 2)) continue          // ★124: 개구 구간은 비운다
+    //  감김 = 위(+y)를 보도록: (a0,안) → (a1,밖) → (a0,밖) / (a0,안) → (a1,안) → (a1,밖)
+    put(a0, shellPolyR(a0)); put(a1, RAD_CYL_R); put(a0, RAD_CYL_R)
+    put(a0, shellPolyR(a0)); put(a1, shellPolyR(a1)); put(a1, RAD_CYL_R)
+  }
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3))
   return g
 }
 
@@ -180,11 +248,27 @@ export function buildCylSkirt(k) {
     return [ROOM_FLOOR_Y - ROOM_HEIGHT * t, ROOM_FLOOR_Y + ROOM_HEIGHT * t]
   }
 
+  //  ★★★123 나선 하반부 창 개구(현도 ⓐ): 정본 = extSpiralGeometry.winBandAt()의 닫힌 역산.
+  //  ⚠구간 판정은 **보수적 교집합**(winBandOver) — 개구가 창턱·인방 판 몸통 안에 들어야
+  //   가장자리가 숨는다(규율 ④ · 판이 삼키는 쪽). 각 스테이션은 아래에서 리본 세그마다 넣는다.
+  const winSpan = (a0, a1) => (RAD_CYL_DOOR_ON ? winBandOver(a0, a1) : null)
+
   //  ★열 각도 = 균등 N + 문 경계각(이분법). 말단도 같은 각 목록을 쓴다 → 이음매에서 정점이 맞물린다.
   const angs = []
   for (let i = 0; i <= N; i++) angs.push((i / N) * Math.PI * 2)
+  //  ★123: 창 개구 가장자리는 방위에 따라 높이가 변한다 → 리본 세그와 같은 밀도로 스테이션을 넣어
+  //   계단 오차를 판 두께(RSP_WFR_T/2) 훨씬 아래로 낮춘다(균일 분할만 쓰면 세그가 경계를 뭉갠다 — ★122-h 실측 전례).
+  if (RAD_CYL_DOOR_ON && RSP_ON && RSP_WIN_ON) {
+    const SS = extSpiralSpec()
+    const M2 = SS.N * 4
+    for (let i = 0; i <= M2; i++) {
+      let a = SS.phiStep0 + SS.dir * SS.sweepStep * i / M2
+      a = ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)
+      angs.push(a)
+    }
+  }
   if (RAD_CYL_DOOR_ON) {
-    const isIn = (a) => doorAt(a) != null
+    const isIn = (a) => doorAt(a) != null || winBandAt(a) != null
     const FINE = N * 24
     for (let i = 0; i < FINE; i++) {
       let a0 = (i / FINE) * Math.PI * 2, a1 = ((i + 1) / FINE) * Math.PI * 2
@@ -205,15 +289,27 @@ export function buildCylSkirt(k) {
     const a0 = angs[i], a1 = angs[i + 1]
     if (a1 - a0 < 1e-7) continue
     const [rb0, rt0] = roomAt(a0), [rb1, rt1] = roomAt(a1)
-    const dr = doorAt((a0 + a1) / 2)
-    const dLo0 = dr ? Math.max(dr[0], rt0) : RAD_CYL_Y0
-    const dLo1 = dr ? Math.max(dr[0], rt1) : RAD_CYL_Y0
-    const dHi = dr ? dr[1] : RAD_CYL_Y0
-    for (const [lo0, hi0, lo1, hi1] of [
-      [TOP, rb0, TOP, rb1],          // 방 아래쪽(말단 꼭대기까지)
-      [rt0, dLo0, rt1, dLo1],        // 방 위 ~ 문 밑
-      [dHi, RAD_CYL_Y0, dHi, RAD_CYL_Y0],   // 문 위 인방
-    ]) {
+    //  ★★★123: 개구가 이제 **둘 이상**일 수 있다(문 + 나선 하반부 창) → 목록으로 일반화한다.
+    //  ⚠구 코드는 개구 하나를 전제로 세 밴드를 박아 뒀다. 겹치면 병합하고, 떨어져 있으면
+    //   사이 벽을 남긴다(고리 복귀 체제에서 +z 문과 창이 같은 방위를 지나는 경우가 실제로 있다).
+    const ops = []
+    const dr = doorAt((a0 + a1) / 2); if (dr) ops.push([dr[0], dr[1]])
+    const wr = winSpan(a0, a1); if (wr) ops.push([wr[0], wr[1]])
+    ops.sort((u, v) => u[0] - v[0])
+    const mg = []
+    for (const o of ops) {
+      const L = mg[mg.length - 1]
+      if (L && o[0] <= L[1] + 1e-9) L[1] = Math.max(L[1], o[1]); else mg.push([o[0], o[1]])
+    }
+    const bands = [[TOP, rb0, TOP, rb1]]        // 방 아래쪽(말단 꼭대기까지)
+    let c0 = rt0, c1 = rt1                       // 방 위에서 시작해 개구를 하나씩 건너뛴다
+    for (const [oLo, oHi] of mg) {
+      const cut = Math.min(Math.max(oLo, 0), RAD_CYL_Y0)
+      bands.push([c0, Math.max(c0, cut), c1, Math.max(c1, cut)])
+      c0 = Math.max(c0, oHi); c1 = Math.max(c1, oHi)
+    }
+    bands.push([c0, RAD_CYL_Y0, c1, RAD_CYL_Y0])   // 마지막 개구 위 인방
+    for (const [lo0, hi0, lo1, hi1] of bands) {
       if (hi0 - lo0 < 1e-9 && hi1 - lo1 < 1e-9) continue
       put(a0, lo0, R, 1, 0); put(a0, hi0, R, 1, 0); put(a1, hi1, R, 1, 0)
       put(a0, lo0, R, 1, 0); put(a1, hi1, R, 1, 0); put(a1, lo1, R, 1, 0)
@@ -520,6 +616,7 @@ export function RadialRooms() {
     bridge: buildExtSpiralBridge(), // ★122-d
   }), [])   // ★122·★122-b·★122-c
   const cylGeos = useMemo(() => [0, 1, 2, 3].map(buildCylSkirt), [])   // ★말단이 넷 다 달라 개별 기하
+  const collarGeo = useMemo(buildCylCollar, [])   // ★123 적도 칼라(넷 동일 — 말단과 무관)
   const stairGeos = useMemo(buildStairs, [])
   const angs = [0, 1, 2, 3].map(k => RAD_ANG0 + k * Math.PI / 2)
   // 고리: 온호 3(꽃잎 사이) + 동측 반호 2(박스 옆벽 z=±6에서 종단 — 접합문)
@@ -542,6 +639,12 @@ export function RadialRooms() {
           {/* ★원기둥 받침(2026.07.30) — 셸 적도에서 아래로. 재질은 셸과 같게 = 한 몸으로 읽힘(Claude 값·P2에서 재판정) */}
           {RAD_CYL_ON && (
             <mesh geometry={cylGeos[k]}>
+              <meshStandardMaterial color={MAT_SHELL} roughness={0.88} side={THREE.DoubleSide} />
+            </mesh>
+          )}
+          {/* ★123 적도 칼라 — 원기둥 상단 ↔ 셸 적도 환형 입 봉인(하반부 창에서 공동이 보이는 것을 막는다) */}
+          {RAD_CYL_ON && RAD_CYL_COLLAR_ON && (
+            <mesh geometry={collarGeo} userData={{ walkable: false }}>
               <meshStandardMaterial color={MAT_SHELL} roughness={0.88} side={THREE.DoubleSide} />
             </mesh>
           )}

@@ -559,6 +559,30 @@ console.log('── 15. 모듈 평가 스모크(런타임 상수 오류 — TDZ 
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   let evalOk = true, msg = ''
+  //  ★★★123: 하반부 창이 원기둥을 뚫으면서 **구 세계 전제 검사 셋의 의미가 뒤집혔다**(규율 ⑨).
+  //   수치를 고치지 않고 **파생**으로 바꾼다 — 정본 = extSpiralGeometry.winBandAt() 한 곳.
+  //   ⓐ 허브 봉인 광선 대역: 창 밴드와 겹치지 않는 높이까지만 센다(겹치면 "창으로 새는 것"을 문 누출로 오독).
+  //   ⓑ 통로 30° 밖 벽 census · ⓒ 인방: 그 방위의 창 밴드를 알고 판정해야 한다.
+  const { winBandAt: WBA } = await import('./extSpiralGeometry.js')
+  //  ⓐ 허브(−x) 광선이 셸을 지나는 방위 범위에서 창 sill의 최저값 − 여유
+  let hubSillMin = Infinity
+  for (let z = -1.8; z <= 1.81; z += 0.2) {
+    const b = WBA(Math.PI - Math.atan2(z, RAD_PRX))
+    if (b) hubSillMin = Math.min(hubSillMin, b[0])
+  }
+  const HUB_Y1 = Math.min(105.05, hubSillMin - 0.45)      // 창 밴드 아래까지만(파생 — 창을 밀면 따라온다)
+  //  ⓐ-2 접선(고리) 문 대조군도 같은 사정 — RSP_K를 밀면 창이 접선 문 방위를 지난다(스윕이 적발했다).
+  const RING_WIN = [1, -1].map((sg) => {
+    const zr = RAD_PRX - 1, xr = RAD_R * (Math.cos(Math.asin(zr / RAD_R)) - 1)
+    let a = Math.atan2(sg * zr, xr); if (a < 0) a += 2 * Math.PI
+    return WBA(a)
+  })
+  //  ⓑⓒ 고정 방위 9곳(통로 셋 × ±30° 여섯 + 통로 셋)의 창 밴드
+  const WIN_AT = {}
+  for (const b of [Math.PI, Math.PI / 2, -Math.PI / 2]) for (const o of [0, 0.52, -0.52]) {
+    let a = b + o; if (a < 0) a += 2 * Math.PI
+    WIN_AT[a.toFixed(6)] = WBA(a)
+  }
   try {
     const dir = mkdtempSync(join(tmpdir(), 'ethica-smoke-'))
     execSync(`npx esbuild src/Radial.jsx --bundle --format=esm --outfile=${join(dir, 'rad.mjs')} --loader:.jsx=jsx --jsx=automatic --log-level=silent`, { stdio: 'pipe' })
@@ -645,11 +669,18 @@ console.log('── 15. 모듈 평가 스모크(런타임 상수 오류 — TDZ 
         for (const sg of [1, -1]) { let a = sg * Math.acos(ca); if (a < 0) a += 2 * Math.PI
           for (const y of yS) if (covers(a, y)) blkRing++ }
       }
+      //  ★123: 창 밴드는 정당한 개구다 — 그 대역을 빼고 벽을 센다(주입된 파생 표 WIN_AT).
+      const WIN_AT = ${JSON.stringify(WIN_AT)}
+      const inWin = (a, y) => { const b = WIN_AT[a.toFixed(6)]; return !!b && y > b[0] - 1e-9 && y < b[1] + 1e-9 }
       for (const b of [Math.PI, Math.PI / 2, -Math.PI / 2]) for (const o of [0.52, -0.52]) {
         let a = b + o; if (a < 0) a += 2 * Math.PI                     // ③ 통로에서 30° — 벽이 남아야 한다
-        for (const y of yS) { nOff++; if (covers(a, y)) wallOff++ }
+        for (const y of yS) { if (inWin(a, y)) continue; nOff++; if (covers(a, y)) wallOff++ }
       }
-      const lintel = [Math.PI, Math.PI / 2, -Math.PI / 2].filter(b => covers(b < 0 ? b + 2 * Math.PI : b, ${RAD_CYL_Y0} - 0.3)).length
+      //  ★123: 인방 = "문 위가 막혀 있다". 창이 그 높이를 점유하면 개구가 정답이므로 둘 중 하나면 통과.
+      const lintel = [Math.PI, Math.PI / 2, -Math.PI / 2].filter(b => {
+        const a = b < 0 ? b + 2 * Math.PI : b, y = ${RAD_CYL_Y0} - 0.3
+        return covers(a, y) || inWin(a, y)
+      }).length
       const cyl = { tris: cTris, cNrm, cRad, cNy, cDot, cLo, cHi, blkHub, blkRing, wallOff, nOff, lintel, cUnit, cWind, cCap }
       //  ★계단 CSG 실측(★㉗ 계란화) — 3기·유한성·상단(문지방−0.02)·셸 안(교집합 반경)
       const petalR = (y) => ${RAD_PRX} * Math.sqrt(Math.max(0, 1 - ((y - ${RAD_PCY}) / ${RAD_PRY}) ** 2))
@@ -689,14 +720,22 @@ console.log('── 15. 모듈 평가 스모크(런타임 상수 오류 — TDZ 
       }
       const nrm = (v) => { const L = Math.hypot(v[0],v[1],v[2]); return [v[0]/L, v[1]/L, v[2]/L] }
       let hubOpen = 0, hubTot = 0, ringOpen = 0, ringTot = 0
-      for (let y = 101.4; y <= 105.05; y += 0.4) for (let z = -1.8; z <= 1.81; z += 0.4) {
+      const ringBy = [[0, 0], [0, 0]]   // ★123: 문별로 센다(창이 한쪽만 지나면 합계 기대치가 반값이 된다)
+      //  ★123: 상한이 파생값 HUB_Y1 — 하반부 창이 φ180°를 지나므로 그 대역에서 쏘면 "창으로 통과"를
+      //  문 누출로 오독한다. 창 아래에서만 센다(창 자체는 아래 ★123 절이 따로 잰다).
+      for (let y = 101.4; y <= ${HUB_Y1}; y += 0.4) for (let z = -1.8; z <= 1.81; z += 0.4) {
         hubTot++; if (hit([0, y, z], nrm([-1, 0.013, 0.007])) === 0) hubOpen++      // 허브(−x) 문
       }
       const zr = ${RAD_PRX} - 1, xr = ${RAD_R} * (Math.cos(Math.asin(zr / ${RAD_R})) - 1)
-      for (let y = 101.4; y <= 105.05; y += 0.4) for (const sg of [1, -1]) {
-        ringTot++; if (hit([0, y, 0], nrm([xr, 0.011, sg * zr])) === 0) ringOpen++  // 접선(고리) 문 — 대조군
+      //  ★123: 창 밴드가 접선 문 방위를 지나면 그 높이는 세지 않는다(창으로 통과하는 것을 문 누출로 오독).
+      const RING_WIN = ${JSON.stringify(RING_WIN)}
+      for (let y = 101.4; y <= 105.05; y += 0.4) for (const [si, sg] of [[0, 1], [1, -1]]) {
+        const b = RING_WIN[si]
+        if (b && y > b[0] - 0.45 && y < b[1] + 0.45) continue
+        ringTot++; ringBy[si][1]++
+        if (hit([0, y, 0], nrm([xr, 0.011, sg * zr])) === 0) { ringOpen++; ringBy[si][0]++ }   // 접선(고리) 문 — 대조군
       }
-      const shell = { hubOpen, hubTot, ringOpen, ringTot }
+      const shell = { hubOpen, hubTot, ringOpen, ringTot, ringBy }
       console.log(JSON.stringify({ maxY, minCnt, worstOut, cyl, shell }))
       process.exit(0)
     }).catch(e => { console.error(e.message); process.exit(1) })`)
@@ -709,10 +748,16 @@ console.log('── 15. 모듈 평가 스모크(런타임 상수 오류 — TDZ 
       `뚫린 광선 ${st.shell.hubOpen}/${st.shell.hubTot}`)
     //  ★122-b: 접선 문도 게이트됐다 — 기대 = 열린 문 수 비례(둘 다/한쪽/없음)
     {
-      const openDoors = (TAN_DOOR_POS_GATE ? 1 : 0) + (TAN_DOOR_NEG_GATE ? 1 : 0)
-      const expect = st.shell.ringTot * openDoors / 2
-      ok(`접선 고리 문 광선 = 게이트 파생(열린 문 ${openDoors}/2 — ★122-b 유령 개구 봉인)`,
-        st.shell.ringOpen === expect, `뚫린 광선 ${st.shell.ringOpen}/${st.shell.ringTot} (기대 ${expect})`)
+      //  ★123: 문**별**로 판정한다 — 창이 한쪽 방위만 지나면 표본 수가 좌우 비대칭이 되어
+      //  합계 기대치(총수 × 열린문/2)가 정수도 아니게 된다(RSP_K=1 스윕이 적발).
+      const gates = [TAN_DOOR_POS_GATE, TAN_DOOR_NEG_GATE]
+      const bad = gates.map((g, i) => {
+        const [o, t] = st.shell.ringBy[i]
+        return g ? o !== t : o !== 0
+      })
+      ok(`접선 고리 문 광선 = 문별 게이트 파생(+z ${TAN_DOOR_POS_GATE ? '개통' : '봉인'} · −z ${TAN_DOOR_NEG_GATE ? '개통' : '봉인'} — ★122-b 유령 개구 봉인)`,
+        !bad[0] && !bad[1],
+        `+z ${st.shell.ringBy[0][0]}/${st.shell.ringBy[0][1]} · −z ${st.shell.ringBy[1][0]}/${st.shell.ringBy[1][1]}`)
     }
     //  ★122-b: 계단 수 = 게이트 파생(허브+접선±) — 0기(전 문 봉인·방 밀폐 상태)면 실측 절 건너뜀
     {
@@ -1049,16 +1094,18 @@ console.log('── ★122 셸 외부 나선 계단 + 고리 소등(2026.08.12 �
         let open2 = 0; for (const v of E.values()) if (v === 1) open2++
         ok('매니폴드: 열린 에지 0(2026.08.12 수리 — 연속 스킨 426 → 단 블록 0)', open2 === 0, `열린 ${open2} / 총 ${E.size}`)
       }
-      //  ⓕ 창 리본: 상반부 한정 + 문틀 마진(이번 조각 범위 — 하반부는 다음 조각 선언)
+      //  ⓕ ★★★123 창 리본 = 전 구간(상반부 단일벽 + 하반부 이중벽 포탈) — 현도 ⓐ "드러낸다"
       if (RSP_WIN_ON) {
+        const { RSP_WIN_LOW_ON, RSP_WIN_SILL: SIL } = await import('./constants.js')
         const w = extWindowRibbonGeo(), WP = w.getAttribute('position')
-        let yMin = Infinity, below = 0
-        for (let i = 0; i < WP.count; i++) {
-          const y = WP.getY(i); yMin = Math.min(yMin, y)
-          if (y < RAD_CYL_Y0 - 3) below++       // 리본 몸통이 적도 훨씬 아래로 내려가면 하반부 침범
-        }
-        ok('창 리본 = 상반부(단일벽) 한정 — 하반부 이중벽 포탈은 다음 조각(선언)', below === 0,
-          `최저 y ${r2(yMin)} vs 적도 ${RAD_CYL_Y0} · tris ${w.index.count / 3}`)
+        let yMin = Infinity, yMax = -Infinity
+        for (let i = 0; i < WP.count; i++) { const y = WP.getY(i); yMin = Math.min(yMin, y); yMax = Math.max(yMax, y) }
+        //  ★단수 파생: 하반부 = 창 sill이 적도 아래인 단 — 노브(y1·SILL)를 밀면 기대치가 따라온다
+        let nLow = 0; for (let k = 0; k <= S.N; k++) if (S.stepY(k) + SIL < RAD_CYL_Y0) nLow++
+        //  리본은 하강 단조이므로, 하반부가 열렸으면 리본 최저점이 적도 훨씬 아래로 내려간다
+        ok(`창 리본 = ${RSP_WIN_LOW_ON ? '전 구간(하반부 이중벽 포탈 포함 — ★123 현도 ⓐ)' : '상반부 한정(★122 상태 — LOW_ON=false)'}`,
+          RSP_WIN_LOW_ON ? yMin < RAD_CYL_Y0 - 3 : yMin > RAD_CYL_Y0 - 3,
+          `리본 y ${r2(yMin)}~${r2(yMax)} · 적도 ${RAD_CYL_Y0} · 하반부 단 ${nLow}/${S.N + 1} · tris ${w.index.count / 3}`)
       }
       //  ⓖ 이웃 실측 보고(상시): 시작부 ↔ 상승 관 접속 — 상호 관입은 선언된 접합(동일 재질·massT 동일)
       const S2 = S
@@ -1564,6 +1611,287 @@ console.log('── ★122 셸 외부 나선 계단 + 고리 소등(2026.08.12 �
     const RSRC = readFileSync(new URL('./Radial.jsx', import.meta.url), 'utf8')
     ok('상부 문틀 = DoorFrame 높이 일반화 재사용(신규 어법 아님)', /yFloor=\{S\.y1\}/.test(RSRC))
     ok('매스 walkable 태그', /AscentTunnel[\s\S]{0,700}walkable: true/.test(RSRC))   // ★122-d 전망 난간 삽입으로 창 확대
+  }
+}
+
+console.log('\n── ★★★123 하반부 창 = 이중벽 포탈 + 적도 칼라 (2026.08.12 현도 ⓐ "드러낸다") ──')
+{
+  const EG3 = await import('./extSpiralGeometry.js')
+  const C3 = await import('./constants.js')
+  const S3 = EG3.extSpiralSpec()
+  const { RSP_ON: ON3, RSP_WIN_ON: W3ON, RSP_WIN_LOW_ON: LOW3, RSP_WIN_SILL: SIL3, RSP_WIN_TOP: TOP3,
+          RSP_WFR_T: WT3, RSP_WFR_D: WD3, RSP_WFR_IN: WI3, RAD_CYL_R: CR3, RAD_CYL_Y0: CY3,
+          RAD_PRX: PRX3, RAD_CYL_SEG: CSEG3, RAD_CYL_COLLAR_ON: COL3, RAD_CYL_COLLAR_T: COLT3 } = C3
+
+  //  ① 배선 — 창 개구·칼라가 실제로 원기둥·씬에 연결됐는가(★116 전례: 기하만 있고 배선이 없으면 소용없다)
+  {
+    const RS3 = readFileSync(new URL('./Radial.jsx', import.meta.url), 'utf8')
+    ok('배선: 원기둥 개구가 나선 창 밴드를 본다(winBandOver — 보수적 교집합)',
+      /const winSpan = \(a0, a1\) =>[\s\S]{0,80}winBandOver\(a0, a1\)/.test(RS3) && /isIn = \(a\) => doorAt\(a\) != null \|\| winBandAt\(a\) != null/.test(RS3))
+    ok('배선: 적도 칼라 메시가 꽃잎에 붙는다(walkable:false — 밟는 면 아님)',
+      /geometry=\{collarGeo\}[\s\S]{0,60}walkable: false/.test(RS3))
+    ok('배선: 개구가 **목록**으로 일반화(문 + 창 동시 — 구 코드는 개구 하나 전제)',
+      /const ops = \[\][\s\S]{0,400}mg\.push/.test(RS3))
+  }
+
+  //  ② 포탈 깊이 = 파생(현도 ⓐ: 균일화하지 않는다 — 값이 아니라 **관계**를 잠근다)
+  {
+    let dMin = Infinity, dMax = -Infinity, nLow = 0
+    for (let k = 0; k <= S3.N; k++) {
+      const y = S3.stepY(k)
+      if (y + SIL3 >= CY3) continue
+      nLow++
+      const d = CR3 - S3.shellR(y + SIL3)
+      dMin = Math.min(dMin, d); dMax = Math.max(dMax, d)
+    }
+    ok('하반부 = 이중벽(원기둥이 안벽) · 포탈 깊이는 내려갈수록 깊어진다 — 현도 ⓐ',
+      nLow > 0 && dMin > 0 && dMax > dMin * 2,
+      `단 ${nLow}/${S3.N + 1} · 창턱 깊이 ${r2(dMin)} → ${r2(dMax)}`)
+    //  ★상반부 무손상: 적도 위에서는 셸 = 안벽이므로 포탈 깊이가 정의상 0(단일벽)
+    let upBad = 0
+    for (let k = 0; k <= S3.N; k++) {
+      const y = S3.stepY(k)
+      if (y + SIL3 < CY3) continue
+      if (Math.abs(S3.wallR(y + SIL3) - S3.shellR(y + SIL3)) > 1e-9) upBad++
+    }
+    ok('상반부 무손상: 적도 위 = 단일벽(안벽 = 셸 · 포탈 깊이 0)', upBad === 0, `어긋난 단 ${upBad}`)
+  }
+
+  //  ③ ★판이 두 rim을 다 삼킨다(규율 ⑤) — 창턱·인방 판의 반경 범위가 셸 컷과 원기둥 컷을 모두 덮는가
+  //   ⚠상반부에서는 이 식이 구 식(rIa0 + WFR_D)으로 **축퇴**해야 한다 = 상반부 무손상의 증명
+  if (ON3 && W3ON) {
+    const segs3 = EG3.windowSegs()
+    let swMin = Infinity, degMax = 0, nDeep = 0
+    for (const [a, b, yA, yB] of segs3) {
+      for (const yc of [yA + SIL3, yA + TOP3]) {
+        const y0 = yc - WT3 / 2, y1 = yc + WT3 / 2
+        const rFar = S3.shellRMax(y0, y1), rNear = S3.wallRMax(y0, y1)
+        const p0 = rFar - WI3, p1 = rNear + (WD3 - WI3)
+        //  판이 두 rim(셸 rFar · 원기둥 rNear)을 몸통 안에 넣는가
+        swMin = Math.min(swMin, rFar - p0, p1 - rNear)
+        if (rNear - rFar > 1e-9) nDeep++
+        else degMax = Math.max(degMax, Math.abs((p1 - p0) - WD3))   // 상반부 = 구 식과 동일해야
+      }
+    }
+    ok('③판 하나가 두 rim을 삼킨다(셸 컷 단면 · 원기둥 컷 단면 — 규율 ⑤)',
+      swMin >= Math.min(WI3, WD3 - WI3) - 1e-9, `최소 삼킴 ${r2(swMin)} (기대 ≥ ${r2(Math.min(WI3, WD3 - WI3))})`)
+    ok('③-b 상반부는 구 식으로 축퇴(깊이 = WFR_D — ★122 몰딩 무손상)',
+      degMax < 1e-9, `상반부 깊이 편차 ${degMax.toExponential(2)} · 깊은 판 ${nDeep}장`)
+
+    //  ③-c ★★125 양끝 잼이 셸 곡률을 좇는다(현도 3차 "직각삼각형 틈")
+    //  ⚠구판은 세로 2.25를 박스 하나로 잡아 반대편 끝이 0.34~0.37 벌어졌다 — 규율 ⑥을 세로로 긴
+    //   부재에 그대로 쓴 것이 원인. 여기서 재는 것은 **잼 안쪽 면이 어느 높이에서도 셸 밖으로 안 나가는가**.
+    {
+      const { RSP_WFR_JAMB_DR: JDR } = await import('./constants.js')
+      let worstGap = -Infinity, worstIn = -Infinity, subs = ''
+      for (const end of [0, 1]) {
+        const sg = segs3[end === 0 ? 0 : segs3.length - 1]
+        const y = end === 0 ? sg[2] : sg[3]
+        const yA = y + SIL3 - WT3 / 2, yB = y + TOP3 + WT3 / 2
+        const dr = Math.abs(S3.shellR(yB) - S3.shellR(yA))
+        const n = JDR > 0 ? Math.max(1, Math.min(48, Math.ceil(dr / JDR))) : 1
+        subs += `${end === 0 ? '' : ' · '}끝${end} Δr ${r2(dr)}→${n}분할`
+        for (let k = 0; k < n; k++) {
+          const s0 = yA + (yB - yA) * k / n, s1 = yA + (yB - yA) * (k + 1) / n
+          const rIn0 = S3.shellRMax(s0, s1) - WI3
+          for (let t = 0; t <= 8; t++) {
+            const yy = s0 + (s1 - s0) * t / 8
+            worstGap = Math.max(worstGap, rIn0 - S3.shellR(yy))   // 양수 = 셸에서 벌어진 틈
+            worstIn = Math.max(worstIn, S3.shellR(yy) - rIn0)     // 방 안 돌출
+          }
+        }
+      }
+      ok('③-c-0 ★125 잼 분할 노브 > 0(0 = ★123 구판 = 현도 반려한 결함이므로 보존계 아님)',
+        JDR > 0, `JAMB_DR ${JDR}`)
+      ok('③-c ★125 양끝 잼 = 셸 곡률 추종(틈 0 · 분할은 노브 파생)',
+        worstGap <= 1e-9 && worstIn <= WI3 + 1e-9,
+        `${subs} · 최대 틈 ${r2(worstGap)}(≤0) · 방 안 돌출 ${r2(worstIn)}(≤${WI3})`)
+    }
+  }
+
+  //  ④ ★원기둥 개구가 판 몸통 안에 든다(규율 ④ — 판이 삼키는 쪽이므로 개구가 좁아야 가장자리가 숨는다)
+  //  ⚠1차 검사식 오류(자체 적발): 나선은 1.23바퀴라 방위를 두 번 지나므로, 정규화하지 않은 φ를
+  //   winBandAt에 넘기면 **다른 바퀴의 대역**이 돌아온다(초과 9.11 = 한 바퀴 낙차). 원기둥은 방위
+  //   하나에 벽이 하나뿐이므로 정본 입력은 언제나 [0,2π)다 — Radial.jsx의 호출부는 처음부터 그렇다.
+  //  실제 주장: 개구 가장자리의 **계단 오차**(구간 보수화가 만드는 것)가 판 반두께보다 작다.
+  if (ON3 && W3ON && LOW3) {
+    const M4 = S3.N * 4, TAU = 2 * Math.PI
+    const nz = (a) => ((a % TAU) + TAU) % TAU
+    let worst = -Infinity, nSeen = 0
+    for (let i = 0; i < M4; i++) {
+      const a0 = nz(S3.phiStep0 + S3.dir * S3.sweepStep * i / M4)
+      const a1 = nz(S3.phiStep0 + S3.dir * S3.sweepStep * (i + 1) / M4)
+      const A = EG3.winBandAt(a0), B = EG3.winBandAt(a1)
+      if (!A || !B) continue
+      const span = EG3.winBandOver(a0, a1)
+      if (!span) continue
+      nSeen++
+      //  보수화(교집합)로 개구가 좁아진 양 = 판이 삼켜야 하는 몫 ≤ 판 반두께
+      worst = Math.max(worst, span[0] - Math.min(A[0], B[0]), Math.max(A[1], B[1]) - span[1])
+    }
+    ok('④원기둥 개구 가장자리의 계단 오차 < 판 반두께(판이 삼킨다 — 규율 ④)',
+      nSeen > 0 && worst < WT3 / 2, `구간 ${nSeen} · 최대 오차 ${r2(worst)} < 반두께 ${WT3 / 2}`)
+  }
+
+  //  ⑤ ★적도 칼라 — 환형 입 봉인 + **방 안 돌출 0** + ★124 개구 비움
+  //  창이 적도를 점유하는 방위 대역(= 칼라가 개구를 가로지를 뻔한 곳)을 파생으로 뽑아 하네스에 주입
+  const CROSS_BANDS = []
+  {
+    let lo = null, prev = false
+    for (let deg = 0; deg <= 360; deg += 0.25) {
+      const b = EG3.winBandAt((deg % 360) * Math.PI / 180)
+      const cross = deg < 360 && !!b && b[1] >= CY3 - 1e-9
+      if (cross && !prev) lo = deg
+      if (!cross && prev) CROSS_BANDS.push([lo, deg])
+      prev = cross
+    }
+  }
+  {
+    const { execSync: EX5 } = await import('node:child_process')
+    const { mkdtempSync: MK5, writeFileSync: WF5 } = await import('node:fs')
+    const { tmpdir: TD5 } = await import('node:os')
+    const { join: JN5 } = await import('node:path')
+    let st5 = null, err5 = ''
+    try {
+      const d5 = MK5(JN5(TD5(), 'ethica-collar-'))
+      EX5(`npx esbuild src/Radial.jsx --bundle --format=esm --outfile=${JN5(d5, 'rad.mjs')} --loader:.jsx=jsx --jsx=automatic --log-level=silent`, { stdio: 'pipe' })
+      WF5(JN5(d5, 'run.mjs'), `import('./rad.mjs').then((m) => {
+        const g = m.buildCylCollar(), P = g.getAttribute('position'), NR = g.getAttribute('normal')
+        const tris = P.count / 3
+        let rIn = 1e9, rOut = -1e9, yDev = 0, nyMin = 2, wind = 2, nUnit = 0
+        //  ★124: 창 개구 방위(주입된 파생 대역)에 칼라 삼각형이 남아 있는가
+        const XB = ${JSON.stringify(CROSS_BANDS)}
+        let crossHit = 0
+        for (let t = 0; t < P.count; t += 3) {
+          let a = Math.atan2((P.getZ(t) + P.getZ(t+1) + P.getZ(t+2)) / 3, (P.getX(t) + P.getX(t+1) + P.getX(t+2)) / 3)
+          if (a < 0) a += 2 * Math.PI
+          const dg = a * 180 / Math.PI
+          for (const [lo, hi] of XB) if (dg > lo + 0.6 && dg < hi - 0.6) crossHit++
+        }
+        for (let i = 0; i < P.count; i++) {
+          const x = P.getX(i), y = P.getY(i), z = P.getZ(i)
+          if (![x, y, z].every(Number.isFinite)) throw new Error('칼라 NaN 정점')
+          const r = Math.hypot(x, z)
+          rIn = Math.min(rIn, r); rOut = Math.max(rOut, r)
+          yDev = Math.max(yDev, Math.abs(y - ${CY3}))
+          nyMin = Math.min(nyMin, NR.getY(i))
+          nUnit = Math.max(nUnit, Math.abs(Math.hypot(NR.getX(i), NR.getY(i), NR.getZ(i)) - 1))
+        }
+        for (let t = 0; t < P.count; t += 3) {
+          const Q = [0, 1, 2].map(k => [P.getX(t + k), P.getY(t + k), P.getZ(t + k)])
+          const u = [Q[1][0]-Q[0][0], Q[1][1]-Q[0][1], Q[1][2]-Q[0][2]]
+          const v = [Q[2][0]-Q[0][0], Q[2][1]-Q[0][1], Q[2][2]-Q[0][2]]
+          const ny = u[2]*v[0] - u[0]*v[2]
+          const L = Math.hypot(u[1]*v[2]-u[2]*v[1], ny, u[0]*v[1]-u[1]*v[0])
+          if (L < 1e-12) throw new Error('칼라 퇴화 삼각형')
+          wind = Math.min(wind, ny / L)
+        }
+        console.log(JSON.stringify({ tris, rIn, rOut, yDev, nyMin, wind, nUnit, crossHit }))
+        process.exit(0)
+      }).catch(e => { console.error(e.message); process.exit(1) })`)
+      st5 = JSON.parse(EX5(`node ${JN5(d5, 'run.mjs')}`, { stdio: 'pipe' }).toString().trim().split('\n').pop())
+    } catch (e) { err5 = e.message }
+    ok('⑤적도 칼라 기하 생성(유한 · 퇴화 0)', !!st5, err5 || `tris ${st5 && st5.tris}`)
+    if (st5 && !COL3) {
+      //  소등 체제(보존계) — 기하 0 · 다른 절은 성립할 수 없으므로 여기서 닫는다
+      ok('⑤소등: 칼라 기하 0(보존계 — 한 줄 복귀)', st5.tris === 0, `tris ${st5.tris}`)
+    } else if (st5) {
+      //  ★124: 안 반경은 이제 **방위 파생**(셸 적도 다각형 표면) — 정점에서 PRX, 변 중앙에서 PRX·cos(π/N).
+      //  둘 사이를 벗어나면 방 안으로 튀거나(큼) 공동이 열린다(작음).
+      const polyMin = PRX3 * Math.cos(Math.PI / CSEG3)
+      ok('⑤-a 칼라 안 반경 = 셸 적도 다각형 표면(방 안 돌출 0 — 규율 ⑦ · 경계각 자유)',
+        st5.rIn >= polyMin - 1e-4 && st5.rIn <= PRX3 + 1e-4 && Math.abs(st5.rOut - CR3) < 1e-4,
+        `안 r ${r2(st5.rIn)} ∈ [${r2(polyMin)}, ${PRX3}] · 바깥 ${r2(st5.rOut)} (원기둥 ${CR3})`)
+      ok('⑤-b 칼라 = 적도 평면(두께 0 평판 — 원기둥 어법 그대로)', st5.yDev < 1e-4, `y 편차 ${st5.yDev.toExponential(2)}`)
+      ok('⑤-c 칼라 감김 = 위(+y)를 본다 · 법선 단위(명시 — ★57 각진 연필 회피)',
+        st5.wind > 0.999 && st5.nyMin > 0.999 && st5.nUnit < 1e-5,
+        `면 법선 min ny ${r2(st5.wind)} · 선언 ${r2(st5.nyMin)}`)
+      //  ★★124(현도 로컬 "창 사이의 얇은 링 — 이물이다, 없애줘"): 칼라가 창 개구를 가로지르면 안 된다.
+      //  ⛔내 규율 위반 재발 — ★122-h에서 굽도리로 같은 실수를 하고 "문 앞에는 문턱을 두지 않는다"를
+      //   적어 놓고 칼라에서 안 지켰다. **개구를 비웠는지 전수 검사로 잠근다.**
+      {
+        const TAU4 = 2 * Math.PI
+        let nCross = 0, nTot = 0, aLo = null, aHi = null
+        for (let deg = 0; deg < 360; deg += 0.5) {
+          const a = deg * Math.PI / 180
+          const b = EG3.winBandAt(a)
+          const cross = !!b && b[1] >= CY3 - 1e-9
+          if (cross) { nCross++; if (aLo === null) aLo = deg; aHi = deg }
+          nTot++
+        }
+        ok('⑤-d ★124: 칼라가 창 개구를 가로지르지 않는다(개구 방위 전수 — 규율 "문 앞에 문턱 없음")',
+          st5.crossHit === 0,
+          `개구 대역 ${aLo === null ? '없음' : `${aLo.toFixed(1)}°~${aHi.toFixed(1)}°(${nCross}/${nTot})`} · 그 안 칼라 tri ${st5.crossHit}`)
+        void TAU4
+      }
+      ok('⑤-e 칼라 = 개구 밖 전 방위를 덮는다(봉인 무손상 — 개구가 없으면 균등 48 그대로)',
+        st5.tris > 0 && st5.tris <= CSEG3 * 2 + 24, `tris ${st5.tris} (개구 없을 때 ${CSEG3 * 2})`)
+      ok('⑤-f 칼라 스위치 = 보존계(소등 시 기하 0 — 한 줄 복귀)', COLT3 >= 0, `COLLAR_T ${COLT3} · ON ${COL3}`)
+    }
+  }
+
+  //  ⑥ ★★환형 입 봉인 — **광선 census**(임시 프로브 `_probe_win123`이 잡은 것을 검사로 승격, 프로브는 삭제)
+  //  ⚠발견: ★122까지 셸(16.000)과 원기둥(16.250) 사이 공동이 **위로 뚫려** 있었다 —
+  //   통로 안 적도 바로 위에서 아래로 쏜 광선이 36방위 중 **27**에서 아무것도 안 맞고 y −20까지 떨어졌다.
+  //   하반부에 창이 없어 안 보였을 뿐이다. 창을 뚫으면 창 안에서 공동이 보인다 → 봉인이 이 과제의 일부.
+  {
+    const { execSync: EX6 } = await import('node:child_process')
+    const { mkdtempSync: MK6, writeFileSync: WF6 } = await import('node:fs')
+    const { tmpdir: TD6 } = await import('node:os')
+    const { join: JN6 } = await import('node:path')
+    let st6 = null, err6 = ''
+    try {
+      const d6 = MK6(JN6(TD6(), 'ethica-annulus-'))
+      EX6(`npx esbuild src/Radial.jsx --bundle --format=esm --outfile=${JN6(d6, 'rad.mjs')} --loader:.jsx=jsx --jsx=automatic --log-level=silent`, { stdio: 'pipe' })
+      WF6(JN6(d6, 'run.mjs'), `import('./rad.mjs').then(async (m) => {
+        //  Möller–Trumbore(축평행 회피 = 방향에 미세 기울기). 대상 = 공동을 닫을 수 있는 기하 **전부**.
+        //  ⚠★124 정정: 구 census는 칼라·원기둥·셸 셋만 봤다 — **창턱 판이 빠져 있었다**. 개구 방위에서
+        //   공동을 막는 것은 칼라가 아니라 창턱 판이므로, 빼놓으면 정상 상태를 누출로 오독한다(실제로 7/36 오판).
+        //  ⚠번들(rad.mjs)이 이미 extSpiralGeometry를 포함하므로 재임포트하지 않고 **Radial이 다시 export**한다
+        //  (임시 디렉터리에는 src가 없다 — 상대 임포트 불가. 도구를 먼저 검증하라: 이 한 줄로 1회 실패했다).
+        const gs = [m.buildCylCollar(), m.buildCylSkirt(0), m.buildPetalShell(), m.buildExtWindowFrame()]
+        const tri = []
+        for (const g of gs) {
+          const P = g.getAttribute('position'), I = g.index
+          const NT = (I ? I.count : P.count) / 3
+          for (let t = 0; t < NT * 3; t += 3)
+            tri.push([0, 1, 2].map(k => { const j = I ? I.getX(t + k) : t + k; return [P.getX(j), P.getY(j), P.getZ(j)] }))
+        }
+        const hit = (o, d) => {
+          let best = Infinity
+          for (const [a, b, c] of tri) {
+            const e1 = [b[0]-a[0], b[1]-a[1], b[2]-a[2]], e2 = [c[0]-a[0], c[1]-a[1], c[2]-a[2]]
+            const pv = [d[1]*e2[2]-d[2]*e2[1], d[2]*e2[0]-d[0]*e2[2], d[0]*e2[1]-d[1]*e2[0]]
+            const det = e1[0]*pv[0]+e1[1]*pv[1]+e1[2]*pv[2]
+            if (Math.abs(det) < 1e-12) continue
+            const iv = 1/det, tv = [o[0]-a[0], o[1]-a[1], o[2]-a[2]]
+            const u = (tv[0]*pv[0]+tv[1]*pv[1]+tv[2]*pv[2])*iv; if (u < 0 || u > 1) continue
+            const qv = [tv[1]*e1[2]-tv[2]*e1[1], tv[2]*e1[0]-tv[0]*e1[2], tv[0]*e1[1]-tv[1]*e1[0]]
+            const vv = (d[0]*qv[0]+d[1]*qv[1]+d[2]*qv[2])*iv; if (vv < 0 || u+vv > 1) continue
+            const tt = (e2[0]*qv[0]+e2[1]*qv[1]+e2[2]*qv[2])*iv
+            if (tt > 1e-6) best = Math.min(best, tt)
+          }
+          return best
+        }
+        const rM = (${PRX3} + ${CR3}) / 2, L = Math.hypot(0.004, 1, 0.003)
+        let open = 0, tot = 0
+        for (let deg = 0; deg < 360; deg += 10) {
+          const a = deg * Math.PI / 180
+          const t = hit([rM * Math.cos(a), ${CY3} + 0.6, rM * Math.sin(a)], [0.004/L, -1/L, 0.003/L])
+          tot++
+          //  ⚠★124 기준 정정: 구 기준 "적도에서 안 받으면 열림"은 **창턱 판이 받는 정상 상태**(판은
+          //   발판 위 0.85라 방위마다 적도보다 낮다)를 누출로 셌다(오판 2/36). 정본 질문은
+          //   "공동으로 **떨어지는가**" → 방 바닥 레벨 아래까지 내려가면 열린 것.
+          if (!(t < Infinity) || ${CY3} + 0.6 - t < ${RAD_FLOOR_Y} - 1) open++
+        }
+        console.log(JSON.stringify({ open, tot }))
+        process.exit(0)
+      }).catch(e => { console.error(e.message); process.exit(1) })`)
+      st6 = JSON.parse(EX6(`node ${JN6(d6, 'run.mjs')}`, { stdio: 'pipe' }).toString().trim().split('\n').pop())
+    } catch (e) { err6 = e.message }
+    ok(`⑥환형 입 ${COL3 ? '봉인' : '개방(칼라 소등 — 보존계)'} — 광선 census`,
+      !!st6 && (COL3 ? st6.open === 0 : st6.open > 0),
+      err6 || (st6 && `공동으로 떨어진 방위 ${st6.open}/${st6.tot} (칼라 ${COL3 ? 'ON' : 'OFF'})`))
   }
 }
 
