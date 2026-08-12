@@ -8,9 +8,12 @@
 import { useMemo } from 'react'
 import * as THREE from 'three'
 import { Brush, Evaluator, HOLLOW_SUBTRACTION, INTERSECTION } from 'three-bvh-csg'
-import { ascSpec, ascDoorCut, buildAscentMass, buildAscentWalls, buildAscentCeiling } from './ascentTunnelGeometry.js'
+import { ascSpec, ascDoorCut, buildAscentMass, buildAscentWalls, buildAscentCeiling, buildAscentColumns, buildAscentOverlook, buildAscentMouthSill } from './ascentTunnelGeometry.js'
+import { extSpiralSpec, buildExtSpiral, buildExtSpiralParapet, buildExtSpiralShell, buildExtSpiralSkirt, buildExtSpiralBridge, buildExtWindowFrame, extWindowRibbonGeo } from './extSpiralGeometry.js'   // ★122·★122-b·★122-c
 import {
-  domeClipY, COR_Y0, COR_THICK, BOX_HW, RAD_ASC_ON,
+  domeClipY, COR_Y0, COR_THICK, BOX_HW, RAD_ASC_ON, HUB_DOOR_GATE,
+  RAD_RING_ON, RSP_ON, RSP_WIN_ON,
+  TAN_DOOR_POS_GATE, TAN_DOOR_NEG_GATE, CYL_HUB_DOOR_GATE, RSP_ENCL, ASC_DOOR_GATE, TAN_JAMB_IN, TAN_FR_OUT_EXT, TAN_SILL_ON, TAN_SILL_T,
   ROOM_LAND_R, ROOM_WELL_RT, ROOM_CEIL_Y, ROOM_CYL_TOP,
   RAD_ANG0, RAD_R, RAD_PRX, RAD_PRY, RAD_PCY,
   RAD_T_HW, RAD_TOP, RAD_DOOR_H, RAD_DOOR_HW, RAD_ARC_IN,
@@ -20,7 +23,7 @@ import {
   ROOM_R, ROOM_FLOOR_Y, ROOM_HEIGHT,
   RAD_CYL_ON, RAD_CYL_R, RAD_CYL_Y0, RAD_CYL_SEG, RAD_CYL_CLIP_ROOM,
   RAD_CYL_TERM_BY, RAD_CYL_TERM_TOP_BY, RAD_CYL_SPH_SEG, termSpec,
-  RAD_CYL_DOOR_ON, RAD_CYL_DOOR_RING_ONLY, RAD_CYL_DOOR_M,
+  RAD_CYL_DOOR_ON, RAD_CYL_DOOR_RING_ONLY, RAD_CYL_DOOR_M, CYL_TAN_DOOR_M,
 } from './constants'
 
 const MAT_WALL  = '#b89a6a'   // 터널·고리(통로 외피와 같은 가족)
@@ -55,6 +58,10 @@ const FR_C    = (FR_FRONT + FR_BACK) / 2     // 문틀 중심의 꽃잎 중심�
 const TUBE_END = FR_BACK + 0.2               // 바닥 위 벽·지붕의 끝(중심거리) — 문틀 몸통 안에서 평면 종료
 const JAMB_H  = DTOP - Y_FTOP                // 잼 높이(바닥판 윗면 → 문 상단)
 const S_WALL0 = RAD_WALL_R0                  // ★118: constants 승격(검사가 읽어야 한다). 터널 벽·천장 시작 — 허브 문틀 파생이 참조
+// ★★★120 구 허브 문 게이트 — 유도 정본은 constants.HUB_DOOR_GATE(사본 금지). 여기선 별칭만.
+//  스위치 단독이 아니라 **구세계 결합**이다: RAD_ASC_ON=false면 이 문이 구 수평 터널의 방 진입구라
+//  스위치와 무관하게 켜진다 → ★119 보존계(한 줄 복귀)가 무손상 유지된다.
+const HUB_DOOR_ON = HUB_DOOR_GATE
 // ★허브(원뿔대) 문틀(2026.07.11): 같은 문틀을 빛우물 원뿔벽 문 4곳에. 원뿔이 위로 좁아지는 사면이라 걸침 깊이만 다르게 파생.
 const coneR = (y) => ROOM_LAND_R - (ROOM_LAND_R - ROOM_WELL_RT) * (y - (ROOM_CEIL_Y - 3)) / (ROOM_CYL_TOP - (ROOM_CEIL_Y - 3))
 const HFR_BACK  = Math.min(Math.sqrt(Math.max(0.25, coneR(LIN_TOP) ** 2 - FR_OUT ** 2)) - 0.25, S_WALL0 - 0.15) // 뒷면(허브쪽) — 최심 요구 코너보다 깊게 & 벽 시작(15.5)도 몸통 안에 숨김
@@ -78,7 +85,7 @@ function quadGeo(build) {
 }
 
 // ── 꽃잎 셸(로컬 프레임: +x = 방사 바깥, 문 = 안쪽 −x 1 + 접선 ±z 2) — 한 번 만들어 4회 배치 ──
-function buildPetalShell() {
+export function buildPetalShell() {   // ★120: export = 검사가 셸 구멍을 광선으로 실측(봉인 확인)
   const ev = new Evaluator()
   ev.attributes = ['position', 'normal']
   const shell = new THREE.SphereGeometry(1, 48, 32)
@@ -91,14 +98,20 @@ function buildPetalShell() {
     acc = ev.evaluate(acc, b, HOLLOW_SUBTRACTION); acc.updateMatrixWorld()
   }
   // 안쪽 문(허브 터널, −x): 터널이 정확히 방사축 위 → 축정렬 컷 그대로
-  //  ★119: 상승 체제에서도 존치(현도 2026.08.05 "우선 남겨봐") — 구 수평 터널이 꺼지면 이 문은
-  //  허공(상승 관 밑)으로 열린다. 선언된 상태 — 로컬 판정 후 봉인 여부 재결정.
-  {
+  //  ★★★122 창 리본(2026.08.12 현도: "접하는 부분은 아주 넓은 창"): 나선 추종 밴드 컷 — 이번 조각은
+  //  상반부(단일벽 y≥적도)만. 하반부(★91 원기둥 이중벽 포탈)는 다음 조각. 정본 = extWindowRibbonGeo().
+  if (RSP_ON && RSP_WIN_ON) cutBrush(extWindowRibbonGeo())
+  //  ★★★120(2026.08.11 현도 "구 허브문은 일단 없애줘"): 봉인. ★119가 "우선 남겨봐"로 존치했으나
+  //  실측이 존치 비용을 확정했다 — 문지방 101.00 → 발밑 85.26 = 낙차 15.74(STEP_DOWN 2.2의 7.16배).
+  //  ⚠컷을 지우지 않고 **게이트**한다(보존계) — HUB_DOOR_ON 한 줄로 셸 구멍이 그대로 돌아온다.
+  if (HUB_DOOR_ON) {
     const g = new THREE.BoxGeometry(8, H, RAD_DOOR_HW * 2)
     g.translate(-RAD_PRX + 1, YMID, 0)
     cutBrush(g)
   }
   // ★★★119 상부 문(상승 터널 도착, −x 허브면 · 진입 바닥 RAD_ASC_Y1): 컷 바닥 = 평지 매스 안(슬리버 0)
+  //  ★★122-d(현도 2차 지시): 새 문 = **전망대**로 복원 — "참에서 전망대처럼 셸 내부를 내려다볼 수 있어".
+  //  통과하는 문이 아니므로 개구를 난간(buildAscentOverlook)이 가로막는다. 방 안 스텁은 폐기(매스 = 셸면 flush).
   if (RAD_ASC_ON) {
     const c = ascDoorCut()
     const g = new THREE.BoxGeometry(c.w, c.h, c.d)
@@ -112,7 +125,10 @@ function buildPetalShell() {
     const z0 = RAD_PRX - 1
     const phi = Math.asin(z0 / RAD_R)
     const xOff = RAD_R * (Math.cos(phi) - 1)
+    //  ★★122-b 유령 개구 봉인(현도 ⑤): 고리 소등 후 이 컷들이 뻥 뚫린 채 노출됐다.
+    //  게이트 정본 = constants(TAN_DOOR_±_GATE — 그 문을 쓰는 세계〔고리 or 나선 착지〕가 살아 있을 때만).
     for (const sgn of [1, -1]) {
+      if (!(sgn > 0 ? TAN_DOOR_POS_GATE : TAN_DOOR_NEG_GATE)) continue
       const g = new THREE.BoxGeometry(RAD_DOOR_HW * 2, H, 8)
       g.rotateY(-sgn * phi)                 // 컷 깊이축(z) → 그 지점 고리 접선 방향
       g.translate(xOff, YMID, sgn * z0)
@@ -141,15 +157,20 @@ function buildPetalShell() {
 export function buildCylSkirt(k) {
   const name = RAD_CYL_TERM_BY[k], spec = termSpec(name)
   const TOP = RAD_CYL_TERM_TOP_BY[k]                 // 원기둥 밑단 ≡ 말단 꼭대기(연속)
-  const R = RAD_CYL_R, N = RAD_CYL_SEG, M = RAD_CYL_DOOR_M
+  //  ★122-M: 접선(고리) 개구 여유는 세계 파생 — 허브 개구는 구 값 유지
+  const R = RAD_CYL_R, N = RAD_CYL_SEG, M = CYL_TAN_DOOR_M
   const W = RAD_T_HW + M, DOOR_TOP = RAD_TOP + 0.4 + M
 
   const doorAt = (a) => {
     if (!RAD_CYL_DOOR_ON) return null
     const lx = R * Math.cos(a), lz = R * Math.sin(a)
     const d = Math.hypot(RAD_R + lx, lz)
-    const inHub = !RAD_CYL_DOOR_RING_ONLY && lx < 0 && Math.abs(lz) <= W
-    const inRing = Math.abs(d - RAD_R) <= W
+    //  ★★122-b 유령 개구 봉인(현도 ⑤): 개구 = 그 개구를 쓰는 세계가 살아 있을 때만.
+    //  허브 개구 = 구 수평 터널 세계(CYL_HUB_DOOR_GATE = !RAD_ASC_ON — ★119 소등 후 유령이었다).
+    //  고리 교차 개구 = 고리 or 나선 착지 쪽(±z를 TAN_DOOR_±_GATE로 개별 판정).
+    const inHub = !RAD_CYL_DOOR_RING_ONLY && CYL_HUB_DOOR_GATE && lx < 0 && Math.abs(lz) <= W
+    const tanGate = lz > 0 ? TAN_DOOR_POS_GATE : TAN_DOOR_NEG_GATE
+    const inRing = tanGate && Math.abs(d - RAD_R) <= W
     return (inHub || inRing) ? [clipY(d, 0) - M, DOOR_TOP] : null
   }
   const roomAt = (a) => {
@@ -267,10 +288,13 @@ export function buildStairs() {  // export = check_radial §15가 번들 임포�
   const dc = 2 * Math.asin(FR_C / (2 * RAD_R))
   const fx = RAD_R * (Math.cos(dc) - 1), fz = RAD_R * Math.sin(dc)
   //  방향 주의: 문틀 로컬 +z가 '방 안쪽'인 배치 — 허브(π/2)·−z 고리(+dc)는 그대로, +z 고리는 π 뒤집음
+  //  ★★★120: 허브 계단은 문과 한 몸이다 — 문을 봉인하면 "3.2 올라가서 15.74 허공으로 나가는 계단"이
+  //  방마다 하나씩 남는다. 같은 게이트로 묶는다(보존계 — 배열에서 지우지 않고 조건부 포함).
+  //  ★122-b: 접선 계단도 문과 한 몸(★120 패턴) — 봉인된 문 앞 계단은 게이트.
   return [
-    buildStairGeo(Math.PI / 2, -FR_C, 0, ev, shellB),
-    buildStairGeo(-dc + Math.PI, fx, fz, ev, shellB),
-    buildStairGeo(dc, fx, -fz, ev, shellB),
+    ...(HUB_DOOR_ON ? [buildStairGeo(Math.PI / 2, -FR_C, 0, ev, shellB)] : []),
+    ...(TAN_DOOR_POS_GATE ? [buildStairGeo(-dc + Math.PI, fx, fz, ev, shellB)] : []),
+    ...(TAN_DOOR_NEG_GATE ? [buildStairGeo(dc, fx, -fz, ev, shellB)] : []),
   ]
 }
 
@@ -415,19 +439,35 @@ function ArcSection({ phi0, phi1, boxStart = false, boxEnd = false }) {
 //  로컬: 깊이축 = group z / 좌우 = group x. 문지방(단차)은 안 올림 — 바닥판 윗면이 그대로 문지방(보행 무단차).
 //  ★119 높이 일반화: yFloor/yDoorTop/yLinTop 프롭 신설(기본값 = 구 문 12곳 — 호출부 무수정).
 //  상부 문틀은 같은 어법을 진입 바닥 높이에서 재사용한다(잼 2 + 상인방 1 · 이음선을 몸통이 삼킴).
-function DoorFrame({ position, rotY, depth = FR_D, yFloor = Y_FTOP, yDoorTop = DTOP, yLinTop = LIN_TOP }) {
+//  ★122-k: jambIn = 잼을 컷 안쪽으로 더 물리는 양(기본 0 = 구 어법). 접선 문은 겹침 0.10뿐이라
+//  컷 가장자리가 잼 옆으로 새어 세로 슬릿이 됐다(현도 지적) → TAN_JAMB_IN으로 삼킴을 키운다.
+//  ★★★122-N(2026.08.12 현도 지시 그대로): **문틀을 나선 통로 쪽(셸 바깥 방향)으로 연장**한다.
+//  구 문틀은 바깥 끝이 r16.455로 원기둥면(16.25)을 겨우 0.2 넘었고, 통로 안 가장자리(16.30)
+//  안쪽에서 끝나 원기둥 개구 가장자리를 못 삼켰다 → 그 자리가 세로 슬릿.
+//  ⚠좌표: 문틀 로컬 **+z = 반경 감소(방 안쪽)**(실측 dot −0.993) → 통로 쪽 연장은 **−z**.
+//   박스를 depth+outExt로 키우고 −outExt/2 만큼 옮기면 안쪽 끝은 그대로, 바깥만 자란다.
+function DoorFrame({ position, rotY, depth = FR_D, yFloor = Y_FTOP, yDoorTop = DTOP, yLinTop = LIN_TOP, jambIn = 0, outExt = 0, sill = false }) {
+  const D = depth + outExt, zOff = -outExt / 2
   return (
     <group position={position} rotation-y={rotY}>
       {[1, -1].map((sg) => (
-        <mesh key={sg} position={[sg * (RAD_T_HW + FR_T / 2), (yFloor + yDoorTop) / 2, 0]}>
-          <boxGeometry args={[FR_T, yDoorTop - yFloor, depth]} />
+        <mesh key={sg} position={[sg * (RAD_T_HW - jambIn + (FR_T + jambIn) / 2), (yFloor + yDoorTop) / 2, zOff]}>
+          <boxGeometry args={[FR_T + jambIn, yDoorTop - yFloor, D]} />
           <meshStandardMaterial color={MAT_WALL} roughness={0.9} />
         </mesh>
       ))}
-      <mesh position={[0, (yDoorTop + yLinTop) / 2, 0]}>
-        <boxGeometry args={[FR_OUT * 2, yLinTop - yDoorTop, depth]} />
+      <mesh position={[0, (yDoorTop + yLinTop) / 2, zOff]}>
+        <boxGeometry args={[FR_OUT * 2, yLinTop - yDoorTop, D]} />
         <meshStandardMaterial color={MAT_WALL} roughness={0.9} />
       </mesh>
+      {/* ★★122-Q ② 문지방 — 나선(직선·원호)과 셸(구면)의 곡률 차가 만드는 바닥 쐐기 틈을
+          판 하나로 덮는다(윗면 = 문지방 레벨 = 단차 0 · 두께는 아래로, 매스 몸통에 묻힘). */}
+      {sill && (
+        <mesh position={[0, yFloor - TAN_SILL_T / 2, zOff]} userData={{ walkable: true }}>
+          <boxGeometry args={[FR_OUT * 2, TAN_SILL_T, D]} />
+          <meshStandardMaterial color={MAT_FLOOR} roughness={0.9} />
+        </mesh>
+      )}
     </group>
   )
 }
@@ -439,6 +479,9 @@ function AscentTunnel({ ang }) {
   const massGeo = useMemo(buildAscentMass, [])
   const wallGeo = useMemo(buildAscentWalls, [])
   const ceilGeo = useMemo(buildAscentCeiling, [])
+  const colGeo  = useMemo(buildAscentColumns, [])
+  const ovlGeo  = useMemo(buildAscentOverlook, [])   // ★122-d 전망 난간
+  const mouthGeo = useMemo(buildAscentMouthSill, [])  // ★122-R 어귀 접합 판   // ★121 기둥 5기(RASC_SUP_ON=false면 빈 기하 — 보존계)
   return (
     <group rotation-y={-ang}>
       <mesh geometry={massGeo} userData={{ walkable: true }}>
@@ -450,12 +493,32 @@ function AscentTunnel({ ang }) {
       <mesh geometry={ceilGeo}>
         <meshStandardMaterial color={MAT_WALL} roughness={0.9} side={THREE.DoubleSide} />
       </mesh>
+      {/* ★★122-d 전망 난간(현도: "참에서 전망대처럼 셸 내부를 내려다본다") — 새 문 개구를 가로막는다 */}
+      <mesh geometry={ovlGeo} userData={{ walkable: false }}>
+        <meshStandardMaterial color={MAT_WALL} roughness={0.9} />
+      </mesh>
+      {/* ★★122-R ① 어귀 접합 판 — 디스크(원판)와 관(직선 폭)의 곡률 차 바닥 틈을 덮는다 */}
+      <mesh geometry={mouthGeo} userData={{ walkable: true }}>
+        <meshStandardMaterial color={MAT_FLOOR} roughness={0.9} />
+      </mesh>
+      {/* ★★★121 기둥 지지(2026.08.11 현도 결정 A) — 팔각 뿔대 5기, 발 = 돔 로프트 착지.
+          ⚠밟는 면 아님 · 색 = 셸 석재(★113 원칙 — 새 색 없음) · 소등 = RASC_SUP_ON */}
+      <mesh geometry={colGeo} userData={{ walkable: false }}>
+        <meshStandardMaterial color={MAT_SHELL} roughness={0.9} />
+      </mesh>
     </group>
   )
 }
 
 export function RadialRooms() {
   const petalGeo = useMemo(buildPetalShell, [])
+  const extSpiralGeos = useMemo(() => ({
+    mass: buildExtSpiral(),
+    encl: RSP_ENCL === 'tube' ? buildExtSpiralShell() : buildExtSpiralParapet(),   // ★122-b 체제 스위치
+    wfr: buildExtWindowFrame(),
+    skirt: buildExtSpiralSkirt(),   // ★122-c
+    bridge: buildExtSpiralBridge(), // ★122-d
+  }), [])   // ★122·★122-b·★122-c
   const cylGeos = useMemo(() => [0, 1, 2, 3].map(buildCylSkirt), [])   // ★말단이 넷 다 달라 개별 기하
   const stairGeos = useMemo(buildStairs, [])
   const angs = [0, 1, 2, 3].map(k => RAD_ANG0 + k * Math.PI / 2)
@@ -494,8 +557,9 @@ export function RadialRooms() {
             </mesh>
           ))}
           {/* ★문틀 3(방사 1 + 접선 2) — 접선은 고리 중심선 위(FR_C 지점)·접선 방향 회전 */}
-          <DoorFrame position={[-FR_C, 0, 0]} rotY={Math.PI / 2} />
-          {/* ★119 상부 문틀 — 같은 어법의 높이 일반화(파생 = ascSpec, 걸침에 컷 바닥 포함) */}
+          {/* ★★★120: 방사(허브) 문틀은 문과 한 몸 — 문이 봉인되면 삼킬 이음선이 없다 */}
+          {HUB_DOOR_ON && <DoorFrame position={[-FR_C, 0, 0]} rotY={Math.PI / 2} />}
+          {/* ★119 상부 문틀 — ★122-d: 전망 개구의 테두리로 복원 */}
           {RAD_ASC_ON && (() => {
             const S = ascSpec()
             return <DoorFrame position={[-S.frC, 0, 0]} rotY={Math.PI / 2} depth={S.frD}
@@ -504,10 +568,35 @@ export function RadialRooms() {
           {(() => {
             const dc = 2 * Math.asin(FR_C / (2 * RAD_R))            // 중심거리 FR_C가 되는 고리 각 오프셋
             const fx = RAD_R * (Math.cos(dc) - 1), fz = RAD_R * Math.sin(dc)
-            return [1, -1].map((sg) => (
-              <DoorFrame key={sg} position={[fx, 0, sg * fz]} rotY={-sg * dc} />
+            return [1, -1].filter((sg) => (sg > 0 ? TAN_DOOR_POS_GATE : TAN_DOOR_NEG_GATE)).map((sg) => (
+              <DoorFrame key={sg} position={[fx, 0, sg * fz]} rotY={-sg * dc} jambIn={TAN_JAMB_IN} outExt={TAN_FR_OUT_EXT} sill={TAN_SILL_ON} />
             ))
           })()}
+          {/* ★★★122 셸 외부 나선 계단(2026.08.12 현도 그림) — 꽃잎 로컬 마운트 = 4방 등형 자동.
+              새 문(π) → 접선 −z 문, 61단(오름 61·내림 61 대칭), 안 가장자리 = 셸/★91 원기둥 물림 */}
+          {RSP_ON && (
+            <>
+              <mesh geometry={extSpiralGeos.mass} userData={{ walkable: true }}>
+                <meshStandardMaterial color={MAT_FLOOR} roughness={0.9} />
+              </mesh>
+              {/* ★122-b 체제: 'tube' = 밀봉 관(현도 ① — 바깥벽+천장, 스포일러 차단) · 'parapet' = 구 패러핏(보존계) */}
+              <mesh geometry={extSpiralGeos.encl} userData={{ walkable: false }}>
+                <meshStandardMaterial color={MAT_WALL} roughness={0.9} side={THREE.DoubleSide} />
+              </mesh>
+              {/* ★122-b 창 몰딩(현도 ④ — 잼 어법, 셸 종잇장 단면을 삼킨다) */}
+              <mesh geometry={extSpiralGeos.wfr} userData={{ walkable: false }}>
+                <meshStandardMaterial color={MAT_SHELL} roughness={0.85} />
+              </mesh>
+              {/* ★122-c 굽도리 몰딩(현도 ④ — 계단 안 가장자리 이격 0.05와 셸의 접선을 연속 밴드로 봉합) */}
+              <mesh geometry={extSpiralGeos.skirt} userData={{ walkable: false }}>
+                <meshStandardMaterial color={MAT_SHELL} roughness={0.85} />
+              </mesh>
+              {/* ★122-d 착지 다리(현도 ③ — 접선 컷과 같은 방향·폭의 판: 호↔직선 쐐기 틈 소거) */}
+              <mesh geometry={extSpiralGeos.bridge} userData={{ walkable: true }}>
+                <meshStandardMaterial color={MAT_FLOOR} roughness={0.9} />
+              </mesh>
+            </>
+          )}
         </group>
       ))}
       {/* 대각 터널 4 — ★119 체제: 상승 관 ↔ 구 수평 관(보존계) */}
@@ -517,8 +606,9 @@ export function RadialRooms() {
         <DoorFrame key={'h' + k} position={[HFR_C * Math.cos(ang), 0, HFR_C * Math.sin(ang)]}
           rotY={Math.PI / 2 - ang} depth={HFR_D} />
       ))}
-      {/* 고리 5구간 */}
-      {arcs.map(([a, b, bs, be], i) => <ArcSection key={i} phi0={a} phi1={b} boxStart={bs} boxEnd={be} />)}
+      {/* 고리 5구간 — ⛔★122 소등(2026.08.12 현도 "고리는 일단 없애자"). 보존계: RAD_RING_ON 한 줄 복귀.
+          ⚠선언된 동선 단절: 방→고리→진출 박스(1p5) 경로 소멸. 접선 문·문틀·진입 계단·접합 패드는 존속. */}
+      {RAD_RING_ON && arcs.map(([a, b, bs, be], i) => <ArcSection key={i} phi0={a} phi1={b} boxStart={bs} boxEnd={be} />)}
       {/* 접합 패드(박스 내부, 문 2 ↔ 다리): 다리판 밑 0.02 립 */}
       <mesh position={[RAD_JX, RAD_FLOOR_Y, 0]} userData={{ walkable: true }}>
         <boxGeometry args={[7, COR_THICK, BOX_HW * 2]} />

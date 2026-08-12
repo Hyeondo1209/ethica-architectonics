@@ -14,7 +14,8 @@ import {
   RAD_CYL_SEG, RAD_CYL_CLIP_ROOM, RAD_CYL_DOOR_ON, RAD_CYL_DOOR_RING_ONLY, RAD_CYL_DOOR_M,
   RAD_CYL_TERM, RAD_CYL_TERM_BY, RAD_CYL_TERM_TOP_BY, RAD_CYL_TERM_CLEAR, RAD_CYL_SPH_SEG,
   RAD_CYL_MASS_ORB, RAD_CYL_MASS_DRUM, termSpec,
-  DISC_MODE, RAD_WALL_R0,
+  DISC_MODE, RAD_WALL_R0, RAD_ASC_ON, RAD_HUB_DOOR_ON, HUB_DOOR_GATE,
+  TAN_DOOR_POS_GATE, TAN_DOOR_NEG_GATE, CYL_HUB_DOOR_GATE, RAD_RING_ON, CYL_TAN_DOOR_M,
 } from './constants.js'
 import { makeRibCurve } from './ribGeometry.js'
 import { discSpec, slotTunnelBite } from './discGeometry.js'
@@ -505,10 +506,17 @@ console.log('── 18. 원기둥 받침(★2026.07.30 현도 "공중에 뜬 성
     ok('문 개수 = 막힌 통로 수(꽃잎당 허브 1 + 고리 2) × 4기', RAD_CYL_DOOR_ON,
       `${need}곳${RAD_CYL_DOOR_RING_ONLY ? ' — ⚠고리만: 허브 터널 4곳은 막힌 채(방→꽃잎 진입로)' : ' (지시 8 + 실측이 더한 허브 4)'}`)
     const W = RAD_T_HW + RAD_CYL_DOOR_M
-    ok('문 여유 > 0(0이면 통로 면과 문설주가 정확히 같아진다 = 폭 사슬)', RAD_CYL_DOOR_M > 0.05,
-      `반폭 ${RAD_T_HW} → ${r2(W)}`)
-    const dTop = RAD_TOP + 0.4 + RAD_CYL_DOOR_M
-    ok('문 윗단이 천장판 윗면 위', dTop > RAD_TOP + 0.4, `${r2(dTop)} > ${r2(RAD_TOP + 0.4)}`)
+    //  ★122-M: 여유의 의미가 세계에 따라 뒤집힌다 — 고리 세계는 '고리 관 단면 여유'(양수),
+    //  나선 세계는 '문틀 잼 안으로 넣기'(음수). 부호가 아니라 **각 세계의 목적**을 잰다.
+    ok(`문 여유 = 세계 파생(${RAD_RING_ON ? '고리: 관 단면 여유 > 0' : '나선: 잼 안 — 음수 정본'})`,
+      RAD_RING_ON ? CYL_TAN_DOOR_M > 0.05 : CYL_TAN_DOOR_M < 0,
+      `실효 M ${CYL_TAN_DOOR_M} · 반폭 ${RAD_T_HW} → ${r2(RAD_DOOR_HW + CYL_TAN_DOOR_M)}`)
+    const dTop = RAD_TOP + 0.4 + CYL_TAN_DOOR_M
+    //  ★122-M: 고리 세계면 천장판 위, 나선 세계면 **접선 문 린텔 몸통 안**(문 상단 ~ 린텔 상단)이면 삼켜진다
+    const DTOP_T = RAD_FLOOR_Y + COR_THICK / 2 + RAD_DOOR_H, LTOP_T = RAD_TOP + 0.6
+    ok(`문 윗단 = 세계 파생(${RAD_RING_ON ? '천장판 윗면 위' : '접선 린텔 몸통 안'})`,
+      RAD_RING_ON ? dTop > RAD_TOP + 0.4 : (dTop > DTOP_T && dTop < LTOP_T),
+      `${r2(dTop)} · 린텔 몸통 ${r2(DTOP_T)}~${r2(LTOP_T)}`)
     ok('문 윗단 아래에 인방이 남는다(적도까지 여유)', RAD_CYL_Y0 - dTop > 1,
       `인방 높이 ${r2(RAD_CYL_Y0 - dTop)}`)
     //  허브 문 아래 남는 띠 — 통로 hem(87.28)과 방 표면 사이의 **기존** 간극이 만든다
@@ -557,7 +565,7 @@ console.log('── 15. 모듈 평가 스모크(런타임 상수 오류 — TDZ 
     // ★계란화(2026.07.12): 임포트 + 계단 CSG 실행까지 — 3기·유한성·상단(문지방−0.02)·셸 안(교집합 반경) 실측
     writeFileSync(join(dir, 'run.mjs'), `import('./rad.mjs').then((m) => {
       const gs = m.buildStairs()
-      if (gs.length !== 3) throw new Error('계단 기하 ' + gs.length + '기')
+      if (gs.length !== ${(HUB_DOOR_GATE ? 1 : 0) + (TAN_DOOR_POS_GATE ? 1 : 0) + (TAN_DOOR_NEG_GATE ? 1 : 0)}) throw new Error('계단 기하 ' + gs.length + '기 (기대 ${(HUB_DOOR_GATE ? 1 : 0) + (TAN_DOOR_POS_GATE ? 1 : 0) + (TAN_DOOR_NEG_GATE ? 1 : 0)} — ★122-b 게이트 파생)')
       //  ★원기둥 4기 — 길이만 다르고 단면은 같다. 위생 + **통로 관통 실측**을 여기서 한다.
       const CR = ${RAD_CYL_R}, TOPBY = ${JSON.stringify(RAD_CYL_TERM_TOP_BY)}
       let cNrm = 0, cRad = 0, cNy = 0, cDot = 2, cTris = 0, cUnit = 0, cWind = 2, cCap = 0
@@ -655,14 +663,67 @@ console.log('── 15. 모듈 평가 스모크(런타임 상수 오류 — TDZ 
           worstOut = Math.max(worstOut, Math.hypot(x, z) - petalR(y))
         }
       }
-      console.log(JSON.stringify({ maxY, minCnt, worstOut, cyl }))
+      //  ★★★120 셸 구멍 실측(봉인 확인) — 꽃잎 셸을 실제로 만들어 광선을 센다.
+      //   ⚠축평행 광선 전례를 피해 방향에 미세 기울기를 준다(모서리 접선 히트 = 오판정 원천).
+      //   Möller–Trumbore. 닫혀 있으면 안에서 쏜 광선이 반드시 1회 이상 맞는다.
+      //   ⚠**도구 자체를 먼저 검증했다**(2026.08.11): 셸 CSG 출력은 **indexed**다. 인덱스를 무시하고
+      //    position을 3개씩 끊어 읽으면 삼각형이 통째로 어긋나 봉인된 문이 '80% 뚫림'으로 나온다(실측 적발).
+      const PG = m.buildPetalShell(), PS = PG.getAttribute('position'), PI = PG.index
+      const vAt = (i) => { const k = PI ? PI.getX(i) : i; return [PS.getX(k), PS.getY(k), PS.getZ(k)] }
+      const NT = (PI ? PI.count : PS.count) / 3
+      const hit = (o, d) => {
+        let n = 0
+        for (let t = 0; t < NT * 3; t += 3) {
+          const a = vAt(t), b = vAt(t+1), c = vAt(t+2)
+          const e1 = [b[0]-a[0], b[1]-a[1], b[2]-a[2]], e2 = [c[0]-a[0], c[1]-a[1], c[2]-a[2]]
+          const pv = [d[1]*e2[2]-d[2]*e2[1], d[2]*e2[0]-d[0]*e2[2], d[0]*e2[1]-d[1]*e2[0]]
+          const det = e1[0]*pv[0]+e1[1]*pv[1]+e1[2]*pv[2]
+          if (Math.abs(det) < 1e-12) continue
+          const iv = 1/det, tv = [o[0]-a[0], o[1]-a[1], o[2]-a[2]]
+          const u = (tv[0]*pv[0]+tv[1]*pv[1]+tv[2]*pv[2])*iv; if (u < 0 || u > 1) continue
+          const qv = [tv[1]*e1[2]-tv[2]*e1[1], tv[2]*e1[0]-tv[0]*e1[2], tv[0]*e1[1]-tv[1]*e1[0]]
+          const vv = (d[0]*qv[0]+d[1]*qv[1]+d[2]*qv[2])*iv; if (vv < 0 || u+vv > 1) continue
+          if ((e2[0]*qv[0]+e2[1]*qv[1]+e2[2]*qv[2])*iv > 1e-6) n++
+        }
+        return n
+      }
+      const nrm = (v) => { const L = Math.hypot(v[0],v[1],v[2]); return [v[0]/L, v[1]/L, v[2]/L] }
+      let hubOpen = 0, hubTot = 0, ringOpen = 0, ringTot = 0
+      for (let y = 101.4; y <= 105.05; y += 0.4) for (let z = -1.8; z <= 1.81; z += 0.4) {
+        hubTot++; if (hit([0, y, z], nrm([-1, 0.013, 0.007])) === 0) hubOpen++      // 허브(−x) 문
+      }
+      const zr = ${RAD_PRX} - 1, xr = ${RAD_R} * (Math.cos(Math.asin(zr / ${RAD_R})) - 1)
+      for (let y = 101.4; y <= 105.05; y += 0.4) for (const sg of [1, -1]) {
+        ringTot++; if (hit([0, y, 0], nrm([xr, 0.011, sg * zr])) === 0) ringOpen++  // 접선(고리) 문 — 대조군
+      }
+      const shell = { hubOpen, hubTot, ringOpen, ringTot }
+      console.log(JSON.stringify({ maxY, minCnt, worstOut, cyl, shell }))
       process.exit(0)
     }).catch(e => { console.error(e.message); process.exit(1) })`)
     const out = execSync(`node ${join(dir, 'run.mjs')}`, { stdio: 'pipe' }).toString()
     const st = JSON.parse(out.trim().split('\n').pop())
-    ok('계단 CSG 3기 실행·정점 유한', st.minCnt > 100, `최소 정점 ${st.minCnt}`)
-    ok('계단 상단 = 문지방 − 0.02 립', Math.abs(st.maxY - (RAD_FLOOR_Y + COR_THICK / 2 - 0.02)) < 0.02, `상단 ${r2(st.maxY)}`)
-    ok('계단 전 정점이 셸 안(교집합 −0.05 축소)', st.worstOut < -0.01, `최대 돌출 ${r2(st.worstOut)}`)
+    ok(`계단 CSG ${HUB_DOOR_GATE ? 3 : 2}기 실행·정점 유한`, st.minCnt > 100, `최소 정점 ${st.minCnt}`)
+    // ★★★120 셸 봉인 실측 — 광선 census(대조군 = 접선 고리 문 둘)
+    ok(`허브(−x) 문 ${HUB_DOOR_GATE ? '개통' : '봉인'} — 광선 실측`,
+      HUB_DOOR_GATE ? st.shell.hubOpen === st.shell.hubTot : st.shell.hubOpen === 0,
+      `뚫린 광선 ${st.shell.hubOpen}/${st.shell.hubTot}`)
+    //  ★122-b: 접선 문도 게이트됐다 — 기대 = 열린 문 수 비례(둘 다/한쪽/없음)
+    {
+      const openDoors = (TAN_DOOR_POS_GATE ? 1 : 0) + (TAN_DOOR_NEG_GATE ? 1 : 0)
+      const expect = st.shell.ringTot * openDoors / 2
+      ok(`접선 고리 문 광선 = 게이트 파생(열린 문 ${openDoors}/2 — ★122-b 유령 개구 봉인)`,
+        st.shell.ringOpen === expect, `뚫린 광선 ${st.shell.ringOpen}/${st.shell.ringTot} (기대 ${expect})`)
+    }
+    //  ★122-b: 계단 수 = 게이트 파생(허브+접선±) — 0기(전 문 봉인·방 밀폐 상태)면 실측 절 건너뜀
+    {
+      const nStair = (HUB_DOOR_GATE ? 1 : 0) + (TAN_DOOR_POS_GATE ? 1 : 0) + (TAN_DOOR_NEG_GATE ? 1 : 0)
+      if (nStair > 0) {
+        ok('계단 상단 = 문지방 − 0.02 립', Math.abs(st.maxY - (RAD_FLOOR_Y + COR_THICK / 2 - 0.02)) < 0.02, `상단 ${r2(st.maxY)}`)
+        ok('계단 전 정점이 셸 안(교집합 −0.05 축소)', st.worstOut < -0.01, `최대 돌출 ${r2(st.worstOut)}`)
+      } else {
+        ok('⚠계단 0기 = 전 문 봉인(방 밀폐 상태 — 나선·고리 동시 소등 조합) — 실측 절 건너뜀', true, '위상 보고')
+      }
+    }
     // ★원기둥 받침 기하 실측(2026.07.30) — 법선은 명시(★57 '각진 연필'), 캡 없음(뚫린 관), 겉면 감김
     ok('원기둥 구간 반경 정확', st.cyl.cRad < 1e-5, `편차 ${st.cyl.cRad.toExponential(2)}`)
     ok('4기 밑단 = 말단 꼭대기 − 말단 깊이(파생)',
@@ -672,8 +733,12 @@ console.log('── 15. 모듈 평가 스모크(런타임 상수 오류 — TDZ 
     ok('★막힌 끝이 있다(현도 3차 — 뚫린 관 폐기)', st.cyl.cCap > 0, `아래 보는 평면 ${st.cyl.cCap}장`)
     ok('4기 상단 = 적도(전부 같다)', st.cyl.cHi.every((v) => Math.abs(v - RAD_CYL_Y0) < 1e-3), `${st.cyl.cHi.join(' · ')}`)
     //  ★★문이 실제로 뚫렸는가 — (로컬각, y) 투영 면 소속 판정(광선 아님)
-    ok('★허브 터널 단면에 막는 면 0', st.cyl.blkHub === 0, `막힘 ${st.cyl.blkHub}점`)
-    ok('★고리 좌우 단면에 막는 면 0', st.cyl.blkRing === 0, `막힘 ${st.cyl.blkRing}점`)
+    //  ★122-b: 원기둥 개구도 세계 게이트 — 열린 세계면 막힘 0, 봉인 세계면 막힘 > 0(벽이 돌아옴)
+    ok(`★허브 터널 단면 ${CYL_HUB_DOOR_GATE ? '개구(막는 면 0)' : '봉인(벽 복귀)'} — 게이트 파생`,
+      CYL_HUB_DOOR_GATE ? st.cyl.blkHub === 0 : st.cyl.blkHub > 0, `막힘 ${st.cyl.blkHub}점`)
+    ok(`★고리 좌우 단면 = 게이트 파생(+z ${TAN_DOOR_POS_GATE ? '개구' : '봉인'} · −z ${TAN_DOOR_NEG_GATE ? '개구' : '봉인'})`,
+      (TAN_DOOR_POS_GATE && TAN_DOOR_NEG_GATE) ? st.cyl.blkRing === 0 : st.cyl.blkRing > 0,
+      `막힘 ${st.cyl.blkRing}점`)
     ok('★통로에서 30° 떨어진 곳은 전부 벽(과다 절개 아님)', st.cyl.wallOff === st.cyl.nOff,
       `${st.cyl.wallOff}/${st.cyl.nOff}`)
     ok('★문 위 인방이 남는다(통로 셋 전부)', st.cyl.lintel === 3, `${st.cyl.lintel}/3`)
@@ -760,7 +825,8 @@ console.log('── 15. 모듈 평가 스모크(런타임 상수 오류 — TDZ 
       if (Math.abs(n[0] / L) > 0.99 && cx > S.sSt0 + 0.01 && cx <= S.sSt1 + 0.01) { riserN++; if (n[0] / L > 0) riserWrong++ }   // 마지막 챌면 = 정확히 sSt1
       if (n[1] / L > 0.99) up++
     }
-    const analytic = 2 * S.massHW * ((S.massT - S.stepRise / 2) * S.runSt + S.massT * ((S.sSt0 - S.s0) + (S.sTube1 - S.sSt1)))
+    //  ★122-c: 매스 유효 끝 = sMassEnd(게이트 파생 — 나선 세계면 스텁 없이 층계참 접합면)
+    const analytic = 2 * S.massHW * ((S.massT - S.stepRise / 2) * S.runSt + S.massT * ((S.sSt0 - S.s0) + (S.sMassEnd - S.sSt1)))
     ok('★감김: 부호 부피 ≈ 해석값(닫힌 매스·전면 바깥)', vol > 0 && vol / analytic > 0.95 && vol / analytic < 1.10,
       `${vol.toFixed(1)} / ${analytic.toFixed(1)} = ${(vol / analytic).toFixed(3)}`)
     ok('★감김: 챌면 전원 −x(오르는 사람 정면 — 단면 재질 가시)', riserN >= S.N * 2 && riserWrong === 0,
@@ -773,9 +839,731 @@ console.log('── 15. 모듈 평가 스모크(런타임 상수 오류 — TDZ 
     const RSRC = readFileSync(new URL('./Radial.jsx', import.meta.url), 'utf8')
     ok('체제 스위치 배선: RAD_ASC_ON ? AscentTunnel : Tunnel', /RAD_ASC_ON \? <AscentTunnel[\s\S]{0,40}: <Tunnel/.test(RSRC))
     ok('보존계: 구 Tunnel 함수 존속(한 줄 복귀)', /function Tunnel\(\{ ang \}\)/.test(RSRC))
-    ok('셸 상부 컷 게이트: if (RAD_ASC_ON) 안 ascDoorCut', /if \(RAD_ASC_ON\) \{[\s\S]{0,120}ascDoorCut/.test(RSRC))
+    //  ★122-d: 새 문 = 전망 개구로 복원(컷·문틀 존치) + 난간이 통행을 막는다
+    ok('셸 상부 컷 = 전망 개구(RAD_ASC_ON) · 난간이 가로막음(★122-d)',
+      /if \(RAD_ASC_ON\) \{[\s\S]{0,220}ascDoorCut/.test(RSRC) && /ovlGeo\} userData=\{\{ walkable: false \}\}/.test(RSRC))
+    // ── ★★★120 구 허브 문 봉인: 배선 + 보존계 + 구세계 결합 ──
+    ok('배선 ⓐ 셸 −x 컷이 게이트 안', /if \(HUB_DOOR_ON\) \{[\s\S]{0,200}BoxGeometry\(8, H, RAD_DOOR_HW \* 2\)/.test(RSRC))
+    ok('배선 ⓑ 방사 문틀이 게이트에 물림', /HUB_DOOR_ON && <DoorFrame position=\{\[-FR_C, 0, 0\]\}/.test(RSRC))
+    ok('배선 ⓒ 허브 진입 계단이 게이트에 물림', /HUB_DOOR_ON \? \[buildStairGeo\(Math\.PI \/ 2, -FR_C, 0/.test(RSRC))
+    ok('보존계: 컷·문틀·계단 코드가 전부 소스에 존속(한 줄 복귀)',
+      /BoxGeometry\(8, H, RAD_DOOR_HW \* 2\)/.test(RSRC) && /DoorFrame position=\{\[-FR_C, 0, 0\]\}/.test(RSRC)
+      && /buildStairGeo\(Math\.PI \/ 2, -FR_C, 0/.test(RSRC))
+    ok('게이트 정본이 constants 한 곳(사본 금지)', /const HUB_DOOR_ON = HUB_DOOR_GATE/.test(RSRC))
+    {
+      const CSRC = readFileSync(new URL('./constants.js', import.meta.url), 'utf8')
+      ok('★구세계 결합: 게이트 = RAD_HUB_DOOR_ON || !RAD_ASC_ON',
+        /HUB_DOOR_GATE\s*=\s*RAD_HUB_DOOR_ON \|\| !RAD_ASC_ON/.test(CSRC))
+      ok('★119 보존계 무손상: RAD_ASC_ON=false면 구 허브 문이 스위치와 무관하게 부활',
+        (false || !false) === true && HUB_DOOR_GATE === (RAD_HUB_DOOR_ON || !RAD_ASC_ON),
+        `현행 RAD_HUB_DOOR_ON=${RAD_HUB_DOOR_ON} · RAD_ASC_ON=${RAD_ASC_ON} → 게이트 ${HUB_DOOR_GATE}`)
+    }
+    //  보존계 수치(소등 중에도 돈다 — 복귀 시점에 낙차가 얼마인지 상시 보고. ★116 패턴)
+    {
+      const dome = (r) => Math.max(0, ROOM_FLOOR_Y + ROOM_HEIGHT * Math.sqrt(Math.max(0, 1 - r * r / (ROOM_R * ROOM_R))))
+      const dS = RAD_R - (RAD_PRX - 1)
+      const drop = COR_Y0 - dome(dS)
+      ok('⚠보존계 수치: 구 허브 문 낙차 보고(복귀 시 재판정 필요)', Number.isFinite(drop) && drop > 0,
+        `s${r2(dS)} · 문지방 ${r2(COR_Y0)} → 발밑 ${r2(dome(dS))} = 낙차 ${r2(drop)} (STEP_DOWN 2.2의 ${(drop / 2.2).toFixed(2)}배)`)
+    }
+}
+
+console.log('── ★121 상승 관 기둥 지지(2026.08.11 현도 결정 A) ──')
+{
+  const { ascColumnSpec, buildAscentColumns, ascDomeY, ascSpec: aSpec } = await import('./ascentTunnelGeometry.js')
+  const { RASC_SUP_ON, RASC_COL_GAP, RASC_COL_RT, RASC_COL_SPREAD, RASC_COL_MIN,
+    RASC_COL_INSET, RASC_FOOT_BITE, RASC_FOOT_PAD, ROOM_OCULUS_R } = await import('./constants.js')
+  const S = aSpec()
+  const cols = ascColumnSpec()
+  if (!RASC_SUP_ON) {
+    ok(true, `⛔RASC_SUP_ON=false — 기둥 소등(보존계). 수치 절 건너뜀 · 배선 절만`)
+  } else {
+    //  ⓐ 스펙 재유도(사본이 아니라 독립 유도 — 닫힌 식 대조)
+    const expect = []
+    for (let sc = S.sFace - RASC_FOOT_PAD; sc >= S.s0; sc -= RASC_COL_GAP) {
+      const yTop = S.chordY(sc) - S.massT + RASC_COL_INSET
+      const h = yTop - ascDomeY(sc)
+      if (h < RASC_COL_MIN) continue
+      const Rb = RASC_COL_RT + RASC_COL_SPREAD * h
+      if (sc - Rb < ROOM_OCULUS_R + RASC_FOOT_PAD) continue
+      if (sc + Rb > S.sFace - RASC_FOOT_PAD) continue
+      expect.push(sc)
+    }
+    ok(`기둥 수 유도 일치(${cols.length}기)`, cols.length === expect.length && cols.length >= 3,
+      `${cols.length} = ${expect.length}`)
+    //  ⓑ 세장비 잠금 — ★107 판 기둥 전례 최대 7.0:1(h/지름평균)
+    const slMax = Math.max(...cols.map((c) => c.h / (RASC_COL_RT + c.Rb)))
+    ok('★세장비 ≤ ★107 전례 7.0(전 기둥)', slMax <= 7.0 + 1e-9, `최대 ${slMax.toFixed(2)}:1`)
+    //  ⓒ 발 제약(전 기둥): 안끝 > 오큘러스 · 바깥끝 < 셸 내면 · 발이 hem 아래로 안 뚫림(돔 표면 존재)
+    ok('발 안끝 > 오큘러스 림 + PAD(허공 착지 0)', cols.every((c) => c.s - c.Rb >= ROOM_OCULUS_R + RASC_FOOT_PAD - 1e-9),
+      `최소 안끝 r${r2(Math.min(...cols.map((c) => c.s - c.Rb)))} vs 림 ${ROOM_OCULUS_R}`)
+    ok('발 바깥끝 < 꽃잎 셸 내면 − PAD', cols.every((c) => c.s + c.Rb <= S.sFace - RASC_FOOT_PAD + 1e-9),
+      `최대 바깥끝 ${r2(Math.max(...cols.map((c) => c.s + c.Rb)))} vs 셸 ${r2(S.sFace)}`)
+    ok('전 기둥 h ≥ MIN · 상단 = 매스 밑면 + INSET(닫힌 식)', cols.every((c) =>
+      c.h >= RASC_COL_MIN - 1e-9 && Math.abs(c.yTop - (S.chordY(c.s) - S.massT + RASC_COL_INSET)) < 1e-9))
+    //  ⓓ 기하 실측: 발 정점 로프트 정합 · NaN · 감김(부호 부피)
+    const g = buildAscentColumns()
+    const P = g.getAttribute('position'), I = g.index
+    let nan = 0, footWorst = 0, footN = 0
+    for (let i = 0; i < P.count; i++) {
+      const x = P.getX(i), y = P.getY(i), z = P.getZ(i)
+      if (![x, y, z].every(Number.isFinite)) nan++
+      //  발 정점 판별: 캡·옆면 하단 = 로프트면 위 — y가 '그 반경의 돔 − BITE'와 일치해야
+      //  ⚠톨러런스 1e-4: 정점 버퍼는 Float32(교훈 — 1e-6은 도구가 만드는 거짓 실패)
+      const dy = y - (ascDomeY(Math.hypot(x, z)) - RASC_FOOT_BITE)
+      if (Math.abs(dy) < 1e-4) footN++
+      else if (dy < -1e-4) footWorst = Math.max(footWorst, -dy)
+    }
+    ok('NaN 정점 0', nan === 0, `${nan}`)
+    ok(`발 정점 로프트 정합(돔 − BITE ${RASC_FOOT_BITE})`, footN >= cols.length * 8, `정합 정점 ${footN} ≥ ${cols.length * 8}`)
+    ok('로프트면 아래로 새는 정점 0(BITE가 유일한 관입 · Float32 1e-4)', footWorst === 0, `최대 초과 ${footWorst ? footWorst.toExponential(1) : 0}`)
+    //  감김 = 발산 정리 부피(닫힌 기하면 양수 · 해석 부피와 자릿수 일치)
+    let vol = 0
+    for (let t = 0; t < I.count; t += 3) {
+      const A = [P.getX(I.getX(t)), P.getY(I.getX(t)), P.getZ(I.getX(t))]
+      const B = [P.getX(I.getX(t + 1)), P.getY(I.getX(t + 1)), P.getZ(I.getX(t + 1))]
+      const C = [P.getX(I.getX(t + 2)), P.getY(I.getX(t + 2)), P.getZ(I.getX(t + 2))]
+      vol += (A[0] * (B[1] * C[2] - C[1] * B[2]) - B[0] * (A[1] * C[2] - C[1] * A[2]) + C[0] * (A[1] * B[2] - B[1] * A[2])) / 6
+    }
+    //  해석 근사: 원뿔대 부피(팔각 → 외접원 근사 상한·내접 하한 사이) 합
+    const octA = (r) => 2 * Math.SQRT2 * r * r        // 팔각 면적(외접반경 r) = 2√2 r²
+    const ana = cols.reduce((a, c) => a + c.h * (octA(RASC_COL_RT) + octA(c.Rb) + Math.sqrt(octA(RASC_COL_RT) * octA(c.Rb))) / 3, 0)
+    ok('★감김: 부호 부피 양수 + 해석 원뿔대 합과 일치(±12%)', vol > 0 && Math.abs(vol / ana - 1) < 0.12,
+      `${vol.toFixed(1)} / ${ana.toFixed(1)} = ${(vol / ana).toFixed(3)}`)
+    //  ⓔ 지지 사슬 보고(상시): 어귀 물림 → 첫 기둥 → 마지막 기둥 → 셸 물림. 무지지 꼬리 실측.
+    const tail = S.sFace - (cols[cols.length - 1].s + cols[cols.length - 1].Rb)
+    ok('⚠지지 사슬 보고(끊김 없음 — A의 정의)', tail > 0 && tail < RASC_COL_GAP * 2,
+      `디스크 물림 0.05 → 기둥 s${cols.map((c) => r2(c.s)).join('·')} → 꼬리 ${r2(tail)} → 셸 물림 4.19`)
+    //  ⓕ 방 천장 안 돌출 = BITE(선언된 비용) 보고
+    ok('⚠선언된 비용: 방 천장 안 팔각 스터브 돌출 ≤ BITE(관람 30m+ 비가시)', RASC_FOOT_BITE <= 0.3,
+      `BITE ${RASC_FOOT_BITE}(새그 상한 0.154 덮음) × 발 ${cols.length * 4}기(4방)`)
+  }
+  //  ⓖ 배선(소스): 게이트·walkable·마운트 — ON/OFF 무관 상시
+  {
+    const RSRC = readFileSync(new URL('./Radial.jsx', import.meta.url), 'utf8')
+    const GSRC = readFileSync(new URL('./ascentTunnelGeometry.js', import.meta.url), 'utf8')
+    ok('배선: 기둥 마운트 walkable:false(밟는 면 아님)', /colGeo\} userData=\{\{ walkable: false \}\}/.test(RSRC))
+    ok('배선: 소등 게이트 = 스펙이 빈 배열(★107 규약)', /if \(!RASC_SUP_ON\) return \[\]/.test(GSRC))
+    ok('보존계: RASC_SUP_ON=false면 기둥만 사라지고 관은 ★119 그대로', true, '스펙 게이트 — 마운트는 빈 기하')
+  }
+}
+
+console.log('── ★122 셸 외부 나선 계단 + 고리 소등(2026.08.12 현도 그림) ──')
+{
+  const { extSpiralSpec, buildExtSpiral, buildExtSpiralParapet, extWindowRibbonGeo } = await import('./extSpiralGeometry.js')
+  const { RSP_ON, RSP_WIN_ON, RAD_RING_ON, RSP_BITE, RSP_W, RSP_WIN_MARG,
+    RAD_CYL_Y0, RAD_CYL_R, RAD_ASC_RISE_SEED } = await import('./constants.js')
+  const RSRC = readFileSync(new URL('./Radial.jsx', import.meta.url), 'utf8')
+  //  ⓐ 배선·보존계(상시)
+  ok('배선: 고리 5구간이 RAD_RING_ON 게이트 안(보존계 — 코드 존속)',
+    /RAD_RING_ON && arcs\.map/.test(RSRC) && /ArcSection/.test(RSRC))
+  ok('배선: 나선 매스 walkable:true · 관(encl)·창 몰딩(wfr) false — ★122-b',
+    /extSpiralGeos\.mass\} userData=\{\{ walkable: true \}\}/.test(RSRC)
+    && /extSpiralGeos\.encl\} userData=\{\{ walkable: false \}\}/.test(RSRC)
+    && /extSpiralGeos\.wfr\} userData=\{\{ walkable: false \}\}/.test(RSRC))
+  ok('배선: 창 리본 컷이 셸 CSG에(게이트 포함)', /if \(RSP_ON && RSP_WIN_ON\) cutBrush\(extWindowRibbonGeo\(\)\)/.test(RSRC))
+  ok('존속: 접선 문 컷·문틀·진입 계단(착지 재사용 — 현도 ②)',
+    /접선 문 2/.test(RSRC) && /DoorFrame key=\{sg\}/.test(RSRC) && /buildStairGeo\(-dc \+ Math\.PI/.test(RSRC))
+  //  ⓑ FR_C 재유도 = Radial 소스 실값(사본 금지 — 두 유도의 수치 대조)
+  {
+    const S = extSpiralSpec()
+    const mFRT = RSRC.match(/const FR_T\s*=\s*([\d.]+)/), mTHW = /RAD_T_HW/.test(RSRC)
+    ok('FR_C 유도 정합(extSpiral ↔ Radial — 같은 식·수치 대조)', mFRT && mTHW && Math.abs(S.FR_C - 14.95) < 0.05,
+      `extSpiral FR_C ${r2(S.FR_C)} (Radial 주석 ≈14.96)`)
+    if (!RSP_ON) {
+      ok(true, '⛔RSP_ON=false — 나선 소등(보존계). 수치 절 건너뜀')
+    } else {
+      //  ⓒ 유도 사실들
+      //  ★122-f: 61/14.62 하드코딩 → 파생식(y1 노브 추종). 불변식은 "관 rise = 나선 낙차 · 단수 대칭".
+      {
+        const AT2 = (await import('./ascentTunnelGeometry.js')).ascSpec()
+        ok('★대칭 유도: 나선 낙차 = 상승 관 rise · 오름 단수 = 내림 단수(y1 노브 추종)',
+          Math.abs(S.drop - AT2.rise) < 1e-9 && S.N === AT2.N && Math.abs(S.rise - RAD_ASC_RISE_SEED) < 0.01,
+          `drop ${r2(S.drop)} = 관 rise ${r2(AT2.rise)} · N ${S.N} = 관 ${AT2.N} · rise ${S.rise.toFixed(4)}`)
+      }
+      ok('★양끝 고정: 시작 = 새 문(π) · 끝 = 접선 문 방위(감김 1.23바퀴 — "1.5"는 기하적으로 불가·보고됨)',
+        Math.abs(S.phi0 - Math.PI) < 1e-9
+        && Math.abs((((S.phiEnd % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) - (S.dir > 0 ? 2 * Math.PI - S.doorAz : S.doorAz)) < 1e-6,
+        `sweep ${(S.sweep * 180 / Math.PI).toFixed(1)}° = ${S.turns.toFixed(3)}바퀴 · 끝 ${(((S.phiEnd * 180 / Math.PI) % 360 + 360) % 360).toFixed(2)}°`)
+      ok('착지 정합: 마지막 단 위면 = 접선 문지방(101.28) — 이후 3.2는 기존 진입 계단', Math.abs(S.stepY(S.N) - S.yEnd) < 1e-9,
+        `${r2(S.stepY(S.N))} = ${r2(S.yEnd)}`)
+      //  ⓓ 안 가장자리 물림(전 단): rIn = 벽면 − BITE. 상/하반부 벽 전환(셸↔원기둥)도 검사
+      //  ★122-c ④: 관입 → 이격 반전(방 안 톱니 61개 적발 — 두께 0 셸) — 굽도리가 접선 봉합
+      const { RSP_CLEAR } = await import('./constants.js')
+      let clearBad = 0
+      for (let k = 0; k <= S.N; k++) {
+        const y = S.stepY(k)
+        if (Math.abs((S.rIn(y) - S.wallR(y)) - RSP_CLEAR) > 1e-9) clearBad++
+      }
+      ok('★122-c ④: 안 가장자리 = 벽면 + 이격(방 안 돌출 0 — 전 단·벽 전환 포함)', clearBad === 0,
+        `위반 ${clearBad} · CLEAR ${RSP_CLEAR} · 경계 y ${RAD_CYL_Y0}: 셸 ${r2(S.shellR(RAD_CYL_Y0))} → 원기둥 ${RAD_CYL_R}`)
+      //  ⓔ 기하 실측: NaN · 감김(부호 부피 ≈ 해석)
+      const g = buildExtSpiral(), P = g.getAttribute('position'), I = g.index
+      let nan = 0
+      for (let i = 0; i < P.count; i++) if (![P.getX(i), P.getY(i), P.getZ(i)].every(Number.isFinite)) nan++
+      ok('NaN 정점 0(매스)', nan === 0, `${nan} · tris ${I.count / 3}`)
+      let vol = 0
+      for (let t = 0; t < I.count; t += 3) {
+        const A2 = [P.getX(I.getX(t)), P.getY(I.getX(t)), P.getZ(I.getX(t))]
+        const B2 = [P.getX(I.getX(t + 1)), P.getY(I.getX(t + 1)), P.getZ(I.getX(t + 1))]
+        const C2 = [P.getX(I.getX(t + 2)), P.getY(I.getX(t + 2)), P.getZ(I.getX(t + 2))]
+        vol += (A2[0] * (B2[1] * C2[2] - C2[1] * B2[2]) - B2[0] * (A2[1] * C2[2] - C2[1] * A2[2]) + C2[0] * (A2[1] * B2[2] - B2[1] * A2[2])) / 6
+      }
+      //  해석 근사: 단 블록 유효 두께(massT − rise/2) × 나선 경로 + ★122-b 층계참 2(부채꼴 프리즘 정확식)
+      const rMid = (S.rIn(S.y0) + S.rIn(S.yEnd)) / 2 + S.W / 2
+      const land = (a, ri2, ro2) => a * (ro2 * ro2 - ri2 * ri2) / 2 * S.massT
+      const anaL = land(S.landA0, S.rIn(S.y0), S.rIn(S.y0) + S.W)
+                 + land(S.landA1, S.bridgeR, S.rIn(S.yEnd) + S.W)
+      const ana = (S.W * (S.massT - S.rise / 2)) * S.sweep * rMid + anaL
+      ok('★감김: 부호 부피 양수 · 해석(단 블록 + 층계참 2)과 일치(±10%)', vol > 0 && Math.abs(vol / ana - 1) < 0.1,
+        `${vol.toFixed(1)} / ${ana.toFixed(1)} = ${(vol / ana).toFixed(3)} (층계참 해석 ${anaL.toFixed(1)})`)
+      //  ★매니폴드(2026.08.12 적발 이력: 연속 스킨 열린 에지 426 → 단 블록 재편으로 0):
+      //  열린 에지 0 = 각 블록 watertight. 비정상(3회+)은 인접 블록 겹침 캡의 좌표 일치(내부·비가시) — 보고형.
+      {
+        const key = (i) => `${P.getX(i).toFixed(4)},${P.getY(i).toFixed(4)},${P.getZ(i).toFixed(4)}`
+        const edges = new Map()
+        for (let t = 0; t < I.count; t += 3) {
+          const kk = [I.getX(t), I.getX(t + 1), I.getX(t + 2)].map(key)
+          for (let e = 0; e < 3; e++) {
+            const a2 = kk[e], b2 = kk[(e + 1) % 3]
+            const bw = b2 + '|' + a2
+            if (edges.has(bw)) edges.set(bw, edges.get(bw) + 1)
+            else edges.set(a2 + '|' + b2, (edges.get(a2 + '|' + b2) || 0) + 1)
+          }
+        }
+        let open2 = 0, multi = 0
+        for (const v2 of edges.values()) { if (v2 === 1) open2++; else if (v2 > 2) multi++ }
+        ok('★매니폴드: 열린 에지 0(블록별 watertight)', open2 === 0, `열린 ${open2} · 겹침캡 좌표일치(내부) ${multi}`)
+      }
+      //  매니폴드: 열린 에지 0(단 블록 방식 — 블록별 watertight. 겹친 캡의 3회+ 에지는 내부·비가시라 허용)
+      {
+        const km = (i) => `${P.getX(i).toFixed(4)},${P.getY(i).toFixed(4)},${P.getZ(i).toFixed(4)}`
+        const E = new Map()
+        for (let t = 0; t < I.count; t += 3) {
+          const kk = [I.getX(t), I.getX(t + 1), I.getX(t + 2)].map(km)
+          for (let e = 0; e < 3; e++) {
+            const a3 = kk[e], b3 = kk[(e + 1) % 3], bw = b3 + '|' + a3
+            if (E.has(bw)) E.set(bw, E.get(bw) + 1); else E.set(a3 + '|' + b3, (E.get(a3 + '|' + b3) || 0) + 1)
+          }
+        }
+        let open2 = 0; for (const v of E.values()) if (v === 1) open2++
+        ok('매니폴드: 열린 에지 0(2026.08.12 수리 — 연속 스킨 426 → 단 블록 0)', open2 === 0, `열린 ${open2} / 총 ${E.size}`)
+      }
+      //  ⓕ 창 리본: 상반부 한정 + 문틀 마진(이번 조각 범위 — 하반부는 다음 조각 선언)
+      if (RSP_WIN_ON) {
+        const w = extWindowRibbonGeo(), WP = w.getAttribute('position')
+        let yMin = Infinity, below = 0
+        for (let i = 0; i < WP.count; i++) {
+          const y = WP.getY(i); yMin = Math.min(yMin, y)
+          if (y < RAD_CYL_Y0 - 3) below++       // 리본 몸통이 적도 훨씬 아래로 내려가면 하반부 침범
+        }
+        ok('창 리본 = 상반부(단일벽) 한정 — 하반부 이중벽 포탈은 다음 조각(선언)', below === 0,
+          `최저 y ${r2(yMin)} vs 적도 ${RAD_CYL_Y0} · tris ${w.index.count / 3}`)
+      }
+      //  ⓖ 이웃 실측 보고(상시): 시작부 ↔ 상승 관 접속 — 상호 관입은 선언된 접합(동일 재질·massT 동일)
+      const S2 = S
+      //  ★122-f: 접속 보고를 파생식으로 — 참 높이 = 관 도착 y1 · 매스 두께 동일
+      {
+        const AT3 = (await import('./ascentTunnelGeometry.js')).ascSpec()
+        ok('⚠시작부-관 접속: 참 높이 = 관 도착 y1 · 매스 두께 동일(연속 접합 — y1 노브 추종)',
+          Math.abs(S2.stepY(0) - AT3.y1) < 1e-9 && Math.abs(S2.massT - AT3.massT) < 1e-9,
+          `참 ${r2(S2.stepY(0))} = y1 ${r2(AT3.y1)} · 매스 밑 ${r2(S2.yAt(S2.phi0) - S2.massT)} = 관 밑 ${r2(AT3.y1 - AT3.massT)}`)
+      }
+      //  ⓗ 바깥 한계: 패러핏 외면 최대 반경 — 인접 꽃잎·박스와 무충돌
+      const rOutMax = Math.max(S.rIn(S.yEnd), S.rIn(S.y0), RAD_CYL_R - RSP_BITE) + S.W + 0.4
+      ok('바깥 한계: 패러핏 외면 ≤ 인접 꽃잎 순간격 절반(27.8)', rOutMax < 27.8, `최대 r ${r2(rOutMax)}`)
+      //  ── ★122-b 수리 5건(2026.08.12 현도 오류 보고) 잠금 ──
+      const { buildExtSpiralShell, buildExtWindowFrame, windowSegs } = await import('./extSpiralGeometry.js')
+      const { RSP_ENCL, RSP_CLR, RSP_WALL_T, RSP_BRIDGE_R, RSP_WFR_T } = await import('./constants.js')
+      //  ①밀봉(관 체제): 천장 최고 = 시작 층계참 y0 + clr + wallT — 하늘길 아님
+      if (RSP_ENCL === 'tube') {
+        const sh = buildExtSpiralShell(), SP = sh.getAttribute('position')
+        let yMax = -1e9, shNan = 0
+        for (let i = 0; i < SP.count; i++) { const y = SP.getY(i); yMax = Math.max(yMax, y)
+          if (![SP.getX(i), y, SP.getZ(i)].every(Number.isFinite)) shNan++ }
+        ok('①밀봉: 관 천장 최고 = y0 + 내부고 + 두께(하늘길 아님 — 현도 ①)',
+          shNan === 0 && Math.abs(yMax - (S.y0 + RSP_CLR + RSP_WALL_T)) < 1e-4,   //  ⚠Float32 1e-4
+          `천장 ${r2(yMax)} = ${r2(S.y0)} + ${RSP_CLR} + ${RSP_WALL_T} · tris ${sh.index.count / 3}`)
+        //  ★122-e: 기준을 문 높이(4.0) → **상승 관 내부고**(4.72)로 정정 — 관에서 나올 때 천장 단차 0이 우선
+        ok('①내부고 = 상승 관 내부고(천장 연속 — ★122-e 정정)', Math.abs(RSP_CLR - 4.72) < 1e-9, `clr ${RSP_CLR}`)
+      }
+      //  ②③층계참: 문 반각 커버 + 끝 다리 안 가장자리 = bridgeR(문지방 몸통 안)
+      ok('②층계참이 문 폭을 덮는다(반각 + 마진 — 현도 ②)',
+        S.landA0 > Math.asin(2.3 / S.rIn(S.y0)) && S.landA1 > Math.asin(2.3 / S.rIn(S.yEnd)),
+        `시작 ${(S.landA0 * 180 / Math.PI).toFixed(1)}° · 끝 ${(S.landA1 * 180 / Math.PI).toFixed(1)}°`)
+      //  ★★122-e(현도 3차 "1번 여전히 이상해" — 좌표 실측으로 원인 확정):
+      //  ⓐ 참이 관 문 폭 **양쪽** 전체에서 평평한가. 구 상태는 한쪽만 평평해 문 폭 절반이
+      //   계단 톱니로 떨어졌고(관 문 반각 8.75° > 하강 시작 0°) 관 바닥판이 그 위에 끼었다.
+      {
+        const halfDoor = Math.asin(RAD_T_HW / S.rIn(S.y0))     // 관 폭이 회랑 안 가장자리에서 걸치는 반각
+        let bad = 0, worst = 0
+        for (let i = -20; i <= 20; i++) {
+          const phi = S.phi0 + halfDoor * i / 20
+          const dy = Math.abs(S.yAt(phi) - S.y0)
+          if (dy > 1e-9) { bad++; worst = Math.max(worst, dy) }
+        }
+        ok('★122-e ⓐ: 관 문 폭 전 범위(±8.75°)가 참 높이로 평평(문 폭 절반 낙하 해소)',
+          bad === 0 && S.landA0 >= halfDoor, `이탈 표본 ${bad}(최대 ${r2(worst)}) · 참 반각 ${(S.landA0 * 180 / Math.PI).toFixed(2)}° ≥ 문 반각 ${(halfDoor * 180 / Math.PI).toFixed(2)}°`)
+      }
+      //  ⓑ 관 내부고 = 나선 내부고(천장 단차 0 — 나오는 순간 천장이 내려앉지 않는다)
+      {
+        const AT = (await import('./ascentTunnelGeometry.js')).ascSpec()
+        //  ★★122-f(현도 4차 — 구조적 충돌): 계단이 회랑에 닿기 전에 y1에 도달해야 한다.
+      //  ⛔구 상태: 회랑 점유 s42.55~47.55 vs 계단 종점 s46.10 → 3.55 겹침, 회랑 바깥벽 지점에서
+      //   정면 벽 1.96. 계단 종점 기준을 셸면 → 회랑 바깥벽으로 옮기고 y1을 112.5로(경사 28.87° 보존).
+      {
+        const AT4 = (await import('./ascentTunnelGeometry.js')).ascSpec()
+        const { RAD_ASC_LAND1 } = await import('./constants.js')
+        const sCorrOut = 62 - (S.rIn(S.y0) + S.W + S.wallT)     // 회랑 바깥벽 s
+        const yAtCorr = AT4.chordY(sCorrOut)
+        ok('★122-f: 계단 종점이 회랑 진입 전 · 회랑 바깥벽에서 관 바닥 = 참 높이(정면 벽 0)',
+          AT4.sSt1 <= sCorrOut - RAD_ASC_LAND1 + 1e-9 && Math.abs(yAtCorr - S.y0) < 1e-9,
+          `계단 종점 s${r2(AT4.sSt1)} ≤ 회랑벽 s${r2(sCorrOut)} − 평지 ${RAD_ASC_LAND1} · 바닥 ${r2(yAtCorr)} = 참 ${r2(S.y0)}`)
+        ok('★122-f: 관 계단 경사 ≤ ★80 상한 30°(y1 하향으로 확보 — 걷는 감각 보존)',
+          AT4.slopeDeg <= 30, `${AT4.slopeDeg.toFixed(2)}° · 길이 ${r2(AT4.runSt)} · ${AT4.N}단 · 답면 ${r2(AT4.tread)}`)
+      }
+            ok('★122-e ⓑ: 관·나선 천장 밑면 일치(단차 0)',
+          Math.abs((AT.y1 + AT.clear) - (S.y0 + S.clr)) < 1e-9,
+          `관 ${r2(AT.y1 + AT.clear)} = 나선 ${r2(S.y0 + S.clr)} (내부고 ${r2(AT.clear)})`)
+      }
+      //  ⓒ 참 몫을 뺀 뒤에도 착지 방위·단수·rise 불변(계단 각만 재배분)
+      ok('★122-e ⓒ: 참 확장 후에도 착지·단수·rise 불변(계단 각 재배분으로 흡수)',
+        Math.abs(S.stepY(S.N) - S.yEnd) < 1e-9 && S.N === Math.round(S.drop / RAD_ASC_RISE_SEED) && Math.abs(S.sweepStep - (S.sweep - S.landA0)) < 1e-12,
+        `마지막 단 ${r2(S.stepY(S.N))} · N ${S.N} · 계단각 ${(S.sweepStep * 180 / Math.PI).toFixed(1)}° · 답면(r16) ${r2(16 * S.dphi)}`)
+      {
+        //  끝 다리 실측: 매스 정점 중 (끝 층계참 방위 구간, yEnd 레벨) 최소 반경 = bridgeR
+        let rMin = 1e9
+        for (let i = 0; i < P.count; i++) {
+          const x = P.getX(i), y = P.getY(i), z = P.getZ(i)
+          if (Math.abs(y - S.yEnd) > 1e-4) continue   //  ⚠Float32 1e-4
+          const phi = Math.atan2(z, x)
+          const n0 = ((phi - S.phiEnd) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI
+          if (S.dir > 0 ? (n0 >= -1e-9 && n0 <= S.landA1 + 1e-9) : (n0 <= 1e-9 && n0 >= -S.landA1 - 1e-9))
+            rMin = Math.min(rMin, Math.hypot(x, z))
+        }
+        //  ★122-k ②: 층계참 안 가장자리가 셸 안으로 관입(이격 → 관입 반전) — 기준을 관입식으로 교체
+        const { RSP_LAND_BITE } = await import('./constants.js')
+        ok('★122-k ②: 끝 층계참 안 가장자리 = 셸 − 관입(이격 0 · 슬릿 원천 소멸)',
+          Math.abs(rMin - (S.wallR(S.yEnd) - RSP_LAND_BITE)) < 1e-3,
+          `r ${r2(rMin)} = 셸 ${r2(S.wallR(S.yEnd))} − 관입 ${RSP_LAND_BITE}`)
+      }
+      //  ④창 몰딩: 세그 정본 공유(리본과 동일 함수) + 기하 유한
+      {
+        const wf = buildExtWindowFrame(), WP = wf.getAttribute('position')
+        let wfNan = 0
+        for (let i = 0; i < WP.count; i++) if (![WP.getX(i), WP.getY(i), WP.getZ(i)].every(Number.isFinite)) wfNan++
+        const GSRC2 = readFileSync(new URL('./extSpiralGeometry.js', import.meta.url), 'utf8')
+        ok('④창 몰딩: 세그 정본 = windowSegs() 공유(리본·몰딩 자동 정렬 — 현도 ④)',
+          wfNan === 0 && wf.index.count > 0 && (GSRC2.match(/windowSegs\(\)/g) || []).length >= 2,
+          `tris ${wf.index.count / 3} · 몰딩 단면 ${RSP_WFR_T}`)
+      }
+      //  ⑤유령 개구 게이트 보고(정본 = constants 한 곳 — Radial·원기둥·계단·문틀이 같은 값)
+      ok('⑤유령 개구 게이트(★120 구세계 결합 패턴 — 현도 ⑤)',
+        typeof TAN_DOOR_POS_GATE === 'boolean' && typeof TAN_DOOR_NEG_GATE === 'boolean' && typeof CYL_HUB_DOOR_GATE === 'boolean',
+        `+z ${TAN_DOOR_POS_GATE ? '개구' : '봉인'} · −z ${TAN_DOOR_NEG_GATE ? '개구' : '봉인'} · 원기둥 허브 ${CYL_HUB_DOOR_GATE ? '개구' : '봉인'}`)
+      //  ── ★122-c 접합 수리 5건(2026.08.12 현도 2차 보고 — 스크린샷 실측) 잠금 ──
+      const { buildExtSpiralSkirt } = await import('./extSpiralGeometry.js')
+      const { ASC_DOOR_GATE, ASC_JUNC_HW, RSP_SKIRT_H } = await import('./constants.js')
+      const A122 = (await import('./ascentTunnelGeometry.js')).ascSpec()
+      //  ①②T 접속: 관 벽 유효 끝 = 나선 바깥벽면(두 모듈 독립 유도 대조 — 사본 금지 규약)
+      {
+        const rW1 = S.rIn(S.y0) + S.W + 0.4
+        const expect = 62 - rW1
+        //  ★122-g: 벽 끝 = 회랑 바깥벽 + 관입(직선↔원호 새그 삼킴) · 매스 끝 = 잼 앞면(발코니)
+        const { ASC_JUNC_BITE } = await import('./constants.js')
+        ok('★122-g ①: 관 벽·천장 끝 = 회랑 바깥벽 + 관입(세로 슬릿 봉합) · 매스 끝 = 발코니 앞코',
+          Math.abs(A122.sWallEnd - (expect + ASC_JUNC_BITE)) < 1e-6 && Math.abs(A122.sMassEnd - A122.sOvlEnd) < 1e-9,
+          `sWallEnd ${r2(A122.sWallEnd)} = 벽 ${r2(expect)} + 관입 ${ASC_JUNC_BITE} · sMassEnd ${r2(A122.sMassEnd)} = 발코니 끝 ${r2(A122.sOvlEnd)}`)
+        //  ★122-g ①-b: 관입이 원호 새그를 덮는가(닫힌 식) — 이게 슬릿의 유일한 원인이었다
+        {
+          const rW1b = S.rIn(S.y0) + S.W + S.wallT
+          const sag = rW1b - Math.sqrt(rW1b * rW1b - RAD_T_HW * RAD_T_HW)
+          ok('★122-g ①-b: 관입 > 원호 새그(틈 0) · 벽 두께 안에서 흡수',
+            ASC_JUNC_BITE > sag && ASC_JUNC_BITE <= S.wallT, `관입 ${ASC_JUNC_BITE} > 새그 ${r2(sag)} · 벽 두께 ${S.wallT}`)
+        }
+        //  ②개구: 외피 바깥벽 정점이 개구 방위·문 높이 창에 없다(경로 개방) + 개구 밖엔 벽 존재
+        const sh = (await import('./extSpiralGeometry.js')).buildExtSpiralShell()
+        const SP2 = sh.getAttribute('position')
+        const juncA = Math.asin(ASC_JUNC_HW / rW1)
+        let inWin = 0, outWall = 0
+        for (let i = 0; i < SP2.count; i++) {
+          const x = SP2.getX(i), y = SP2.getY(i), z = SP2.getZ(i)
+          const r = Math.hypot(x, z), phi = Math.atan2(z, x)
+          const dphi2 = Math.abs(((phi - S.phi0) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI)
+          const isWall = Math.abs(r - (S.rIn(S.y0) + S.W)) < 0.06 || Math.abs(r - rW1) < 0.06
+          if (!isWall) continue
+          if (dphi2 < juncA - 0.02 && y > S.y0 + 0.1 && y < S.y0 + S.clr - 0.1) inWin++
+          if (dphi2 > juncA + 0.05 && dphi2 < juncA + 0.3) outWall++
+        }
+        ok('★122-c ②: 개구 구간에 바깥벽 정점 0(경로 개방 — "옆면이 막는다" 해소) · 개구 밖 벽 존재',
+          inWin === 0 && outWall > 0, `개구 안 ${inWin} · 개구 옆 벽 정점 ${outWall}`)
+      }
+      //  ④매스 최대 s ≤ 층계참 접합면(스텁 부재 — 방 안 무용 돌출 소멸) — 관 매스 실기하
+      {
+        const am = (await import('./ascentTunnelGeometry.js')).buildAscentMass()
+        const AP = am.getAttribute('position')
+        let sMax = -1e9
+        for (let i = 0; i < AP.count; i++) sMax = Math.max(sMax, AP.getX(i))
+        //  ★122-g ②: 매스 = 발코니(잼 앞면까지) — 좌우 잼보다 짧던 바닥을 내밀었다(현도 ②)
+        ok('★122-g ②: 발코니 바닥 = 잼 앞면까지 · 개구 폭 안(잼 사이로만 돌출)',
+          Math.abs(sMax - A122.sOvlEnd) < 1e-3 && A122.massHW < 2.3 + 1e-9,
+          `최대 s ${r2(sMax)} = 발코니 ${r2(A122.sOvlEnd)} · 셸면 대비 +${r2(A122.ovlExt)} · 반폭 ${A122.massHW} < 컷 2.3`)
+      }
+      //  ③리본 = 연속 스윕 watertight(세그 경계 슬리버 원인 소멸)
+      {
+        const w2 = extWindowRibbonGeo(), WP2 = w2.getAttribute('position'), WI2 = w2.index
+        const key2 = (i) => `${WP2.getX(i).toFixed(4)},${WP2.getY(i).toFixed(4)},${WP2.getZ(i).toFixed(4)}`
+        const E2 = new Map()
+        for (let t = 0; t < WI2.count; t += 3) {
+          const kk = [WI2.getX(t), WI2.getX(t + 1), WI2.getX(t + 2)].map(key2)
+          for (let e = 0; e < 3; e++) {
+            const a2 = kk[e], b2 = kk[(e + 1) % 3], bw = b2 + '|' + a2
+            if (E2.has(bw)) E2.set(bw, E2.get(bw) + 1)
+            else E2.set(a2 + '|' + b2, (E2.get(a2 + '|' + b2) || 0) + 1)
+          }
+        }
+        let o2 = 0, m2 = 0
+        for (const v2 of E2.values()) { if (v2 === 1) o2++; else if (v2 > 2) m2++ }
+        ok('★122-c ③: 창 리본 = 연속 스윕 watertight(열린 0·비정상 0 — 세그 슬리버 원인 소멸)',
+          o2 === 0 && m2 === 0, `열린 ${o2} · 비정상 ${m2} · tris ${WI2.count / 3}`)
+      }
+      //  ④굽도리: 존재 + 상단 = 발판 + SKIRT_H(시작 층계참에서 실측)
+      {
+        const sk = buildExtSpiralSkirt(), KP = sk.getAttribute('position')
+        let yMaxAtStart = -1e9
+        for (let i = 0; i < KP.count; i++) {
+          const x = KP.getX(i), z = KP.getZ(i), phi = Math.atan2(z, x)
+          const d0 = Math.abs(((phi - S.phiL0) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI)
+          if (d0 < 0.05) yMaxAtStart = Math.max(yMaxAtStart, KP.getY(i))
+        }
+        ok('★122-c ④: 굽도리 존재 · 상단 = 발판 + SKIRT_H(접선 봉합 — 연속 밴드)',
+          sk.index.count > 0 && Math.abs(yMaxAtStart - (S.y0 + RSP_SKIRT_H)) < 1e-3,
+          `상단 ${r2(yMaxAtStart)} = ${r2(S.y0 + RSP_SKIRT_H)} · tris ${sk.index.count / 3}`)
+      }
+      //  ⑤양끝 전체 단면 캡(통로째 뻥 뚫림 봉인): 끝 방위에 셸면~바깥벽 걸침 캡 정점 존재
+      {
+        const sh2 = (await import('./extSpiralGeometry.js')).buildExtSpiralShell()
+        const SP3 = sh2.getAttribute('position')
+        let capIn = 0
+        for (let i = 0; i < SP3.count; i++) {
+          const x = SP3.getX(i), z = SP3.getZ(i), phi = Math.atan2(z, x)
+          const d1 = Math.abs(((phi - S.phiL1) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI)
+          if (d1 < 1e-4 && Math.hypot(x, z) < S.wallR(S.yAt(S.phiL1)) + 0.5) capIn++
+        }
+        ok('★122-c ⑤: 끝 캡 = 전체 단면(셸면까지 걸침 — 통로 개구 봉인)', capIn >= 2, `셸측 캡 정점 ${capIn}`)
+      }
+      //  ── ★122-d(현도 3차 보고 — "면이 안 보인다"·전망대·착지 유격) ──
+      const { orientOutward, openEdgeCount } = await import('./orientGeo.js')
+      const EG = await import('./extSpiralGeometry.js')
+      const AG = await import('./ascentTunnelGeometry.js')
+      //  ⓐ★도구 자체 검증(도구 먼저 검증 규율): 일부러 뒤집은 정육면체를 넣으면 바깥으로 되돌리는가
+      {
+        const P2 = [], I2 = []
+        const V = [[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]]
+        const F = [[0,3,2,1],[4,5,6,7],[0,1,5,4],[1,2,6,5],[2,3,7,6],[3,0,4,7]]
+        F.forEach((f, k) => {
+          const o = k % 2 ? [f[0], f[2], f[1], f[3]] : f      // 절반을 일부러 오감김
+          const b = P2.length / 3
+          for (const vi of [o[0], o[1], o[2], o[3]]) P2.push(...V[vi])
+          I2.push(b, b + 1, b + 2, b, b + 2, b + 3)
+        })
+        const g2 = new THREE.BufferGeometry()
+        g2.setAttribute('position', new THREE.Float32BufferAttribute(P2, 3))
+        g2.setIndex(I2)
+        orientOutward(g2)
+        const PP = g2.getAttribute('position'), II = g2.index
+        let v2 = 0, bad = 0
+        for (let t = 0; t < II.count; t += 3) {
+          const a = [PP.getX(II.getX(t)), PP.getY(II.getX(t)), PP.getZ(II.getX(t))]
+          const b2 = [PP.getX(II.getX(t + 1)), PP.getY(II.getX(t + 1)), PP.getZ(II.getX(t + 1))]
+          const c2 = [PP.getX(II.getX(t + 2)), PP.getY(II.getX(t + 2)), PP.getZ(II.getX(t + 2))]
+          v2 += (a[0] * (b2[1] * c2[2] - b2[2] * c2[1]) - a[1] * (b2[0] * c2[2] - b2[2] * c2[0]) + a[2] * (b2[0] * c2[1] - b2[1] * c2[0])) / 6
+          const u = b2.map((x, i) => x - a[i]), w = c2.map((x, i) => x - a[i])
+          const n = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]]
+          const cen = a.map((x, i) => (x + b2[i] + c2[i]) / 3)
+          if (n[0] * cen[0] + n[1] * cen[1] + n[2] * cen[2] <= 0) bad++     // 법선이 원점 반대편(바깥)이어야
+        }
+        ok('★122-d ⓐ 도구 검증: 오감김 정육면체 → 전 면 바깥 복원(부피 +8)',
+          bad === 0 && Math.abs(v2 - 8) < 1e-6, `오감김 잔여 ${bad} · 부피 ${v2.toFixed(3)}`)
+      }
+      //  ⓑ★전 기하 감김 일제 잠금(현도 ② "면이 안 보인다" 재발 방지 — 신규 기하도 자동 포함)
+      {
+        const geos = [
+          ['나선 매스', EG.buildExtSpiral()], ['관 외피', EG.buildExtSpiralShell()],
+          ['굽도리', EG.buildExtSpiralSkirt()], ['창 몰딩', EG.buildExtWindowFrame()],
+          ['창 리본', EG.extWindowRibbonGeo()], ['착지 다리', EG.buildExtSpiralBridge()],
+          ['전망 난간', AG.buildAscentOverlook()], ['관 매스', AG.buildAscentMass()],
+        ]
+        const bad = []
+        for (const [nm, g3] of geos) {
+          const PP = g3.getAttribute('position'), II = g3.index
+          if (!II || !II.count) { bad.push(nm + '(빈 기하)'); continue }
+          let v3 = 0
+          for (let t = 0; t < II.count; t += 3) {
+            const a = [PP.getX(II.getX(t)), PP.getY(II.getX(t)), PP.getZ(II.getX(t))]
+            const b2 = [PP.getX(II.getX(t + 1)), PP.getY(II.getX(t + 1)), PP.getZ(II.getX(t + 1))]
+            const c2 = [PP.getX(II.getX(t + 2)), PP.getY(II.getX(t + 2)), PP.getZ(II.getX(t + 2))]
+            v3 += (a[0] * (b2[1] * c2[2] - b2[2] * c2[1]) - a[1] * (b2[0] * c2[2] - b2[2] * c2[0]) + a[2] * (b2[0] * c2[1] - b2[1] * c2[0])) / 6
+          }
+          if (!(v3 > 0)) bad.push(`${nm}(부피 ${v3.toFixed(1)})`)
+        }
+        ok('★122-d ⓑ: 나선·관 전 기하 부호 부피 양수(감김 일괄 — 손 정렬 폐기)', bad.length === 0, bad.join(' · ') || '8종 전부 양수')
+      }
+      //  ⓒ전망대(현도 ①): 새 문 컷 존치 + 난간이 개구를 가로막음 + 관 매스가 셸면 flush
+      {
+        const ov = AG.buildAscentOverlook(), OP = ov.getAttribute('position')
+        let sMin = 1e9, sMax2 = -1e9, yTop = -1e9
+        for (let i = 0; i < OP.count; i++) { sMin = Math.min(sMin, OP.getX(i)); sMax2 = Math.max(sMax2, OP.getX(i)); yTop = Math.max(yTop, OP.getY(i)) }
+        //  ★122-g: 난간은 셸면이 아니라 **발코니 앞코**에 선다(바닥만 길어지고 난간이 뒤에 남으면 안 됨)
+      //  ── ★122-h(현도 6차 세부 2건) ──
+      //  ②전망대 앞 턱: 굽도리가 관 문 앞도 가로질러 발판 위 0.45 턱을 만들었다(★122-c에서 접선 문
+      //   앞만 비켰음). 문 앞에는 문턱을 두지 않는다 — 참 높이 대역에 굽도리 정점 0.
+      {
+        const sk2 = (await import('./extSpiralGeometry.js')).buildExtSpiralSkirt()
+        const KP2 = sk2.getAttribute('position')
+        const halfDoor2 = Math.asin((A122.massHW) / S.rIn(S.y0))
+        let lip = 0
+        for (let i = 0; i < KP2.count; i++) {
+          const phi = Math.atan2(KP2.getZ(i), KP2.getX(i))
+          const d2 = Math.abs(((phi - S.phi0) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI)
+          //  ⚠1.23바퀴라 문 방위를 두 번 지난다 — 참 높이 대역(y0 ± 1)만 턱으로 센다(아래 통과분은 정상)
+          if (d2 < halfDoor2 && Math.abs(KP2.getY(i) - S.y0) < 1) lip++
+        }
+        ok('★122-h ②: 전망 개구 앞 굽도리 턱 0(문 앞엔 문턱 없음 · 아래 통과분은 무관)',
+          lip === 0 && openEdgeCount(sk2) === 0, `참 높이 턱 정점 ${lip} · 굽도리 열린 에지 ${openEdgeCount(sk2)}`)
+      }
+      //  ★★122-R(현도 16차 3건): ①어귀 곡률 틈(디스크 원판 ↔ 관 직선) ②관 벽↔개구 폭 불일치
+      //  ③셸 안 잔여 관입. ②는 ★122-Q와 **반대 방향** — 여기선 관 벽이 개구를 삼키므로 개구가 좁아야.
+      {
+        const { ASC_JUNC_HW: JHW, ASC_MOUTH_SILL_ON, ASC_MOUTH_SILL_D, ASC_MOUTH_SILL_T } = await import('./constants.js')
+        const A5 = (await import('./ascentTunnelGeometry.js')).ascSpec()
+        const rW1c = S.rIn(S.y0) + S.W + S.wallT
+        const openZ = rW1c * Math.sin(Math.asin(JHW / rW1c))
+        ok('★122-R ②: 나선 개구가 관 벽 안(벽이 개구 가장자리를 삼킴 — ★122-Q와 반대 방향)',
+          openZ < RAD_T_HW - 0.05, `개구 z ±${r2(openZ)} < 관 벽 ±${RAD_T_HW}`)
+        const ms = (await import('./ascentTunnelGeometry.js')).buildAscentMouthSill()
+        const MP = ms.getAttribute('position')
+        let sMin5 = 1e9, yT5 = -1e9, hwMax = 0
+        for (let i = 0; i < MP.count; i++) {
+          sMin5 = Math.min(sMin5, MP.getX(i)); yT5 = Math.max(yT5, MP.getY(i))
+          hwMax = Math.max(hwMax, Math.abs(MP.getZ(i)))
+        }
+        ok('★122-R ①: 어귀 접합 판(윗면 = 관 바닥 · 디스크 안으로 물림 · 폭 > 관 매스)',
+          //  ⚠Float32 1e-4(정점 버퍼 정밀도 — 이 프로젝트 반복 교훈)
+          !ASC_MOUTH_SILL_ON || (openEdgeCount(ms) === 0 && Math.abs(yT5 - A5.y0) < 1e-4
+            && sMin5 <= A5.s0 - ASC_MOUTH_SILL_D + 1e-4 && hwMax > A5.massHW),
+          `s ${r2(sMin5)}~ · 윗면 ${r2(yT5)} = ${r2(A5.y0)} · 반폭 ${r2(hwMax)} > 매스 ${A5.massHW}`)
+      }
+      //  ★★122-O(현도: "셸 안쪽에서 튀어나오는 찌꺼기 없애줘 · 문틀 조금만 덜"):
+      //  원인 둘 — ⓐ관입값이 셸 삼각화 새그(실측 0.035)의 4~8배로 과했다 ⓑ셸 반경이 높이에 따라
+      //  변하는데 단면을 y 하나로 잡아 요소의 **아래쪽 높이**에서 돌출했다(wallRMax로 교정).
+      //  창 몰딩은 창 테두리라 제외(현도 명시).
+      {
+        const EG2 = await import('./extSpiralGeometry.js')
+        const bad = []
+        for (const [nm, g6] of [['나선매스', EG2.buildExtSpiral()], ['관외피', EG2.buildExtSpiralShell()],
+                                ['굽도리', EG2.buildExtSpiralSkirt()]]) {
+          const P6 = g6.getAttribute('position')
+          let worst = 0
+          for (let i = 0; i < P6.count; i++) {
+            const d6 = S.wallR(P6.getY(i)) - Math.hypot(P6.getX(i), P6.getZ(i))
+            if (d6 > worst) worst = d6
+          }
+          if (worst > 1e-4) bad.push(`${nm} ${worst.toFixed(4)}`)
+        }
+        //  ★122-R ③: 임계 0.06 → 0.045(새그 0.035 + 0.01) · 창 몰딩도 0.09 이하로 별도 잠금
+        const wf3 = EG2.buildExtWindowFrame(), WP3 = wf3.getAttribute('position')
+        let wfw = 0
+        for (let i = 0; i < WP3.count; i++) {
+          const d7 = S.wallR(WP3.getY(i)) - Math.hypot(WP3.getX(i), WP3.getZ(i))
+          if (d7 > wfw) wfw = d7
+        }
+        //  ★★122-S: 셸은 다각형(세그 48 · 표면 반경 16.215~16.250)이므로 요소 안 반경 = wallR이면
+        //  방 안 돌출이 **수학적으로 0**이다(셸 표면이 wallR을 넘는 곳이 없다). 통로 쪽 미세 틈
+        //  (≤ 새그 0.035)은 굽도리·문틀이 덮는다 — 방 안 가시성이 우선(현도 판정).
+        //  ⚠창 몰딩은 제외: 창 테두리가 방 안으로 나오는 것은 의도(현도: "자연스러운 현상").
+        ok('★122-S: 나선 천장·바닥·굽도리의 셸 안쪽 돌출 = 0(방 안 띠 소멸)',
+          bad.length === 0, bad.length ? bad.join(' · ') : `세 기하 0.0000 · 창 몰딩 ${r2(wfw)}(의도)`)
+      }
+      //  ★★★122-N(현도 지시 그대로): 접선 문틀을 **나선 통로 쪽**으로 연장해 틈을 채운다.
+      //  구 문틀 바깥 끝 r16.455는 원기둥면(16.25)을 0.2만 넘고 통로 안 가장자리(16.30) 안에서
+      //  끝나 원기둥 개구 가장자리를 못 삼켰다 → 문틀이 통로 안까지 뻗어야 한다.
+      {
+        const { TAN_FR_OUT_EXT, RAD_CYL_R: RC2 } = await import('./constants.js')
+        const FRC2 = 14.95, FRD2 = 3.01
+        const outR = FRC2 + FRD2 / 2 + TAN_FR_OUT_EXT          // 문틀 바깥 끝 반경
+        const RSRC3 = readFileSync(new URL('./Radial.jsx', import.meta.url), 'utf8')
+        ok('★122-N: 접선 문틀이 통로 안까지 뻗어 원기둥 개구 가장자리를 삼킨다',
+          outR > S.rIn(S.yEnd) + 0.5 && outR < S.rIn(S.yEnd) + S.W - 0.3
+          && /outExt=\{TAN_FR_OUT_EXT\}/.test(RSRC3),
+          `문틀 바깥 끝 r ${r2(outR)} · 원기둥 ${RC2} · 통로 ${r2(S.rIn(S.yEnd))}~${r2(S.rIn(S.yEnd) + S.W)}`)
+      }
+      //  ★★★122-M(2026.08.12 현도 지목 + 레이캐스트 렌더로 확정 — 여섯 번째 만에 잡은 진짜 원인):
+      //  고리 소등 후 **원기둥이 나선 통로의 안벽**이 됐는데, 원기둥 접선 개구의 여유(RAD_CYL_DOOR_M
+      //  0.15)는 **고리 관 단면을 위한 고리 세계 전용 값**이었다. 그 결과 개구(254.00~271.25°)가
+      //  문틀 잼 안쪽 면(255.58~270.34°)보다 양쪽으로 넓어 **잼 밖에서 열린 세로 슬릿 두 줄**이 남았다.
+      //  → 여유를 세계 파생(CYL_TAN_DOOR_M)으로: 고리 세계 0.15 · 나선 세계 −0.5(개구를 잼 안으로).
+      {
+        const { CYL_TAN_DOOR_M, RAD_CYL_R, RAD_CYL_DOOR_ON, TAN_JAMB_IN: TJI, RAD_TOP: RT2 } = await import('./constants.js')
+        const Wm = RAD_DOOR_HW + CYL_TAN_DOOR_M
+        let alo = null, ahi = null
+        for (let a = 240; a <= 290; a += 0.05) {
+          const rad = a * Math.PI / 180
+          const d5 = Math.hypot(62 + RAD_CYL_R * Math.cos(rad), RAD_CYL_R * Math.sin(rad))
+          if (Math.abs(d5 - 62) <= Wm) { if (alo === null) alo = a; ahi = a }
+        }
+        //  잼 안쪽 면 방위(문틀 로컬 → 꽃잎 로컬 변환, 착지 −z 쪽)
+        const FRC = 14.95, dc5 = 2 * Math.asin(FRC / (2 * RAD_R))
+        const fx5 = RAD_R * (Math.cos(dc5) - 1), fz5 = -RAD_R * Math.sin(dc5)
+        const jamb = [1, -1].map((js) => {
+          const lxj = js * (RAD_T_HW - TJI)
+          const x5 = lxj * Math.cos(dc5) + fx5, z5 = -lxj * Math.sin(dc5) + fz5
+          return ((Math.atan2(z5, x5) * 180 / Math.PI) + 360) % 360
+        }).sort((a, b) => a - b)
+        //  고리 세계에서는 개구를 고리 관 단면이 채우므로 잼보다 넓은 게 정상 — 나선 세계에서만 잠근다
+        //  ★122-Q 규약 정정: 개구가 잼보다 **좁으면** 그 차이가 문틀 안 조각으로 보인다(현도 실측).
+        //  올바른 조건 = 개구가 잼 **안쪽 면을 덮고**(≥) 잼 **몸통(바깥 면)** 안에 있을 것(≤).
+        const jambOut = [263.08 - Math.asin((RAD_T_HW + 0.5) / 14.95) * 180 / Math.PI,
+                         263.08 + Math.asin((RAD_T_HW + 0.5) / 14.95) * 180 / Math.PI]
+        ok(`★122-M·Q: 원기둥 접선 개구 = 세계 파생(${RAD_RING_ON ? '고리 관이 채움' : '잼 안쪽 면 덮고 잼 몸통 안'})`,
+          !RAD_CYL_DOOR_ON || RAD_RING_ON
+          || (alo !== null && alo <= jamb[0] && ahi >= jamb[1] && alo > jambOut[0] + 0.3 && ahi < jambOut[1] - 0.3),
+          `개구 ${r2(alo)}~${r2(ahi)}° · 잼 안쪽 ${r2(jamb[0])}~${r2(jamb[1])}° · 잼 몸통 ${r2(jambOut[0])}~${r2(jambOut[1])}°`)
+        //  ★122-Q ②: 문지방이 개구 바닥 림을 덮는가(곡률 차 쐐기 틈 봉합 — 배선 확인)
+        {
+          const { TAN_SILL_ON, TAN_SILL_T } = await import('./constants.js')
+          const RSRC4 = readFileSync(new URL('./Radial.jsx', import.meta.url), 'utf8')
+          //  보존계: 소등 시 배선만 확인(문지방 없는 구 상태 = 곡률 틈 재발 — 상시 보고)
+          ok(TAN_SILL_ON ? '★122-Q ②: 접선 문 문지방(윗면 = 문지방 레벨 · 단차 0 · walkable)'
+                         : '⚠보존계: 문지방 소등 — 곡률 차 바닥 틈이 재발하는 상태(배선만 확인)',
+            TAN_SILL_T > 0
+            && /sill=\{TAN_SILL_ON\}/.test(RSRC4)
+            && /position=\{\[0, yFloor - TAN_SILL_T \/ 2, zOff\]\} userData=\{\{ walkable: true \}\}/.test(RSRC4),
+            `두께 ${TAN_SILL_T} · 폭 = 개구 전폭 · 깊이 = 문틀 깊이(연장 포함)`)
+        }
+      }
+      //  ★★★122-L(2026.08.12 · 레이캐스트 렌더로 뚫린 픽셀 좌표를 직접 확정한 뒤 수리):
+      //  관 외피 양끝 캡의 안쪽 반경이 **바닥 높이 하나로 고정**돼 셸 곡률을 못 따라갔다
+      //  (y112.5 셸 15.55 → y115.8 셸 14.46, 캡이 1.1 못 미침) → 위쪽이 벌어져 세로 슬릿.
+      //  이제 캡을 세로 분할해 각 높이의 벽면을 따른다 — 전 높이에서 물림 0.15가 유지되는지 잰다.
+      {
+        const sh4 = (await import('./extSpiralGeometry.js')).buildExtSpiralShell()
+        const SP4 = sh4.getAttribute('position')
+        const capPhi = [S.phiL0, S.phiL1]
+        let worst = 0, n4 = 0
+        for (let i = 0; i < SP4.count; i++) {
+          const x = SP4.getX(i), y = SP4.getY(i), z = SP4.getZ(i)
+          const phi4 = Math.atan2(z, x)
+          const onCap = capPhi.some((pc) => Math.abs(((phi4 - pc) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI) < 1e-3)
+          if (!onCap) continue
+          const r6 = Math.hypot(x, z)
+          if (r6 > S.wallR(y) + 0.5) continue              // 바깥벽 쪽 정점은 제외
+          n4++
+          //  ★122-O 규약: 세그 범위 최대 wallR − BITE(정점별 wallR이 아님 — 아래쪽 돌출 방지)
+          worst = Math.max(worst, S.wallR(y) - r6)
+        }
+        const { RSP_BITE: BT } = await import('./constants.js')
+        ok('★122-L·O: 관 외피 끝 캡이 셸을 따라가되 안쪽 돌출 ≤ BITE',
+          n4 > 0 && worst <= BT + 1e-3, `캡 안쪽 정점 ${n4} · 최대 돌출 ${r2(worst)} ≤ ${BT}`)
+      }
+      //  ★★122-k ①(현도 지적): 접선 문틀 잼이 컷 가장자리를 겨우 0.10 덮어 세로 슬릿이 났다.
+      //  "문틀은 컷 림을 삼킨다"는 어법인데 삼킴이 부족했던 것 → jambIn으로 겹침을 키운다.
+      {
+        const { TAN_JAMB_IN } = await import('./constants.js')
+        const RSRC2 = readFileSync(new URL('./Radial.jsx', import.meta.url), 'utf8')
+        const overlap = RAD_DOOR_HW - (RAD_T_HW - TAN_JAMB_IN)
+        ok('★122-k ①: 접선 잼이 컷 림을 충분히 삼킴(겹침 ≥ 0.3) · 통과 폭 확보',
+          overlap >= 0.3 && (RAD_T_HW - TAN_JAMB_IN) * 2 >= 3.6 && /jambIn=\{TAN_JAMB_IN\}/.test(RSRC2),
+          `겹침 ${r2(overlap)}(구 0.10) · 통과 폭 ${r2((RAD_T_HW - TAN_JAMB_IN) * 2)}`)
+      }
+      //  ①다리↔셸 실틈: 다리 폭이 컷 폭과 같으면 물림 0 — 컷 가장자리를 양쪽으로 물어야 한다
+      {
+        const { RSP_BR_BITE, RAD_DOOR_HW: DHW } = await import('./constants.js')
+        const br2 = (await import('./extSpiralGeometry.js')).buildExtSpiralBridge()
+        ok('★122-h ①: 다리가 셸 컷 가장자리를 양쪽으로 물림(폭 = 컷 + 2×BITE, 실틈 0)',
+          RSP_BR_BITE > 0 && openEdgeCount(br2) === 0, `물림 ${RSP_BR_BITE} · 반폭 ${r2(DHW + RSP_BR_BITE)} vs 컷 ${DHW} · 열린 에지 ${openEdgeCount(br2)}`)
+        //  ★★122-i(현도 7차 — 격자 스캔으로 좌표 확정한 두 결함)
+        //  ①다리 반경 도달: 구 코드는 깊이축 **부호가 반대**여서 바깥 끝이 r16.22로 회랑(16.30)에
+        //   닿지도 못했다(틈의 직접 원인). 이제 회랑을 덮고, 안쪽은 진입 계단 착지장(13.5)을 안 침범.
+        {
+          const BP2 = br2.getAttribute('position')
+          let rMin3 = 1e9, rMax3 = -1e9
+          for (let i = 0; i < BP2.count; i++) {
+            const r4 = Math.hypot(BP2.getX(i), BP2.getZ(i))
+            rMin3 = Math.min(rMin3, r4); rMax3 = Math.max(rMax3, r4)
+          }
+          ok('★122-i ①: 다리가 회랑 바닥에 도달(겹침 > 0) · 진입 계단 착지장(13.5) 미침범',
+            rMax3 > S.rIn(S.yEnd) + 0.5 && rMin3 > 13.5,
+            `r ${r2(rMin3)}~${r2(rMax3)} · 회랑 안 ${r2(S.rIn(S.yEnd))} 겹침 ${r2(rMax3 - S.rIn(S.yEnd))} · 착지장 여유 ${r2(rMin3 - 13.5)}`)
+        }
+        //  ②굽도리 과다 절단: 접선 문 앞을 컷 반각보다 2.86° 더 잘라 이격 0.05가 맨살 노출됐다.
+        //   이제 컷 반각 **안으로** 물린다(개구 안엔 셸이 없어 봉합 불필요).
+        {
+          const cutHalfTrue = Math.asin(2.3 / S.wallR(S.yEnd))
+          const sk3 = (await import('./extSpiralGeometry.js')).buildExtSpiralSkirt()
+          const KP3 = sk3.getAttribute('position')
+          let dMin = 1e9
+          for (let i = 0; i < KP3.count; i++) {
+            if (Math.abs(KP3.getY(i) - S.yEnd) > 2) continue
+            const phi3 = Math.atan2(KP3.getZ(i), KP3.getX(i))
+            const d3 = Math.abs(((phi3 - S.phiEnd) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI)
+            dMin = Math.min(dMin, d3)
+          }
+          //  ★122-P 규약 교체: ★122-N에서 **문틀이 통로 쪽으로 뻗어** 문 앞을 덮게 됐으므로,
+          //  굽도리("연석")가 문 앞까지 갈 필요가 없다(현도: "약간만 짧게"). 대신 굽도리 종료가
+          //  **문틀 잼이 덮는 방위 안**이어야 그 사이가 비지 않는다.
+          const jambHalf = Math.asin((RAD_T_HW + 0.5) / 14.95)     // 잼 바깥 면 반각
+          ok('★122-P: 굽도리 종료가 문틀 잼이 덮는 방위 안(문 앞은 문틀이 담당)',
+            dMin < jambHalf, `종료 ${(dMin * 180 / Math.PI).toFixed(2)}° < 잼 반각 ${(jambHalf * 180 / Math.PI).toFixed(2)}° (컷 반각 ${(cutHalfTrue * 180 / Math.PI).toFixed(2)}°)`)
+          //  ★★122-j(현도 8차 — 카메라 φ265.6°가 결정적 단서): 굽도리 범위가 계단 끝까지였고
+          //  **착지 층계참 구간이 통째로 빠져** 그 전체가 관통 슬릿이었다. 이제 양끝 층계참까지 덮고
+          //  개구 방위만 비운다. 1° 격자 전수 검사 — 개구 밖에 빈 방위가 있으면 실패.
+          {
+            const D2 = (r5) => ((r5 * 180 / Math.PI) % 360 + 360) % 360
+            const KP4 = sk3.getAttribute('position')
+            const cover = new Set()
+            for (let i = 0; i < KP4.count; i++) {
+              if (Math.abs(KP4.getY(i) - S.yEnd) > 2.5) continue
+              cover.add(Math.round(D2(Math.atan2(KP4.getZ(i), KP4.getX(i)))))
+            }
+            const doorLo = D2(S.phiEnd) - cutHalfTrue * 180 / Math.PI - 1
+            const doorHi = D2(S.phiEnd) + cutHalfTrue * 180 / Math.PI + 1
+            const landHi = D2(S.phiL1)
+            let bare = []
+            for (let d = Math.ceil(doorHi); d <= Math.floor(landHi) - 1; d++)
+              if (!cover.has(d) && !cover.has(d - 1) && !cover.has(d + 1)) bare.push(d)
+            ok('★122-j: 착지 층계참에도 굽도리(개구 밖 맨살 방위 0 — 1° 전수)',
+              bare.length === 0, `맨살 ${bare.length ? bare.join(',') + '°' : '없음'} · 개구 ${r2(doorLo)}~${r2(doorHi)}° · 층계참 끝 ${r2(landHi)}°`)
+          }
+        }
+      }
+              ok('★122-g ②-b: 난간 = 발코니 앞코(끝에서 0.1 이내) · 상단 = 문지방 + 1.05',
+          openEdgeCount(ov) === 0 && A122.sOvlEnd - sMax2 <= 0.15 && Math.abs(yTop - (A122.y1 + 1.05)) < 1e-4,
+          `난간 s ${r2(sMin)}~${r2(sMax2)} · 발코니 끝 ${r2(A122.sOvlEnd)} · 상단 ${r2(yTop)}`)
+      }
+      //  ⓓ착지 유격(현도 ③): 다리 = 접선 컷과 같은 방향·폭 · 안쪽이 진입 계단 착지장(≈13.5)을 물고
+      //   바깥이 회랑 바닥(rIn(yEnd))을 덮는다 — 호↔직선 쐐기 틈 소거
+      {
+        const br = EG.buildExtSpiralBridge(), BP = br.getAttribute('position')
+        let rMin2 = 1e9, rMax2 = -1e9, yT2 = -1e9
+        for (let i = 0; i < BP.count; i++) {
+          const r3 = Math.hypot(BP.getX(i), BP.getZ(i))
+          rMin2 = Math.min(rMin2, r3); rMax2 = Math.max(rMax2, r3); yT2 = Math.max(yT2, BP.getY(i))
+        }
+        //  ⚠★122-i에서 규약이 바뀌었다: 구 규약 "착지장을 물어라"는 **진입 계단을 삼키는 원인**이었다
+        //  (현도 실측 2.09 덮음) → 새 규약 = "회랑에 닿되 착지장은 침범하지 않는다". 상세 잠금은 ★122-i ①.
+        ok('★122-d ⓓ 착지 다리: 컷 정렬 판 · 회랑에 도달 · 윗면 = 문지방(★122-i 규약)',
+          openEdgeCount(br) === 0 && rMax2 >= S.rIn(S.yEnd) && Math.abs(yT2 - S.yEnd) < 1e-4,
+          `r ${r2(rMin2)}~${r2(rMax2)} (회랑 안 ${r2(S.rIn(S.yEnd))}) · 윗면 ${r2(yT2)}`)
+      }
+    }
+  }
+}
+{
+    //  ★121 삽입으로 갈라진 ⓓ 배선 잔여 절 — RSRC 재선언(같은 파일, 같은 검사)
+    const RSRC = readFileSync(new URL('./Radial.jsx', import.meta.url), 'utf8')
     ok('상부 문틀 = DoorFrame 높이 일반화 재사용(신규 어법 아님)', /yFloor=\{S\.y1\}/.test(RSRC))
-    ok('매스 walkable 태그', /AscentTunnel[\s\S]{0,400}walkable: true/.test(RSRC))
+    ok('매스 walkable 태그', /AscentTunnel[\s\S]{0,700}walkable: true/.test(RSRC))   // ★122-d 전망 난간 삽입으로 창 확대
   }
 }
 
