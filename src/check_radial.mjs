@@ -1002,10 +1002,12 @@ console.log('── ★122 셸 외부 나선 계단 + 고리 소등(2026.08.12 �
   //  ⓐ 배선·보존계(상시)
   ok('배선: 고리 5구간이 RAD_RING_ON 게이트 안(보존계 — 코드 존속)',
     /RAD_RING_ON && arcs\.map/.test(RSRC) && /ArcSection/.test(RSRC))
-  ok('배선: 나선 매스 walkable:true · 관(encl)·창 몰딩(wfr) false — ★122-b',
-    /extSpiralGeos\.mass\} userData=\{\{ walkable: true \}\}/.test(RSRC)
-    && /extSpiralGeos\.encl\} userData=\{\{ walkable: false \}\}/.test(RSRC)
-    && /extSpiralGeos\.wfr\} userData=\{\{ walkable: false \}\}/.test(RSRC))
+  //  ★126: 마운트가 EG( = k별 공유/변형체 스위치)로 갔다 — walkable 계약은 동일하게 잠근다
+  ok('배선: 나선 매스 walkable:true · 관(encl)·창 몰딩(wfr) false — ★122-b(★126 EG 스위치)',
+    /EG\.mass\} userData=\{\{ walkable: true \}\}/.test(RSRC)
+    && /EG\.encl\} userData=\{\{ walkable: false \}\}/.test(RSRC)
+    && /EG\.wfr\} userData=\{\{ walkable: false \}\}/.test(RSRC)
+    && /const EG = \(ARM13_ON && k === ARM13_K && extSpiralGeos13\) \|\| extSpiralGeos/.test(RSRC))
   ok('배선: 창 리본 컷이 셸 CSG에(게이트 포함)', /if \(RSP_ON && RSP_WIN_ON\) cutBrush\(extWindowRibbonGeo\(\)\)/.test(RSRC))
   ok('존속: 접선 문 컷·문틀·진입 계단(착지 재사용 — 현도 ②)',
     /접선 문 2/.test(RSRC) && /DoorFrame key=\{sg\}/.test(RSRC) && /buildStairGeo\(-dc \+ Math\.PI/.test(RSRC))
@@ -1892,6 +1894,150 @@ console.log('\n── ★★★123 하반부 창 = 이중벽 포탈 + 적도 칼
     ok(`⑥환형 입 ${COL3 ? '봉인' : '개방(칼라 소등 — 보존계)'} — 광선 census`,
       !!st6 && (COL3 ? st6.open === 0 : st6.open > 0),
       err6 || (st6 && `공동으로 떨어진 방위 ${st6.open}/${st6.tot} (칼라 ${COL3 ? 'ON' : 'OFF'})`))
+  }
+}
+
+
+console.log('\n── ★★★126 1p3 지지 팔(2026.08.13 · ★126-c 현도 2차 판정 — 빨간 선 역투영) ──')
+{
+  const C6 = await import('./constants.js')
+  const AG = await import('./armGeometry.js')
+  const EG6 = await import('./extSpiralGeometry.js')
+  const RSRC6 = readFileSync(new URL('./Radial.jsx', import.meta.url), 'utf8')
+  ok('스위치 상태 보고', true, `ARM13_ON=${C6.ARM13_ON} · K=${C6.ARM13_K}(1p3=SW) · COL_ON=${C6.ARM13_COL_ON} · 소핏 갈고리 S0=${C6.ARM13_SOF_S0}/A=${C6.ARM13_SOF_A}/B=${C6.ARM13_SOF_B}`)
+
+  //  ⓐ 배선·보존계
+  ok('배선: cylAt(k) 게이트 — 원기둥·칼라가 k=ARM13_K에서 소등', /const cylAt = \(k\) => RAD_CYL_ON && !\(ARM13_ON && k === ARM13_K\)/.test(RSRC6) && /\{cylAt\(k\) &&/.test(RSRC6))
+  ok('배선: 팔 마운트 walkable:false', /geometry=\{armGeo\} userData=\{\{ walkable: false \}\}/.test(RSRC6) && /ARM13_ON && k === ARM13_K/.test(RSRC6))
+
+  const A6 = AG.armSpec(), P6 = AG.armProfile()
+
+  //  ⓑ 프로파일 위상
+  {
+    const X = (a, b, c, d) => { const d1 = (b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]); const d2 = (b[0]-a[0])*(d[1]-a[1])-(b[1]-a[1])*(d[0]-a[0]); const d3 = (d[0]-c[0])*(a[1]-c[1])-(d[1]-c[1])*(a[0]-c[0]); const d4 = (d[0]-c[0])*(b[1]-c[1])-(d[1]-c[1])*(b[0]-c[0]); return d1*d2 < 0 && d3*d4 < 0 }
+    let bad = 0
+    for (let i = 0; i < P6.length; i++) for (let j = i + 2; j < P6.length; j++) {
+      if (i === 0 && j === P6.length - 1) continue
+      if (X(P6[i], P6[(i+1)%P6.length], P6[j], P6[(j+1)%P6.length])) bad++
+    }
+    ok('프로파일 자기교차 0', bad === 0, `세그 ${P6.length} · 교차 ${bad}`)
+  }
+
+  //  ⓒ ★126-c 소핏 = **되말리는 갈고리**(현도가 캡처에 그린 빨간 선의 역투영 적합)
+  {
+    const d = 1e-4, DEG = 180 / Math.PI
+    const tan = (t0, t1) => { const a = A6.soffitAt(t0), b = A6.soffitAt(t1); return Math.atan2(b[1]-a[1], b[0]-a[0]) }
+    const kinkIn = Math.abs(tan(0, d) - Math.atan2(A6.dTan[1], A6.dTan[0])) * DEG
+    ok('소핏 착지단 = 돔 윗변 접선 연속(꺾임 < 0.5°) — 현도 "각이 생기지 않게"', kinkIn < 0.5, `${kinkIn.toFixed(3)}°`)
+    //  ★126-c 핵심: s에 대해 **단일값이 아니다**. 126-b의 '단조' 검사는 방향이 정반대였다.
+    let minS = 1e9, over = 0, gap = 0
+    for (let i = 0; i <= 400; i++) {
+      const [s, y] = A6.soffitAt(A6.tCut * i / 400)
+      minS = Math.min(minS, s)
+      over = Math.min(over, AG.tunnelBotY(s) - y)
+      gap = Math.max(gap, y - (AG.domeY(s) + C6.ARM13_T))
+    }
+    ok('소핏이 되말린다 — 최소 s가 착지점보다 안쪽(현도 빨간 선의 갈고리)', minS < C6.ARM13_SOF_S0 - 3, `최소 s ${minS.toFixed(2)} < 착지 ${C6.ARM13_SOF_S0}`)
+    ok('사용 구간이 터널 밑선을 넘지 않는다(자름 뒤)', over > -1e-6, `최소 여유 ${over.toFixed(4)}`)
+    //  ⚠교차가 둘일 수 있어 끝점만 보면 놓친다 → 조밀 스캔 + 이분법(★119 규율 계열)
+    ok('자름 t*가 첫 교차에서 잡힌다(끝점 판정 아님)', A6.tCut > 0.05 && A6.tCut < 1 && Math.abs(AG.tunnelBotY(A6.sofCut[0]) - A6.sofCut[1]) < 1e-4,
+      `t* ${A6.tCut.toFixed(4)} · 교차 s ${A6.sofCut[0].toFixed(2)} y ${A6.sofCut[1].toFixed(2)}`)
+    ok('공허(갈고리 안쪽 빈 공간) 존재', gap > 6, `최대 높이 ${gap.toFixed(2)}`)
+    ok('소핏 전 구간 < 셸 안쪽 시작 — 끝 아치 없음(현도 ①)', A6.sofCut[0] < A6.S.sFace - 3 && C6.ARM13_SOF_SOUT < A6.S.sFace - 3,
+      `교차 ${A6.sofCut[0].toFixed(1)} · 목표 ${C6.ARM13_SOF_SOUT} vs 셸면 ${A6.S.sFace.toFixed(1)}`)
+  }
+
+  //  ⓓ 돔 융합·날
+  {
+    let miss = 0
+    for (let i = 0; i <= 14; i++) {
+      const s = A6.S.s0 + (C6.ARM13_S_DEP - A6.S.s0) * i / 14
+      if (!P6.some(q => Math.abs(q[0] - s) < 1e-9 && Math.abs(q[1] - (AG.domeY(s) - C6.ARM13_EMBED)) < 1e-6)) miss++
+    }
+    ok('돔 융합 밑변 = 방 표면 − EMBED(전 표본)', miss === 0, `EMBED ${C6.ARM13_EMBED} · 불일치 ${miss}`)
+    ok('EMBED ∈ (0, 1) — 잼 물림', C6.ARM13_EMBED > 0 && C6.ARM13_EMBED < 1)
+    const iF = P6.findIndex(q => Math.abs(q[0] - A6.bladeFoot[0]) < 1e-9 && Math.abs(q[1] - A6.bladeFoot[1]) < 1e-6)
+    const adj = iF >= 0 && Math.abs(P6[iF + 1][0] - A6.bladeTop[0]) < 1e-9 && Math.abs(P6[iF + 1][1] - A6.bladeTop[1]) < 1e-9
+    const slope = Math.atan2(A6.bladeTop[1] - A6.bladeFoot[1], A6.bladeTop[0] - A6.bladeFoot[0]) * 180 / Math.PI
+    ok('날 = 단일 직선 세그(날카로움)', adj, `프로파일 idx ${iF}`)
+    ok('날 기울기 60° 이상', slope > 60, `${slope.toFixed(1)}°`)
+  }
+
+  //  ⓔ ★126-d 원반 2단 = **셸을 휘감는 어휘**(나선 관과 같은 계열, 더 작게) + 팔 끝 플레어로 견고히 받침
+  {
+    const shellBot = C6.RAD_PCY - C6.RAD_PRY
+    const Sw = EG6.extSpiralSpec({ noCyl: true })
+    const yEq = C6.RAD_PCY
+    const spiralOut = Sw.rIn(yEq) + C6.RSP_W - Sw.shellR(yEq)     // 나선 관의 셸 밖 돌출(기준 어휘 — 파생)
+    const discOut = C6.ARM13_D1_R - A6.shellR(A6.d1Top)
+    ok('위 원반 상면이 셸 밑극점보다 위 = 겹쳐 물린다(≥1)', A6.d1Top - shellBot >= 1, `물림 ${(A6.d1Top - shellBot).toFixed(2)}`)
+    //  ⚠셸 극점 부근은 곡률이 급해 상면을 조금만 올려도 셸 반경이 급증한다 — D1_R을 함께 올려야 묻히지 않는다
+    ok('원반이 셸을 **휘감는다** — 돌출 ≥ 2.0(현도 "나선 통로의 어휘")', discOut >= 2.0, `돌출 ${discOut.toFixed(2)} (셸R ${A6.shellR(A6.d1Top).toFixed(2)})`)
+    ok('단 나선 관보다 작다 — 현도 "이 정도로 크면 안 됨"', discOut < spiralOut, `${discOut.toFixed(2)} < 나선 ${spiralOut.toFixed(2)}`)
+    ok('원반 2단 계단(위 > 아래)', C6.ARM13_D1_R > C6.ARM13_D2_R, `${C6.ARM13_D1_R} > ${C6.ARM13_D2_R}`)
+    ok('원반 지름 < 셸 지름의 4/5 — 셸이 여전히 주인', 2 * C6.ARM13_D1_R < 1.6 * C6.RAD_PRX, `지름 ${(2*C6.ARM13_D1_R).toFixed(1)} vs 셸 ${(2*C6.RAD_PRX)}`)
+    ok('팔 끝(날·안 아치)이 아래 원반 밑 레벨에 붙는다', Math.abs(A6.bladeTop[1] - A6.d2Bot) < 1e-12 && Math.abs(A6.riseP0[1] - A6.d2Bot) < 1e-12, `d2Bot ${A6.d2Bot.toFixed(2)}`)
+    //  ★126-e: 받침 폭은 **파생**(x² + HW² = D2_R²) — D2_R을 그대로 쓰면 모서리가 √(D2_R²+HW²)로 삐져나온다
+    ok('받침 반폭 seatX = √(FLARE_R² − HW²) 파생(노브 아님)', Math.abs(A6.seatX - Math.sqrt(C6.ARM13_FLARE_R ** 2 - C6.ARM13_HW ** 2)) < 1e-12 && A6.seatX < C6.ARM13_FLARE_R,
+      `seatX ${A6.seatX.toFixed(3)} < FLARE_R ${C6.ARM13_FLARE_R}`)
+    //  ★126-d 플레어: 받침에서 접선 폭이 D2_R까지 벌어져 원반 밑면을 **면으로** 받는다("툭 올려놓음" 제거)
+    const HWs = AG.armHalfWidths(P6, A6)
+    const atSeat = P6.map((q, i) => [q, HWs[i]]).filter(([q]) => Math.abs(q[1] - A6.d2Bot) < 1e-9).map(([, w]) => w)
+    if (C6.ARM13_FLARE_ON) {
+      ok('플레어: 받침 밑변이 분할돼 원호를 그린다', atSeat.length >= C6.ARM13_SEAT_N, `받침 정점 ${atSeat.length} (SEAT_N ${C6.ARM13_SEAT_N})`)
+      ok('플레어: 먼 쪽은 기본 폭 HW로 수렴', Math.abs(Math.min(...HWs) - C6.ARM13_HW) < 1e-9, `최소 ${Math.min(...HWs).toFixed(2)} · 최대 ${Math.max(...HWs).toFixed(2)}`)
+      //  ★126-e 핵심: **원형 클램프** — 사각 단면이 원판 밖으로 나오면 어색하다(현도 4차)
+      {
+        //  ⚠판정 범위는 **받침 밑변**이다 — 팔 몸통(돔 구간)까지 세면 s가 커서 무의미하다(첫 판에서 44가 나왔다).
+        let seatMax = 0, nearSeat = 0
+        P6.forEach((q, i) => {
+          const x = q[0] - C6.RAD_R
+          if (Math.abs(q[1] - A6.d2Bot) < 1e-9) seatMax = Math.max(seatMax, Math.hypot(x, HWs[i]))
+          //  ⚠'원반 밑'은 y로만 거르면 안 된다 — 날 발(돔 위 s59.3)도 그 아래다(첫 판 23.43).
+          //   받침권 = 클램프 원 반경 안의 x를 가진 정점으로 한정한다.
+          if (q[1] <= A6.d1Bot + 1e-9 && Math.abs(x) <= C6.ARM13_D2_R) nearSeat = Math.max(nearSeat, Math.hypot(x, HWs[i]))
+        })
+        ok('원형 클램프: 받침 밑변이 클램프 원에 **내접**', seatMax <= C6.ARM13_FLARE_R + 1e-6, `최대 반경 ${seatMax.toFixed(4)} ≤ FLARE_R ${C6.ARM13_FLARE_R}`)
+        //  ★126-f: 받침은 아래 원반 **안쪽**에 들어간다 — 원반이 챙처럼 덮는 관계(현도 "거추장스러운 바위" 정정)
+        ok('받침 전체가 아래 원반 원 안(삐져나오지 않는다)', nearSeat <= C6.ARM13_D2_R + 1e-6, `원반 밑 최대 ${nearSeat.toFixed(2)} ≤ D2_R ${C6.ARM13_D2_R}`)
+        ok('클램프 원 < 아래 원반(받침이 원반보다 작다)', C6.ARM13_FLARE_R < C6.ARM13_D2_R, `FLARE_R ${C6.ARM13_FLARE_R} < ${C6.ARM13_D2_R}`)
+        ok('원 밖 x에서는 기본 폭 HW', Math.max(...P6.map((q, i) => Math.abs(q[0] - C6.RAD_R) > C6.ARM13_FLARE_R ? HWs[i] : 0)) - C6.ARM13_HW < 1e-9)
+      }
+    } else {
+      //  보존계: 소등 체제에서는 균일 폭이어야 한다(배선 검증으로 전환 — ★121·고리와 같은 패턴)
+      ok('⛔플레어 소등 — 균일 폭 HW(보존계 배선 검증)', HWs.every(w => Math.abs(w - C6.ARM13_HW) < 1e-9))
+      ok('보존계: 노브 존속(한 줄 복귀)', typeof C6.ARM13_FLARE_L === 'number' && C6.ARM13_FLARE_L > 0)
+      ok('보존계: 빌더 경로 존속', typeof AG.armHalfWidths === 'function')
+    }
+  }
+
+  //  ⓕ ★126-b ① 각기둥 소등(보존계)
+  ok('각기둥 소등 — 현도 "없어도 되는 부분"(보존계: 상수·빌더 존속)', C6.ARM13_COL_ON === false && typeof C6.ARM13_COL_W === 'number')
+
+  ok('접선 반폭 = 터널 매스 반폭(한 덩어리 규약)', Math.abs(C6.ARM13_HW - A6.S.massHW) < 1e-12, `${C6.ARM13_HW}`)
+
+  //  ⓖ 감김·유한성
+  {
+    const g = AG.buildArm13()
+    const p = g.getAttribute('position'), idx = g.index.array
+    let vol = 0
+    for (let i = 0; i < idx.length; i += 3) {
+      const ax = p.getX(idx[i]), ay = p.getY(idx[i]), az = p.getZ(idx[i])
+      const bx = p.getX(idx[i+1]), by = p.getY(idx[i+1]), bz = p.getZ(idx[i+1])
+      const cx = p.getX(idx[i+2]), cy = p.getY(idx[i+2]), cz = p.getZ(idx[i+2])
+      vol += (ax*(by*cz-bz*cy) - ay*(bx*cz-bz*cx) + az*(bx*cy-by*cx)) / 6
+    }
+    ok('감김: 부호 부피 > 0(orientOutward)', vol > 0, `V=${vol.toFixed(1)}`)
+    ok('유한성: NaN 없음', Array.from({length: p.count}, (_, i) => p.getX(i)+p.getY(i)+p.getZ(i)).every(Number.isFinite))
+  }
+
+  //  ⓗ 변형체 나선
+  {
+    const Sv = EG6.extSpiralSpec({ noCyl: true }), Ss = EG6.extSpiralSpec()
+    const yLo = C6.RAD_CYL_Y0 - 5
+    ok('변형체 wallR(하반부) = 셸 곡면 < 원기둥 R', Math.abs(Sv.wallR(yLo) - Sv.shellR(yLo)) < 1e-12 && Sv.wallR(yLo) < C6.RAD_CYL_R, `${Sv.wallR(yLo).toFixed(3)} vs ${C6.RAD_CYL_R}`)
+    ok('공유체 wallR(하반부) = 원기둥 R(3방 세계 무변경)', Math.abs(Ss.wallR(yLo) - C6.RAD_CYL_R) < 1e-12)
+    ok('변형체 표식 noCyl 전파', Sv.noCyl === true && Ss.noCyl === false)
   }
 }
 

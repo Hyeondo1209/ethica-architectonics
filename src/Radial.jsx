@@ -9,6 +9,7 @@ import { useMemo } from 'react'
 import * as THREE from 'three'
 import { Brush, Evaluator, HOLLOW_SUBTRACTION, INTERSECTION } from 'three-bvh-csg'
 import { ascSpec, ascDoorCut, buildAscentMass, buildAscentWalls, buildAscentCeiling, buildAscentColumns, buildAscentOverlook, buildAscentMouthSill } from './ascentTunnelGeometry.js'
+import { buildArm13 } from './armGeometry.js'   // ★126 1p3 지지 팔
 import { extSpiralSpec, buildExtSpiral, buildExtSpiralParapet, buildExtSpiralShell, buildExtSpiralSkirt, buildExtSpiralBridge, buildExtWindowFrame, extWindowRibbonGeo, winBandAt, winBandOver } from './extSpiralGeometry.js'   // ★122·★122-b·★122-c·★123
 import {
   domeClipY, COR_Y0, COR_THICK, BOX_HW, RAD_ASC_ON, HUB_DOOR_GATE,
@@ -24,6 +25,7 @@ import {
   RAD_CYL_ON, RAD_CYL_R, RAD_CYL_Y0, RAD_CYL_SEG, RAD_CYL_CLIP_ROOM,
   RAD_CYL_TERM_BY, RAD_CYL_TERM_TOP_BY, RAD_CYL_SPH_SEG, termSpec,
   RAD_CYL_DOOR_ON, RAD_CYL_DOOR_RING_ONLY, RAD_CYL_DOOR_M, CYL_TAN_DOOR_M,
+  ARM13_ON, ARM13_K,
   RAD_CYL_COLLAR_ON, RAD_CYL_COLLAR_T,
 } from './constants'
 
@@ -615,6 +617,16 @@ export function RadialRooms() {
     skirt: buildExtSpiralSkirt(),   // ★122-c
     bridge: buildExtSpiralBridge(), // ★122-d
   }), [])   // ★122·★122-b·★122-c
+  //  ★★★126 1p3 변형체: 팔 세계의 나선 = noCyl(하반부 안쪽 벽 = 셸 곡면 · 창틀도 셸 추종)
+  const extSpiralGeos13 = useMemo(() => (ARM13_ON && RSP_ON ? {
+    mass: buildExtSpiral({ noCyl: true }),
+    encl: RSP_ENCL === 'tube' ? buildExtSpiralShell({ noCyl: true }) : buildExtSpiralParapet({ noCyl: true }),
+    wfr: buildExtWindowFrame({ noCyl: true }),
+    skirt: buildExtSpiralSkirt({ noCyl: true }),
+    bridge: buildExtSpiralBridge({ noCyl: true }),
+  } : null), [])
+  const armGeo = useMemo(() => (ARM13_ON ? buildArm13() : null), [])   // ★126 팔(스팬드럴·돔 융합·날·컵·각기둥)
+  const cylAt = (k) => RAD_CYL_ON && !(ARM13_ON && k === ARM13_K)     // ★126 게이트 — k=2 원기둥·말단·칼라 소등
   const cylGeos = useMemo(() => [0, 1, 2, 3].map(buildCylSkirt), [])   // ★말단이 넷 다 달라 개별 기하
   const collarGeo = useMemo(buildCylCollar, [])   // ★123 적도 칼라(넷 동일 — 말단과 무관)
   const stairGeos = useMemo(buildStairs, [])
@@ -637,13 +649,19 @@ export function RadialRooms() {
             <meshStandardMaterial color={MAT_SHELL} roughness={0.88} side={THREE.DoubleSide} />
           </mesh>
           {/* ★원기둥 받침(2026.07.30) — 셸 적도에서 아래로. 재질은 셸과 같게 = 한 몸으로 읽힘(Claude 값·P2에서 재판정) */}
-          {RAD_CYL_ON && (
+          {cylAt(k) && (
             <mesh geometry={cylGeos[k]}>
               <meshStandardMaterial color={MAT_SHELL} roughness={0.88} side={THREE.DoubleSide} />
             </mesh>
           )}
+          {/* ★★★126 1p3 지지 팔(2026.08.13 현도 스케치) — 원기둥 대체: 스팬드럴+돔융합+날+컵+각기둥 */}
+          {ARM13_ON && k === ARM13_K && (
+            <mesh geometry={armGeo} userData={{ walkable: false }}>
+              <meshStandardMaterial color={MAT_SHELL} roughness={0.88} />
+            </mesh>
+          )}
           {/* ★123 적도 칼라 — 원기둥 상단 ↔ 셸 적도 환형 입 봉인(하반부 창에서 공동이 보이는 것을 막는다) */}
-          {RAD_CYL_ON && RAD_CYL_COLLAR_ON && (
+          {cylAt(k) && RAD_CYL_COLLAR_ON && (
             <mesh geometry={collarGeo} userData={{ walkable: false }}>
               <meshStandardMaterial color={MAT_SHELL} roughness={0.88} side={THREE.DoubleSide} />
             </mesh>
@@ -677,29 +695,29 @@ export function RadialRooms() {
           })()}
           {/* ★★★122 셸 외부 나선 계단(2026.08.12 현도 그림) — 꽃잎 로컬 마운트 = 4방 등형 자동.
               새 문(π) → 접선 −z 문, 61단(오름 61·내림 61 대칭), 안 가장자리 = 셸/★91 원기둥 물림 */}
-          {RSP_ON && (
+          {RSP_ON && (() => { const EG = (ARM13_ON && k === ARM13_K && extSpiralGeos13) || extSpiralGeos; return (
             <>
-              <mesh geometry={extSpiralGeos.mass} userData={{ walkable: true }}>
+              <mesh geometry={EG.mass} userData={{ walkable: true }}>
                 <meshStandardMaterial color={MAT_FLOOR} roughness={0.9} />
               </mesh>
               {/* ★122-b 체제: 'tube' = 밀봉 관(현도 ① — 바깥벽+천장, 스포일러 차단) · 'parapet' = 구 패러핏(보존계) */}
-              <mesh geometry={extSpiralGeos.encl} userData={{ walkable: false }}>
+              <mesh geometry={EG.encl} userData={{ walkable: false }}>
                 <meshStandardMaterial color={MAT_WALL} roughness={0.9} side={THREE.DoubleSide} />
               </mesh>
               {/* ★122-b 창 몰딩(현도 ④ — 잼 어법, 셸 종잇장 단면을 삼킨다) */}
-              <mesh geometry={extSpiralGeos.wfr} userData={{ walkable: false }}>
+              <mesh geometry={EG.wfr} userData={{ walkable: false }}>
                 <meshStandardMaterial color={MAT_SHELL} roughness={0.85} />
               </mesh>
               {/* ★122-c 굽도리 몰딩(현도 ④ — 계단 안 가장자리 이격 0.05와 셸의 접선을 연속 밴드로 봉합) */}
-              <mesh geometry={extSpiralGeos.skirt} userData={{ walkable: false }}>
+              <mesh geometry={EG.skirt} userData={{ walkable: false }}>
                 <meshStandardMaterial color={MAT_SHELL} roughness={0.85} />
               </mesh>
               {/* ★122-d 착지 다리(현도 ③ — 접선 컷과 같은 방향·폭의 판: 호↔직선 쐐기 틈 소거) */}
-              <mesh geometry={extSpiralGeos.bridge} userData={{ walkable: true }}>
+              <mesh geometry={EG.bridge} userData={{ walkable: true }}>
                 <meshStandardMaterial color={MAT_FLOOR} roughness={0.9} />
               </mesh>
             </>
-          )}
+          ) })()}
         </group>
       ))}
       {/* 대각 터널 4 — ★119 체제: 상승 관 ↔ 구 수평 관(보존계) */}

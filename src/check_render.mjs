@@ -18,7 +18,7 @@ import { join } from 'node:path'
 import * as CUP from './drumCupGeometry.js'
 import { mastSpec, incaStairSpec, nexusPierSpec, nexusPierBottom, nexusHaunchSpec, buildWestButtressTris } from './corridorStairsGeometry.js'   // ★94-c·e · ★95 · ★96
 import * as K94g from './constants.js'   // ★94-g 솟는 평면
-import { RM10_FLARE_ON, RM10_WIN_ON, MIR_ON, MIR_PADS, RAD_CYL_ON, RAD_CYL_Y1_BY, CUP_ON, CUP_R, PIER_ON, PIER_N, TIER_ON, TIER_N, CUP_RING_ON, INCA_CENTER_MODE, NPIER_SEAT, NHAUNCH_SEAT } from './constants.js'   // ★80 나팔 체제 스위치 · ★81 창 스위치 · ★87 미러·임시 판 · ★91 원기둥 받침 · ★93 바닥단 폐기·고리판
+import { RM10_FLARE_ON, RM10_WIN_ON, MIR_ON, MIR_PADS, RAD_CYL_ON, RAD_CYL_Y1_BY, ARM13_ON, ARM13_K, CUP_ON, CUP_R, PIER_ON, PIER_N, TIER_ON, TIER_N, CUP_RING_ON, INCA_CENTER_MODE, NPIER_SEAT, NHAUNCH_SEAT } from './constants.js'   // ★80 나팔 체제 스위치 · ★81 창 스위치 · ★87 미러·임시 판 · ★91 원기둥 받침 · ★93 바닥단 폐기·고리판
 
 let n = 0, fail = 0
 const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
@@ -271,7 +271,8 @@ console.log(JSON.stringify({ called, bad, noted, keys, grounded }))
     const GROUND_FIXED = 18 - incaLifted - incaSeatedN
     const EXPECT = GROUND_FIXED + (TIER_ON ? TIER_N : 0) + (CUP_RING_ON && CUP_ON && MIR_ON ? 1 : 0)
     const HANG = [
-      ...(RAD_CYL_ON ? RAD_CYL_Y1_BY.map((y) => ({ comp: 'RadialRooms', minY: y, n: 1 })) : []),
+      //  ★126: k=ARM13_K 원기둥·말단 소등 — 그 방위의 매달림이 명단에서 빠진다(3기)
+      ...(RAD_CYL_ON ? RAD_CYL_Y1_BY.filter((_, k) => !(ARM13_ON && k === ARM13_K)).map((y) => ({ comp: 'RadialRooms', minY: y, n: 1 })) : []),
       //  ★2026.07.31 현도 2차 정정 후: 기둥 깊이가 극점에서 0으로 수렴하므로 반구·기둥 **둘 다 −R**에서 끝난다.
       ...(CUP_ON && MIR_ON ? [{ comp: 'DrumCup', minY: -CUP_R, n: 1 }, { comp: 'DrumCup', minY: -CUP_R, n: 1 }] : []),
       //  ★94-c 셋째 부류 ⓒ — **앉은 것**: 중앙 기둥은 밑이 사발 껍질을 뚫고 극점 기둥 다발 속에 묻힌다.

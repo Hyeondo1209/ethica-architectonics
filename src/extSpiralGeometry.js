@@ -21,7 +21,9 @@ import { orientOutward } from './orientGeo.js'   // ★122-d 감김 자동 정�
 //  셸 외면 반경(계란 자오선) — Radial.jsx petalR과 같은 식(로컬 y)
 const shellR = (y) => RAD_PRX * Math.sqrt(Math.max(0, 1 - ((y - RAD_PCY) / RAD_PRY) ** 2))
 
-export function extSpiralSpec() {
+//  ★126: opts.noCyl = 1p3 팔 세계 — ★91 원기둥이 없다. 하반부 안쪽 벽 = 셸 곡면 그대로,
+//  하반부 창(★123 이중벽 포탈)은 성립 불가 → 소등(이설 = 선언된 빚, 현도 캡처 판정 후).
+export function extSpiralSpec(opts = {}) {
   const A = ascSpec()
   const y0 = A.y1                                   // 시작 = 새 문지방(★119) 115.90
   const yEnd = RAD_FLOOR_Y + COR_THICK / 2          // 끝 = 접선 문지방 101.28
@@ -57,7 +59,7 @@ export function extSpiralSpec() {
   sweep += (1 + RSP_K) * 2 * Math.PI                // +1바퀴 = 449.3°(≈1.25) · RSP_K로 +360°씩
   const phiEnd = phi0 + RSP_DIR * sweep
   //  안 가장자리: 상반부(y > 원기둥 상단 108.5) = 셸, 하반부 = ★91 원기둥 — 현도 ①수용
-  const wallR = (y) => (y > RAD_CYL_Y0 ? shellR(y) : Math.max(shellR(y), RAD_CYL_R))
+  const wallR = (y) => (opts.noCyl || y > RAD_CYL_Y0 ? shellR(y) : Math.max(shellR(y), RAD_CYL_R))
   //  ★122-c ④: 관입(−BITE) → 이격(+CLEAR) 반전 — 두께 0 셸 안쪽으로 계단 톱니 61개가 삐져나왔다
   //  (현도 실측 스크린샷). 접선 틈은 굽도리 몰딩(buildExtSpiralSkirt)이 봉합.
   //  ★★122-O: 셸 반경은 높이에 따라 변한다 — 단면을 y 하나로 잡으면 그 요소의 **아래쪽 높이**에서
@@ -93,7 +95,7 @@ export function extSpiralSpec() {
   const yAt = (phi) => y0 - drop * Math.min(1, Math.max(0, (RSP_DIR > 0 ? phi - phiStep0 : phiStep0 - phi) / sweepStep))
   return {
     y0, yEnd, drop, N, rise, phi0, phiEnd, sweep, sweepStep, dphi, dir: RSP_DIR, phiStep0,
-    doorAz, FR_C, dc, W: RSP_W, massT: RSP_MASS_T, wallR, rIn, yAt, stepY, shellR,
+    noCyl: !!opts.noCyl, doorAz, FR_C, dc, W: RSP_W, massT: RSP_MASS_T, wallR, rIn, yAt, stepY, shellR,
     turns: sweep / (2 * Math.PI),
     paraH: RSP_PARA_H, paraT: RSP_PARA_T,
     landA0, landA1, phiL0, phiL1, clr: RSP_CLR, wallRMax, shellRMax, wallT: RSP_WALL_T, bridgeR: RSP_BRIDGE_R,
@@ -120,9 +122,9 @@ function quadGeo(fill) {
 //  안면 = 셸/원기둥 외면 안으로 BITE 관입(비가시·틈 0) · 바깥면 = 수직.
 //  ⚠감김(★121 교훈): +y에서 (cosφ, sinφ) 증가 순회 = 시계. CCW(dir=+1) 진행 시 부채꼴의
 //   "진행 방향" 감김을 발산 정리(부호 부피)가 검사에서 잠근다.
-export function buildExtSpiral() {
+export function buildExtSpiral(opts = {}) {
   if (!RSP_ON) return quadGeo(() => {})
-  const S = extSpiralSpec()
+  const S = extSpiralSpec(opts)
   //  ★단 블록 방식(2026.08.12 매니폴드 수리 — 열린 에지 426 적발 후 재편):
   //  계란 조임 구간에서 단마다 안 반경이 변하므로, 연속 스킨은 단 경계마다 실틈을 남긴다.
   //  각 단 = 완전 밀폐 부채꼴 프리즘(위 평평 · 아래 = 그 단의 헬리코이드 − massT · 양끝 캡 전체 단면).
@@ -201,9 +203,9 @@ export function buildExtSpiral() {
 //  단면: 안벽 = 셸/원기둥(기존) · 바닥 = 계단 매스 · 바깥벽(수직, 두께 wallT) · 천장(헬리코이드 추종,
 //  내부고 clr = 문 높이 — 문·관 단면 연속). 천장 안 가장자리는 그 높이의 벽면에 BITE 물림(셸 조임 추종).
 //  범위 = 층계참 포함 [phiL0, phiL1]. 양끝은 전체 단면 캡(문 개구부는 셸 컷이 담당 — 관 몸통은 막힘).
-export function buildExtSpiralShell() {
+export function buildExtSpiralShell(opts = {}) {
   if (!RSP_ON || RSP_ENCL !== 'tube') return quadGeo(() => {})
-  const S = extSpiralSpec()
+  const S = extSpiralSpec(opts)
   //  ★122-c ①②: 관↔나선 T 접속 — 바깥벽에 관 단면 개구(방위 phi0 ± juncA · 마구리 캡).
   //  관 천장(y1+4.0)과 나선 천장(y0+clr)은 동일면 → 천장은 개구 구간에도 이어진다(연속 접합).
   const rW1atDoor = S.rIn(S.y0) + S.W + S.wallT
@@ -279,9 +281,9 @@ export function buildExtSpiralShell() {
 //  ★122-c ④ 굽도리 몰딩: 계단 안 가장자리(이격 0.05)와 셸의 접선을 봉합하는 연속 밴드 —
 //  창 몰딩과 같은 가족(§2-D 두께 위계 최하단). 셸을 안팎으로 물고 계단 몸통 위에 앉는다.
 //  범위: 전 구간, 단 끝쪽은 접선 문 컷 반각 전에 종료(문지방을 가로지르는 문턱 방지).
-export function buildExtSpiralSkirt() {
+export function buildExtSpiralSkirt(opts = {}) {
   if (!RSP_ON) return quadGeo(() => {})
-  const S = extSpiralSpec()
+  const S = extSpiralSpec(opts)
   //  ★★122-i ①(현도 7차 — 격자 스캔으로 좌표 확정): 굽도리를 접선 문 앞에서 **과다 절단**(+0.05rad
   //  = 2.86°)해, 그 구간에서 셸(원기둥 16.25)과 계단 안 가장자리(16.30) 사이 **이격 0.05가 맨살로
   //  노출**됐다 — 셸은 두께 0이라 그대로 관통 슬릿이 된다(현도가 두 번 지적한 그 틈).
@@ -343,9 +345,9 @@ export function buildExtSpiralSkirt() {
 
 //  ★바깥 패러핏(★75 STAIR_PARA·★118 L자 계열의 단순형): 바깥 가장자리 위 연속 벽 리본.
 //  위면 = 헬리코이드 + paraH(연속 — 계단 톱니를 따르지 않아 실루엣이 나선으로 읽힘. ★118 어법)
-export function buildExtSpiralParapet() {
+export function buildExtSpiralParapet(opts = {}) {
   if (!RSP_ON) return quadGeo(() => {})
-  const S = extSpiralSpec()
+  const S = extSpiralSpec(opts)
   const M = S.N * 3
   return quadGeo((q) => {
     for (let i = 0; i < M; i++) {
@@ -374,8 +376,8 @@ export function buildExtSpiralParapet() {
 //  ★창 리본 컷 브러시(셸 CSG용): 나선 추종 밴드 — 이번 조각은 **상반부(단일벽) 구간만**.
 //  발판 위 [SILL, TOP] 높이의 부채꼴 스윕 매스(반경 관통 r 셸−4 ~ 셸+2) — buildPetalShell cutBrush에 투입.
 //  창 세그(정본 한 곳 — 리본 컷·몰딩이 공유. ★122-b에서 추출): 상반부 단일벽 한정 + 양끝 문틀 마진
-export function windowSegs() {
-  const S = extSpiralSpec()
+export function windowSegs(opts = {}) {
+  const S = extSpiralSpec(opts)
   const segs = []
   const M = S.N * 2
   for (let i = 0; i < M; i++) {
@@ -395,9 +397,9 @@ export function windowSegs() {
 //  나선은 방위 a를 최대 두 번 지난다(1.23바퀴). 원기둥은 적도 아래에만 있으므로, 창 대역을
 //  적도로 자른 뒤 남는 것이 원기둥 개구다 — 상반부 통과분은 자동으로 빈 대역이 되어 탈락한다.
 //  ⚠정본 = windowSegs()의 실제 양끝(문틀 마진 포함) — 리본과 개구가 같은 곳에서 시작·끝난다.
-export function winBandAt(a) {
+export function winBandAt(a, opts = {}) {
   if (!(RSP_ON && RSP_WIN_ON && RSP_WIN_LOW_ON)) return null
-  const S = extSpiralSpec()
+  const S = extSpiralSpec(opts)
   const segs = windowSegs()
   if (!segs.length) return null
   const pA = segs[0][0], pB = segs[segs.length - 1][1]
@@ -415,17 +417,17 @@ export function winBandAt(a) {
 
 //  ★구간 [a0,a1]에서 **보수적**(교집합) 대역 — 원기둥 개구가 창턱·인방 판 **몸통 안**에 들도록.
 //  규율 ④: 판이 개구를 삼키는 쪽이므로 개구가 좁아야 가장자리가 숨는다.
-export function winBandOver(a0, a1) {
-  const A = winBandAt(a0), B = winBandAt(a1)
+export function winBandOver(a0, a1, opts = {}) {
+  const A = winBandAt(a0, opts), B = winBandAt(a1, opts)
   if (!A || !B) return null
   const lo = Math.max(A[0], B[0]), hi = Math.min(A[1], B[1])
   return hi - lo > 1e-9 ? [lo, hi] : null
 }
 
-export function extWindowRibbonGeo() {
+export function extWindowRibbonGeo(opts = {}) {
   //  ★122-c ③: 세그별 독립 박스 122개를 한 지오로 CSG에 넣으니 세그 경계마다 미절단 슬리버가
   //  남았다(현도 스크린샷 — "창에 찌꺼기"). → 연속 스윕 매스 하나(옆면 4 연속 + 양끝 캡 2, watertight).
-  const S = extSpiralSpec()
+  const S = extSpiralSpec(opts)
   const segs = windowSegs()
   const pos = [], idx = []
   const q = (...v) => { const base = pos.length / 3
@@ -462,9 +464,9 @@ export function extWindowRibbonGeo() {
 //  ★★122-b 창 몰딩(현도 ④ "셸이 종잇장·창이 버그처럼"): DoorFrame 잼 어법("컷 림을 삼킨다")의
 //  나선 추종형 — 창 상·하연 밴드 + 양끝 수직 몰딩이 셸을 안팎 WFR_D/2씩 물어 두께 없는 컷 단면을 가린다.
 //  세그 = windowSegs()(리본 컷과 동일 정본) → 몰딩·개구 자동 정렬.
-export function buildExtWindowFrame() {
+export function buildExtWindowFrame(opts = {}) {
   if (!RSP_ON) return quadGeo(() => {})
-  const S = extSpiralSpec()
+  const S = extSpiralSpec(opts)
   const segs = windowSegs()
   if (!segs.length) return quadGeo(() => {})
   return quadGeo((q) => {
@@ -528,9 +530,9 @@ export function buildExtWindowFrame() {
 //  → 다리는 접선 문 **컷과 같은 방향·같은 폭의 판**으로 만든다(Radial 셸 컷: z0 = PRX−1 ·
 //    xOff = R(cosφ−1) · rotateY(−sgn·φ) — 그 컷이 실제 구멍이니 컷이 정본).
 //  안쪽 끝은 진입 계단 착지장(중심거리 ≈13.5)을 물어 삼키고, 바깥 끝은 회랑 바닥과 겹친다.
-export function buildExtSpiralBridge() {
+export function buildExtSpiralBridge(opts = {}) {
   if (!RSP_ON) return quadGeo(() => {})
-  const S = extSpiralSpec()
+  const S = extSpiralSpec(opts)
   const sgn = S.dir > 0 ? -1 : 1                    // 착지 쪽(dir=+1 → −z 문)
   const phi = Math.asin((RAD_PRX - 1) / RAD_R)
   const xOff = RAD_R * (Math.cos(phi) - 1), zOff = sgn * (RAD_PRX - 1)
