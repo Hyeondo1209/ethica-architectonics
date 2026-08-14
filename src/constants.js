@@ -3865,3 +3865,27 @@ export const LNK_DOOR_H      = 4.72   // 문 높이 = 관 내부고(LNK_H) — �
 export const LNK_DOOR_HW     = 2.30   // 문 반폭 = 관 내부 반폭(LNK_HW)
 export const LNK_DOOR_MARG   = 0.06   // 자르개 여유(공면 z-fighting 방지 — 컷은 항상 벽보다 크게)
 export const LNK_WALK_MAX = 32        // ★130-g 나선 걷는 선 상한(°) — 넘으면 한 바퀴씩 더 감는다(문 방위는 불변). 하강로 규율 35°보다 보수적
+
+// ── ★★★131 첨탑 새 층: 플랫폼 + 좌우 계단 2기 (2026.08.14 셋째 대화 · 현도 그림 + 리드백 도면) ──
+//  기하 정본 = `upperPlatformGeometry.js`(왜 이 층이 필요한지의 규명 경위는 그 파일 머리에).
+//  ★한 줄 요약: 테라스 y127에서 드럼(1p5)으로 나갈 0° 방위가 ★130 통로 ①에 17.8 점유돼 있어
+//   **한 층 올린다**. 통로 4기 최고점이 y132.12에서 끝나므로 그 위는 방위 점유가 0이다.
+//  ⚠층 높이는 산술로 잠겨 있다: 틈 5.90(통로 천장 132.12 ~ 팔각 밑 138.02) vs 통로 규격 6.22 = **0.32 초과**.
+//   현도 확정 = 바닥을 얇게(1.5→1.18). **§2-D 두께 위계를 이 층만 깬다 — 선언된 비용.**
+//  ⚠천장판을 짓지 않는다(팔각 밑면이 곧 천장) — 여유 0.00이라 판을 두면 공면 z-fighting.
+export const UPF_ON    = true    // ⛔false = 새 층 전부 소등(보존계 — 한 줄 복귀)
+export const UPF_T     = 1.18    // ★바닥 두께 = 0.32를 뺀 값(ⓛ). 걷는 면 y133.30은 **파생**(132.12 + T) — 직접 적지 않는다
+export const UPF_W     = 7.6     // ★플랫폼 폭(방위 방향 호 길이) — 현도 확정. 최소 = 문 폭 4.60
+export const UPF_D     = 2.8     // ★플랫폼 깊이 = **계단 폭**(둘은 한 값으로 묶인다 — 계단이 플랫폼 양 끝에 접선으로 닿는다)
+export const UPF_RISE  = 0.300   // ★단높이 목표 — 실제 값은 climb/steps로 닫힌다(21단 → 정확히 0.300)
+export const UPF_TREAD = 0.50    // ★디딤 → 걷는 선 31.0°(★130 상한 32° 안 · 하강로 규율 35° 안)
+export const UPF_SIDE  = 'wall'  // ★계단·플랫폼이 붙는 자리 = **벽에 붙임**(현도 확정).
+                                 //   'mid' 고리 가운데 / 'inner' 우물 쪽 = 보존계(한 줄 교체)
+export const UPF_SOFFIT = 'ramp' // ★계단 밑면(★107 SPIRAL_SOFFIT 어휘 승계):
+                                 //   'ramp' 곧은 경사면(기본) / 'saw' 톱니(윗면 평행) / 'flat' 바닥까지 통짜
+                                 //   ⚠현도 미판정 — 밑면 조형은 열린 결정(§7)
+export const UPF_ST    = 1.50    // 계단 매스 두께('ramp'·'saw'일 때) — ★130 바닥 매스 1.5 승계
+export const UPF_EMB   = 0.35    // 바깥 끝이 내벽 속으로 묻히는 깊이(틈 금지 — SPT_EMB와 같은 값·같은 근거)
+export const UPF_SINK  = 0.05    // 계단 밑면이 테라스 판에 잠기는 깊이(공면 z-fighting 방지)
+export const UPF_SEG   = 96      // 방위 분할 기준(테라스 SPT_SEG와 동급)
+export const UPF_HEAD_MIN = 4.0  // 검사용 머리 위 하한 — 천장(팔각 밑) − 걷는 면

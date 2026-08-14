@@ -2789,5 +2789,215 @@ console.log('\n── ★130 접속 통로(밀봉 관 · 미니 첨탑) ──')
   }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+//  ★★★131 첨탑 새 층 — 플랫폼 + 좌우 계단 2기 (2026.08.14 셋째 대화)
+//  ⚠이 절이 지키는 것: 층이 **왜 이 높이에 있는지**(위·아래 두 경계가 산술로 잠겨 있다)와
+//   리드백 도면에서 현도가 확정한 값이 코드에서 **같은 답을 내는지**(부동소수점 함정 봉인).
+// ══════════════════════════════════════════════════════════════════════
+console.log('\n── ★131 새 층(플랫폼 + 계단 2기) ──')
+{
+  const C = await import('./constants.js')
+  const UP = await import('./upperPlatformGeometry.js')
+  const LP2 = await import('./linkPassageGeometry.js')
+  const SG2 = await import('./spireGeometry.js')
+  const roomSrc = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+  if (!C.UPF_ON) {
+    ok(UP.buildUpperPlatform().length === 0, '⏸ UPF_ON=false — 새 층 소등(보존계 복귀 확인)')
+  } else {
+    const U = UP.upperPlatformSpec(), K = LP2.linkSpec(), S = SG2.spireSpec()
+    const D = 180 / Math.PI
+
+    //  ① ★층 높이는 파생이다 — 두 경계를 정본에서 받는가(도수·좌표 하드코딩 금지)
+    ok(Math.abs(U.yUnder - (K.y1 + K.h + K.wt)) < 1e-9,
+      `바닥 밑면 ${U.yUnder.toFixed(2)} = ★130 통로 천장 위(linkSpec 파생 — 이 아래로는 못 내려간다)`)
+    ok(Math.abs(U.yCeil - S.y1) < 1e-9,
+      `천장 ${U.yCeil.toFixed(2)} = 첨탑 팔각 밑(spireSpec 파생)`)
+    ok(Math.abs(U.yWalk - (U.yUnder + U.t)) < 1e-9,
+      `걷는 면 ${U.yWalk.toFixed(2)} = 바닥 밑면 + 두께 ${U.t}(직접 적은 y가 아니다)`)
+
+    //  ② ★0.32의 산술 — 이 층이 성립하는 이유 자체를 검사로 박는다
+    const gap = U.yCeil - U.yUnder
+    ok(Math.abs(gap - 5.90) < 0.02, `쓸 수 있는 틈 ${gap.toFixed(2)}(통로 천장 ~ 팔각 밑)`)
+    ok(U.t + U.headroom <= gap + 1e-9,
+      `바닥 ${U.t} + 머리 위 ${U.headroom.toFixed(2)} = ${(U.t + U.headroom).toFixed(2)} ≤ 틈 ${gap.toFixed(2)}`)
+    ok(U.t < 1.5, `바닥 ${U.t} < 1.5 — ⚠§2-D 두께 위계를 이 층만 깬다(선언된 비용, 0.32를 여기서 뺐다)`)
+    ok(U.headroom >= C.UPF_HEAD_MIN, `머리 위 ${U.headroom.toFixed(2)} ≥ 하한 ${C.UPF_HEAD_MIN}`)
+
+    //  ③ ⛔부동소수점 함정 봉인 — 리드백 도면과 코드가 **같은 단수**를 내야 한다
+    ok(U.steps === Math.max(2, Math.ceil(U.climb / C.UPF_RISE - 1e-9)),
+      `단수 ${U.steps} — 허용오차 없이 ceil하면 22로 튄다(climb ${U.climb.toFixed(15)})`)
+    ok(Math.abs(U.rise * U.steps - U.climb) < 1e-9,
+      `단높이 ${U.rise.toFixed(4)} × ${U.steps}단 = 상승 ${U.climb.toFixed(2)}(나머지 0으로 닫힘)`)
+
+    //  ③-b ★검사가 **독립으로 같은 산술을 다시 해서** 스펙과 대조한다(항상 — 노브 무관).
+    //   스펙이 어떤 경로로 값을 냈든, 검사가 제 손으로 계산한 것과 같아야 한다.
+    {
+      const rm2 = (U.ri + U.ro) / 2
+      const st2 = Math.max(2, Math.ceil(U.climb / C.UPF_RISE - 1e-9))
+      const run2 = st2 * C.UPF_TREAD, sw2 = run2 / rm2
+      ok(st2 === U.steps && Math.abs(run2 - U.run) < 1e-9 && Math.abs(sw2 - U.sweep) < 1e-9,
+        `독립 재계산 일치(${st2}단 · 평면 ${run2.toFixed(2)} · 한 기 ${(sw2 * D).toFixed(1)}°)`)
+    }
+
+    //  ④ 리드백 도면 확정값의 재현 — ⚠**확정 노브일 때만** 대조한다.
+    //   ⛔★129 스윕 교훈 재발: 1차 작성분은 확정값을 그대로 박아 노브 스윕에서 전부 허위 실패했다
+    //   (값이 달라지는 것이 정상인 항목을 고정값과 비교한 것 — 조형이 아니라 검사가 틀렸다).
+    const AT_SPEC = U.side === 'wall'
+      && Math.abs(C.UPF_W - 7.6) < 1e-9 && Math.abs(C.UPF_D - 2.8) < 1e-9
+      && Math.abs(C.UPF_RISE - 0.300) < 1e-9 && Math.abs(C.UPF_TREAD - 0.50) < 1e-9
+    if (AT_SPEC) {
+      ok(Math.abs(U.rise - 0.300) < 1e-6, '단높이가 정확히 0.300(현도 확정값)')
+      ok(Math.abs(U.run - 10.50) < 0.01, `평면 길이 ${U.run.toFixed(2)}`)
+      ok(Math.abs(U.walkDeg - 31.0) < 0.1, `걷는 선 ${U.walkDeg.toFixed(1)}°`)
+      ok(Math.abs(U.sweep * D - 30.7) < 0.1, `한 기가 먹는 방위 ${(U.sweep * D).toFixed(1)}°`)
+      ok(Math.abs(U.azEnd * D - 41.8) < 0.1, `계단 끝 방위 ±${(U.azEnd * D).toFixed(1)}°`)
+    } else {
+      for (let i = 0; i < 5; i++) ok(true, `⏸ 노브가 확정 조합 밖 — 도면 대조 생략(불변식은 계속 검사)`)
+    }
+
+    //  ⑤ 걷는 선 상한 — ★130이 스스로 조인 32°, 하강로 규율 35°
+    ok(U.walkDeg <= 35, `걷는 선 ${U.walkDeg.toFixed(1)}° ≤ 하강로 규율 35°`)
+    ok(U.walkDeg <= C.LNK_WALK_MAX, `걷는 선 ≤ ★130 상한 ${C.LNK_WALK_MAX}°`)
+
+    //  ⑥ ★이웃 셸 통로 문(90°·270°) 침범 금지 — 계단이 먹으면 옆 문이 막힌다
+    ok(U.clearNext > 0, `90° 문까지 여유 ${(U.clearNext * D).toFixed(1)}° > 0`)
+    ok(U.azEnd < Math.PI / 2 - U.doorHalf,
+      `계단 끝 ±${(U.azEnd * D).toFixed(1)}° < 문 가장자리 ${((Math.PI / 2 - U.doorHalf) * D).toFixed(1)}°`)
+
+    //  ⑦ ★빛우물을 덮지 않는가 — 이 체제를 고른 이유(고리 판이면 71%)
+    ok(U.ri >= U.rTerrIn - 1e-9,
+      `안쪽 끝 r${U.ri.toFixed(2)} ≥ 테라스 구멍 r${U.rTerrIn}(우물 위로 나오지 않는다)`)
+    ok(U.occ < 0.12, `빛우물 잠식 ${(U.occ * 100).toFixed(1)}% — 고리 판 체제(71%)의 십분의 일`)
+
+    //  ⑧ 테라스 고리가 이 방위에서 막히지 않는가(옆으로 지나갈 폭)
+    ok(U.pass >= 2, `옆으로 지나갈 폭 ${U.pass.toFixed(2)} ≥ 2(바깥 ${U.passOut.toFixed(2)} / 안 ${U.passIn.toFixed(2)})`)
+
+    //  ⑨ 매몰·잠김 — 틈 금지 어법(★128 EMB · 공면 z-fighting 방지)
+    ok(U.side !== 'wall' || (U.roEmb > U.rWall && U.roEmb <= U.rWall + S.T),
+      `바깥 끝 r${U.roEmb.toFixed(2)}가 내벽 ${U.rWall.toFixed(2)} 속으로 묻힘(벽 두께 ${S.T} 안에서 종결)`)
+    ok(C.UPF_SINK > 0, `계단 밑면이 테라스 판에 ${C.UPF_SINK} 잠긴다(공면 z-fighting 방지)`)
+
+    //  ⑩ ★천장판을 짓지 않는다 — 여유 0.00이라 판을 두면 공면
+    ok(!/UPF_CEIL|ceilSlab/.test(readFileSync(new URL('./upperPlatformGeometry.js', import.meta.url), 'utf8')),
+      '천장판 없음 — 팔각 밑면이 곧 천장(판을 두면 팔각 밑과 공면)')
+
+    //  ⑪ 플랫폼 폭 ≥ 문 폭 — 드럼행 문이 플랫폼 안에 들어와야 한다
+    ok(U.w >= 2 * K.hw, `플랫폼 폭 ${U.w} ≥ 문 폭 ${(2 * K.hw).toFixed(2)}`)
+
+    //  ⑫ 기하 건전성 — 세 부재 전부(NaN 0 · 유한 · watertight 변 2회)
+    const parts = UP.buildUpperPlatform()
+    ok(parts.length === 3, `부재 3기(플랫폼 + 계단 2기) — 실제 ${parts.length}`)
+    for (const p of parts) {
+      const a = p.geo.getAttribute('position')
+      ok(a.count > 0 && ![...a.array].some(v => !Number.isFinite(v)), `${p.id}: 정점 ${a.count} · NaN/무한 0`)
+      const edge = new Map()
+      const key = (i, j) => `${i}|${j}`
+      const V = i => [a.getX(i).toFixed(4), a.getY(i).toFixed(4), a.getZ(i).toFixed(4)].join(',')
+      for (let i = 0; i < a.count; i += 3) {
+        const v = [V(i), V(i + 1), V(i + 2)]
+        for (let e = 0; e < 3; e++) {
+          const x = v[e], y = v[(e + 1) % 3]
+          const k2 = x < y ? key(x, y) : key(y, x)
+          edge.set(k2, (edge.get(k2) ?? 0) + 1)
+        }
+      }
+      const odd = [...edge.values()].filter(c => c % 2 !== 0).length
+      ok(edge.size > 0 && odd === 0, `${p.id}: 열린 에지 0(변 ${edge.size}개 전부 짝수 — watertight)`)
+    }
+
+    //  ⑬ 계단 윗면이 단조 상승하고 양 끝이 테라스·플랫폼에 정확히 닿는가
+    let mono = true, prev = -Infinity
+    for (let i = 0; i <= 40; i++) {
+      const aAbs = U.azEnd - (U.azEnd - U.halfPlat) * i / 40
+      const y = UP.stairYAt(aAbs, U)
+      if (y < prev - 1e-9) mono = false
+      prev = y
+    }
+    ok(mono, '계단 윗면이 단조 상승(역행 없음)')
+    //  ⛔현도 로컬 반려("이 나간 톱니") 수리의 사후 봉인 — 프로파일은 **노드 정본**이고 역산이 없다.
+    const NODES = UP.stairNodes(U)
+    ok(NODES.length === 1 + 2 * U.steps,
+      `노드 ${NODES.length}개 = 시작면 1 + (챌판·디딤) × ${U.steps}`)
+    ok(Math.abs(NODES[0].y - U.yTerr) < 1e-9 && Math.abs(NODES[0].a - U.azEnd) < 1e-12,
+      `노드[0] = 테라스 면 y${U.yTerr} · 방위 ±${(U.azEnd * 180 / Math.PI).toFixed(1)}°(계단이 테라스에서 출발)`)
+    //  ★디딤은 **평평해야** 한다: 방위가 진행하는 구간마다 양 끝 y가 같을 것(톱니 버그의 직접 반증)
+    let slanted = 0, risers = 0
+    for (let i = 0; i + 1 < NODES.length; i++) {
+      const dA = Math.abs(NODES[i].a - NODES[i + 1].a)
+      if (dA < 1e-12) { risers++; continue }                     // 챌판(같은 방위에서 y가 뛴다)
+      if (Math.abs(NODES[i].y - NODES[i + 1].y) > 1e-9) slanted++ // 방위가 진행하는데 y가 변한다 = 경사면
+    }
+    ok(slanted === 0, `디딤 전부 평평(경사진 디딤 ${slanted}개 — 구판은 여기서 톱니가 났다)`)
+    ok(risers === U.steps, `챌판 ${risers}개 = 단수 ${U.steps}`)
+    //  ★단높이가 **전부 같은가** — ceil 역산이 튀면 두 배 단·사라진 단이 섞인다
+    const rs = []
+    for (let i = 0; i + 1 < NODES.length; i++)
+      if (Math.abs(NODES[i].a - NODES[i + 1].a) < 1e-12) rs.push(NODES[i + 1].y - NODES[i].y)
+    ok(rs.length === U.steps && Math.max(...rs) - Math.min(...rs) < 1e-9,
+      `단높이 전부 동일(최대 ${Math.max(...rs).toFixed(4)} / 최소 ${Math.min(...rs).toFixed(4)})`)
+    ok(Math.abs(NODES[NODES.length - 1].y - U.yWalk) < 1e-9,
+      `마지막 노드 y${NODES[NODES.length - 1].y.toFixed(2)} = 플랫폼 걷는 면`)
+    //  ★빌더가 노드를 되묻지 않는가(방위 → 인덱스 역산 금지)
+    ok(!/Math\.ceil\([^)]*sweep/.test(readFileSync(new URL('./upperPlatformGeometry.js', import.meta.url), 'utf8')),
+      '프로파일에 방위→인덱스 역산 없음(ceil((azEnd−a)/sweep·steps) 폐기)')
+    ok(Math.abs(UP.stairYAt(U.halfPlat, U) - U.yWalk) < 1e-9,
+      `계단 끝 y${UP.stairYAt(U.halfPlat, U).toFixed(2)} = 플랫폼 걷는 면 ${U.yWalk.toFixed(2)}`)
+
+    //  ⑭ 밑면 체제 3종이 전부 성립하고, 밑면이 윗면을 넘지 않는가
+    for (const sf of UP.UPF_SOFFITS) {
+      const U2 = UP.upperPlatformSpec({ soffit: sf })
+      let bad = 0
+      for (let i = 0; i <= 60; i++) {
+        const aAbs = U2.azEnd - (U2.azEnd - U2.halfPlat) * i / 60
+        if (UP.stairSoffitAt(aAbs, U2) >= UP.stairYAt(aAbs, U2)) bad++
+      }
+      ok(bad === 0, `밑면 체제 '${sf}': 밑면이 윗면 아래에 있다(위반 ${bad})`)
+    }
+
+    //  ⑮ 부피 해석식 ↔ 메시 대조(프리즘 사슬이라 정확식이어야 한다)
+    const V = UP.upperVolume(U)
+    const meshVol = g => {
+      const a2 = g.getAttribute('position'); let v = 0
+      for (let i = 0; i < a2.count; i += 3) {
+        const x1 = a2.getX(i), y1 = a2.getY(i), z1 = a2.getZ(i)
+        const x2 = a2.getX(i + 1), y2 = a2.getY(i + 1), z2 = a2.getZ(i + 1)
+        const x3 = a2.getX(i + 2), y3 = a2.getY(i + 2), z3 = a2.getZ(i + 2)
+        v += (x1 * (y2 * z3 - y3 * z2) - y1 * (x2 * z3 - x3 * z2) + z1 * (x2 * y3 - x3 * y2)) / 6
+      }
+      return Math.abs(v)
+    }
+    const mSlab = meshVol(parts[0].geo), mSt = meshVol(parts[1].geo)
+    ok(Math.abs(mSlab - V.slab) / V.slab < 0.02,
+      `플랫폼 부피 메시 ${mSlab.toFixed(2)} ↔ 해석 ${V.slab.toFixed(2)}(±2%)`)
+    ok(Math.abs(mSt - V.stair) / V.stair < 0.05,
+      `계단 부피 메시 ${mSt.toFixed(2)} ↔ 해석 ${V.stair.toFixed(2)}(±5%)`)
+
+    //  ⑯ 좌우 대칭 — 두 계단이 z 반전으로 정확히 겹치는가(현도 그림 = 대칭 쌍)
+    const bb = g => { g.computeBoundingBox(); const b = g.boundingBox; return [b.min.x, b.max.x, b.min.y, b.max.y, b.min.z, b.max.z] }
+    const b1 = bb(parts[1].geo), b2 = bb(parts[2].geo)
+    ok(Math.abs(b1[0] - b2[0]) < 1e-3 && Math.abs(b1[1] - b2[1]) < 1e-3 &&
+       Math.abs(b1[2] - b2[2]) < 1e-3 && Math.abs(b1[3] - b2[3]) < 1e-3 &&
+       Math.abs(b1[4] + b2[5]) < 1e-3 && Math.abs(b1[5] + b2[4]) < 1e-3,
+      '계단 두 기가 z 반전 대칭(좌우 대칭 쌍 — 현도 그림)')
+
+    //  ⑰ 사본 금지 — 모듈이 정본에서만 좌표를 받는가
+    const upSrc = readFileSync(new URL('./upperPlatformGeometry.js', import.meta.url), 'utf8')
+    const noComment = upSrc.replace(/\/\/.*$/gm, '')
+    ok(/spireSpec\(\)/.test(upSrc) && /wellWallR/.test(upSrc) && /linkSpec\(\)/.test(upSrc),
+      '새 층 모듈: spireSpec · wellWallR · linkSpec 정본에서 받는다')
+    ok(!/133\.30|132\.12|138\.02|21\.00/.test(noComment),
+      '주석 밖에 좌표 하드코딩 0(133.30 · 132.12 · 138.02 · 21.00 전부 파생)')
+
+    //  ⑱ 배선(마운트 · 별개 메시 · 보존계 독립)
+    ok(/buildUpperPlatform/.test(roomSrc) && /upperParts\.map/.test(roomSrc),
+      'Room.jsx: buildUpperPlatform 마운트(테라스·첨탑과 별개 메시)')
+    ok(/UPF_ON/.test(roomSrc), 'Room.jsx: UPF_ON 보존계 게이트(한 줄 소등)')
+
+    //  ⑲ ★밀봉 유지 — 드럼행 문은 **아직 안 뚫는다**(경로 미정이라 뚫으면 허공으로 열린다)
+    ok(!/UPF_DOOR|cutUpper/.test(upSrc),
+      '드럼행 문 미구현 — 경로가 정해지기 전에 뚫으면 첨탑 밖 허공으로 열린다(밀봉 원칙)')
+  }
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} check_rooms: ${n - fail}/${n} 통과`)
 process.exit(fail === 0 ? 0 : 1)

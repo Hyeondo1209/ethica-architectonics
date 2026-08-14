@@ -31,7 +31,8 @@ import { buildAxiomVaults } from './axiomVaultGeometry'   // ★111 공리 볼�
 import { buildWallBase } from './wallBaseGeometry'
 import { buildSpire } from './spireGeometry.js'   // ★127 빛우물 첨탑(순수 기하 + CSG — 사본 금지·wellWallR 단일 정본)
 import { buildSpireTerrace } from './spireTerraceGeometry.js'   // ★128 첨탑 테라스(고리 판 — 좌표는 전부 spireSpec 파생)
-import { SPIRE_ON, SPT_ON } from './constants.js'
+import { buildUpperPlatform } from './upperPlatformGeometry.js' // ★131 새 층 플랫폼 + 좌우 계단 2기(테라스 위 — 드럼행 문의 자리)
+import { SPIRE_ON, SPT_ON, UPF_ON } from './constants.js'
 import { buildRoomRibs } from './roomRibGeometry'   // ★116 방 돔 살 여덟(순수 기하 — 사본 금지)   // ★114 벽 밑동 팔각 각뿔대(순수 기하 — 사본 금지)
 
 // ════════ 지하 정의·공리 방 ════════
@@ -140,6 +141,9 @@ export function DefAxiomRoom({ stairKind }) {
   // ★★★128 첨탑 테라스(2026.08.14 현도) — 첨탑 본체와 **별개 메시**다:
   //  ⓐ 보존계가 독립(SPT_ON 한 줄) ⓑ 부피·watertight 검사가 본체와 섞이지 않는다 ⓒ CSG 대상이 아니다(문·돔 대역 위).
   const terrGeo = useMemo(() => (SPIRE_ON && SPT_ON ? buildSpireTerrace() : null), [])
+  // ★★★131 새 층(2026.08.14): 테라스 위 한 층. 테라스·첨탑과 **또 별개 메시**다 —
+  //  ⓐ 보존계 독립(UPF_ON 한 줄) ⓑ 부피·watertight 검사 분리 ⓒ CSG 대상 아님(문은 아직 안 뚫는다 = 밀봉 유지).
+  const upperParts = useMemo(() => (SPIRE_ON && SPT_ON && UPF_ON ? buildUpperPlatform() : []), [])
   const wellCut = useMemo(() => {
     if (SPIRE_ON) return buildSpire()
     const ev = new Evaluator()
@@ -419,6 +423,11 @@ export function DefAxiomRoom({ stairKind }) {
           <meshStandardMaterial color="#97784e" roughness={0.92} side={THREE.FrontSide} />
         </mesh>
       )}
+      {upperParts.map(({ id, geo }) => (
+        <mesh key={id} geometry={geo} userData={{ walkable: true }}>
+          <meshStandardMaterial color="#97784e" roughness={0.92} side={THREE.FrontSide} />
+        </mesh>
+      ))}
       <pointLight position={[0, ROOM_CYL_TOP - 8, 0]} intensity={2.4} distance={ROOM_CYL_TOP * 1.6} decay={1.1} color="#fff1d2" />
     </group>
   )
