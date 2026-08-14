@@ -11,6 +11,7 @@ import { Brush, Evaluator, HOLLOW_SUBTRACTION, INTERSECTION } from 'three-bvh-cs
 import { ascSpec, ascDoorCut, buildAscentMass, buildAscentWalls, buildAscentCeiling, buildAscentColumns, buildAscentOverlook, buildAscentMouthSill } from './ascentTunnelGeometry.js'
 import { buildArm13 } from './armGeometry.js'   // ★126 1p3 지지 팔
 import { extSpiralSpec, buildExtSpiral, buildExtSpiralParapet, buildExtSpiralShell, buildExtSpiralSkirt, buildExtSpiralBridge, buildExtWindowFrame, extWindowRibbonGeo, winBandAt, winBandOver } from './extSpiralGeometry.js'   // ★122·★122-b·★122-c·★123
+import { wellWallR } from './spireGeometry.js'   // ★127 빛우물 벽 사면 단일 정본(구 로컬 coneR 사본 폐기)
 import {
   domeClipY, COR_Y0, COR_THICK, BOX_HW, RAD_ASC_ON, HUB_DOOR_GATE,
   RAD_RING_ON, RSP_ON, RSP_WIN_ON,
@@ -65,10 +66,11 @@ const S_WALL0 = RAD_WALL_R0                  // ★118: constants 승격(검사�
 //  스위치 단독이 아니라 **구세계 결합**이다: RAD_ASC_ON=false면 이 문이 구 수평 터널의 방 진입구라
 //  스위치와 무관하게 켜진다 → ★119 보존계(한 줄 복귀)가 무손상 유지된다.
 const HUB_DOOR_ON = HUB_DOOR_GATE
-// ★허브(원뿔대) 문틀(2026.07.11): 같은 문틀을 빛우물 원뿔벽 문 4곳에. 원뿔이 위로 좁아지는 사면이라 걸침 깊이만 다르게 파생.
-const coneR = (y) => ROOM_LAND_R - (ROOM_LAND_R - ROOM_WELL_RT) * (y - (ROOM_CEIL_Y - 3)) / (ROOM_CYL_TOP - (ROOM_CEIL_Y - 3))
-const HFR_BACK  = Math.min(Math.sqrt(Math.max(0.25, coneR(LIN_TOP) ** 2 - FR_OUT ** 2)) - 0.25, S_WALL0 - 0.15) // 뒷면(허브쪽) — 최심 요구 코너보다 깊게 & 벽 시작(15.5)도 몸통 안에 숨김
-const HFR_FRONT = coneR(Y_FTOP) + 0.25       // 앞면(터널쪽) ≈17.46 — 문 밑선 높이 원뿔 반경보다 앞
+// ★허브(빛우물) 문틀(2026.07.11): 같은 문틀을 빛우물 벽 문 4곳에. 걸침 깊이는 그 높이 벽 반경에서 파생.
+//  ★127: 구 로컬 coneR 사본 폐기 — 벽 사면 정본 = spireGeometry.wellWallR(SPIRE_ON이면 원기둥 18 상수,
+//  false면 구 원뿔 사면을 같은 함수가 반환 — 보존계가 함수 안에 있어 호출부는 무분기).
+const HFR_BACK  = Math.min(Math.sqrt(Math.max(0.25, wellWallR(LIN_TOP) ** 2 - FR_OUT ** 2)) - 0.25, S_WALL0 - 0.15) // 뒷면(허브쪽) — 최심 요구 코너보다 깊게 & 벽 시작(15.5)도 몸통 안에 숨김
+const HFR_FRONT = wellWallR(Y_FTOP) + 0.25   // 앞면(터널쪽) — 문 밑선 높이 벽 반경보다 앞(★127 원기둥 체제 = 18.25)
 const HFR_D = HFR_FRONT - HFR_BACK           // 허브 문틀 깊이 ≈2.1(사면 걸침이라 셸보다 깊음)
 const HFR_C = (HFR_FRONT + HFR_BACK) / 2     // 허브 문틀 중심 반경 ≈16.4
 

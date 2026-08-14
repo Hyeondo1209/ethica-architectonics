@@ -29,6 +29,8 @@ import { pitSpec, slotSpec, buildPitWalls, buildPitRim, buildPitFloor, buildHole
 import { buildSpiralMass, buildSpiralColumns, buildSpiralBeams, buildRootCrosses } from './axiomSpiralGeometry'   // ★107 나선 매스 + 지지(순수 기하 — 사본 금지)
 import { buildAxiomVaults } from './axiomVaultGeometry'   // ★111 공리 볼트(문) — 총안 창 + 감실
 import { buildWallBase } from './wallBaseGeometry'
+import { buildSpire } from './spireGeometry.js'   // ★127 빛우물 첨탑(순수 기하 + CSG — 사본 금지·wellWallR 단일 정본)
+import { SPIRE_ON } from './constants.js'
 import { buildRoomRibs } from './roomRibGeometry'   // ★116 방 돔 살 여덟(순수 기하 — 사본 금지)   // ★114 벽 밑동 팔각 각뿔대(순수 기하 — 사본 금지)
 
 // ════════ 지하 정의·공리 방 ════════
@@ -132,7 +134,10 @@ export function DefAxiomRoom({ stairKind }) {
   //  ⚠구판은 `ExtrudeGeometry` + `position`으로 높이를 맞췄다 — 신판은 **월드 좌표로 직접** 짓는다
   //   (두께가 파생이라 position 보정식이 두 곳에 흩어지면 반드시 어긋난다).
   const discGeo = useMemo(() => buildDisc(), [])
+  // ★★★127 첨탑(2026.08.14): SPIRE_ON이면 spireGeometry 정본 호출. 아래 구 wellCut(단일 원뿔대)은
+  //  ⛔보존계 — SPIRE_ON=false 한 줄로 복귀(코드·CSG 로직 무손상 보존, 삭제 금지 규율).
   const wellCut = useMemo(() => {
+    if (SPIRE_ON) return buildSpire()
     const ev = new Evaluator()
     ev.attributes = ['position', 'normal']
     const rBot = ROOM_LAND_R, rTop = ROOM_WELL_RT
@@ -399,8 +404,9 @@ export function DefAxiomRoom({ stairKind }) {
       </mesh>
       {/* 솟은 원뿔대(빛 우물) — 위는 막혀 리브 가림(스포), +x(통로)쪽 아래는 출입문으로 트여 통로로 나감.
           올려다보면 좁은 꼭대기로 빛만 보이고, 정면(통로쪽)으론 걸어 나갈 문이 있음. */}
+      {/* ★127: 첨탑 = 닫힌 솔리드 → FrontSide(★118 디스크와 같은 근거 — 구 DoubleSide는 종잇장 관이라 필요했던 것) */}
       <mesh geometry={wellCut}>
-        <meshStandardMaterial color="#97784e" roughness={0.92} side={THREE.DoubleSide} />
+        <meshStandardMaterial color="#97784e" roughness={0.92} side={SPIRE_ON ? THREE.FrontSide : THREE.DoubleSide} />
       </mesh>
       <pointLight position={[0, ROOM_CYL_TOP - 8, 0]} intensity={2.4} distance={ROOM_CYL_TOP * 1.6} decay={1.1} color="#fff1d2" />
     </group>

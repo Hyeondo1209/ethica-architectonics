@@ -2095,5 +2095,220 @@ console.log('\n── ★118 착지 디스크 ──')
   }
 }
 
+
+console.log('\n── ★127 빛우물 첨탑(2026.08.14 현도 스케치 — 원기둥>팔각뿔대>팔각기둥>원뿔대) ──')
+{
+  const C = await import('./constants.js')
+  const { SP_FR_MESH_TIP } = C
+  const SG = await import('./spireGeometry.js')
+  const { openEdgeCount } = await import('./orientGeo.js')
+  const THREE = await import('three')
+  if (!C.SPIRE_ON) {
+    //  ⛔보존계(소등 중) — 배선만 검증: wellWallR가 구 원뿔 사면을 돌려주는가(복원 조건 = SPIRE_ON=true)
+    ok(Math.abs(SG.wellWallR(C.ROOM_CEIL_Y - 3) - C.ROOM_LAND_R) < 1e-9
+      && Math.abs(SG.wellWallR(C.ROOM_CYL_TOP) - C.ROOM_WELL_RT) < 1e-9,
+      '보존계: wellWallR = 구 단일 원뿔대 사면(밑 18 → 꼭대기 2.5)')
+    const roomSrc = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+    ok(/if \(SPIRE_ON\) return buildSpire\(\)/.test(roomSrc), '보존계: 구 wellCut 경로 보존 + 한 줄 복귀 게이트')
+  } else {
+    const S = SG.spireSpec()
+    //  ① 분할·대역(현도 Q1: 전체 y98~162 유지 · 원뿔대 = 잔여 파생이라 합은 항상 닫힘 — 양수만 검사)
+    ok(S.h1 > 0 && S.h2 > 0 && S.h3 > 0 && S.h4 > 0,
+      `4단 높이 전부 양수(${S.h1.toFixed(1)}·${S.h2.toFixed(1)}·${S.h3.toFixed(1)}·${S.h4.toFixed(1)} — 비율 노브 유효 대역)`)
+    ok(Math.abs(S.yB - (C.ROOM_CEIL_Y - 3)) < 1e-9 && Math.abs(S.yT - C.ROOM_CYL_TOP) < 1e-9,
+      `대역 ${S.yB}~${S.yT} = 구 원뿔대와 동일(Q1 높이 유지)`)
+    //  ② 봉합 불변식(Q2·Q5)
+    ok(S.rCyl === C.ROOM_LAND_R, '밑 봉합: 원기둥 외반경 = 디스크 바깥 반경(Q2)')
+    ok(S.rTopIn === C.ROOM_WELL_RT, '꼭대기 개구 = ROOM_WELL_RT — 샤프트 출처 어휘 불변(Q5)')
+    ok(S.T > 0 && S.rCylIn > 0 && S.rMidIn > 0 && S.rTopOut > S.rTopIn,
+      `벽 두께 ${S.T} 양수·내반경 사슬 양수(종잇장 금지 — Q5)`)
+    //  ③ 접합 규율: L-턱·침강
+    ok(S.ledgeH > S.sink + 1e-9, `L-턱 두께 ${S.ledgeH} > 침강 ${S.sink}(스텁이 턱을 안 뚫음)`)
+    ok(S.ledgeIn < (S.rCyl - S.octInOff) * Math.cos(Math.PI / 8) - 1e-9,
+      `L-턱 안반경 ${S.ledgeIn.toFixed(2)} < 팔각 밑 내접(J1 환형 슬릿 바닥 전면 커버 — 규율 ⑤)`)
+    const eave = S.rMid * (1 - Math.cos(Math.PI / 8))
+    ok(eave > 0 && eave < 1, `J3: 원뿔 밑 = 팔각 외접(모서리 관입 0) · 면 중앙 처마 ${eave.toFixed(3)}`)
+    //  ④ CSG 대역: 문·돔 자르개가 전부 ①원기둥 구간 안(위 3단은 순수 기하)
+    ok(C.RAD_TOP < S.y1 && C.ROOM_CEIL_Y < S.y1,
+      `문 상단 ${C.RAD_TOP.toFixed(2)}·돔 정점 ${C.ROOM_CEIL_Y} < y1 ${S.y1.toFixed(1)}(자르개 ⊂ 원기둥 구간)`)
+    //  ⑤ 샤프트 ⊂ 내벽 — 닫힌 식: 양쪽 다 구간별 선형이라 위반 최대는 경계점(격자 탐색 불요 — 규율 ⑪)
+    const shaftR = y => (C.ROOM_WELL_RT - 0.3)
+      + ((C.SHAFT_TOP_R - 0.3) - (C.ROOM_WELL_RT - 0.3)) * (S.yT - y) / (S.yT - C.SHAFT_TOP_Y)
+    let worst = 1e9, wy = 0
+    for (const y of [C.SHAFT_TOP_Y, S.y1 - S.ledgeH, S.y1, S.y2, S.y3, S.yT]) {
+      const m = SG.wellInnerClear(y, S) - shaftR(y)
+      if (m < worst) { worst = m; wy = y }
+    }
+    ok(worst >= 0.05, `빛 샤프트 ⊂ 내벽: 경계점 전수 최소 여유 ${worst.toFixed(3)} @y${wy.toFixed(1)} ≥ 0.05(SPIRE_R_MID 하한이 여기)`)
+    //  ⑥ 방 내벽 나선 도착 클리어런스(RIN 14 · 폭 3.6 — 디스크로 내려서는 마지막 판들이 내벽 안)
+    const spOut = C.ROOM_STAIR_RIN + C.ROOM_STAIR_WIDTH / 2
+    ok(spOut < S.rCylIn - 0.2, `나선 도착 바깥끝 ${spOut.toFixed(1)} < 내벽 ${S.rCylIn}(여유 ${(S.rCylIn - spOut).toFixed(2)})`)
+    //  ⑦ 팔각 방위 두 체제(현도 Q4 — 로컬 비교 후 확정): 파생 정합
+    const Sp = SG.spireSpec({ octMode: 'pit' }), St = SG.spireSpec({ octMode: 'tunnel' })
+    ok(Math.abs(Sp.cornerAz0) < 1e-9 && Math.abs(St.cornerAz0 - Math.PI / 8) < 1e-9,
+      "방위 체제: 'pit' 모서리 0°(면 중심 22.5°+45°k = 지하 정의 각뿔대 라임 · 터널각 45° = 모서리)")
+    ok(Math.abs(((St.cornerAz0 + Math.PI / 8) % (Math.PI / 4)) - 0) < 1e-9,
+      "'tunnel' 면 중심 0°+45°k(대각 터널 45°+90°k가 면 정중앙)")
+    //  ⑧ 기하 실증: watertight·부피 해석 대조·CSG 실제 제거·문 레이캐스트
+    const uncut = SG.buildSpire({ cut: false }), cutG = SG.buildSpire()
+    ok(openEdgeCount(uncut) === 0, '무컷 첨탑 watertight(열린 에지 0 — 3개 닫힌 성분)')
+    const vol = g => { const p = g.getAttribute('position'), ix = g.index; let v = 0
+      for (let t = 0; t < ix.count; t += 3) {
+        const A = [p.getX(ix.getX(t)), p.getY(ix.getX(t)), p.getZ(ix.getX(t))]
+        const B = [p.getX(ix.getX(t + 1)), p.getY(ix.getX(t + 1)), p.getZ(ix.getX(t + 1))]
+        const D = [p.getX(ix.getX(t + 2)), p.getY(ix.getX(t + 2)), p.getZ(ix.getX(t + 2))]
+        v += (A[0] * (B[1] * D[2] - B[2] * D[1]) - A[1] * (B[0] * D[2] - B[2] * D[0]) + A[2] * (B[0] * D[1] - B[1] * D[0])) / 6
+      }
+      return v }
+    //  해석 부피(솔리드별 독립 합 — 침강 중복은 메시도 성분별로 같은 방식으로 세므로 정합)
+    const A8 = R => 4 * R * R * Math.sin(Math.PI / 4)                 // 정팔각 넓이(외접 R)
+    const I2 = (Ra, Rb, h) => h * (Ra * Ra + Ra * Rb + Rb * Rb) / 3  // ∫R(y)²dy, R 선형
+    const off = S.octInOff
+    const vCyl = Math.PI * (S.rCyl ** 2 - S.rCylIn ** 2) * S.h1 + Math.PI * (S.rCylIn ** 2 - S.ledgeIn ** 2) * S.ledgeH
+    const vOct = (A8(S.rCyl) - A8(S.rCyl - off)) * S.sink
+      + 4 * Math.sin(Math.PI / 4) * (I2(S.rCyl, S.rMid, S.h2) - I2(S.rCyl - off, S.rMidIn, S.h2))
+      + (A8(S.rMid) - A8(S.rMidIn)) * S.h3
+    const rbE = S.rMid + (S.rMid - S.rTopOut) / S.h4 * S.sink
+    const rbIE = (S.rMid - S.T) + ((S.rMid - S.T) - S.rTopIn) / S.h4 * S.sink
+    const hC = S.h4 + S.sink
+    const vCone = Math.PI / 3 * hC * ((rbE ** 2 + rbE * S.rTopOut + S.rTopOut ** 2) - (rbIE ** 2 + rbIE * S.rTopIn + S.rTopIn ** 2))
+    //  ★127-b/c 피니얼·몰딩 해석 — 폐곡 회전체 정확식(y축 디스크법 · 부호합): V = k·Σ(y₊−y)(r²+rr₊+r₊²)/3
+    //  k = π(원형) / 4·sin45°(팔각). 프로파일 정본 = spec(사본 금지 — 빌더와 동일 배열)
+    const polyRev = (prof, k) => { let v = 0
+      for (let i = 0; i < prof.length; i++) { const [r0, ya] = prof[i], [r1, yb] = prof[(i + 1) % prof.length]
+        v += (yb - ya) * (r0 * r0 + r0 * r1 + r1 * r1) / 3 }
+      return Math.abs(k * v) }
+    const vFin = S.finOn ? 8 * S.finColW ** 2 * (S.finColTop - S.yT) + polyRev(S.capProf, Math.PI) : 0
+    const vMold = S.moldOn ? polyRev(S.m1Prof, 4 * Math.sin(Math.PI / 4)) + polyRev(S.m3Prof, 4 * Math.sin(Math.PI / 4)) : 0
+    //  ★127-e/j 포털 해석: 필라스터 2 박스 + **캐노피 정확식** — 밑면이 윗면의 수직 −T 오프셋이므로
+    //  부피 = T × 평면 도메인 넓이(s∈[s0,sTip] × z∈[−zEnd,zEnd]) — 곡률과 무관. ×4방위.
+    const P = S.portal
+    const vPortal = 0   // ★127-l 액자 = 곡면 압출(해석식 없음) → 아래 차분 빌드로 따로 잰다
+    const vAna = vCyl + vOct + vCone + vFin + vMold + vPortal, vMesh = vol(uncut), vCut = vol(cutG)
+    //  ★127-k: 볼트는 곡면 스윕이라 닫힌 해석식이 없다 → **볼트만 따로 빌드해 메시 부피를 재고**, 나머지는 해석식과 대조.
+    //  (⚠볼트 항을 0으로 두고 총합을 비교하면 항상 실패한다 — 검사를 무력화하지 않고 분리한다)
+    const vFrame = (() => { const noP = SG.buildSpire({ cut: false, noFrame: true }); return vol(uncut) - vol(noP) })()
+    ok(Math.abs((vMesh - vFrame) / vAna - 1) < 0.01, `무컷 부피(액자 제외) = 해석 합(메시 ${(vMesh - vFrame).toFixed(0)} vs 해석 ${vAna.toFixed(0)} · ±1%)`)
+    ok(vFrame > 150 && vFrame < 3000, `액자 4기 부피 ${vFrame.toFixed(0)} — 실체 존재(종잇장이면 ≪, 폭주면 ≫)`)
+    ok(vCut > 0 && vCut < vMesh - 1, `CSG가 재료 실제 제거(컷 ${vCut.toFixed(0)} < 무컷 ${vMesh.toFixed(0)} · 부호 양수 = 감김 정상)`)
+    const mesh = new THREE.Mesh(cutG, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }))
+    mesh.updateMatrixWorld()
+    const rc = new THREE.Raycaster()
+    const yDoor = (C.COR_Y0 + C.RAD_TOP) / 2
+    let doorsOpen = true, midsBlocked = true
+    for (let k = 0; k < 4; k++) {
+      const a = C.RAD_ANG0 + k * Math.PI / 2
+      rc.set(new THREE.Vector3(22 * Math.cos(a), yDoor, 22 * Math.sin(a)), new THREE.Vector3(-Math.cos(a), 0, -Math.sin(a)))
+      const h = rc.intersectObject(mesh)
+      if (h.length && h[0].distance < 30) doorsOpen = false
+      const b = a - Math.PI / 4
+      rc.set(new THREE.Vector3(22 * Math.cos(b), yDoor, 22 * Math.sin(b)), new THREE.Vector3(-Math.cos(b), 0, -Math.sin(b)))
+      const h2 = rc.intersectObject(mesh)
+      if (!h2.length || h2[0].distance > 22 - S.rCyl + 2) midsBlocked = false
+    }
+    ok(doorsOpen, '문 4방위(45°+90°k) 레이 관통 — 개구 살아 있음(Q6 무변경)')
+    ok(midsBlocked, '비문 4방위(0°+90°k) 레이가 외벽에 차단(벽이 서 있음)')
+    //  ⑧b ★127-b 피니얼(랜턴+갓)·세장도·상공 간섭
+    if (S.finOn) {
+      ok(S.finCapR > S.rTopOut + 0.5, `갓 밑 반경 ${S.finCapR} > 림 바깥 ${S.rTopOut}(처마·비가림 + 축상 스포 차단)`)
+      ok(S.finColTop > S.yT + 1, `랜턴 개방고 ${(S.finColTop - S.yT).toFixed(1)} > 1(빛 어휘 — 옆이 뚫린 갓)`)
+      ok(S.finColRing - S.finColW / 2 > S.rTopIn && S.finColRing + S.finColW / 2 < S.rTopOut + 1e-9,
+        `기둥 발자국 ⊂ 개구 림 폭(${S.rTopIn}~${S.rTopOut} · 링 ${S.finColRing.toFixed(2)}±${(S.finColW / 2).toFixed(2)})`)
+      ok(Math.abs(S.tipY - (S.yT + (S.finColTop - S.yT) + S.finCapH)) < 1e-9, `꼭지 = 림+랜턴+갓 파생(y ${S.tipY})`)
+    }
+    //  ⑧c ★127-c 갓 구멍·접합 몰딩(현도 2차 판정 반영)
+    if (S.finOn) ok(S.holeR > 0 && S.holeR < S.rTopIn - 0.5,
+      `갓 센터 구멍 ${S.holeR} < 개구 ${S.rTopIn}(빛이 좁아지며 떨어지는 위계) · 셸 두께 ${S.capT}`)
+    if (S.moldOn) {
+      //  ⛔★127-d 교훈: 구판은 **외접**만 비교해 통과시켰다 — N각형의 얼굴은 외접이 아니라 **면(내접)**이다.
+      //   일반 규약: 몰딩 표면 = 팔각이면 ×cos22.5° · 원형이면 그대로. 몸통 표면도 같은 규약으로 재고 비교한다.
+      const surf = (r, seg) => seg === 8 ? r * Math.cos(Math.PI / 8) : r
+      const bodySurf = (y) => {                                  // 그 높이 몸통의 **최소** 표면 반경
+        const w = SG.wellWallR(y)
+        return (y > S.y1 && y <= S.y3) ? w * Math.cos(Math.PI / 8) : w   // 팔각 구간이면 면
+      }
+      const m1y = S.m1Prof[1][1], m3y = S.m3Prof[1][1]
+      const m1SurfOut = surf(S.m1Prof[1][0], S.m1Seg), m1SurfIn = surf(S.m1Prof[0][0], S.m1Seg)
+      const m3SurfOut = surf(S.m3Prof[1][0], 8), m3SurfIn = surf(S.m3Prof[0][0], 8)
+      ok(m1SurfOut > bodySurf(m1y) + 0.2, `J1 플린스 표면 ${m1SurfOut.toFixed(2)} > 그 높이 몸통 표면 ${bodySurf(m1y).toFixed(2)} — **전 방위 덮음**(면 중앙 언더컷 0)`)
+      ok(m1SurfIn < bodySurf(S.m1Prof[0][1]) - 0.1, `J1 물림 정점 표면 ${m1SurfIn.toFixed(2)} < 벽 ${bodySurf(S.m1Prof[0][1]).toFixed(2)}(몸통 속 매몰)`)
+      ok(m3SurfOut > bodySurf(m3y) + 0.2, `J3 코니스 표면 ${m3SurfOut.toFixed(2)} > 드럼 표면 ${bodySurf(m3y).toFixed(2)}`)
+      ok(m3SurfIn < bodySurf(S.m3Prof[0][1]) - 0.1, `J3 물림 정점 매몰(${m3SurfIn.toFixed(2)})`)
+      //  두 형(원형/팔각) 모두에서 언더컷 0 — 스위치를 돌려도 재발 불가(파생 검증)
+      const alt = SG.spireSpec()
+      ok(surf(alt.m1Prof[1][0], alt.m1Seg) > 18.0 + 0.2, `현행 형(${alt.m1Oct ? '팔각' : '원형'})에서 언더컷 0`)
+      //  챔퍼 수렴 이음선이 원뿔 사면에 삼켜짐(모서리 외접 < 그 높이 원뿔 외면)
+      const chTop = S.m3Prof[3], coneYb = S.y3 - S.sink
+      const rbE2 = S.rMid + (S.rMid - S.rTopOut) / S.h4 * S.sink
+      const coneR = rbE2 + (S.rTopOut - rbE2) * (chTop[1] - coneYb) / (S.yT - coneYb)
+      ok(chTop[0] < coneR - 0.05, `J3 챔퍼 꼭대기 외접 ${chTop[0].toFixed(2)} < 원뿔면 ${coneR.toFixed(2)}(이음선 침강 — 우아함의 기계)`)
+      ok(S.m1Prof[3][1] > S.y1 + S.sink, 'J1 플린스 상면이 팔각 침강 스텁 위(크레센트 은폐)')
+    }
+    //  ⑧d ★★★127-l 어귀 액자(처마+문틀 한 덩어리 — 현도 도면 4회 합의)
+    if (S.portal.on) {
+      const P = S.portal
+      //  ① 한 덩어리: 아치 다리가 발치까지 내려간다(별도 필라스터 없음 — 현도 "이 둘은 한 덩어리야")
+      const [, yFootPt] = P.outline(0, false)
+      ok(Math.abs(yFootPt - P.foot) < 1e-9 && P.spring > P.foot + 3,
+        `아치 다리가 발치 ${P.foot.toFixed(2)}까지 내려감(스프링 ${P.spring.toFixed(2)} — 곧은 다리 구간 ${(P.spring - P.foot).toFixed(1)})`)
+      //  ② 내밀기: 꼭대기 최대 · 발치에서도 **0이 아님**(현도 11차 정정) · 단조 증가(오목)
+      ok(P.projAt(P.foot) > 0.5, `발치 내밀기 ${P.projAt(P.foot).toFixed(2)} > 0.5 — 다리도 벽에서 나와 선다(소멸 금지)`)
+      ok(P.projAt(P.apex) > P.projAt(P.spring) && P.projAt(P.spring) > P.projAt(P.foot),
+        `내밀기 단조: 발치 ${P.projAt(P.foot).toFixed(2)} < 스프링 ${P.projAt(P.spring).toFixed(2)} < 꼭대기 ${P.projAt(P.apex).toFixed(2)}`)
+      //  ③ 처마 기울기: 꼭대기가 바깥으로 기울고, 다리에선 거의 수직(문틀로 읽힘)
+      ok(P.tiltAt(P.apex) > 0.2 && P.tiltAt(P.foot) < 0.05,
+        `기울기: 꼭대기 ${P.tiltAt(P.apex).toFixed(2)} > 0.2 · 발치 ${P.tiltAt(P.foot).toFixed(2)} < 0.05(다리는 수직)`)
+      //  ★127-m 물림 체제 전용: 처마 밑면이 관 지붕을 **따라 나란히** 문다(한 점 접촉이면 실패)
+      if (P.mesh) {
+        //  ★127-n: 현도 "틈을 완전히 없앨 필요는 없다" → 기준 = **처마가 관을 향해 내려앉는 구간의 높이**
+        //  (하강 tilt>0 인 대역). 틈 자체는 꼭대기로 갈수록 열리는 것이 의도다(첨두 보존).
+        let lo = 1e9, hi = -1e9, worstG = 1e9, maxG = -1e9
+        for (let i2 = 0; i2 <= 2000; i2++) { const u = i2 / 2000
+          for (const inner of [true, false]) { const [z, y] = P.outline(u, inner)
+            if (Math.abs(z) > P.massHW) continue
+            const c = (y - P.tiltAt(y)) - P.roofTopAt(P.rCyl + P.projAt(y))
+            worstG = Math.min(worstG, c); maxG = Math.max(maxG, c)
+            if (P.tiltAt(y) > 0.05) { lo = Math.min(lo, y); hi = Math.max(hi, y) } } }
+        ok(hi - lo > 2, `처마가 관으로 내려앉는 대역 높이 ${(hi - lo).toFixed(2)} > 2(한 점 접촉 금지)`)
+        ok(maxG <= P.clr + SP_FR_MESH_TIP + 0.05, `틈 프로파일 상한 ${maxG.toFixed(2)} ≤ ${P.clr} + 첨두 릴리프 ${SP_FR_MESH_TIP}`)
+        //  ★첨두 보존: 릴리프가 실제로 꼭대기 하강을 줄였는가(릴리프 없을 때 대비)
+        const dropNoRelief = P.apex - (P.roofTopAt(P.rCyl + P.projTop) + P.clr)
+        ok(P.tiltAt(P.apex) < dropNoRelief - 0.5,
+          `첨두 보존: 꼭대기 하강 ${P.tiltAt(P.apex).toFixed(2)} < 릴리프 없을 때 ${dropNoRelief.toFixed(2)} − 0.5(납작해짐 방지)`)
+      } else {
+        ok(P.tiltAt(P.apex) > 0, '틈 체제: 처마가 바깥으로 하강(물 흐르는 방향)')
+      }
+      //  ④ **관 지붕 틈 = 윤곽 전수**(내밀기가 높이마다 달라 한 점 검사로는 못 잡는다. 리프트가 이 요구에서 파생)
+      let worstC = 1e9, wY = 0
+      for (let i2 = 0; i2 <= 1000; i2++) { const u = i2 / 1000
+        for (const inner of [true, false]) { const [z, y] = P.outline(u, inner)
+          if (Math.abs(z) > P.massHW) continue
+          const c = (y - P.tiltAt(y)) - P.roofTopAt(P.rCyl + P.projAt(y))
+          if (c < worstC) { worstC = c; wY = y } } }
+      ok(worstC >= P.clr - 1e-3, `관 지붕 틈 전수 최소 ${worstC.toFixed(3)} ≥ 요구 ${P.clr} @y${wY.toFixed(2)}(스프링 리프트 ${P.lift.toFixed(2)}가 여기서 파생 — 고정점 반복)`)
+      //  ⑤ 개구가 문을 삼킨다 & 발이 돔 속에 매몰
+      ok(P.spanI > RAD_DOOR_HW + 0.15, `안 반스팬 ${P.spanI} > 문 반폭 ${RAD_DOOR_HW} + 0.15(액자 개구가 문을 삼킴)`)
+      ok(P.foot < P.domeYat(Math.hypot(P.rCyl + P.projAt(P.foot), P.spanO)) - 0.2,
+        `발이 돔 셸 아래 매몰(${P.foot.toFixed(2)} < ${P.domeYat(Math.hypot(P.rCyl + P.projAt(P.foot), P.spanO)).toFixed(2)})`)
+      ok(P.apex < S.y1 - S.ledgeH - 1, `액자 꼭대기 ${P.apex.toFixed(1)} < J1 몰딩권 하단 — 파사드 안에서 종결`)
+      ok((2 * P.spanO) / (2 * S.rCyl) > 0.19, `파사드 점유 폭 ${(2 * P.spanO / 36 * 100).toFixed(0)}%`)
+    }
+    const slender = (S.tipY - S.yB) / (2 * S.rCyl)
+    ok(slender > 2.4 && slender < 2.8, `세장도 ${slender.toFixed(2)}:1 — 스케치 실측 2.60 대역(★127-b Q1 개정: 몽당 원인 ③ 해소)`)
+    ok(S.rMid / S.rCyl > 0.4 && S.rMid / S.rCyl < 0.55, `드럼/몸통 ${(S.rMid / S.rCyl).toFixed(3)} — 스케치 실측 0.472 대역(원인 ②)`)
+    ok(C.LENS_Y - S.tipY > 100, `상공 간섭: 렌즈 y${C.LENS_Y} − 꼭지 ${S.tipY} = ${(C.LENS_Y - S.tipY).toFixed(0)} > 100(리브 곡선 y175~210 최소 r 282.9 실측 — 축권 무접근)`)
+    //  ⑨ 배선: 사본 소멸 — 구 coneR 로컬 공식이 소비자에서 사라짐(정본 = wellWallR 한 곳)
+    const roomSrc = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+    const radSrc2 = readFileSync(new URL('./Radial.jsx', import.meta.url), 'utf8')
+    const probeSrc = readFileSync(new URL('./_probe_exterior.mjs', import.meta.url), 'utf8')
+    ok(/if \(SPIRE_ON\) return buildSpire\(\)/.test(roomSrc) && /SPIRE_ON \? THREE\.FrontSide/.test(roomSrc),
+      'Room.jsx: SPIRE_ON 게이트 + 닫힌 솔리드 FrontSide(구 wellCut 보존계)')
+    ok(!/const coneR = \(y\) => ROOM_LAND_R/.test(radSrc2) && /wellWallR\(LIN_TOP\)/.test(radSrc2),
+      'Radial.jsx: 구 coneR 사본 소멸 → wellWallR 정본 호출')
+    ok(/buildSpire\(\)/.test(probeSrc) && !/CylinderGeometry\(C\.ROOM_WELL_RT/.test(probeSrc),
+      '_probe_exterior: 원뿔 복제 소멸 → 첨탑 정본 빌더 직결')
+  }
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} check_rooms: ${n - fail}/${n} 통과`)
 process.exit(fail === 0 ? 0 : 1)

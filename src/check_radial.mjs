@@ -2,6 +2,7 @@
 import * as THREE from 'three'
 import { readFileSync } from 'node:fs'
 import { Brush, Evaluator, HOLLOW_SUBTRACTION } from 'three-bvh-csg'
+import { wellWallR } from './spireGeometry.js'   // ★127 빛우물 벽 사면 단일 정본(구 로컬 coneR 사본 2곳 폐기)
 import {
   domeClipY, ROOM_R, ROOM_CEIL_Y, ROOM_LAND_R, ROOM_WELL_RT, ROOM_CYL_TOP,
   COR_Y0, COR_THICK, COR_CX, COR_R, BOX_X0, BOX_X1, BOX_HW, BOX_TOP,
@@ -71,8 +72,8 @@ ok('셸 천장 > 터널 천장(꽃잎이 위로 부풂)', RAD_PCY + RAD_PRY > RA
 ok('문 반폭 ≥ 터널 반폭(관입 봉합)', RAD_DOOR_HW >= RAD_T_HW)
 
 console.log('── 5. 원뿔대(빛우물) 관통 ──')
-const coneR = (y) => ROOM_LAND_R - (ROOM_LAND_R - ROOM_WELL_RT) * (y - (ROOM_CEIL_Y - 3)) / (ROOM_CYL_TOP - (ROOM_CEIL_Y - 3))
-ok('절단 브러시가 문 밑선(49)·상단서 원뿔벽 관통', RAD_T_IN < coneR(COR_Y0) && 26 > coneR(RAD_TOP),
+const coneR = (y) => wellWallR(y)   // ★127 정본 위임(SPIRE_ON = 원기둥 18 상수 · false = 구 원뿔 사면)
+ok('절단 브러시가 문 밑선(49)·상단서 빛우물 벽 관통', RAD_T_IN < coneR(COR_Y0) && 26 > coneR(RAD_TOP),
   `벽 r(${COR_Y0})=${r2(coneR(COR_Y0))}, r(${RAD_TOP})=${r2(coneR(RAD_TOP))} ⊂ (${RAD_T_IN}, 26)`)
 ok('터널 안끝이 디스크(6~18)에 물림', RAD_T_IN > 6 && RAD_T_IN < ROOM_LAND_R)
 
@@ -282,11 +283,11 @@ console.log('── 16. 허브(원뿔대) 문틀(2026.07.11) ──')
 {
   const Y_FTOP = RAD_FLOOR_Y + COR_THICK / 2
   const FR_T = 0.5, FR_OUT = RAD_T_HW + FR_T, LIN_TOP = RAD_TOP + 0.6, S_WALL0 = 15.5
-  const coneR2 = (y) => ROOM_LAND_R - (ROOM_LAND_R - ROOM_WELL_RT) * (y - (ROOM_CEIL_Y - 3)) / (ROOM_CYL_TOP - (ROOM_CEIL_Y - 3))
+  const coneR2 = (y) => wellWallR(y)   // ★127 정본 위임(사본 폐기)
   const backNeed = Math.sqrt(Math.max(0.25, coneR2(LIN_TOP) ** 2 - FR_OUT ** 2))
   const HFR_BACK = Math.min(backNeed - 0.25, S_WALL0 - 0.15)
   const HFR_FRONT = coneR2(Y_FTOP) + 0.25
-  ok('허브 문틀이 원뿔 사면을 걸침', HFR_BACK < backNeed - 0.2 + 1e-9 && HFR_FRONT > coneR2(Y_FTOP) + 0.2 - 1e-9,
+  ok('허브 문틀이 빛우물 벽을 걸침', HFR_BACK < backNeed - 0.2 + 1e-9 && HFR_FRONT > coneR2(Y_FTOP) + 0.2 - 1e-9,
     `뒤 ${r2(HFR_BACK)} < ${r2(backNeed)} · 앞 ${r2(HFR_FRONT)} > ${r2(coneR2(Y_FTOP))}`)
   ok('터널 벽·천장 시작(15.5)이 문틀 몸통 안', HFR_BACK < S_WALL0 - 0.1 && S_WALL0 < HFR_FRONT - 0.5,
     `${r2(HFR_BACK)} < 15.5 < ${r2(HFR_FRONT)}`)

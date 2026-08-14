@@ -6,7 +6,10 @@
 //  적용: 모든 빌더 출력의 마지막에 orientOutward(geo). 검사는 결과를 부호 부피로 재확인한다.
 import * as THREE from 'three'
 
-const KEY = (x, y, z) => `${x.toFixed(4)},${y.toFixed(4)},${z.toFixed(4)}`
+//  ⚠★127에서 노출된 도구 결함: −2.4e-16 같은 값이 '-0.0000'으로 찍혀 '0.0000'과 다른 키가 된다(음의 영).
+//  반올림 후 0이면 부호를 지운다 — 병합되어야 할 정점만 병합되는 방향의 변화(전 스위트 재검증 완료).
+const F = v => { const s = v.toFixed(4); return s === '-0.0000' ? '0.0000' : s }
+const KEY = (x, y, z) => `${F(x)},${F(y)},${F(z)}`
 
 export function orientOutward(geo) {
   const pos = geo.getAttribute('position')

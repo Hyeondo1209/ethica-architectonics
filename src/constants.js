@@ -114,7 +114,7 @@ export const DISC_RAIL_CHAMF = 0  // 갓돌 모접기(윗 두 모서리). 0 = �
 export const ROOM_DISC_SLOT_LEN = DISC_MODE === 'thick'
   ? Math.PI * 2 - ROOM_TOP_AZ - ROOM_DISC_SLOT_START      // 293° — 빈 슬롯 67°
   : 301 * Math.PI / 180                                    // 구세계 — 빈 슬롯 59°
-export const ROOM_CYL_TOP     = ROOM_CEIL_Y + 61  // 빛 우물(첨탑) 꼭대기 높이 — ★㊵ 부양 동반 상승(구 절대 110 = 49+61을 파생으로). 튜닝 노브
+export const ROOM_CYL_TOP     = ROOM_CEIL_Y + 84  // 빛 우물(첨탑) 개구 림 높이 — ★127-b(08.14 현도): "몽당연필" 반려 → 세장도 상향으로 Q1(높이 유지) 개정. 꼭지 = 여기 + 피니얼 7 ≈ 192 → 세장 2.61:1(스케치 실측 2.60). 구 +61(★㊵)
 export const ROOM_WELL_RT     = 2.5  // 빛우물 '꼭대기' 반지름(원뿔대 위). ↓=위 좁음=리브 스포 차단↑. 바닥은 ROOM_LAND_R(현재 18)=디스크와 맞물려 봉합
 export const ROOM_STAIR_PHASE = -ROOM_STAIR_TURNS * Math.PI * 2 + ROOM_TOP_AZ // 꼭대기가 ROOM_TOP_AZ(37.5°)를 향하도록 위상(구: +x 고정 → 터널 문과 충돌해 회전)
 export const ROOM_STAIR_TOTAL_ANG = ROOM_STAIR_TURNS * Math.PI * 2   // 총 회전각. ⚠ DefAxiomRoom 원형 계단 pt()와 같은 식(TURNS 정수일 때 동일) — 파일 분할 때 통합
@@ -3717,3 +3717,64 @@ export const ARM13_COL_EMB = 0.5              // (보존) 발 돔 물림
 export const ARM13_RISE_CX = 55.0             // 안 모서리 아치 Bézier 제어점 s
 export const ARM13_RISE_CY = 82.0             //   제어점 y
 export const ARM13_S_MERGE = 53.8             // 안 모서리 아치가 돔 구간 윗변과 합류하는 s
+
+// ── ★127 빛우물 첨탑(2026.08.14 현도 스케치 — 구 단일 원뿔대 → 원기둥>팔각뿔대>팔각기둥>원뿔대 4단) ──
+//  기하 정본 = spireGeometry.js(spireSpec·wellWallR — 구 coneR 사본 3곳을 흡수한 단일 정본).
+export const SPIRE_ON      = true    // ⛔false = 구 단일 원뿔대 복귀(보존계 — Room.jsx 구 wellCut·wellWallR 구 사면 공식 전부 보존)
+export const SPIRE_T       = 1.2     // ★벽 두께(안쪽 오프셋 — 현도 Q5 "종잇장 금지"). 원형 구간 = 반경 −T · 팔각 구간 = 면 수직 −T
+export const SPIRE_H1_F    = 0.46    // ★원기둥 높이 비율(전체 = ROOM_CYL_TOP−(ROOM_CEIL_Y−3) = 87). ★127-b: 실루엣 스케치 픽셀 실측으로 재파생(구 0.35는 입체 스케치 기준 — 몽당 원인 ③)
+export const SPIRE_H2_F    = 0.22    // ★팔각뿔대(어깨) 비율(구 0.30 — 어깨 급강하 완화)
+export const SPIRE_H3_F    = 0.14    // ★팔각기둥(드럼) 비율 — 원뿔대(첨두) = 잔여 0.18 파생
+export const SPIRE_R_MID   = 8.5     // ★팔각 외접 = 원뿔대 밑. ★127-b: 드럼/몸통 = 0.472(스케치 실측 — 구 5.2 = 0.29 "너무 가늚" 몽당 원인 ②). ⚠하한 = 샤프트 클리어런스 — 검사 [★127]
+export const SPIRE_OCT_MODE = 'pit'  // ★팔각 방위(현도 Q4 — 두 체제 로컬 비교 중): 'pit' = 지하 정의 각뿔대 라임(면 중심 22.5°+45°k · +x=모서리) / 'tunnel' = 터널 정렬(45°+90°k가 면 정중앙)
+export const SPIRE_SINK    = 0.5     // 단 접합 침강 깊이(동일평면 z-파이팅 금지 — 팔각 밑단·원뿔 밑단이 아랫단 속에 묻힘)
+export const SPIRE_LEDGE_H = 0.6     // 원기둥 상단 L-턱 두께(> SPIRE_SINK — 침강 스텁이 턱 밖으로 안 뚫림. 검사가 박음)
+// ── ★127-b 끝 마감 = 랜턴+갓 피니얼(2026.08.14 — 현도 위임 "끝 마감은 너가". 레퍼런스 1 랜턴 문법) ──
+//  개구 r2.5는 열린 채(샤프트 어휘 보존) 기둥 8이 속 찬 갓 원뿔을 받친다 — 실루엣은 0으로 수렴(몽당 원인 ①),
+//  랜턴 옆 틈 = 빛 어휘 유지, 갓 소핏 = 축상 스포 차단 강화. 기둥 방위 = 팔각 모서리 라임(cornerAz0 + 45°k).
+export const SPIRE_FIN_ON     = true   // ⛔false = 피니얼 소등(보존계 — 첨탑 본체 무관)
+export const SPIRE_FIN_COL_H  = 2.6    // ★랜턴 기둥 높이(개구 림 위)
+export const SPIRE_FIN_COL_W  = 0.55   // ★기둥 단면 변(사각)
+export const SPIRE_FIN_CAP_R  = 4.6    // ★갓 밑 반경 — 림 바깥반경(3.7)보다 넓게 = 처마·비가림. 검사가 박음
+export const SPIRE_FIN_CAP_H  = 4.4    // ★갓 높이. 꼭지 y = ROOM_CYL_TOP + COL_H + CAP_H
+export const SPIRE_FIN_HOLE_R = 1.6    // ★★127-c 갓 센터 구멍(현도 08.14 2차: "위가 뚫려야 빛이 쏟아지는 느낌") — 갓이 셸(두께 CAP_T)이 됨. ⚠< ROOM_WELL_RT(개구 2.5) = 빛이 좁아지며 떨어지는 위계 — 검사가 박음
+export const SPIRE_FIN_CAP_T  = 0.45   // 갓 셸 두께(사면 평행 오프셋)
+// ── ★127-c 접합 몰딩(현도 08.14 2차: "원기둥↔각뿔대·각기둥↔원뿔대 마감을 우아하게" — 설계 위임) ──
+//  중세 코니스 문법 · 팔각 라임(cornerAz0 동일). J1 = 플린스 밴드(밑 챔퍼 플레어→수직 — L-턱 크레센트 은폐 + 그림자 선),
+//  J3 = 캡 코니스(수직→위 챔퍼로 원뿔 밑 원에 수렴 — 팔각→원 전이가 흘러듦). 몸통에 0.5 물림(굽도리·칼라 봉합 전례).
+export const SPIRE_MOLD_ON    = true   // ⛔false = 몰딩 2기 소등(보존계)
+export const SPIRE_M1_OCT     = false  // ★★127-d 형: false = **원형 밴드**(기본 — 원기둥 위엔 원. 현도 08.14 3차 반려 수리) / true = 팔각(그때 외접은 면 기준에서 파생 — 언더컷 재발 불가)
+export const SPIRE_M1_OV      = 0.9    // ★J1 플린스 오버행 — **표면 기준**(원형이면 반경, 팔각이면 면). ⚠외접이 아님(구판은 외접으로 재서 면이 원기둥 안으로 0.54 들어갔다 = ⛔N각 아포템 실패 재발)
+export const SPIRE_M1_H       = 2.0    // ★J1 총높이(챔퍼 0.8 + 수직 1.2) — 상면 = 팔각 밑단 침강 대역 위
+export const SPIRE_M3_OV      = 0.7    // ★J3 코니스 오버행(드럼 외접 8.5 + 이 값)
+export const SPIRE_M3_H       = 1.6    // ★J3 총높이(수직 0.8 + 위 챔퍼 0.8)
+// ── ★★★127-l 어귀 액자(현도 08.14 11차 — 도면 4회 합의 후 구현) ──
+//  ⛔실패사 e~k: 필라스터+린텔 조합(e·f) · 말굽 띠(g·h·i) · 평평 차양(j) · 관 따라 긴 볼트(k).
+//  ★정답 = **처마와 문틀이 한 덩어리인 액자**(현도: "이 둘은 한 덩어리야"). 정면 = 뾰족 아치 띠의
+//  양다리가 그대로 문틀 기둥이 되어 발치까지 내려간다. 측면 = **내밀기(돌출)의 변화** —
+//  아치 꼭대기에서 최대, 아래로 오목하게 줄어 발치에서도 일정량 남는다(0 아님). 처마 윗면은 바깥으로 기운다.
+//  ⚠관은 액자 개구를 통과하고 바깥으로 **오르므로**, 내밀기 상한은 옆이 아니라 **아래**(관 지붕과의 틈)다.
+export const SPIRE_PORTAL_ON  = true   // ⛔false = 액자 4기 소등(보존계)
+export const SP_FR_SPAN       = 3.6    // ★바깥 반스팬 ⚠하한 = 문 반폭 + 띠폭 + 여유(검사)
+export const SP_FR_W          = 1.1    // ★띠 폭(정면에서 본 액자 굵기 — 안 반스팬 = SPAN − 이 값)
+export const SP_FR_SPRING     = 105.5  // ★아치 스프링 높이(여기부터 곡선 — 아래는 곧은 다리)
+export const SP_FR_APEX       = 112.0  // ★아치 바깥 꼭대기 y
+export const SP_FR_POINT      = 0.72   // ★첨두 계수(베지어 제어점 비 — ↑=더 뾰족)
+export const SP_FR_PROJ_TOP   = 5.5    // ★꼭대기 내밀기(처마의 돌출) — ⚠상한 = 관 지붕 틈(검사)
+export const SP_FR_PROJ_FOOT  = 1.25   // ★발치 내밀기(다리도 벽에서 나와 선다 — 0 금지)
+export const SP_FR_PROJ_P     = 1.8    // ★오목 지수(↑=위쪽에 돌출이 몰림)
+export const SP_FR_TILT       = 0.65   // ★처마 끝 하강(윗면이 바깥으로 기움 — 물 흐르는 방향)
+export const SP_FR_EMB        = 0.5    // ★벽 물림 깊이
+export const SP_FR_CLR        = 0.6    // ★관 지붕과의 최소 틈(검사 하한 — 내밀기를 키우면 여기서 걸린다)
+// ── ★★127-m 물림 체제(현도 12차: "처마가 딱 통로를 물도록") — 정면 윤곽·아치는 **무변경**, 측면만 다른 체제 ──
+//  ⚠실측이 먼저 말한 것: 관 지붕은 28.9°로 **오르는데** 현행 처마는 **내려간다**(부호 반대) → 이대로는 물림 불가.
+//   물림 = 처마 밑면이 관 지붕과 **같은 기울기로 나란히**, 틈 MESH_GAP만 두고 얹히는 것.
+//   따라서 이 체제에서 기울기는 노브가 아니라 **관 지붕 기울기에서 파생**(SP_FR_TILT 무시).
+export const SP_FR_MESH       = false  // ★체제 스위치: false = 틈 체제(현행·127-l) / true = 물림 체제(127-m — 처마가 관을 따라 나란히 문다)
+export const SP_FR_MESH_GAP   = 0.12   // ★물림 틈(0이면 동일평면 z-파이팅 — 규율상 금지)
+export const SP_FR_MESH_PROJ  = 7.0    // ★물림 체제 꼭대기 내밀기(관을 따라 더 나간다)
+// ★★127-n(현도 13차): 물림에서 **첨두를 살린다** — 꼭대기 하강량이 최대라 첨두가 앞으로 끌려 내려와 납작해졌다.
+//  현도: "틈을 완전히 없앨 필요는 없고 어느정도 생기는 것은 허용" → 틈을 **높이별 프로파일**로: 중간대는 MESH_GAP으로
+//  물리고, 꼭대기로 갈수록 TIP만큼 열어 하강을 줄인다(= 첨두가 그만큼 덜 끌려 내려온다).
+export const SP_FR_MESH_TIP   = 1.35   // ★꼭대기 추가 틈(↑=첨두 더 뾰족·물림은 중간대에 집중)
+export const SP_FR_MESH_TIP_P = 3.0    // ★첨두 집중 지수(↑=꼭대기 근처에서만 열림 — 물린 대역 보존)

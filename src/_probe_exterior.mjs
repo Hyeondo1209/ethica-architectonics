@@ -10,6 +10,7 @@ import { buildPetalShell, buildCylSkirt, buildCylCollar } from './Radial.jsx'
 import { buildExtSpiral, buildExtSpiralParapet, buildExtSpiralShell, buildExtSpiralSkirt, buildExtSpiralBridge, buildExtWindowFrame } from './extSpiralGeometry.js'
 import { parseFree } from './poseFormat.js'
 import { buildArm13 } from './armGeometry.js'
+import { buildSpire } from './spireGeometry.js'   // ★127 첨탑 정본
 import { ARM13_ON, ARM13_K } from './constants.js'
 
 const W = 880, H = 495, BG = [18, 18, 20]
@@ -48,9 +49,8 @@ const COL = {
   g.translate(0, C.ROOM_FLOOR_Y, 0)
   addGeo(g, COL.room)
   if (!ONLY13) {
-    const w = new THREE.CylinderGeometry(C.ROOM_WELL_RT, C.ROOM_LAND_R, C.ROOM_CYL_TOP - C.ROOM_CEIL_Y, 32, 1, true)
-    w.translate(0, (C.ROOM_CYL_TOP + C.ROOM_CEIL_Y) / 2, 0)
-    addGeo(w, COL.well)
+    //  ★127: 구판은 원뿔대를 여기서 복제했다(사본) — 이제 정본 빌더 직결(첨탑 4단 + CSG 그대로)
+    addGeo(buildSpire(), COL.well)
   }
 }
 
