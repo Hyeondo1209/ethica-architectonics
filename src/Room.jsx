@@ -30,7 +30,8 @@ import { buildSpiralMass, buildSpiralColumns, buildSpiralBeams, buildRootCrosses
 import { buildAxiomVaults } from './axiomVaultGeometry'   // ★111 공리 볼트(문) — 총안 창 + 감실
 import { buildWallBase } from './wallBaseGeometry'
 import { buildSpire } from './spireGeometry.js'   // ★127 빛우물 첨탑(순수 기하 + CSG — 사본 금지·wellWallR 단일 정본)
-import { SPIRE_ON } from './constants.js'
+import { buildSpireTerrace } from './spireTerraceGeometry.js'   // ★128 첨탑 테라스(고리 판 — 좌표는 전부 spireSpec 파생)
+import { SPIRE_ON, SPT_ON } from './constants.js'
 import { buildRoomRibs } from './roomRibGeometry'   // ★116 방 돔 살 여덟(순수 기하 — 사본 금지)   // ★114 벽 밑동 팔각 각뿔대(순수 기하 — 사본 금지)
 
 // ════════ 지하 정의·공리 방 ════════
@@ -136,6 +137,9 @@ export function DefAxiomRoom({ stairKind }) {
   const discGeo = useMemo(() => buildDisc(), [])
   // ★★★127 첨탑(2026.08.14): SPIRE_ON이면 spireGeometry 정본 호출. 아래 구 wellCut(단일 원뿔대)은
   //  ⛔보존계 — SPIRE_ON=false 한 줄로 복귀(코드·CSG 로직 무손상 보존, 삭제 금지 규율).
+  // ★★★128 첨탑 테라스(2026.08.14 현도) — 첨탑 본체와 **별개 메시**다:
+  //  ⓐ 보존계가 독립(SPT_ON 한 줄) ⓑ 부피·watertight 검사가 본체와 섞이지 않는다 ⓒ CSG 대상이 아니다(문·돔 대역 위).
+  const terrGeo = useMemo(() => (SPIRE_ON && SPT_ON ? buildSpireTerrace() : null), [])
   const wellCut = useMemo(() => {
     if (SPIRE_ON) return buildSpire()
     const ev = new Evaluator()
@@ -408,6 +412,13 @@ export function DefAxiomRoom({ stairKind }) {
       <mesh geometry={wellCut}>
         <meshStandardMaterial color="#97784e" roughness={0.92} side={SPIRE_ON ? THREE.FrontSide : THREE.DoubleSide} />
       </mesh>
+      {/* ★128 첨탑 테라스 — 원기둥 안에 걸리는 고리 판(바깥 끝은 내벽 속에 묻힘 = 틈 없음).
+          가운데 구멍은 세 체제(SPT_HOLE: 'circle'/'pit'/'tunnel') — 한 줄 교체로 로컬 비교. */}
+      {terrGeo && (
+        <mesh geometry={terrGeo} userData={{ walkable: true }}>
+          <meshStandardMaterial color="#97784e" roughness={0.92} side={THREE.FrontSide} />
+        </mesh>
+      )}
       <pointLight position={[0, ROOM_CYL_TOP - 8, 0]} intensity={2.4} distance={ROOM_CYL_TOP * 1.6} decay={1.1} color="#fff1d2" />
     </group>
   )

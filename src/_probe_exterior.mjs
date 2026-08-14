@@ -11,6 +11,7 @@ import { buildExtSpiral, buildExtSpiralParapet, buildExtSpiralShell, buildExtSpi
 import { parseFree } from './poseFormat.js'
 import { buildArm13 } from './armGeometry.js'
 import { buildSpire } from './spireGeometry.js'   // ★127 첨탑 정본
+import { buildLinkParts, linkSpec } from './linkPassageGeometry.js'   // ★130 접속 통로
 import { ARM13_ON, ARM13_K } from './constants.js'
 
 const W = 880, H = 495, BG = [18, 18, 20]
@@ -51,6 +52,12 @@ const COL = {
   if (!ONLY13) {
     //  ★127: 구판은 원뿔대를 여기서 복제했다(사본) — 이제 정본 빌더 직결(첨탑 4단 + CSG 그대로)
     addGeo(buildSpire(), COL.well)
+    COL.link = [225, 120, 70]; COL.tower = [150, 100, 200]
+    for (const part of buildLinkParts(linkSpec())) {
+      const m = new THREE.Matrix4().makeRotationY(-(part.k * Math.PI / 2))
+      for (const g of part.walk) addGeo(g, COL.link, m)
+      for (const g of part.solid) addGeo(g, COL.tower, m)
+    }
   }
 }
 
@@ -123,8 +130,16 @@ function render(eye, yaw, pitch, out) {
     a.fromArray(t.v[0]); b.fromArray(t.v[1]); c.fromArray(t.v[2])
     ab.subVectors(b, a); ac.subVectors(c, a); n.crossVectors(ab, ac).normalize()
     const sh = 0.42 + 0.58 * Math.abs(n.dot(L))
-    const P = [a, b, c].map(v => { const q = v.clone().applyMatrix4(vp); return { x: (q.x * 0.5 + 0.5) * W, y: (0.5 - q.y * 0.5) * H, z: q.z, w: q.w } })
-    if (P.some(p => p.w <= 0)) continue
+    //  ⛔★128 적발·수리(2026.08.14): 구판은 **Vector3**로 투영했다 — three의 Vector3.applyMatrix4는 w로 나눈 뒤
+    //   w를 **버리므로** `p.w`가 undefined가 되고 아래 컬링이 **항상 false**였다. 기하가 전부 카메라 앞인
+    //   외부 시점에선 무해했으나, 안에서 보는 시점에선 카메라 뒤 삼각형이 부호 반전으로 뒤집혀 찍혀
+    //   화면을 덮는다(★128 실측: 테라스가 통째로 가려져 3체제 렌더가 바이트 동일했다).
+    //   ⚠`render_views`(정본 자가 렌더)는 근평면 클리핑이 정상 — 이 결함은 이 프로브 계열에만 있었다.
+    const P = [a, b, c].map(v => {
+      const q = new THREE.Vector4(v.x, v.y, v.z, 1).applyMatrix4(vp)
+      return { x: (q.x / q.w * 0.5 + 0.5) * W, y: (0.5 - q.y / q.w * 0.5) * H, z: q.z / q.w, w: q.w }
+    })
+    if (P.some(p => p.w <= 1e-6)) continue
     const x0 = Math.max(0, Math.floor(Math.min(...P.map(p => p.x)))), x1 = Math.min(W - 1, Math.ceil(Math.max(...P.map(p => p.x))))
     const y0 = Math.max(0, Math.floor(Math.min(...P.map(p => p.y)))), y1 = Math.min(H - 1, Math.ceil(Math.max(...P.map(p => p.y))))
     const d = (P[1].x - P[0].x) * (P[2].y - P[0].y) - (P[2].x - P[0].x) * (P[1].y - P[0].y)

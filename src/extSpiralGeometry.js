@@ -14,6 +14,7 @@ import {
   RSP_ENCL, RSP_CLR, RSP_WALL_T, RSP_LAND_MARG, RSP_BRIDGE_R, RSP_WFR_T, RSP_WFR_D, RSP_WFR_IN,
   RSP_CLEAR, RSP_SKIRT_H, RSP_SKIRT_D, RSP_SKIRT_IN, RSP_SKIRT_BACK, ASC_JUNC_HW, RSP_BR_BITE, RSP_BR_IN, RSP_LAND_BITE,
   RSP_WIN_ON, RSP_WIN_LOW_ON, RSP_WFR_JAMB_DR,
+  LNK_ON, LNK_OPEN_SPIRAL, LNK_DOOR_ON, LNK_PHI,   // ★130-f~g 참 종단 캡 = 접속 통로의 문
 } from './constants.js'
 import { ascSpec } from './ascentTunnelGeometry.js'
 import { orientOutward } from './orientGeo.js'   // ★122-d 감김 자동 정렬
@@ -262,6 +263,12 @@ export function buildExtSpiralShell(opts = {}) {
     //   그 틈이 세로 슬릿으로 보였다 — 현도가 다섯 번 지적한 그 틈.
     //  → 캡을 세로로 분할해 각 높이의 벽면(wallR(y))을 따라가게 한다(셸 곡률 추종 · 물림 0.15).
     for (const [phi, isStart] of [[p0, true], [p1, false]]) {
+      //  ★★★130-f: 참(landing) 바깥 끝 p0에 **접속 통로가 이어지면** 이 캡은 문이 된다 → 짓지 않는다.
+      //   (밀봉은 통로가 이어받는다 — 관 단면이 동일하고 시작면이 이 캡면과 일치한다. ★130-c 참조.)
+      //  ★130-g: 'landing'(정본 파생)이거나 도수가 φL0와 0.05° 이내면 그 캡은 **문**이다 → 짓지 않는다.
+      //   ⛔구판은 반올림한 상수(168.37)와 실값(168.3708…)을 1e-6으로 비교해 **영영 열리지 않았다**(현도 실측).
+      const capIsDoor = LNK_PHI === 'landing' || Math.abs(LNK_PHI * Math.PI / 180 - p0) < 0.05 * Math.PI / 180
+      if (isStart && LNK_ON && LNK_DOOR_ON && LNK_OPEN_SPIRAL && capIsDoor) continue
       const c = Math.cos(phi), s2 = Math.sin(phi)
       const y = yF(phi), ty = y + S.clr + S.wallT
       const rW1 = S.rIn(y) + S.W + S.wallT

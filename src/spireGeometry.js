@@ -38,6 +38,8 @@ import {
   SPIRE_SINK, SPIRE_LEDGE_H,
   SPIRE_FIN_ON, SPIRE_FIN_COL_H, SPIRE_FIN_COL_W, SPIRE_FIN_CAP_R, SPIRE_FIN_CAP_H,
   SPIRE_FIN_HOLE_R, SPIRE_FIN_CAP_T, SPIRE_MOLD_ON, SPIRE_M1_OCT, SPIRE_M1_OV, SPIRE_M1_H, SPIRE_M3_OV, SPIRE_M3_H,
+  SPW_ON, SPW_D, SPW_Y0, SPW_H, SPW_J1, SPW_TOP_F, SPW_TOP_MOLD,
+  LNK_ON, LNK_DOOR_ON, LNK_ASSIGN, LNK_DOOR_H, LNK_DOOR_HW, LNK_DOOR_MARG, SPT_R, SPT_Y,
   SPIRE_PORTAL_ON, SP_FR_SPAN, SP_FR_W, SP_FR_SPRING, SP_FR_APEX, SP_FR_POINT,
   SP_FR_PROJ_TOP, SP_FR_PROJ_FOOT, SP_FR_PROJ_P, SP_FR_TILT, SP_FR_EMB, SP_FR_CLR,
   SP_FR_MESH, SP_FR_MESH_GAP, SP_FR_MESH_PROJ, SP_FR_MESH_TIP, SP_FR_MESH_TIP_P,
@@ -47,6 +49,21 @@ import {
 } from './constants.js'
 
 const COS_O = Math.cos(Math.PI / 8)                 // 팔각 내접/외접 비 0.9239
+
+//  ★129-b: 원기둥 솔리드의 단면 프로파일 = **정본 하나**. 빌더가 돌리고 검사가 같은 배열을 적분한다
+//   (손유도 부피식이 위 빗면 추가에서 288 어긋났다 — 손으로 다시 세는 대신 프로파일을 정본으로 올렸다).
+function cylProfile(S) {
+  return [
+    [S.rCyl, S.yB], [S.rCyl, S.wY0], [S.rCylTop, S.wY1],                      // 바깥벽(아래 빗면)
+    [S.rCylTop, S.yTop0], [S.octBase, S.y1],                                  // ★129-b 위 빗면 → 팔각 밑에 정확히 착지
+    [S.ledgeIn, S.y1],                               // 상면(팔각 밑 → 턱 안. 팔각이 덮는 좁은 띠)
+    [S.ledgeIn, S.y1 - S.ledgeH],                    // 턱 안벽
+    [S.octBase - S.T + (S.rCylTop - S.octBase) * S.ledgeH / Math.max(S.topH, 1e-9), S.y1 - S.ledgeH],  // 턱 소핏 = 그 높이 내벽
+    [S.rCylTopIn, S.yTop0],                          // 내벽(위 빗면 — 바깥과 같은 각·두께 T 유지)
+    [S.rCylTopIn, S.wY1], [S.rCylIn, S.wY0],         // 내벽(아래 빗면)
+    [S.rCylIn, S.yB],                                // 내벽
+  ]
+}
 
 // ── 스펙(전부 파생 — 수치 하드코딩 금지 규율 ⑪) ──
 export function spireSpec(opts = {}) {
@@ -59,15 +76,28 @@ export function spireSpec(opts = {}) {
   const h4 = Htot - h1 - h2 - h3                    // ④ 원뿔대 = 잔여(파생 — 합이 항상 닫힘)
   const y1 = yB + h1, y2 = y1 + h2, y3 = y2 + h3
   const T = SPIRE_T
-  const rCyl = ROOM_LAND_R                          // 외반경 = 디스크 봉합(Q2)
+  const rCyl = ROOM_LAND_R                          // 외반경 = 디스크 봉합(Q2) — **밑(y98)은 절대 안 움직인다**
   const rCylIn = rCyl - T
+  //  ★★129 하단 2단 확장(현도 08.14): 아래 r18 / 빗면 / 위 r18+Δ. 넓힐 수 있는 쪽은 **위뿐**(디스크 봉합·어귀 액자).
+  const wOn = opts.widen ?? SPW_ON
+  const wD = wOn ? SPW_D : 0
+  const wY0 = SPW_Y0, wY1 = SPW_Y0 + SPW_H        // 빗면 아래끝 · 윗끝
+  const rCylTop = rCyl + wD                       // 위 원기둥 외반경
+  const rCylTopIn = rCylTop - T
   const octInOff = T / COS_O                        // 팔각 안 오프셋: 면 수직 −T → 외접 −T/cos22.5°
   const rMid = SPIRE_R_MID                          // ②꼭대기·③ 팔각 외접 = ④ 밑 원 반경(모서리 접촉)
   const rMidIn = rMid - octInOff
   const rTopIn = ROOM_WELL_RT                       // 꼭대기 개구(샤프트 출처 불변 — Q5)
   const rTopOut = rTopIn + T
+  //  ★129 팔각 밑 반경 = J1 체제 파생. 'eave'(현도 확정) = 18 그대로 → y138.02 상면이 폭 Δ의 **처마**가 된다.
+  //   'follow' = 팔각도 18+Δ로 따라 넓힘(첨탑 위쪽 비례가 같이 움직인다).
+  const octBase = SPW_J1 === 'follow' ? rCylTop : rCyl
+  //  ★129-b 위 빗면: 아래 빗면과 **같은 각**을 기본으로 높이를 파생한다(각이 노브가 아니라 커플링 —
+  //   Δ를 바꾸면 위·아래가 함께 따라간다). 'follow'면 좁힐 것이 없어 높이 0으로 퇴화.
+  const topH = wD > 1e-9 ? (rCylTop - octBase) * (SPW_H / wD) * SPW_TOP_F : 0
+  const yTop0 = y1 - topH                          // 위 빗면 아래끝
   //  L-턱: 안 반경 = 팔각 밑 내접(어느 방위 체제든 동일) − 0.25 여유 (파생 — 슬릿 바닥을 항상 덮음)
-  const ledgeIn = (rCyl - octInOff) * COS_O - 0.25
+  const ledgeIn = (octBase - octInOff) * COS_O - 0.25
   //  팔각 방위: 첫 모서리 방위각. 'pit' = 면 중심 22.5°+45°k(★101 정의 각뿔대와 동일 — +x·터널각 45°가 모서리)
   //             'tunnel' = 면 중심 0°+45°k(대각 터널 45°+90°k가 면 정중앙 — +x도 면)
   const cornerAz0 = octMode === 'pit' ? 0 : Math.PI / 8
@@ -85,12 +115,18 @@ export function spireSpec(opts = {}) {
     [holeR, tipY - capTw * capSlope],                                    // 안 사면(평행) → 구멍 림(수직)으로 폐곡
   ]
   //  ★127-c 접합 몰딩 프로파일(팔각 lathe · 외접 기준 · 몸통에 0.5 물림 — 빌더·검사 공용 정본)
-  const m1Top = y1 + SPIRE_SINK + 0.1                                    // 플린스 상면 = 팔각 침강 스텁 위(크레센트 은폐)
+  //  ★129-b: 위 빗면이 서면 구 위치(y1 위)의 플린스는 빗면 밖에 뜬 고리가 된다 → 'foot'이면 빗면 **아래끝**으로 내려 감고,
+  //   'off'면 빌더가 안 짓는다(빗면 자체가 마감 — 현도 "화분 같다"의 원인 제거).
+  const m1Top = topH > 1e-9 ? yTop0 : y1 + SPIRE_SINK + 0.1             // 플린스 상면(구: 팔각 침강 스텁 위 = 크레센트 은폐)
   //  ★★127-d: 오버행 노브 = **표면 기준**. 팔각 모드면 외접 = 표면/cos22.5°로 파생 —
   //   구판은 노브를 외접에 그대로 써서 면이 원기둥 안으로 0.54 들어갔다(⛔N각 아포템 실패 재발 · 현도 3차 적발).
   const m1Seg = SPIRE_M1_OCT ? 8 : SEG
-  const m1Out = SPIRE_M1_OCT ? (rCyl + SPIRE_M1_OV) / COS_O : rCyl + SPIRE_M1_OV
-  const m1In = SPIRE_M1_OCT ? (rCyl - 0.5) / COS_O : rCyl - 0.5        // 물림 정점도 같은 규약(면이 벽 안)
+  //  ★★129: 몸통이 넓어지면 몰딩도 그 몸통을 따른다(★127-d 규칙 그대로 — 노브는 **표면 기준**).
+  //   안 따라가면 플린스(18.9)가 새 벽(22.2) 속에 통째로 먹혀 '우아한 마감'이 사라진다(실측).
+  const m1Body = m1Top - SPIRE_M1_H >= wY1 ? rCylTop : rCyl
+  const m1On = SPIRE_MOLD_ON && (topH <= 1e-9 || SPW_TOP_MOLD === 'foot')
+  const m1Out = SPIRE_M1_OCT ? (m1Body + SPIRE_M1_OV) / COS_O : m1Body + SPIRE_M1_OV
+  const m1In = SPIRE_M1_OCT ? (m1Body - 0.5) / COS_O : m1Body - 0.5    // 물림 정점도 같은 규약(면이 벽 안)
   const m1Prof = [
     [m1In, m1Top - SPIRE_M1_H],                                          // 챔퍼 밑(원기둥에 물림)
     [m1Out, m1Top - SPIRE_M1_H + 0.8],                                   // 챔퍼 → 벌어짐
@@ -105,12 +141,16 @@ export function spireSpec(opts = {}) {
     [rMid - 0.2, y3 + 0.2],                                              // 위 챔퍼 → 원뿔면 **안**으로 수렴(실측: +0.1이면 모서리가 원뿔 사면 밖 0.17 돌출 — 이음선을 원뿔이 삼키게 안으로)
     [rMid - 0.5, y3 + 0.2],                                              // 상면 → 안 수직 폐곡
   ]
-  return { yB, y1, y2, y3, yT, h1, h2, h3, h4, T, rCyl, rCylIn, octInOff, rMid, rMidIn,
+  const spec0 = { yB, y1, y2, y3, yT, h1, h2, h3, h4, T, rCyl, rCylIn, octInOff, rMid, rMidIn,
+           wOn, wD, wY0, wY1, rCylTop, rCylTopIn, j1: SPW_J1, octBase, topH, yTop0,
+           topMold: SPW_TOP_MOLD,
            rTopIn, rTopOut, ledgeIn, cornerAz0, octMode, sink: SPIRE_SINK, ledgeH: SPIRE_LEDGE_H,
            finOn: SPIRE_FIN_ON, finColRing, finColTop, finColW: SPIRE_FIN_COL_W,
            finCapR: SPIRE_FIN_CAP_R, finCapH: SPIRE_FIN_CAP_H, tipY,
-           holeR, capT, capProf, moldOn: SPIRE_MOLD_ON, m1Prof, m3Prof, m1Seg, m1Oct: SPIRE_M1_OCT,
+           holeR, capT, capProf, moldOn: SPIRE_MOLD_ON, m1On, m1Prof, m3Prof, m1Seg, m1Oct: SPIRE_M1_OCT,
            portal: portalSpec({ rCyl }) }
+  spec0.cylProf = cylProfile(spec0)      // ★129-b 단면 정본(빌더·검사 공용 — 사본 금지)
+  return spec0
 }
 
 // ── ★127-e 어귀 포털 파생(필라스터 굽 + 린텔 + 처마 후드 — 로컬 s=방사·z=접선) ──
@@ -210,7 +250,11 @@ export function wellWallR(y, opts = {}) {
   if (!SPIRE_ON && !opts.forceSpire)
     return ROOM_LAND_R - (ROOM_LAND_R - ROOM_WELL_RT) * (y - (ROOM_CEIL_Y - 3)) / (ROOM_CYL_TOP - (ROOM_CEIL_Y - 3))
   const S = opts.spec ?? spireSpec(opts)
-  if (y <= S.y1) return S.rCyl
+  //  ★129: 원기둥 구간 = 아래 rCyl / 빗면 / 위 rCylTop(선형)
+  if (y <= S.y1) return y <= S.wY0 ? S.rCyl
+    : y < S.wY1 ? S.rCyl + S.wD * (y - S.wY0) / (S.wY1 - S.wY0)
+    : y <= S.yTop0 ? S.rCylTop
+    : S.rCylTop + (S.octBase - S.rCylTop) * (y - S.yTop0) / S.topH     // ★129-b 위 빗면(두 면 같은 각)
   if (y <= S.y2) return S.rCyl + (S.rMid - S.rCyl) * (y - S.y1) / S.h2
   if (y <= S.y3) return S.rMid
   return S.rMid + (S.rTopOut - S.rMid) * (y - S.y3) / S.h4
@@ -218,7 +262,8 @@ export function wellWallR(y, opts = {}) {
 
 // ── 내벽 최소 수평 거리(축→내벽 — 샤프트 상한. 팔각 구간 = 내접이 최소) ──
 export function wellInnerClear(y, S = spireSpec()) {
-  if (y <= S.y1) return y > S.y1 - S.ledgeH ? S.ledgeIn : S.rCylIn      // L-턱 구간은 턱 안 반경
+  if (y <= S.y1) return y > S.y1 - S.ledgeH ? S.ledgeIn                 // L-턱 구간은 턱 안 반경
+    : wellWallR(y, { spec: S, forceSpire: true }) - S.T                  // ★129 확장 추종(사본 금지)
   if (y <= S.y2) return ((S.rCyl - S.octInOff) + (S.rMidIn - (S.rCyl - S.octInOff)) * (y - S.y1) / S.h2) * COS_O
   if (y <= S.y3) return S.rMidIn * COS_O
   return (S.rMid - S.T) + (S.rTopIn - (S.rMid - S.T)) * (y - S.y3) / S.h4
@@ -255,13 +300,8 @@ const SEG = 96                                       // 원형 구간 분할(구
 function buildCylSolid(S) {
   const pos = []
   //  프로파일(반시계 폐곡): 바깥↑ → 상면 안으로 → 턱 안벽↓ → 턱 소핏 밖으로 → 내벽↓ → 바닥 밖으로
-  lathe(pos, [
-    [S.rCyl, S.yB], [S.rCyl, S.y1],                  // 바깥벽
-    [S.ledgeIn, S.y1],                               // 상면(18 → 턱 안)
-    [S.ledgeIn, S.y1 - S.ledgeH],                    // 턱 안벽
-    [S.rCylIn, S.y1 - S.ledgeH],                     // 턱 소핏(안에서 올려다보면 선반)
-    [S.rCylIn, S.yB],                                // 내벽
-  ], SEG)
+  //  ★129: 바깥·안 모두 [아래 통 → 빗면 → 위 통]. 확장 0이면 두 점이 겹쳐 구 프로파일과 **동일**(퇴화 삼각형은 lathe가 만들되 부피 0).
+  lathe(pos, S.cylProf, SEG)
   return toGeo(pos)
 }
 
@@ -270,12 +310,12 @@ function buildOctSolid(S) {
   const pos = []
   //  프로파일: 밑 수직 스텁(침강 0.5 — 규율: 자연 연장하면 모서리가 18 밖으로 0.33 돌출)
   lathe(pos, [
-    [S.rCyl, S.y1 - S.sink], [S.rCyl, S.y1],         // 스텁(L-턱 속 매몰)
+    [S.octBase, S.y1 - S.sink], [S.octBase, S.y1],   // 스텁(L-턱 속 매몰) — ★129 J1 체제 파생
     [S.rMid, S.y2], [S.rMid, S.y3],                  // 뿔대 → 기둥
     [S.rMidIn, S.y3],                                // 상면 링
     [S.rMidIn, S.y2],                                // 안 기둥
-    [S.rCyl - S.octInOff, S.y1],                     // 안 뿔대
-    [S.rCyl - S.octInOff, S.y1 - S.sink],            // 안 스텁
+    [S.octBase - S.octInOff, S.y1],                  // 안 뿔대
+    [S.octBase - S.octInOff, S.y1 - S.sink],         // 안 스텁
   ], 8, S.cornerAz0)
   return toGeo(pos)
 }
@@ -323,10 +363,10 @@ function buildFinial(S) {
 
 // ── ★127-c 접합 몰딩 2기(팔각 lathe — J1 플린스 · J3 캡 코니스). 프로파일 정본 = spec ──
 function buildMoldings(S) {
-  const a = [], b = []
-  lathe(a, S.m1Prof, S.m1Seg, S.m1Seg === 8 ? S.cornerAz0 : 0)
-  lathe(b, S.m3Prof, 8, S.cornerAz0)
-  return [toGeo(a), toGeo(b)]
+  const out = []
+  if (S.m1On) { const a = []; lathe(a, S.m1Prof, S.m1Seg, S.m1Seg === 8 ? S.cornerAz0 : 0); out.push(toGeo(a)) }
+  const b = []; lathe(b, S.m3Prof, 8, S.cornerAz0); out.push(toGeo(b))
+  return out
 }
 
 // ── ★127-e 포털 4기(어귀 45°+90°k — 로컬 박스·쐐기를 방위 회전 배치) ──
@@ -383,6 +423,17 @@ function cutSolids() {
     g.translate((RAD_T_IN + 26) / 2, (RAD_TOP + COR_Y0) / 2, 0)
     g.rotateY(-ang)
     cutters.push(g)
+  }
+  //  ★★★130-f 접속 통로 문: 배정된 셸의 **정방위**(대각을 45° 돌린 0/90/180/270)에서 테라스 레벨을 뚫는다.
+  //   ⚠자르개는 벽보다 크게(여유 MARG) — 공면이면 z-fighting이 난다.
+  if (LNK_ON && LNK_DOOR_ON) {
+    LNK_ASSIGN.forEach((mode, k) => {
+      if (!mode) return
+      const g2 = new THREE.BoxGeometry(12, LNK_DOOR_H, (LNK_DOOR_HW + LNK_DOOR_MARG) * 2)
+      g2.translate(SPT_R + 6, SPT_Y + LNK_DOOR_H / 2, 0)          // 안쪽(구멍 밖)부터 벽 너머까지
+      g2.rotateY(-(k * Math.PI / 2))
+      cutters.push(g2)
+    })
   }
   const dome = new THREE.SphereGeometry(1, 64, 40)
   dome.scale(ROOM_R, ROOM_HEIGHT, ROOM_R)

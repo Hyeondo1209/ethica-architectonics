@@ -8,6 +8,7 @@
 import { useMemo } from 'react'
 import * as THREE from 'three'
 import { Brush, Evaluator, HOLLOW_SUBTRACTION, INTERSECTION } from 'three-bvh-csg'
+import { linkSpec, buildLinkParts } from './linkPassageGeometry.js'   // ★130 셸→테라스 접속 통로(밀봉 관·미니 첨탑)
 import { ascSpec, ascDoorCut, buildAscentMass, buildAscentWalls, buildAscentCeiling, buildAscentColumns, buildAscentOverlook, buildAscentMouthSill } from './ascentTunnelGeometry.js'
 import { buildArm13 } from './armGeometry.js'   // ★126 1p3 지지 팔
 import { extSpiralSpec, buildExtSpiral, buildExtSpiralParapet, buildExtSpiralShell, buildExtSpiralSkirt, buildExtSpiralBridge, buildExtWindowFrame, extWindowRibbonGeo, winBandAt, winBandOver } from './extSpiralGeometry.js'   // ★122·★122-b·★122-c·★123
@@ -575,6 +576,32 @@ function DoorFrame({ position, rotY, depth = FR_D, yFloor = Y_FTOP, yDoorTop = D
 // ── ★★★119 상승 터널(2026.08.05 현도 스케치): 허브→방 접근 = 오르는 계단 관 ──
 //  기하 정본 = ascentTunnelGeometry.js(순수 모듈 — check_radial 공유). 로컬 +x 프레임 한 번 → 4회 회전(등형).
 //  구 수평 터널(Tunnel)은 RAD_ASC_ON=false로 복귀하는 보존계.
+function LinkPassages() {
+  const parts = useMemo(() => buildLinkParts(linkSpec()), [])
+  if (!parts.length) return null
+  return (
+    <>
+      {parts.map(({ k, walk, solid }) => (
+        <group key={k} rotation-y={-(k * Math.PI / 2)}>
+          {/* ★★130-g side=DoubleSide: 관은 ★130-f에서 **양 끝 캡을 뺐다** → 더는 닫힌 솔리드가 아니라
+              FrontSide로는 안에서 뒷면이 컬링돼 **통로 안에서 바깥이 훤히 보였다**(현도 실측 버그).
+              상승 관 벽·천장이 이미 DoubleSide인 것과 같은 어법. */}
+          {walk.map((g, i) => (
+            <mesh key={'w' + i} geometry={g} userData={{ walkable: true }}>
+              <meshStandardMaterial color={MAT_FLOOR} roughness={0.9} side={THREE.DoubleSide} />
+            </mesh>
+          ))}
+          {solid.map((g, i) => (
+            <mesh key={'s' + i} geometry={g} userData={{ walkable: false }}>
+              <meshStandardMaterial color={MAT_WALL} roughness={0.9} side={THREE.DoubleSide} />
+            </mesh>
+          ))}
+        </group>
+      ))}
+    </>
+  )
+}
+
 function AscentTunnel({ ang }) {
   const massGeo = useMemo(buildAscentMass, [])
   const wallGeo = useMemo(buildAscentWalls, [])
@@ -722,6 +749,10 @@ export function RadialRooms() {
           ) })()}
         </group>
       ))}
+      {/* ★★★130 접속 통로(2026.08.14 현도) — 상승 계단 끝 오른쪽 벽 → 첨탑 정방위 테라스.
+          배정표 `LNK_ASSIGN`대로 셸마다 다른 접근법(①단일 곡선 / ②경유지+미니 첨탑). **개구 0 = 밀봉**(양 끝 문은 다음 조각).
+          기하는 셸0(315°) 월드로 한 번 짓고 90°k 회전 배치 — 상승 관·문틀과 같은 등형 어법. */}
+      <LinkPassages />
       {/* 대각 터널 4 — ★119 체제: 상승 관 ↔ 구 수평 관(보존계) */}
       {angs.map((ang, k) => RAD_ASC_ON ? <AscentTunnel key={k} ang={ang} /> : <Tunnel key={k} ang={ang} />)}
       {/* ★허브 문틀 4(원뿔대 문, 2026.07.11) — 사면 걸침 깊이(HFR_D)로 원뿔 이음선·벽 시작 모서리·컷 림을 삼킴 */}
