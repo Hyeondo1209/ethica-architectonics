@@ -33,7 +33,8 @@ import { buildSpire } from './spireGeometry.js'   // ★127 빛우물 첨탑(순
 import { buildSpireTerrace } from './spireTerraceGeometry.js'   // ★128 첨탑 테라스(고리 판 — 좌표는 전부 spireSpec 파생)
 import { buildUpperPlatform } from './upperPlatformGeometry.js' // ★131 새 층 플랫폼 + 좌우 계단 2기(테라스 위 — 드럼행 문의 자리)
 import { buildBridgeComplex } from './bridgeComplexGeometry.js' // ★133 1p4 방위 0° 복합체(2층 계단 관 + 참 + 기둥 + 아치)
-import { SPIRE_ON, SPT_ON, UPF_ON, BRG_ON } from './constants.js'
+import { buildLink4 } from './link4Geometry.js'                   // ★136 1p4 셸 나선 참 → ★133 참 수평 접속 관
+import { SPIRE_ON, SPT_ON, UPF_ON, BRG_ON, LK4_ON } from './constants.js'
 import { buildRoomRibs } from './roomRibGeometry'   // ★116 방 돔 살 여덟(순수 기하 — 사본 금지)   // ★114 벽 밑동 팔각 각뿔대(순수 기하 — 사본 금지)
 
 // ════════ 지하 정의·공리 방 ════════
@@ -147,6 +148,8 @@ export function DefAxiomRoom({ stairKind }) {
   const upperParts = useMemo(() => (SPIRE_ON && SPT_ON && UPF_ON ? buildUpperPlatform() : []), [])
   //  ★133 복합체 — 첨탑·테라스가 있어야 문이 생길 자리가 있다(참·기둥은 방 돔 위 자립이지만 접합 대상이 첨탑)
   const bridgeParts = useMemo(() => (SPIRE_ON && SPT_ON && BRG_ON ? buildBridgeComplex() : null), [])
+  //  ★136 — ★133 참이 도착지이므로 BRG_ON에 종속(복합체가 없으면 갈 곳이 없다)
+  const link4Parts = useMemo(() => (SPIRE_ON && SPT_ON && BRG_ON && LK4_ON ? buildLink4() : null), [])
   const wellCut = useMemo(() => {
     if (SPIRE_ON) return buildSpire()
     const ev = new Evaluator()
@@ -440,6 +443,19 @@ export function DefAxiomRoom({ stairKind }) {
       ))}
       {bridgeParts && bridgeParts.solid.map(({ id, geo }) => (
         <mesh key={'brg-' + id} name={'1p4복합체/' + id} geometry={geo} userData={{ walkable: false }}>
+          <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
+        </mesh>
+      ))}
+      {/* ★★★136 1p4 셸 나선 참 → ★133 참 수평 접속 관(2026.08.15) — LNK 가족 최초의 rise 0 관.
+          두 안 병존: LK4_MODE 'zigzag'(세 마디·마이터 꺾임) / 'smooth'(3차 베지어). 재질 = ★130 통로 가족. */}
+      {link4Parts && link4Parts.walk.map(({ id, geo }) => (
+        <mesh key={'lk4-' + id} name={'1p4접속관/' + id} geometry={geo} userData={{ walkable: true }}>
+          <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.FrontSide} />
+        </mesh>
+      ))}
+      {/* ★136-c 접합부 아치 — 관 곡선을 따라 휘는 스윕(걷는 면 아님). 재질 = ★133 solid 가족 */}
+      {link4Parts && link4Parts.solid.map(({ id, geo }) => (
+        <mesh key={'lk4-' + id} name={'1p4접속관/' + id} geometry={geo} userData={{ walkable: false }}>
           <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
         </mesh>
       ))}

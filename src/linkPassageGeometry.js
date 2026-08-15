@@ -225,15 +225,40 @@ function domeYAt(r) {
 //  단면(진행 법선 u, 연직 v): 바깥 고리 4점 · 안 고리 4점. 옆면(바깥·안) + 양 끝 캡(고리) = watertight.
 //  caps = [시작 캡, 끝 캡] — ★130-f: **문이 나는 쪽 캡은 짓지 않는다**(상대 몸속으로 열린다).
 //   밀봉은 "구멍이 없다"가 아니라 "열린 에지가 없다"이므로, 캡을 뺀 쪽은 상대 부재가 이어받는다.
-export function buildLinkTube(pts, yOf, S = linkSpec(), caps = [true, true]) {
+export function buildLinkTube(pts, yOf, S = linkSpec(), caps = [true, true], opts = {}) {
   //  ★130-b 두께 위계: 바닥 = 매스 1.5(걷는 것) · 벽·천장 = 0.40(감싸는 것 — 나선 외피·상승 관 천장판 승계)
+  //  ★★★136 opts.miter: **기본 false = 이 함수의 옛 거동과 한 좌표도 다르지 않다**(★130 무회귀 보장).
+  //   true면 꺾임 마디에서 프레임을 **이등분 법선 + 1/cos(θ/2) 신장**으로 잡는다 — 양 벽선이 연장돼 정확히 만난다.
+  //   ⛔옛 프레임(중앙차분 o→q)은 두 가지가 다르다: (a) 폭이 cos(θ/2)배로 오므라들고
+  //    (b) 세 점 [P0,A1,A2]에서 A1의 방향이 P0→A2 **현**이라 이등분선이 아니다. 조밀 표본 곡선에선 둘 다 무시할 수 있어
+  //    ★130은 그대로 두고, 마디가 굵은 지그재그에서만 켠다.
   const hw = S.hw, h = S.h, ft = S.ft, wt = S.wt
   const OUT = [[-hw - wt, -ft], [hw + wt, -ft], [hw + wt, h + wt], [-hw - wt, h + wt]]
   const IN = [[-hw, 0], [hw, 0], [hw, h], [-hw, h]]
+  //  ★★★136 opts.tan0 / opts.tan1: 양 끝 프레임의 방향을 **해석 접선**으로 못 박는다(기본 없음 = 옛 거동).
+  //   ⛔곡선을 표본으로 훑으면 끝 프레임이 마지막 **현**을 쓴다 — 실측 0.09° 기울었고, 끝 캡이 그만큼 비스듬해
+  //    상대 면과 정확히 맞물리지 않았다(시작 쪽은 나선 참 종단면과의 정합이 걸린 자리라 더 중요하다).
+  const seg = i => {
+    if (i === 0 && opts.tan0) return opts.tan0
+    if (i === pts.length - 2 && opts.tan1) return opts.tan1
+    let d = sub(pts[i + 1], pts[i]); const L = nrm(d) || 1; return [d[0] / L, d[1] / L]
+  }
   const frames = pts.map((p, i) => {
+    const y = yOf(i / (pts.length - 1))
+    if (i === 0 && opts.tan0) { const d = opts.tan0; return { p, n: [-d[1], d[0]], y } }
+    if (i === pts.length - 1 && opts.tan1) { const d = opts.tan1; return { p, n: [-d[1], d[0]], y } }
+    if (opts.miter) {
+      const a = i > 0 ? seg(i - 1) : seg(0), b = i + 1 < pts.length ? seg(i) : seg(pts.length - 2)
+      const n1 = [-a[1], a[0]], n2 = [-b[1], b[0]]
+      let m = [n1[0] + n2[0], n1[1] + n2[1]]; const ml = nrm(m) || 1; m = [m[0] / ml, m[1] / ml]
+      const c = dot(m, n1)                                   // = cos(θ/2) — 접힘 각의 반
+      //  ⚠발산 가드: θ→180°(되꺾임)면 c→0이라 마이터가 무한대로 뻗는다. 검사가 상한을 박는다.
+      const k = 1 / Math.max(c, 0.2)
+      return { p, n: [m[0] * k, m[1] * k], y }
+    }
     const q = pts[Math.min(i + 1, pts.length - 1)], o = pts[Math.max(i - 1, 0)]
     let d = sub(q, o); const L = nrm(d) || 1; d = [d[0] / L, d[1] / L]
-    return { p, n: [-d[1], d[0]], y: yOf(i / (pts.length - 1)) }
+    return { p, n: [-d[1], d[0]], y }
   })
   const W = (f, [u, v]) => [f.p[0] + f.n[0] * u, f.y + v, f.p[1] + f.n[1] * u]
   const pos = []

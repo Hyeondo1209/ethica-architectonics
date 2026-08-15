@@ -38,6 +38,7 @@ import {
   SPT_Y, ROOM_R, LIFT_Y, ROOM_CEIL_Y, BOX_X0,
   BRG_ON, BRG_LAND_D, BRG_LAND_T, BRG_STEP, BRG_COL_W, BRG_COL_D,
   BRG_SINK, BRG_SEAT, BRG_EMB_TOP, BRG_ARCH_UPB, BRG_SEG, BRG_WALK_MAX, BRG_PORTAL_L,
+  BRG_LAND_FLUSH,
 } from './constants.js'
 
 //  방 돔 표면(회전체 — 수평 반경 r의 함수). 전부 상수 파생(H = ROOM_CEIL_Y − LIFT_Y).
@@ -67,7 +68,9 @@ export function bridgeSpec(o = {}) {
   const walkDeg = Math.atan2(riser, tread) * 180 / Math.PI
   const ftU = gap - h - wt + BRG_SINK                // 윗층 바닥(관입 포함 — 머리 주석)
   //  참 판
-  const landD = o.landD ?? BRG_LAND_D
+  //  ★136-b: 'flush'면 참 깊이 = 접속 관 외곽 폭(wOut) — 관이 참 −z 변을 정확히 꽉 채워 좌우 틈이 0이 된다.
+  //   ⚠wOut은 이 파일이 이미 갖고 있다(= 2·(hw+wt), linkSpec 파생) — 사본이 아니다.
+  const landD = o.landD ?? (BRG_LAND_FLUSH ? wOut : BRG_LAND_D)
   const landT = o.landT ?? BRG_LAND_T
   const xL0 = r0, xL1 = r0 + landD
   const yLandU = yLand - landT                       // 참 밑면

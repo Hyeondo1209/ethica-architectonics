@@ -13,6 +13,7 @@ import { buildArm13 } from './armGeometry.js'
 import { buildSpire } from './spireGeometry.js'   // ★127 첨탑 정본
 import { buildLinkParts, linkSpec } from './linkPassageGeometry.js'   // ★130 접속 통로
 import { buildBridgeComplex } from './bridgeComplexGeometry.js'   // ★133 1p4 복합체
+import { buildLink4, link4Spec } from './link4Geometry.js'        // ★136 1p4 접속 관(정본 빌더 직결)
 import { ARM13_ON, ARM13_K } from './constants.js'
 
 const W = 880, H = 495, BG = [18, 18, 20]
@@ -65,6 +66,14 @@ const COL = {
     if (BP) {
       for (const { geo } of BP.walk) addGeo(geo, COL.brgW)
       for (const { geo } of BP.solid) addGeo(geo, COL.brgS)
+    }
+    //  ★136 접속 관(방위 0°대 — 회전 없음). PROBE_LK4_MODE로 두 안을 갈아 끼운다.
+    COL.lk4 = [230, 140, 80]
+    const L4 = buildLink4(link4Spec({ on: true, mode: process.env.PROBE_LK4_MODE || undefined }))
+    COL.lk4a = [150, 90, 190]                        // ★136-c 아치는 관과 다른 색으로(육안 분리)
+    if (L4) {
+      for (const { geo } of L4.walk) addGeo(geo, COL.lk4)
+      for (const { geo } of L4.solid) addGeo(geo, COL.lk4a)   // ⛔누락 적발: solid(아치)를 안 그리고 있었다
     }
   }
 }

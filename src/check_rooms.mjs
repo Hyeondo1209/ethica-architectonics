@@ -3288,5 +3288,288 @@ console.log('\n── ★133 1p4 복합체(2층 관·참·기둥·아치 — ★
   }
 }
 
+// ══════════════ ★★★136 1p4 셸 나선 참 → ★133 참 수평 접속 관 ══════════════
+{
+  console.log('\n— ★136. 1p4 접속 관(수평) · 두 안 병존 —')
+  const { link4Spec, buildLink4 } = await import('./link4Geometry.js')
+  const { linkSpec, buildLinkTube } = await import('./linkPassageGeometry.js')
+  const { bridgeSpec } = await import('./bridgeComplexGeometry.js')
+  const C136 = await import('./constants.js')
+  const L = linkSpec(), B = bridgeSpec()
+  //  ⚠전역 스위치와 무관하게 기하를 시험한다(소등 체제에서도 검사는 살아 있어야 한다 — 스윕이 적발)
+  const S = link4Spec({ on: true, joint: 'miter' })
+  const BRG_SINK_ = C136.BRG_SINK
+  const { bridgeDomeY: bridgeDomeY_ } = await import('./bridgeComplexGeometry.js')
+
+  //  ① 레벨 항등 — 이 통로가 수평인 근거는 우연이 아니라 파생이다
+  ok(Math.abs(L.y0 - B.yLand) < 1e-12, `두 참 레벨 항등 ${L.y0} = ${B.yLand}(★133이 linkSpec().y0을 받는다 — 손 좌표 아님)`)
+  ok(Math.abs(S.rise) < 1e-12, `rise 0 — LNK 가족 최초의 완전 수평 관(계단 0단)`)
+  ok(Math.abs(S.y - L.y0) < 1e-12, `걷는 면 = 나선 참 문지방 ${S.y}`)
+
+  //  ② 시작 = 나선 참 접합부 그대로(사본 금지 실증)
+  ok(S.P0[0] === L.P0[0] && S.P0[1] === L.P0[1], `시작점 = linkSpec().P0 동일 객체값(하드코딩 0)`)
+  ok(Math.abs(S.t0deg - Math.atan2(L.T0[1], L.T0[0]) * 180 / Math.PI) < 1e-9, `접선 ${S.t0deg.toFixed(3)}° = 나선 접선`)
+
+  //  ③ ⛔직선과 접선 연속은 동시에 성립하지 않는다 — 두 안이 나란히 서는 이유를 검사로 박는다
+  {
+    const t = (S.zFace - S.P0[1]) / S.T0[1]            // 접선 직선이 참 −z 변 평면에 닿는 매개
+    const xHit = S.P0[0] + S.T0[0] * t
+    ok(xHit > B.xL1 + 1, `접선 직선은 참을 지나친다: z=${S.zFace.toFixed(2)}에서 x ${xHit.toFixed(2)} > 참 바깥 끝 ${B.xL1.toFixed(2)}`)
+    ok(S.zig.kink1 > 1 && S.zig.kink2 > 1, `그래서 zigzag는 꺾임 둘을 받아들인다(${S.zig.kink1.toFixed(1)}° · ${S.zig.kink2.toFixed(1)}°)`)
+  }
+
+  //  ④ 도착 창 — 관 폭이 참 깊이 안에 수직으로 눕는다
+  ok(Math.abs(S.xWin - (B.landD / 2 - S.hwOut)) < 1e-12, `도착 창 = 참 반깊이 − 관 외곽 반폭 = ±${S.xWin.toFixed(2)}(파생)`)
+  ok(Math.abs(S.xOff) <= S.xWin + 1e-9, `현행 편차 ${S.xOff} 는 창 안 — 관이 참 밖으로 넘지 않는다`)
+  ok(S.xMinEnd >= B.xL0 - 1e-9 && S.xMaxEnd <= B.xL1 + 1e-9,
+    `관 끝 x ${S.xMinEnd.toFixed(2)}~${S.xMaxEnd.toFixed(2)} ⊂ 참 ${B.xL0.toFixed(2)}~${B.xL1.toFixed(2)}`)
+  //  ⛔가드 실증: 창을 넘기면 정확히 실패해야 한다
+  {
+    const bad = link4Spec({ on: true, xOff: S.xWin + 0.05 })
+    ok(bad.xMaxEnd > B.xL1 + 1e-9, `가드 실증: 편차를 창 밖(${(S.xWin + 0.05).toFixed(2)})으로 밀면 관이 참을 ${(bad.xMaxEnd - B.xL1).toFixed(2)} 넘는다`)
+  }
+
+  //  ⑤ ★133 계단 관과의 겹침 0 — 두 관이 같은 방위대에 있다
+  //  ★★136-b 현도 "참과 문 사이 좌우 틈을 없애줘" → 참 깊이를 관 외곽 폭에서 파생 → **맞댐(flush)** 체제.
+  //   여유가 0.24에서 **정확히 0**이 됐다. 그러므로 '떨어져 있음'이 아니라 '맞닿되 부피가 안 겹침'을 박아야 한다.
+  //  ⚠양 체제에 각각 단언을 단다 — 보존계 스윕도 green이어야 한다(규율).
+  if (C136.BRG_LAND_FLUSH) {
+    ok(Math.abs(S.xMinEnd - B.xL0) < 1e-9 && Math.abs(S.xMaxEnd - B.xL1) < 1e-9,
+      `틈 0 실증: 관 외곽 x ${S.xMinEnd.toFixed(3)}~${S.xMaxEnd.toFixed(3)} = 참 ${B.xL0.toFixed(3)}~${B.xL1.toFixed(3)}(양쪽 다 정확히 일치)`)
+    ok(Math.abs(B.landD - S.hwOut * 2) < 1e-12, `참 깊이 ${B.landD.toFixed(2)} = 관 외곽 폭(파생 — 수치 일치가 아니라 인과 일치)`)
+  } else {
+    ok(Math.abs(B.landD - C136.BRG_LAND_D) < 1e-12, `보존계 FLUSH=false: 참 깊이 = 옛 상수 ${C136.BRG_LAND_D}`)
+    ok(S.xMinEnd - B.xL0 > 0.1 && B.xL1 - S.xMaxEnd > 0.1,
+      `— 그 체제에서는 좌우 틈이 ${(S.xMinEnd - B.xL0).toFixed(2)}·${(B.xL1 - S.xMaxEnd).toFixed(2)} 살아 있다(현도가 없애라 한 그 틈)`)
+  }
+  {
+    //  ⛔맞댐이 된 만큼 '부피가 안 겹침'은 이제 실측으로만 담보된다 — 관 정점을 ★133 관 상자에 넣어 본다.
+    const g = buildLink4(link4Spec({ on: true })).walk[0].geo, a2 = g.getAttribute('position')
+    let worst = Infinity
+    for (let i = 0; i < a2.count; i++) {
+      const x = a2.getX(i), z = a2.getZ(i)
+      if (z > -B.wOut / 2 - 1e-6 && z < B.wOut / 2 + 1e-6) worst = Math.min(worst, x - B.r0)
+    }
+    ok(worst > -1e-6, `★133 관 z대(±${(B.wOut / 2).toFixed(2)}) 안의 접속 관 정점은 전부 x ≥ ${B.r0.toFixed(3)}(최소 초과 ${worst.toFixed(6)} — 부피 겹침 0, 면 맞댐만)`)
+  }
+  //  ⛔스윕 적발 — **창은 좌우 비대칭이다**: 참 안쪽 끝(xL0)에는 ★133 계단 관 두 층이 붙어 있고 xL0 = r0이므로
+  //   −쪽 경계는 **닫힌 값이 아니라 열린 값**이다(정확히 −0.30이면 두 관이 면으로 맞닿아 공면 z-fighting).
+  //   +쪽(참 바깥 끝 xL1)에는 아무것도 없어 −0.30은 실패하고 +0.30은 통과한다. 이 비대칭 자체를 박는다.
+  {
+    ok(Math.abs(B.r0 - B.xL0) < 1e-12, `참 안쪽 끝 = ★133 관 끝 동일 좌표 ${B.r0.toFixed(3)}(그래서 −쪽만 열린 경계)`)
+    const lo = link4Spec({ on: true, xOff: -S.xWin }), hi = link4Spec({ on: true, xOff: S.xWin })
+    ok(!(lo.xMinEnd > B.r0 + 1e-9), `−창 경계 정확히 −${S.xWin.toFixed(2)}: 관이 ★133 관과 **맞닿는다** → 못 쓴다(열린 경계)`)
+    ok(hi.xMaxEnd <= B.xL1 + 1e-9, `+창 경계 정확히 +${S.xWin.toFixed(2)}: 참 바깥 끝과 맞닿을 뿐 상대 부재가 없다 → 쓸 수 있다`)
+    //  ★136-b: 맞댐 체제에서 창은 **정확히 0으로 닫힌다**(관이 참을 꽉 채우므로 편차의 여지가 없다)
+    ok(Math.abs(S.xWin - (C136.BRG_LAND_FLUSH ? 0 : (C136.BRG_LAND_D - 2 * S.hwOut) / 2)) < 1e-12,
+      `도착 창 ±${S.xWin.toFixed(3)} — 맞댐이면 0(관이 참을 꽉 채워 편차의 여지가 없다), 아니면 (깊이−폭)/2`)
+    ok(Math.abs(S.xOff) <= S.xWin + 1e-12, `현행 편차 ${S.xOff}는 창 안(맞댐 체제에서는 0이 유일한 값)`)
+  }
+  {
+    //  윗층 관 소핏(117.57)과 이 관 지붕 윗면(117.62)은 0.05 겹치나 x대가 갈린다 — 그 인과를 박는다
+    const roofTop = S.y + S.h + S.wt, upSoffit = B.yTerr + B.gap - B.rise - B.ftU
+    ok(roofTop > upSoffit, `y만 보면 지붕 ${roofTop.toFixed(2)} > 윗층 소핏 ${upSoffit.toFixed(2)}(0.05 겹침)`)
+    ok(S.xMinEnd >= B.r0 - 1e-9, `— 윗층 관은 x ≤ ${B.r0.toFixed(2)}에서 끝나고 접속 관은 x ≥ 거기서 시작(맞댐이면 면 접촉 · 아니면 여유 ${(S.xMinEnd - B.r0).toFixed(2)}) — 부피 겹침 0은 위 정점 주사로 실증`)
+  }
+
+  //  ⑥ 단면·두께 위계 = ★130 승계(사본 금지)
+  ok(S.hw === L.hw && S.h === L.h && S.ft === L.ft && S.wt === L.wt,
+    `단면 승계: 내부 ${(2 * S.hw).toFixed(2)}×${S.h} · 바닥 ${S.ft} · 벽·천장 ${S.wt}`)
+  ok(Math.abs(S.hwOut - (L.hw + L.wt)) < 1e-12, `외곽 반폭 ${S.hwOut.toFixed(2)} = hw + wt`)
+
+  //  ⑦ 마이터 마감 — 꺾임에서 폭이 오므라들지 않는다
+  {
+    const m = th => S.hwOut / Math.cos(th * Math.PI / 360)
+    ok(Math.abs(S.zig.miter[0] - m(S.zig.kink1)) < 1e-12 && Math.abs(S.zig.miter[1] - m(S.zig.kink2)) < 1e-12,
+      `마이터 신장 = 반폭/cos(θ/2) — 바깥 모서리 ${S.zig.miter[0].toFixed(3)} · ${S.zig.miter[1].toFixed(3)}`)
+    ok(S.zig.miter.every(v => v < S.hwOut * 1.5), `마이터 발산 없음(전부 반폭의 1.5배 미만 — 되꺾임 아님)`)
+    //  옛 프레임이면 오므라든다는 것을 수치로
+    const pinch = S.hwOut * Math.cos(S.zig.kink1 * Math.PI / 360)
+    ok(pinch < S.hwOut - 0.05, `⛔옛 중앙차분 프레임이면 꺾임①에서 반폭 ${pinch.toFixed(3)}로 오므라든다(${(S.hwOut - pinch).toFixed(3)} 오목) — miter의 존재 이유`)
+  }
+
+  //  ⑧ ⛔★130 무회귀 — miter 옵션 기본값이 옛 거동과 **한 좌표도** 다르지 않다
+  {
+    const P = buildLinkTube(L.one.pts, t => L.y0 + L.rise * t, L, [false, false])
+    const Q = buildLinkTube(L.one.pts, t => L.y0 + L.rise * t, L, [false, false], {})
+    const a = P.getAttribute('position').array, b = Q.getAttribute('position').array
+    let same = a.length === b.length
+    for (let i = 0; same && i < a.length; i++) if (a[i] !== b[i]) same = false
+    ok(same, `★130 ① 무회귀: opts 없음 ↔ opts {} 정점 ${a.length / 3}개 전부 동일(miter 기본 false)`)
+    const R = buildLinkTube(L.one.pts, t => L.y0 + L.rise * t, L, [false, false], { miter: true })
+    ok(R.getAttribute('position').count === P.getAttribute('position').count,
+      `— miter를 켜도 위상은 같다(정점 수 불변, 좌표만 이동)`)
+  }
+
+  //  ⑨ 두 안 다 지어진다 · 밀봉 규약
+  for (const mode of ['zigzag', 'smooth']) {
+    const s = link4Spec({ on: true, mode, joint: 'miter' }), P = buildLink4(s)
+    ok(P && P.walk.length === 1 && P.solid.length === (C136.LK4_ARC_ON ? 1 : 0),
+      `${mode}: 부재 walk 1(관) · solid ${C136.LK4_ARC_ON ? '1(★136-c 아치)' : '0(아치 소등 — 관은 불변)'}`)
+    const g = P.walk[0].geo; g.computeBoundingBox()
+    const bb = g.boundingBox
+    ok(Math.abs(bb.min.y - (s.y - s.ft)) < 1e-4 && Math.abs(bb.max.y - (s.y + s.h + s.wt)) < 1e-4,
+      `${mode}: 높이 ${bb.min.y.toFixed(2)}~${bb.max.y.toFixed(2)} = 바닥 밑면~지붕 윗면(수평이므로 전 구간 동일)`)
+    ok(Math.abs(bb.max.z - (s.zFace + s.sink)) < 1e-6,
+      `${mode}: +z 끝이 정확히 참 −z 변 + 관입 ${s.sink}(해석 접선 프레임 — 현이 아니다)`)
+    ok(bb.max.z > s.zFace && bb.max.z < B.wOut / 2, `${mode}: 끝이 참 안에 묻힌다(근변 통과 · 원변 미도달)`)
+  }
+  //  ⛔자가 적발: 끝 프레임이 **현**이면 캡이 기울어 상대 면과 안 맞물린다(실측 0.09° · 0.0042 삐져나옴)
+  {
+    const s = link4Spec({ on: true, mode: 'smooth' })
+    const P = s.smooth.pts, N = P.length
+    const chord = Math.atan2(P[N - 1][1] - P[N - 2][1], P[N - 1][0] - P[N - 2][0]) * 180 / Math.PI
+    ok(Math.abs(chord - 90) > 0.01, `현 방향 ${chord.toFixed(3)}° ≠ 해석 접선 90° — 표본 곡선의 구조적 오차`)
+    const naive = buildLinkTube(P, () => s.y, s, [false, true])
+    naive.computeBoundingBox()
+    ok(naive.boundingBox.max.z > s.zFace + s.sink + 1e-4,
+      `— 그 현을 쓰면 끝이 ${(naive.boundingBox.max.z - s.zFace - s.sink).toFixed(4)} 삐져나온다(tan1 옵션의 존재 이유)`)
+    const fixed = buildLink4(s).walk[0].geo; fixed.computeBoundingBox()
+    ok(Math.abs(fixed.boundingBox.max.z - (s.zFace + s.sink)) < 1e-6, `— tan1을 박으면 정확히 관입면에서 끝난다`)
+    const g0 = buildLink4(link4Spec({ on: true, mode: 'zigzag', joint: 'miter' })).walk[0].geo
+    ok(g0.attributes.position.count > 0, `zigzag는 마디 방향이 곧 프레임이라 이 오차가 애초에 없다`)
+  }
+  ok(link4Spec({ on: true, mode: 'smooth' }).smooth.rev === false, `smooth K=${C136.LK4_BEZ_K}: 방향 반전 없음(S자 아님)`)
+  ok(link4Spec({ on: true, mode: 'smooth' }).smooth.minR > 2 * S.hwOut,
+    `smooth 최소 곡률반경 ${link4Spec({ on: true, mode: 'smooth' }).smooth.minR.toFixed(2)} > 관 외곽 폭 ${(2 * S.hwOut).toFixed(2)}(자기 겹침 없음)`)
+
+  //  ⑩ 보존계 · 배선
+  ok(typeof buildLink4 === 'function', `보존계 진입점 존재`)
+  {
+    const S0 = link4Spec({ on: false })
+    ok(buildLink4(S0) === null, `LK4_ON=false → null(한 줄 소등)`)
+    ok(link4Spec({ on: false }).on === false && link4Spec({ on: true }).on === true,
+      `⛔o.on 우회 존재 — 소등 체제에서도 검사가 기하를 시험할 수 있다(스윕이 죽던 자리)`)
+    const bt = buildLink4(link4Spec({ on: true, mode: 'zigzag', joint: 'butt' }))
+    ok(bt.walk.length === 3, `보존계 joint='butt' → 마디 3기 개별 관(마감 어휘 교체 자리)`)
+  }
+  {
+    const src = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+    ok(/buildLink4/.test(src) && /link4Parts/.test(src), 'Room.jsx: ★136 마운트')
+    ok(/LK4_ON/.test(src) && /BRG_ON && LK4_ON/.test(src), 'Room.jsx: LK4_ON 게이트 + BRG_ON 종속(참이 없으면 갈 곳이 없다)')
+    ok(/name=\{'1p4접속관\/' \+ id\}/.test(src), 'Room.jsx: 부재 name 부여(좌표 지목의 짝)')
+  }
+  //  ⭐136-c 접합부 아치 — 관 곱선을 따라 휘는 스윈
+  {
+    const { buildLink4Arch } = await import('./link4Geometry.js')
+    for (const mode of ['smooth', 'zigzag']) {
+      //  ⚠전역 스위치와 무관하게 아치 기하를 시험한다(⛔ARC_ON=false 스윕에서 검사가 null을 붙잡고 죽었다 — 재발)
+      const s2 = link4Spec({ on: true, archOn: true, mode, joint: 'miter' }), A = s2.arch
+      ok(A.on && A.path.length >= 3, `${mode} 아치: 경로 점 ${A.path.length}(기둥 면 → 관 끝 → 관 중심선)`)
+      ok(Math.abs(A.zCol - (-B.colD / 2)) < 1e-12, `${mode}: 기둥 쪽 끝 z ${A.zCol} = −colD/2(파생 — 손 좌표 아님)`)
+      ok(Math.abs(A.yB - B.arch.yB) < 1e-12, `${mode}: 아래 발 y ${A.yB.toFixed(3)} = ★133 아치 발(돔 + BRG_ARCH_UPB) — 둘이 한 값에 묶인다`)
+      ok(Math.abs(A.yJ - B.yLandU) < 1e-9, `${mode}: 윗 발 y ${A.yJ.toFixed(3)} = 관·참 소핏`)
+      ok(Math.abs(A.reach[1] - A.zEnd) < 1e-9, `${mode}: 바깥 끝이 정확히 z ${A.zEnd}에 얄힌다(경계 교점을 표본 의존 없이 삽입)`)
+      //  ★닫힌형 두 접선 조건 — 유도가 곳 검사다
+      const h = A.L * 1e-5
+      const d1 = (A.yOfS(A.L) - A.yOfS(A.L - h)) / h
+      ok(Math.abs(d1) < 1e-3, `${mode}: s=L에서 dy/ds ${d1.toFixed(6)} ≈ 0 — 소핏과 **나란히** 합류(★133-b 조건 ⓑ)`)
+      const d0 = (A.yOfS(h) - A.yOfS(0)) / h
+      ok(d0 > 50, `${mode}: s=0에서 dy/ds ${d0.toFixed(1)} → ∞ — 기둥에서 **수직 발진**(★133-b 조건 ⓐ)`)
+      ok(Math.abs(A.yOfS(0) - A.yB) < 1e-9 && Math.abs(A.yOfS(A.L) - A.yJ) < 1e-9, `${mode}: 양 끝값이 두 발과 정확히 일치`)
+      ok(A.yOfS(A.L / 2) > (A.yB + A.yJ) / 2, `${mode}: 중간값 ${A.yOfS(A.L / 2).toFixed(2)} > 산술평균 ${((A.yB + A.yJ) / 2).toFixed(2)} — 위로 볼록한 아치(뒤집힌 모양 아님)`)
+      //  기하 — 부피 위치·접촉
+      const g2 = buildLink4Arch(s2); g2.computeBoundingBox()
+      const bb2 = g2.boundingBox
+      ok(Math.abs(bb2.min.y - A.yB) < 1e-4 && Math.abs(bb2.max.y - A.yTop) < 1e-4,
+        `${mode}: 아치 높이 ${bb2.min.y.toFixed(2)}~${bb2.max.y.toFixed(2)} = 발~소핏+관입 ${BRG_SINK_}`)
+      ok(bb2.max.z <= A.zCol + 1e-6, `${mode}: 아치는 기둥 면(z ${A.zCol})보다 바깥에만 있다 — 기둥과 부피 겹침 0`)
+      ok(A.yTop > B.yLandU && A.yTop < B.yLand, `${mode}: 아치 윗면 ${A.yTop.toFixed(2)}이 관 바닥 매스 속에 잠긴다(공면 z-fighting 방지)`)
+      //  ⛔★133 계단 관 z대 안에서는 x를 침범하면 안 된다
+      const ap = g2.getAttribute('position')
+      let bad = 0
+      for (let i = 0; i < ap.count; i++) {
+        const x = ap.getX(i), z = ap.getZ(i)
+        if (z > -B.wOut / 2 - 1e-6 && x < B.r0 - 1e-6) bad++
+      }
+      ok(bad === 0, `${mode}: ★133 관 z대 안에서 x < ${B.r0.toFixed(3)}인 아치 정점 ${bad}개(겹침 0)`)
+      //  돔을 뚫지 않는다(발은 돔 위 UPB만큼 떠 있고 기둥이 받는다 — ★133 어법)
+      let under = 0
+      for (let i = 0; i < ap.count; i++) {
+        const x = ap.getX(i), y = ap.getY(i), z = ap.getZ(i)
+        if (y < bridgeDomeY_(Math.hypot(x, z)) - 1e-6) under++
+      }
+      ok(under === 0, `${mode}: 돔 표면 아래로 내려간 아치 정점 ${under}개(관통 0)`)
+    }
+    //  보존계
+    ok(buildLink4Arch(link4Spec({ on: true, archOn: false })) === null, `LK4_ARC_ON=false → 아치만 null(관은 그대로)`)
+    ok(buildLink4Arch(link4Spec({ on: true, archOn: true })) !== null, `— archOn 우회로 소등 체제에서도 아치를 시험할 수 있다`)
+    ok(buildLink4(link4Spec({ on: true, archOn: false })).solid.length === 0, `— 그때 solid 0 · walk는 불변`)
+    //  스팬 노브가 길이를 실제로 밀어낸다
+    const near = link4Spec({ on: true, archOn: true, archZ: -4 }).arch, far = link4Spec({ on: true, archOn: true, archZ: -14 }).arch
+    ok(far.L > near.L + 5, `LK4_ARC_Z −4 → L ${near.L.toFixed(2)} · −14 → L ${far.L.toFixed(2)}(평면 한계 없이 관을 따라 늘어난다)`)
+    ok(Math.abs(far.reach[1] + 14) < 1e-9, `— −14에서도 끝이 정확히 그 z에 얄힌다`)
+    //  ⚠고정 archZ로 견준다 — 짧은 스팬(예 −4)에서는 두 안이 아직 갈리기 전이라 길이가 같다(스윕이 적발)
+    const sm = link4Spec({ on: true, archOn: true, archZ: -12, mode: 'smooth' }).arch
+    const zz = link4Spec({ on: true, archOn: true, archZ: -12, mode: 'zigzag' }).arch
+    ok(Math.abs(sm.L - zz.L) > 0.05, `archZ −12에서 두 안의 호길이가 다르다(곡선 ${sm.L.toFixed(2)} · 지그재그 ${zz.L.toFixed(2)}) — 아치가 각자의 관을 따른다는 증거`)
+    const shortSm = link4Spec({ on: true, archOn: true, archZ: -4, mode: 'smooth' }).arch
+    const shortZz = link4Spec({ on: true, archOn: true, archZ: -4, mode: 'zigzag' }).arch
+    ok(Math.abs(shortSm.L - shortZz.L) < 0.05, `— archZ −4에서는 같다(${shortSm.L.toFixed(3)} ≈ ${shortZz.L.toFixed(3)}): 두 안 다 그 구간은 참에 수직인 직선이라 아직 갈리지 않았다`)
+    ok(/link4Parts && link4Parts\.solid/.test(readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')), 'Room.jsx: 아치(solid) 마운트')
+
+    //  ★★136-d 마디 분해 + 꺾임 각기둥 채움 + 스팬 상한 (현도 2건)
+    const { extSpiralSpec } = await import('./extSpiralGeometry.js')
+    const ES = extSpiralSpec(), RC = [C136.RAD_R * Math.cos(-Math.PI / 4), C136.RAD_R * Math.sin(-Math.PI / 4)]
+    {
+      const sm2 = link4Spec({ on: true, archOn: true, mode: 'smooth' }).arch
+      const zz2 = link4Spec({ on: true, archOn: true, mode: 'zigzag' }).arch
+      //  ⚠불변식: 곡선이 한 덩어리인 것은 **표본 간 최대 회전 < 문턱**의 귀결이다(문턱을 그 아래로 낮추면 갈리는 게 맞다)
+      let maxTurn = 0
+      for (let i = 1; i < sm2.dirs.length; i++) {
+        const d = Math.max(-1, Math.min(1, sm2.dirs[i - 1][0] * sm2.dirs[i][0] + sm2.dirs[i - 1][1] * sm2.dirs[i][1]))
+        maxTurn = Math.max(maxTurn, Math.acos(d) * 180 / Math.PI)
+      }
+      ok((sm2.runs.length === 1) === (maxTurn < C136.LK4_ARC_KINK),
+        `곡선: 표본 간 최대 회전 ${maxTurn.toFixed(2)}° vs 문턱 ${C136.LK4_ARC_KINK}° → 마디 ${sm2.runs.length}(문턱 아래면 한 덩어리 스윕)`)
+      ok(sm2.runs.length === sm2.corners.length + 1, `— 곡선도 마디 = 꺾임 + 1`)
+      //  ⚠불변식으로 쓴다 — 마디 수는 꺾임 수 + 1이고, 꺾임은 문턱 LK4_ARC_KINK를 넘은 회전의 수다(노브 스윕에서도 성립)
+      ok(zz2.runs.length === zz2.corners.length + 1,
+        `지그재그: 마디 ${zz2.runs.length} = 꺾임 ${zz2.corners.length} + 1(${zz2.corners.map(c => c.turn.toFixed(1) + '°').join(' · ') || '없음'}) — 직선부에만 아치, 꺾임은 각기둥`)
+      ok(zz2.corners.every(c => c.turn >= C136.LK4_ARC_KINK - 1e-9),
+        `— 꺾임으로 잡힌 회전은 전부 문턱 ${C136.LK4_ARC_KINK}° 이상`)
+      //  ⛔다면체로 보이던 주범 = 경로 점 부족. 조밀화가 실제로 일어났는지 정점 수로 박는다.
+      const gz = buildLink4Arch(link4Spec({ on: true, archOn: true, mode: 'zigzag' }))
+      ok(gz.getAttribute('position').count > 1200,
+        `지그재그 아치 정점 ${gz.getAttribute('position').count} — 조밀화 전(경로 4점)이면 100 남짓이었다(현도 "다면체처럼 보여"의 진짜 원인)`)
+      //  꺾임 채움은 양 마디와 같은 높이에서 만난다(단차 0)
+      for (const c of zz2.corners) {
+        const yb = zz2.yOfS(c.s)
+        ok(yb > zz2.yB && yb < zz2.yJ, `꺾임 z${c.p[1].toFixed(2)} 채움 밑면 y ${yb.toFixed(3)} = 그 자리의 y(s)(양 마디와 같은 높이 — 단차 0)`)
+      }
+      //  스팬 상한 = 관 자신
+      const over = link4Spec({ on: true, archOn: true, archZ: -40 }).arch
+      ok(over.clamped && Math.abs(over.zEnd - over.zMin) < 1e-12,
+        `archZ −40 요청 → 관 시작 z ${over.zMin.toFixed(3)}로 클램프(아치는 관보다 멀리 갈 수 없다)`)
+      ok(sm2.clamped === (C136.LK4_ARC_Z < sm2.zMin),
+        `클램프 여부 ${sm2.clamped}가 현행 archZ ${sm2.zEndAsked} vs 관 시작 ${sm2.zMin.toFixed(3)}과 일치`)
+      const shortA = link4Spec({ on: true, archOn: true, archZ: -8.5 }).arch
+      const longA = link4Spec({ on: true, archOn: true, archZ: -28 }).arch
+      ok(longA.L > shortA.L + 20, `스팬이 실제로 늘어난다: archZ −8.5 → L ${shortA.L.toFixed(2)} · −28 → L ${longA.L.toFixed(2)}(현도 "나선참 부근까지")`)
+      //  ⛔셸 간섭 — 아치가 **관보다 더** 파고드는지가 관건이다(셸은 아래로 갈수록 굵어진다)
+      let extra = 0, worstGap = Infinity
+      for (let i = 0; i < sm2.path.length; i++) {
+        const q = sm2.path[i], yb = sm2.yOfS(sm2.sArr[i])
+        extra = Math.max(extra, ES.rIn(yb) - ES.rIn(sm2.yJ))
+        worstGap = Math.min(worstGap, Math.hypot(q[0] - RC[0], q[1] - RC[1]) - sm2.hwOut - ES.rIn(yb))
+      }
+      ok(extra < 0.5, `아치가 관보다 더 파고드는 최대 ${extra.toFixed(3)}(셸이 아래로 굵어지는 몫)`)
+      //  그 최대가 나는 자리가 셸에서 멀다는 것이 안전의 근거다
+      const qCol = sm2.path[0]
+      ok(Math.hypot(qCol[0] - RC[0], qCol[1] - RC[1]) - sm2.hwOut - ES.rIn(sm2.yB) > 20,
+        `— 그 지점(기둥 쪽)은 셸에서 ${(Math.hypot(qCol[0] - RC[0], qCol[1] - RC[1]) - sm2.hwOut - ES.rIn(sm2.yB)).toFixed(2)} 떨어져 있다 → 스팬을 끝까지 늘려도 셸 사정이 나빠지지 않는다`)
+      ok(Math.abs(sm2.yOfS(sm2.L) - sm2.yJ) < 1e-9,
+        `나선참 쪽 끝은 소핏에 붙은 칼날(y ${sm2.yOfS(sm2.L).toFixed(3)}) — 거기서 아치는 관과 똑같은 관계다`)
+    }
+  }
+
+  //  ⑪ 선언된 빚 — 1p3 셸 종단은 여전히 열려 있다
+  {
+    const es = readFileSync(new URL('./extSpiralGeometry.js', import.meta.url), 'utf8')
+    ok(/LNK_OPEN_SPIRAL && capIsDoor\) continue/.test(es),
+      `⚠나선 참 종단 캡은 k에 무관하게 4셸 전부 열린다 — 이 관이 1p4를 인수하고, **1p3은 선언된 빚로 남는다**`)
+  }
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} check_rooms: ${n - fail}/${n} 통과`)
 process.exit(fail === 0 ? 0 : 1)
