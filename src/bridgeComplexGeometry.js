@@ -32,13 +32,14 @@
 //  ⚠보존계: BRG_ON=false 한 줄이면 전부 소등.
 import * as THREE from 'three'
 import { linkSpec } from './linkPassageGeometry.js'
+import { orientOutward, archY } from './link4Geometry.js'   // ★138 안팎 자가 교정 · 곡률 노브(1p3와 같은 규칙)
 import { spireSpec, wellWallR } from './spireGeometry.js'
 import { upperPlatformSpec } from './upperPlatformGeometry.js'
 import {
   SPT_Y, ROOM_R, LIFT_Y, ROOM_CEIL_Y, BOX_X0,
   BRG_ON, BRG_LAND_D, BRG_LAND_T, BRG_STEP, BRG_COL_W, BRG_COL_D,
   BRG_SINK, BRG_SEAT, BRG_EMB_TOP, BRG_ARCH_UPB, BRG_SEG, BRG_WALK_MAX, BRG_PORTAL_L,
-  BRG_LAND_FLUSH,
+  BRG_LAND_FLUSH, BRG_COL_FIT, BRG_COL_EMB, BRG_COL_N, BRG_ARC_EMB, BRG_ARC_WF, BRG_ARC_K,
 } from './constants.js'
 
 //  방 돔 표면(회전체 — 수평 반경 r의 함수). 전부 상수 파생(H = ROOM_CEIL_Y − LIFT_Y).
@@ -75,20 +76,26 @@ export function bridgeSpec(o = {}) {
   const xL0 = r0, xL1 = r0 + landD
   const yLandU = yLand - landT                       // 참 밑면
   //  기둥(참 중앙 밑)
-  const colW = o.colW ?? BRG_COL_W, colD = o.colD ?? BRG_COL_D
+  //  ★★★138 기둥 발자국 = **참 발자국과 동일**(x 참 깊이 · z 관 외곽 폭). 1p3(★137-e)에서 유도한 규칙 그대로.
+  //   그래야 스팬드럴·브래킷이 기둥 밖으로 돌출하지 않고(종잇장 소멸), 되물린 아치 발이 기둥 안에 든다.
+  const colFit = o.colFit ?? BRG_COL_FIT
+  const colW = o.colW ?? (colFit ? landD : BRG_COL_W), colD = o.colD ?? (colFit ? wOut : BRG_COL_D)
   const xCol = r0 + landD / 2
   const yLine = x => yTerr - (x - xWall) / run * rise          // 아래층 걷는 선(공칭)
   const soffit = x => (x <= xL0 ? yLine(x) - ft : yLandU)      // 밑면(관→참 — xL0에서 연속: yLand−ft = yLandU)
   //  ★133-b 아치 — 단일 곡선(닫힌형 유도 · 머리 주석): J = 접합부 끝 · B = 기둥 발원 · C = 제어점
   const xJ = xWall, yJ = soffit(xWall)               // 접합부 끝(소핏·벽 모서리 — 벽 속 emb 매몰)
-  const xB = xCol - colW / 2                         // 기둥 안쪽 면
+  //  ★138 아치 발을 기둥 살 속으로 **되물린다**(공면 z-fighting 방지 — 1p3 ★137-e 어법).
+  //   여기 두 다리는 기둥 면에 **수직**이라 tanθ = 0 → 바닥값 BRG_ARC_EMB가 그대로 되물림 깊이다.
+  const arcEmb = o.arcEmb ?? BRG_ARC_EMB
+  const xB = xCol - colW / 2 + arcEmb                // 기둥 안쪽 면 + 되물림
   const yB = bridgeDomeY(xCol) + BRG_ARCH_UPB        // 기둥 아래쪽에서 발원(현도 "기둥 그 아래에서")
   const yCt = yJ - (rise / run) * (xB - xJ)          // ⓑ소핏 나란 합류(C.x = xB가 ⓐ수직 발진)
-  const xB2 = xCol + colW / 2                        // 브래킷 발(기둥 바깥 면)
+  const xB2 = xCol + colW / 2 - arcEmb               // 브래킷 발(기둥 바깥 면 − 되물림)
   return {
     on: BRG_ON, r0, yLand, yTerr, gap, hw, h, wt, ft, ftU, wOut, rw, xWall, emb,
     run, rise, steps, riser, tread, walkDeg,
-    landD, landT, xL0, xL1, yLandU, xCol, colW, colD,
+    landD, landT, colFit, arcHw: wOut / 2 * (o.arcWf ?? BRG_ARC_WF), arcWf: o.arcWf ?? BRG_ARC_WF, arcEmb, xL0, xL1, yLandU, xCol, colW, colD,
     arch: { xJ, yJ, xB, yB, yCt, xB2 },
     yLine, soffit,
   }
@@ -156,33 +163,61 @@ export function buildBridgeComplex(B = bridgeSpec()) {
   //  ④ 기둥 1기 — 바닥은 돔을 좇는다(폭 방향 반경차가 커서 평면 밑은 관통/들뜸 — 규율 6 '쪼개서 좇기').
   //   z 극단(±colD/2)의 반경이 최대이므로 그 r로 앉히면 반대편 관입 ≤ SEAT + 미소(z 반경차) — 관통 0 쪽으로 보수적.
   {
+    //  ★★★138 발을 **돔에 맞춘 격자면**으로 만든다(x·z 양방향 추종 — 1p3 ★137-d 어법 이식).
+    //   ⛔옛 판은 상수 반경 프로파일(z를 colD/2로 고정)이라 x만 좇았다. ★133은 z 반경차가 작아 들뜸은 0이었지만
+    //    발자국을 참만큼 넓히면 z 반경차가 커져 그 방식이 더는 안전하지 않다 → 격자 추종으로 통일한다.
+    //   ⚠머리: 기둥 옆면이 참 옆면과 같은 평면이 되므로 매몰(EMB_TOP) 대신 **참 밑면에 정확히 맞댄다**(★137-d 근거).
     const x0 = B.xCol - B.colW / 2, x1 = B.xCol + B.colW / 2
-    const topY = B.yLandU + BRG_EMB_TOP              // 참 매스 속으로 매몰(틈 금지)
-    const n = 8, bot = []
-    for (let i = n; i >= 0; i--) {
-      const x = x0 + (x1 - x0) * i / n
-      bot.push([x, bridgeDomeY(Math.hypot(x, B.colD / 2)) - BRG_SEAT])
+    const z0 = -B.colD / 2, z1 = B.colD / 2
+    const topY = B.colFit ? B.yLandU : B.yLandU + BRG_EMB_TOP
+    const n = BRG_COL_N
+    const X = i => x0 + (x1 - x0) * i / n, Z = j => z0 + (z1 - z0) * j / n
+    const yb = (x, z) => bridgeDomeY(Math.hypot(x, z)) - BRG_COL_EMB
+    const pos = []
+    const tri = (p, q, r) => { for (const v of [p, q, r]) for (const c of v) pos.push(c) }
+    const q4 = (p, q, r, t) => { tri(p, q, r); tri(p, r, t) }
+    for (let i = 0; i < n; i++) {
+      const xa = X(i), xb = X(i + 1)
+      q4([xa, yb(xa, z0), z0], [xb, yb(xb, z0), z0], [xb, topY, z0], [xa, topY, z0])
+      q4([xb, yb(xb, z1), z1], [xa, yb(xa, z1), z1], [xa, topY, z1], [xb, topY, z1])
     }
-    solid.push({ id: 'column', geo: extrude([[x0, topY], [x1, topY], ...bot], -B.colD / 2, B.colD / 2) })
+    for (let j = 0; j < n; j++) {
+      const za = Z(j), zb = Z(j + 1)
+      q4([x1, yb(x1, za), za], [x1, yb(x1, zb), zb], [x1, topY, zb], [x1, topY, za])
+      q4([x0, yb(x0, zb), zb], [x0, yb(x0, za), za], [x0, topY, za], [x0, topY, zb])
+    }
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+      const xa = X(i), xb = X(i + 1), za = Z(j), zb = Z(j + 1)
+      q4([xa, yb(xa, za), za], [xa, yb(xa, zb), zb], [xb, yb(xb, zb), zb], [xb, yb(xb, za), za])
+      q4([xa, topY, za], [xb, topY, za], [xb, topY, zb], [xa, topY, zb])   // ★137-h: 윗면도 같은 격자(T-교차 금지)
+    }
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+    g.computeVertexNormals()
+    solid.push({ id: 'column', geo: orientOutward(g) })   // ★137-g 안팎 자가 교정
   }
   //  ⑤ ★133-b 아치 스팬드럴: 인트라도스 = 단일 2차 베지어 J→B(닫힌형 — 머리 주석).
   //   위 경계 = 소핏 + SINK(공면 방지 관입). 참 밑 구간(xL0~xB)은 참 밑면 — 꺾임점 xL0을 명시 표본으로 박는다
   //   (표본 사이 현이 꺾임점을 비껴 매달리는 것 방지 — 관입 여유 안이지만 명시가 싸다).
   {
     const { xJ, yJ, xB, yB, yCt } = B.arch
-    const intra = quad([xJ, yJ], [xB, yCt], [xB, yB], BRG_SEG)
+    //  ★★★138 곡률 노브 — 1p3와 **같은 규칙**(2차를 3차로 승격하고 손잡이를 K배 · K=1이면 옛 곡선과 동일).
+    //   archY는 s=L을 J, s=0을 B로 두므로 여기선 s = xB − x 로 읽으면 그대로 맞는다(제어점이 B 끝에 있는 같은 형상).
+    const fK = archY({ L: xB - xJ, yJ, yC: yCt, yB, K: BRG_ARC_K })
+    const intra = []
+    for (let i = 0; i <= BRG_SEG; i++) { const x = xJ + (xB - xJ) * i / BRG_SEG; intra.push([x, fK(xB - x)]) }
     const back = [[xB, B.soffit(xB) + BRG_SINK], [B.xL0, B.soffit(B.xL0) + BRG_SINK]]
     for (let i = 1; i <= BRG_SEG; i++) {
       const x = B.xL0 + (xJ - B.xL0) * i / BRG_SEG
       back.push([x, B.soffit(x) + BRG_SINK])
     }
-    solid.push({ id: 'spandrel', geo: extrude([...intra, ...back], -B.wOut / 2, B.wOut / 2) })
+    solid.push({ id: 'spandrel', geo: extrude([...intra, ...back], -B.arcHw, B.arcHw) })   // ★138 폭 비율
   }
   //  ⑥ 바깥 브래킷: 기둥 바깥 면 → 참 바깥 밑 모서리(수직 발진 · 수평 도착 — 사분 아치)
   {
     const { xB2, yB } = B.arch
     const arc = quad([xB2, yB], [xB2, B.yLandU], [B.xL1, B.yLandU], BRG_SEG)
-    solid.push({ id: 'bracket', geo: extrude([...arc, [xB2, B.yLandU + BRG_SINK]], -B.wOut / 2, B.wOut / 2) })
+    solid.push({ id: 'bracket', geo: extrude([...arc, [xB2, B.yLandU + BRG_SINK]], -B.arcHw, B.arcHw) })   // ★138 폭 비율
   }
   //  ⑦ ⛔윗층 어귀 포털(규율 5·6 — 스모크 자가 적발의 답): 윗층 관 끝(y132.07~138.42)이 첨탑 **위 빗면**
   //   (★129-b: y134.92↑에서 벽이 22.2→18로 물러남)을 가로지른다. 수직 끝면은 빗면 위에서 허공에 뜨고(틈 1.1+),

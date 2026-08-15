@@ -31,7 +31,7 @@ import { bridgeSpec } from './bridgeComplexGeometry.js'
 import * as THREE from 'three'
 import {
   LK4_ON, LK4_MODE, LK4_SEG1, LK4_SEG3, LK4_XOFF, LK4_BEZ_K, LK4_N, LK4_SINK, LK4_JOINT,
-  LK4_ARC_ON, LK4_ARC_Z, LK4_ARC_SEG, LK4_ARC_KINK, BRG_SINK,
+  LK4_ARC_ON, LK4_ARC_Z, LK4_ARC_SEG, LK4_ARC_KINK, BRG_SINK, BRG_ARC_EMB,
 } from './constants.js'
 
 const nrm = a => Math.hypot(a[0], a[1])
@@ -121,7 +121,13 @@ function archSpec({ pts, E, xE, hwOut, y, B, o }) {
   const yJ = y - (o.ftOverride ?? B.ft)              // 소핏 = 걷는 면 − 바닥 매스 → B.yLandU와 같은 값
   const yB = B.arch.yB                               // ★133 아치와 **같은 발 높이**(돔 + BRG_ARCH_UPB) — 사본 아님
   //  경로: 기둥 면 → 관 끝 → 관 중심선(역순, z가 zEnd에 닿을 때까지 · 경계점은 정확히 얹는다)
-  const path = [[xE, zCol], [E[0], E[1]]]
+  //  ★★★138 발원 되물림 통일(1p3 ★137-e 규칙): 기둥 면에서 **다리 방향으로** 되물려 캡을 기둥 살 속에 묻는다.
+  //   ⛔★138에서 기둥 발자국을 참만큼 넓히자 기둥 −z 면이 **관 끝을 지나쳐** 옛 A0(기둥 면)이 관 바깥으로 나갔다.
+  //    → 기준을 기둥 면이 아니라 **관 끝(E)**으로 잡고 거기서 +z(안쪽)로 되물린다. 이 다리는 면에 수직이라 tanθ=0.
+  const embA = Math.max(0, BRG_ARC_EMB)
+  //  ⚠+z가 기둥 **속**이다. 상한은 기둥의 **+z 면**(−z 면으로 자르면 되물림이 통째로 무효가 된다 — 실측 적발)
+  const A0z = Math.min(E[1] + embA, -zCol)
+  const path = [[xE, A0z], [E[0], E[1]]]
   const rev = pts.slice().reverse()                  // pts는 나선→참 순서라 뒤집으면 참→나선
   for (let i = 1; i < rev.length; i++) {
     const a = rev[i - 1], b = rev[i]
@@ -146,7 +152,7 @@ function archSpec({ pts, E, xE, hwOut, y, B, o }) {
   //   → 방향이 LK4_ARC_KINK 이상 꺾이는 자리에서 경로를 **마디로 쪼개고**, 꺾임 자리는 **각기둥 채움**으로 잇는다.
   const { dirs, runs, corners } = splitRuns(path, sArr, o.archKink ?? LK4_ARC_KINK)
   const yTopC = yJ + BRG_SINK
-  return { on, yTopOf: () => yTopC, zEnd, zEndAsked: o.archZ ?? LK4_ARC_Z, zMin, clamped, zCol, yJ, yB, path, sArr, L, yOfS, rise: yJ - yB, hwOut, reach,
+  return { on, yTopOf: () => yTopC, reach0: E[1], zEnd, zEndAsked: o.archZ ?? LK4_ARC_Z, zMin, clamped, zCol, yJ, yB, path, sArr, L, yOfS, rise: yJ - yB, hwOut, reach,
     dirs, runs, corners,
     yTop: yJ + BRG_SINK,                             // 관 바닥 매스 속으로 관입(공면 방지 — BRG_SINK 어법)
     seg: o.archSeg ?? LK4_ARC_SEG }

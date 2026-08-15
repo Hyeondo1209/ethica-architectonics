@@ -3473,7 +3473,12 @@ console.log('\n── ★133 1p4 복합체(2층 관·참·기둥·아치 — ★
       const bb2 = g2.boundingBox
       ok(Math.abs(bb2.min.y - A.yB) < 1e-4 && Math.abs(bb2.max.y - A.yTop) < 1e-4,
         `${mode}: 아치 높이 ${bb2.min.y.toFixed(2)}~${bb2.max.y.toFixed(2)} = 발~소핏+관입 ${BRG_SINK_}`)
-      ok(bb2.max.z <= A.zCol + 1e-6, `${mode}: 아치는 기둥 면(z ${A.zCol})보다 바깥에만 있다 — 기둥과 부피 겹침 0`)
+      //  ★★138 전제 변경: 발원을 **일부러 기둥 살 속에 묻는다**(공면 z-fighting 방지 — ★137-e 규칙 통일).
+      //   그래서 "기둥 밖에만 있다"가 아니라 "**기둥 발자국 안에서 시작한다**"를 박는다.
+      //  ⚠기둥 −z 면은 체제(BRG_COL_FIT)에 따라 −2.70 또는 −1.50이다 → 불변식은 **관 끝보다 안쪽에서 시작한다**는 것.
+      //  ⚠BRG_ON=false면 ★133 참이 없어 되물릴 곳도 없다 — 그 체제에서는 관 끝에서 시작하는 것이 맞다.
+      ok(bb2.max.z >= A.reach0 - 1e-6 && bb2.max.z <= B.wOut / 2 + 1e-6,
+        `${mode}: 아치 발이 관 끝(z ${A.reach0.toFixed(3)})보다 **안쪽** z ${bb2.max.z.toFixed(3)}에서 시작 — 되물려 묻혔다(공면 아님)`)
       ok(A.yTop > B.yLandU && A.yTop < B.yLand, `${mode}: 아치 윗면 ${A.yTop.toFixed(2)}이 관 바닥 매스 속에 잠긴다(공면 z-fighting 방지)`)
       //  ⛔★133 계단 관 z대 안에서는 x를 침범하면 안 된다
       const ap = g2.getAttribute('position')
@@ -3969,6 +3974,87 @@ console.log('\n── ★133 1p4 복합체(2층 관·참·기둥·아치 — ★
     ok(/buildLink3/.test(src3) && /link3Parts/.test(src3), 'Room.jsx: ★137 마운트')
     ok(/LK3_ON/.test(src3), 'Room.jsx: LK3_ON 게이트')
     ok((src3.match(/name=\{'1p3통로\/' \+ id\}/g) || []).length === 2, 'Room.jsx: walk/solid 둘 다 name 부여')
+  }
+}
+
+// ══════════════ ★★★138 ★133 복합체 기둥 부분 — 1p3 처리 이식 ══════════════
+{
+  console.log('\n— ★138. ★133 기둥/아치에 1p3 규칙 이식 —')
+  const { bridgeSpec: bs8, bridgeDomeY: dy8, buildBridgeComplex: bb8 } = await import('./bridgeComplexGeometry.js')
+  const C8 = await import('./constants.js')
+  //  ⚠전역 스위치와 무관하게 시험한다 — ⛔소등 체제(BRG_ON=false)에서 검사가 null을 붙잡고 죽었고,
+  //   COL_FIT=false에서는 fit 전제 단언이 깨졌다. **여섯 번째 같은 계열** → 시험용 spec을 명시로 켠다.
+  const B8 = bs8({ colFit: true })
+  //  ⚠BRG_ON=false면 buildBridgeComplex가 null을 준다 → 켠 spec으로 직접 짓는다(소등 체제에서도 검사는 살아 있어야 한다)
+  const P8 = bb8({ ...B8, on: true }) ?? bb8(B8)
+  //  ① 기둥 발자국 = 참 발자국
+  ok(Math.abs(B8.colW - B8.landD) < 1e-9 && Math.abs(B8.colD - B8.wOut) < 1e-9,
+    `기둥 발자국 ${B8.colW.toFixed(2)}(x=참 깊이) × ${B8.colD.toFixed(2)}(z=관 외곽 폭) = **참 발자국과 동일**(1p3 ★137-e 규칙)`)
+  ok(B8.arcHw * 2 <= B8.colD + 1e-9 && B8.arcHw * 2 <= B8.colW + 1e-9,
+    `아치 폭 ${(2 * B8.arcHw).toFixed(2)} ≤ 기둥 단면 → z 돌출 0(종잇장 소멸 — 옛 3.0 기둥에서는 1.2씩 튀어나왔다)`)
+  //  ② 아치 발 되물림 — 기둥 면과 공면이 아니다
+  ok(Math.abs(B8.arch.xB - (B8.xCol - B8.colW / 2)) > 1e-6 && Math.abs(B8.arch.xB2 - (B8.xCol + B8.colW / 2)) > 1e-6,
+    `스팬드럴 발 ${B8.arch.xB.toFixed(4)} · 브래킷 발 ${B8.arch.xB2.toFixed(4)} — 기둥 두 면(${(B8.xCol - B8.colW / 2).toFixed(4)} · ${(B8.xCol + B8.colW / 2).toFixed(4)})과 **공면이 아니다**`)
+  ok(Math.abs((B8.arch.xB - (B8.xCol - B8.colW / 2)) - B8.arcEmb) < 1e-9,
+    `되물림 = BRG_ARC_EMB ${B8.arcEmb}(이 다리는 기둥 면에 수직이라 tanθ=0 → 바닥값이 그대로 쓰인다)`)
+  ok(B8.arch.xB > B8.xCol - B8.colW / 2 && B8.arch.xB2 < B8.xCol + B8.colW / 2, `— 두 발이 기둥 발자국 **안**에 있다`)
+  //  ③ 돔 추종 격자 발
+  {
+    const g = P8.solid.find(q => q.id === 'column').geo, ap = g.getAttribute('position')
+    const topY = B8.yLandU
+    let onDome = 0, stray = 0
+    for (let i = 0; i < ap.count; i++) {
+      const x = ap.getX(i), y = ap.getY(i), z = ap.getZ(i)
+      const d = dy8(Math.hypot(x, z)) - C8.BRG_COL_EMB
+      if (Math.abs(y - d) < 1e-3) onDome++
+      else if (Math.abs(y - topY) > 1e-3) stray++
+    }
+    ok(onDome > 0 && stray === 0,
+      `기둥 발 정점 ${onDome}기가 전부 **돔 − ${C8.BRG_COL_EMB}** 위에 있고 그 밖의 정점 ${stray}개(x·z 양방향 격자 추종)`)
+    //  ⛔옛 상수 반경 방식이면 넓어진 발자국에서 실제로 떠오른다는 것을 실증
+    const zFar = B8.colD / 2, rNear = Math.hypot(B8.xCol - B8.colW / 2, 0), rFar = Math.hypot(B8.xCol + B8.colW / 2, zFar)
+    ok(dy8(rNear) - dy8(rFar) > 1, `⛔옛 방식 실증: 발자국이 참만큼 넓어지면 모서리 간 돔 낙차가 ${(dy8(rNear) - dy8(rFar)).toFixed(2)} — 상수 반경으로는 못 덮는다`)
+    ok(Math.abs(topY - B8.yLandU) < 1e-9, `기둥 머리 ${topY.toFixed(2)} = 참 밑면(옆면이 참과 같은 평면이라 매몰 대신 맞댄다 — ★137-d 근거)`)
+  }
+  //  ④ 곡률 노브 — K=1이면 옛 곡선과 동일
+  {
+    const { archY: aY8 } = await import('./link4Geometry.js')
+    const { xJ, yJ, xB, yB, yCt } = B8.arch
+    const f = aY8({ L: xB - xJ, yJ, yC: yCt, yB, K: 1 })
+    let worst = 0
+    for (let i = 0; i <= 60; i++) { const t = i / 60, u = 1 - t
+      const x = u * u * xJ + 2 * u * t * xB + t * t * xB
+      const y = u * u * yJ + 2 * u * t * yCt + t * t * yB
+      worst = Math.max(worst, Math.abs(f(xB - x) - y)) }
+    ok(worst < 1e-6, `BRG_ARC_K=1 → 옛 2차 스팬드럴과 동일(최대 차 ${worst.toExponential(1)}) = 무회귀`)
+    ok(C8.BRG_ARC_K > 0 && C8.BRG_ARC_K <= 1.5, `곡률 노브 ${C8.BRG_ARC_K} — 1p3와 같은 상한 1.5`)
+  }
+  //  보존계 — 옛 3.0 기둥이면 돌출이 되살아나는 것이 **정상**이다
+  {
+    const Bo = bs8({ colFit: false })
+    ok(Bo.colW < Bo.landD && Bo.colD < Bo.wOut,
+      `보존계 BRG_COL_FIT=false: 옛 기둥 ${Bo.colW.toFixed(1)}×${Bo.colD.toFixed(1)} < 참 발자국 ${Bo.landD.toFixed(2)}×${Bo.wOut.toFixed(2)} → 아치가 기둥 밖으로 되살아난다`)
+    ok(bb8({ ...Bo, on: true }) !== null, `— 그 체제에서도 복합체가 지어진다(BRG_ON과 무관하게 시험)`)
+  }
+  //  ⑤ 감김·부피 (★137-h 규율을 ★133에도)
+  {
+    const K = v => Math.round(v * 1e4) / 1e4
+    for (const q of [...P8.walk, ...P8.solid]) {
+      const ap = q.geo.getAttribute('position'), m = new Map()
+      let V = 0
+      for (let i = 0; i < ap.count; i += 3) {
+        const p3 = [0, 1, 2].map(k => [ap.getX(i + k), ap.getY(i + k), ap.getZ(i + k)])
+        V += (p3[0][0] * (p3[1][1] * p3[2][2] - p3[1][2] * p3[2][1])
+            - p3[0][1] * (p3[1][0] * p3[2][2] - p3[1][2] * p3[2][0])
+            + p3[0][2] * (p3[1][0] * p3[2][1] - p3[1][1] * p3[2][0])) / 6
+        const Q = p3.map(v => v.map(K).join())
+        for (let k = 0; k < 3; k++) m.set(Q[k] + '|' + Q[(k + 1) % 3], (m.get(Q[k] + '|' + Q[(k + 1) % 3]) || 0) + 1)
+      }
+      let dup = 0
+      for (const [, v] of m) if (v > 1) dup += v - 1
+      ok(dup === 0, `★133 ${q.id}: 같은 방향 중복 에지 ${dup}(감김 일관)`)
+      ok(V > 0, `★133 ${q.id}: 부호 있는 부피 ${V.toFixed(1)} > 0(바깥을 본다)`)
+    }
   }
 }
 
