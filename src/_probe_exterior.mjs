@@ -12,6 +12,7 @@ import { parseFree } from './poseFormat.js'
 import { buildArm13 } from './armGeometry.js'
 import { buildSpire } from './spireGeometry.js'   // ★127 첨탑 정본
 import { buildLinkParts, linkSpec } from './linkPassageGeometry.js'   // ★130 접속 통로
+import { buildBridgeComplex } from './bridgeComplexGeometry.js'   // ★133 1p4 복합체
 import { ARM13_ON, ARM13_K } from './constants.js'
 
 const W = 880, H = 495, BG = [18, 18, 20]
@@ -57,6 +58,13 @@ const COL = {
       const m = new THREE.Matrix4().makeRotationY(-(part.k * Math.PI / 2))
       for (const g of part.walk) addGeo(g, COL.link, m)
       for (const g of part.solid) addGeo(g, COL.tower, m)
+    }
+    //  ★133 복합체(방위 0° — 회전 없음, 정본 빌더 직결)
+    COL.brgW = [120, 220, 140]; COL.brgS = [90, 170, 200]
+    const BP = buildBridgeComplex()
+    if (BP) {
+      for (const { geo } of BP.walk) addGeo(geo, COL.brgW)
+      for (const { geo } of BP.solid) addGeo(geo, COL.brgS)
     }
   }
 }

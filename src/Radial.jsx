@@ -20,6 +20,7 @@ import {
   ROOM_LAND_R, ROOM_WELL_RT, ROOM_CEIL_Y, ROOM_CYL_TOP,
   RAD_ANG0, RAD_R, RAD_PRX, RAD_PRY, RAD_PCY,
   RAD_T_HW, RAD_TOP, RAD_DOOR_H, RAD_DOOR_HW, RAD_ARC_IN,
+  BOX_PAD_ON,
   RAD_JPHI, RAD_JX, RAD_FLOOR_Y, RAD_T_IN, RAD_UNDER_LIP, RAD_WALL_R0,
   RAD_DROP, RAD_ST_N, RAD_ST_T, RAD_ST_LAND, RAD_ST_W,
   RAD_SKIRT_MAX,
@@ -763,11 +764,14 @@ export function RadialRooms() {
       {/* 고리 5구간 — ⛔★122 소등(2026.08.12 현도 "고리는 일단 없애자"). 보존계: RAD_RING_ON 한 줄 복귀.
           ⚠선언된 동선 단절: 방→고리→진출 박스(1p5) 경로 소멸. 접선 문·문틀·진입 계단·접합 패드는 존속. */}
       {RAD_RING_ON && arcs.map(([a, b, bs, be], i) => <ArcSection key={i} phi0={a} phi1={b} boxStart={bs} boxEnd={be} />)}
-      {/* 접합 패드(박스 내부, 문 2 ↔ 다리): 다리판 밑 0.02 립 */}
-      <mesh position={[RAD_JX, RAD_FLOOR_Y, 0]} userData={{ walkable: true }}>
-        <boxGeometry args={[7, COR_THICK, BOX_HW * 2]} />
-        <meshStandardMaterial color={MAT_FLOOR} roughness={0.9} side={THREE.DoubleSide} />
-      </mesh>
+      {/* 접합 패드(박스 내부, 문 2 ↔ 다리): 다리판 밑 0.02 립
+          ⛔★134-b: 관 바닥의 연장이라 관이 없으면 허공에 뜬다 — BOX_PAD_ON으로 소등(현도 "찌꺼기"). */}
+      {BOX_PAD_ON && (
+        <mesh name="접합 패드" position={[RAD_JX, RAD_FLOOR_Y, 0]} userData={{ walkable: true }}>
+          <boxGeometry args={[7, COR_THICK, BOX_HW * 2]} />
+          <meshStandardMaterial color={MAT_FLOOR} roughness={0.9} side={THREE.DoubleSide} />
+        </mesh>
+      )}
     </group>
   )
 }

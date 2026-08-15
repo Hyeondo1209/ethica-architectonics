@@ -7,6 +7,7 @@ import {
   domeClipY, ROOM_R, ROOM_CEIL_Y, ROOM_LAND_R, ROOM_WELL_RT, ROOM_CYL_TOP,
   COR_Y0, COR_THICK, COR_CX, COR_R, BOX_X0, BOX_X1, BOX_HW, BOX_TOP,
   RAD_ANG0, RAD_R, RAD_PRX, RAD_PRY, RAD_PCY, RAD_T_HW, RAD_TOP,
+  BOX_CAP_ON as _capOn, BOX_TUBE_ON as _tubeOn,
   RAD_DOOR_H, RAD_DOOR_HW, RAD_ARC_IN, RAD_JPHI, RAD_JX, RAD_JDOOR_HW, RAD_CAP_X, RAD_T_IN, RAD_FLOOR_Y,
   RAD_DROP, RAD_ST_N, RAD_ST_T, RAD_ST_LAND, RAD_ST_W,
   ROOM_TOP_AZ, ROOM_DISC_SLOT_START, ROOM_DISC_SLOT_LEN, ROOM_STAIR_PHASE, ROOM_STAIR_TOTAL_ANG,
@@ -55,10 +56,23 @@ for (let k = 0; k < 4; k++) {
 ok('꽃잎(셸 포함) ↔ 원기둥 축 거리 > COR_R+2', minD > COR_R + 2, `최근접 ${r2(minD)} vs ${COR_R + 2}`)
 ok('고리 최대 반경 < 원기둥 최근접(120)', RAD_R + RAD_T_HW + 0.5 < 120, `${r2(RAD_R + RAD_T_HW)}`)
 
+const C134 = { BOX_CAP_ON: _capOn, BOX_TUBE_ON: _tubeOn }   // ★134-b 스위치 묶음
 console.log('── 3. 접합(고리 ↔ 박스) ──')
 ok('접합문 x가 박스 안', RAD_JX - RAD_JDOOR_HW > BOX_X0 + 1 && RAD_JX + RAD_JDOOR_HW < BOX_X1 - 1,
   `문 ${r2(RAD_JX - RAD_JDOOR_HW)}~${r2(RAD_JX + RAD_JDOOR_HW)} ⊂ (${BOX_X0}, ${BOX_X1})`)
 ok('서쪽 캡 = BOX_X0 = RAD_CAP_X', BOX_X0 === RAD_CAP_X)
+//  ⛔★134-b(2026.08.15): 위 항은 **상수 동치**만 본다 — 캡이 실제로 켜져 있는지는 몰랐다(★132·★134 계열 거짓 안전).
+//   서캡은 원뿔대 동쪽 문 봉인을 맡으므로, 소등하면 그 자리가 **열린 개구**가 된다. 그 인과를 여기 박는다.
+{
+  const capOn = C134.BOX_CAP_ON
+  ok('서캡 실재 ↔ 방 동쪽 문 봉인(스위치 인지 — 상수 동치와 별개)',
+    capOn || (!capOn && !C134.BOX_TUBE_ON),
+    capOn ? '캡 ON — 봉인 유효'
+          : '⚠캡 OFF = ★134 빚에 합류(관도 OFF라 일관 · 현도 "열어둬" — 새 구조물이 인수할 때까지)')
+  ok('관 없이 캡만 남는 조합 금지(허공에 뜬 판)',
+    !(C134.BOX_CAP_ON && !C134.BOX_TUBE_ON),
+    C134.BOX_CAP_ON && !C134.BOX_TUBE_ON ? '⛔캡만 켜짐 — 관 없이 판만 뜬다' : '조합 정합')
+}
 ok('고리 반호 종단 z = 박스 옆벽', Math.abs(RAD_R * Math.sin(RAD_JPHI) - BOX_HW) < 1e-9)
 ok('접합문 폭 ≥ 고리 내폭', RAD_JDOOR_HW * 2 >= RAD_T_HW * 2 - 0.5, `${RAD_JDOOR_HW * 2} vs ${RAD_T_HW * 2}`)
 ok('접합 패드가 문 스팬 덮음', 7 / 2 >= RAD_JDOOR_HW + 1)

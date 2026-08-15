@@ -32,7 +32,8 @@ import { buildWallBase } from './wallBaseGeometry'
 import { buildSpire } from './spireGeometry.js'   // ★127 빛우물 첨탑(순수 기하 + CSG — 사본 금지·wellWallR 단일 정본)
 import { buildSpireTerrace } from './spireTerraceGeometry.js'   // ★128 첨탑 테라스(고리 판 — 좌표는 전부 spireSpec 파생)
 import { buildUpperPlatform } from './upperPlatformGeometry.js' // ★131 새 층 플랫폼 + 좌우 계단 2기(테라스 위 — 드럼행 문의 자리)
-import { SPIRE_ON, SPT_ON, UPF_ON } from './constants.js'
+import { buildBridgeComplex } from './bridgeComplexGeometry.js' // ★133 1p4 방위 0° 복합체(2층 계단 관 + 참 + 기둥 + 아치)
+import { SPIRE_ON, SPT_ON, UPF_ON, BRG_ON } from './constants.js'
 import { buildRoomRibs } from './roomRibGeometry'   // ★116 방 돔 살 여덟(순수 기하 — 사본 금지)   // ★114 벽 밑동 팔각 각뿔대(순수 기하 — 사본 금지)
 
 // ════════ 지하 정의·공리 방 ════════
@@ -144,6 +145,8 @@ export function DefAxiomRoom({ stairKind }) {
   // ★★★131 새 층(2026.08.14): 테라스 위 한 층. 테라스·첨탑과 **또 별개 메시**다 —
   //  ⓐ 보존계 독립(UPF_ON 한 줄) ⓑ 부피·watertight 검사 분리 ⓒ CSG 대상 아님(문은 아직 안 뚫는다 = 밀봉 유지).
   const upperParts = useMemo(() => (SPIRE_ON && SPT_ON && UPF_ON ? buildUpperPlatform() : []), [])
+  //  ★133 복합체 — 첨탑·테라스가 있어야 문이 생길 자리가 있다(참·기둥은 방 돔 위 자립이지만 접합 대상이 첨탑)
+  const bridgeParts = useMemo(() => (SPIRE_ON && SPT_ON && BRG_ON ? buildBridgeComplex() : null), [])
   const wellCut = useMemo(() => {
     if (SPIRE_ON) return buildSpire()
     const ev = new Evaluator()
@@ -426,6 +429,18 @@ export function DefAxiomRoom({ stairKind }) {
       {upperParts.map(({ id, geo }) => (
         <mesh key={id} geometry={geo} userData={{ walkable: true }}>
           <meshStandardMaterial color="#97784e" roughness={0.92} side={THREE.FrontSide} />
+        </mesh>
+      ))}
+      {/* ★★★133 1p4 방위 0° 복합체(2026.08.15) — 2층 계단 관(참→테라스 · 참 위→새 층) + 참 + 기둥 + 아치.
+          별개 메시(보존계 독립 · CSG 대상 아님 — 밀봉: 문 컷 = 다음 조각). 재질 = ★130 통로 가족(길 연속). */}
+      {bridgeParts && bridgeParts.walk.map(({ id, geo }) => (
+        <mesh key={'brg-' + id} name={'1p4복합체/' + id} geometry={geo} userData={{ walkable: true }}>
+          <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.FrontSide} />
+        </mesh>
+      ))}
+      {bridgeParts && bridgeParts.solid.map(({ id, geo }) => (
+        <mesh key={'brg-' + id} name={'1p4복합체/' + id} geometry={geo} userData={{ walkable: false }}>
+          <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
         </mesh>
       ))}
       <pointLight position={[0, ROOM_CYL_TOP - 8, 0]} intensity={2.4} distance={ROOM_CYL_TOP * 1.6} decay={1.1} color="#fff1d2" />

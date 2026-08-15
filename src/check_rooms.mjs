@@ -2999,5 +2999,294 @@ console.log('\n── ★131 새 층(플랫폼 + 계단 2기) ──')
   }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+//  ★★★132 ① 통로 이사(1p4 → 1p2) — 0° 대역 점유 · 층 분리 불변식
+//  (2026.08.15 현도: "단일 통로를 1p2가 있는 쉘로 옮기자" + ⓒ "드럼행도 새 층에서")
+//  ⚠이 절이 지키는 것: ★131 새 층이 **왜 존재하는지**의 인과. 지난 세션까지 그 인과는
+//   문서에만 있었고 검사에 없었다 — 실제로 배정을 [1,2,0,0]→[0,2,1,0]으로 바꿔도
+//   1877항이 전부 green이었다(적발). 여기서 배정 ↔ 0° 대역 ↔ 층 분리를 묶어 잠근다.
+//  ★핵심 논리: 드럼행은 방위 0°로 나가야 한다(진출 박스 BOX_X0 54 · z±6).
+//   그런데 0° 문은 셸 315°(1p4)의 몫이고 그 셸은 **아직 비어 있을 뿐**이다 —
+//   현도의 "따로 있는 아이디어"가 거기 오면 테라스 레벨 0°는 다시 막힌다.
+//   → 드럼행을 **새 층**에 두는 것이 그 충돌을 미리 피하는 장치다(현도 확정 ⓒ).
+// ══════════════════════════════════════════════════════════════════════
+console.log('\n── ★132 ① 이사 · 0° 대역 · 층 분리 ──')
+{
+  const C = await import('./constants.js')
+  const LP3 = await import('./linkPassageGeometry.js')
+  const UP3 = await import('./upperPlatformGeometry.js')
+  const SG3 = await import('./spireGeometry.js')
+  const S = LP3.linkSpec()
+  const D = 180 / Math.PI
+  const deg = r => (r * D + 360) % 360
+  const sgnDeg = a => (a > 180 ? a - 360 : a)
+
+  //  ⓐ ⛔도구 먼저 검증한다 — 회전 규약이 R3F <group rotation-y={-(k·π/2)}>와 같은가.
+  //   (1차 프로브가 이 부호를 반대로 써서 틀린 답을 냈다. 도구를 안 재고 믿지 않는다.)
+  //   Three Y회전(θ): x' = x·cosθ + z·sinθ · z' = −x·sinθ + z·cosθ
+  const rot = (p, k) => { const t = -k * Math.PI / 2, c = Math.cos(t), s = Math.sin(t)
+    return [p[0] * c + p[1] * s, -p[0] * s + p[1] * c] }
+  {
+    let good = 0
+    for (let k = 0; k < 4; k++) {
+      const [x, z] = rot(S.P0, k)
+      const want = deg(Math.atan2(S.P0[1], S.P0[0]) + k * Math.PI / 2)
+      if (Math.abs(sgnDeg(deg(Math.atan2(z, x)) - want)) < 1e-9) good++
+    }
+    ok(good === 4, `도구 검증: k회전 4/4이 셸 방위 +90°k와 일치(${good}/4)`)
+  }
+
+  //  ⓑ 배정 규약 — LNK k와 꽃잎 k는 **45° 어긋난 다른 규약**이다(혼동 방지용 상시 대조)
+  const shellAzOf = k => deg(-Math.PI / 4 + k * Math.PI / 2)
+  const petalKOf = k => { for (let j = 0; j < 4; j++)
+    if (Math.abs(sgnDeg(deg(C.RAD_ANG0 + j * Math.PI / 2) - shellAzOf(k))) < 1e-9) return j
+    return -1 }
+  ok([0, 1, 2, 3].every(k => petalKOf(k) >= 0), 'LNK k 4기가 전부 꽃잎 k로 대응된다(규약 대조 성립)')
+  ok(petalKOf(0) === C.P_ROOM.p4 && petalKOf(1) === C.P_ROOM.p1 &&
+     petalKOf(2) === C.P_ROOM.p2 && petalKOf(3) === C.P_ROOM.p3,
+    'LNK k0=1p4(315°) · k1=1p1(45°) · k2=1p2(135°) · k3=1p3(225°) — ⚠꽃잎 k와 45° 어긋남')
+
+  //  ⓒ 현도 확정 배정(2026.08.15): ① 단일 곡선 = 1p2 셸 · ② 경유지 = 1p1 셸 그대로
+  const kOne = C.LNK_ASSIGN.indexOf(1), kTwo = C.LNK_ASSIGN.indexOf(2)
+  ok(kOne >= 0 && petalKOf(kOne) === C.P_ROOM.p2,
+    `① 단일 곡선 = LNK k${kOne} = 1p2 셸 ${shellAzOf(kOne).toFixed(0)}° → 첨탑 문 ${deg(kOne * Math.PI / 2).toFixed(0)}°`)
+  ok(kTwo >= 0 && petalKOf(kTwo) === C.P_ROOM.p1,
+    `② 경유지 = LNK k${kTwo} = 1p1 셸 ${shellAzOf(kTwo).toFixed(0)}° → 첨탑 문 ${deg(kTwo * Math.PI / 2).toFixed(0)}°(이사 없음)`)
+  ok(C.LNK_ASSIGN.filter(v => v).length === 2,
+    `배정된 통로 ${C.LNK_ASSIGN.filter(v => v).length}기 · 빈 셸 ${C.LNK_ASSIGN.filter(v => !v).length}기(③④ = 현도 그림 대기)`)
+
+  //  ⓓ ★0° 대역 점유 — 배정에서 **유도**한다(수치를 박지 않는다).
+  //   관 외곽 반폭 안에 0°축이 들어오면 그 반경대는 드럼행이 못 쓴다.
+  const halfOut = S.hw + S.wt
+  const occupy = assign => {
+    const hit = []                                    // {x, clr}
+    let seen = 0
+    assign.forEach((mode, k) => {
+      if (!mode) return
+      const paths = mode === 1 ? [S.one.pts] : [S.two.legA, S.two.legB]
+      for (const pts of paths) for (const p of pts) {
+        const [x, z] = rot(p, k)
+        if (x <= 0) continue
+        seen++
+        const clr = Math.abs(z) - halfOut
+        if (clr < 0) hit.push({ x, clr })
+      }
+      if (mode === 2) {                               // 미니 첨탑(원기둥)도 센다
+        const [x, z] = rot(S.two.M, k)
+        if (x > 0) { seen++; const clr = Math.abs(z) - S.two.tw.rOut; if (clr < 0) hit.push({ x, clr }) }
+      }
+    })
+    return { seen, hit }
+  }
+  {
+    const cur = occupy(C.LNK_ASSIGN)
+    //  ⚠공허참 가드 — +x 반평면 표본이 0이면 "침범 없음"은 무의미하다
+    ok(cur.seen > 0, `0°축 스캔 표본 ${cur.seen} > 0(빈 배열이면 아래 판정이 공허참)`)
+    ok(cur.hit.length === 0,
+      `현행 배정에서 테라스 레벨 0° 대역 점유 0(표본 ${cur.seen} 전부 순 여유 ≥ 0)`)
+
+    //  ⓔ ★가드 실증 — **옛 배정이면 실제로 잡혀야** 이 검사가 살아 있는 검사다
+    const old = occupy([1, 2, 0, 0])
+    ok(old.hit.length > 0, `가드 실증: 옛 배정 [1,2,0,0]에선 0°축 침범 ${old.hit.length}점(검사가 죽지 않았다)`)
+    if (old.hit.length) {
+      const xs = old.hit.map(q => q.x), len = Math.max(...xs) - Math.min(...xs)
+      ok(len > 10, `옛 배정 침범 길이 ${len.toFixed(1)}(x ${Math.min(...xs).toFixed(2)}~${Math.max(...xs).toFixed(2)}) — ★131이 층을 올린 사유`)
+    }
+
+    //  ⓕ ★인과의 유효기간 — 0°가 비어 있는 것은 **셸 315°(1p4)가 아직 비었기 때문**이다.
+    //   거기 통로가 배정되면 다시 막힌다 = 드럼행이 새 층에 있어야 하는 이유(현도 ⓒ).
+    const kZero = 0                                    // 첨탑 문 0°를 쓰는 셸
+    ok(petalKOf(kZero) === C.P_ROOM.p4,
+      `첨탑 0° 문의 임자 = LNK k0 = 1p4 셸(${shellAzOf(kZero).toFixed(0)}°)`)
+    const future = occupy(C.LNK_ASSIGN.map((v, k) => (k === kZero && !v ? 1 : v)))
+    ok(C.LNK_ASSIGN[kZero] !== 0 || future.hit.length > 0,
+      `1p4 셸에 통로가 오면 0° 대역이 다시 막힌다(가정 배치 시 침범 ${future.hit.length}점) — 층 분리가 그래서 필요하다`)
+  }
+
+  //  ⓖ ★층 분리 불변식 — 통로 4기 어느 배정이든 새 층 바닥 밑면 아래에서 끝난다
+  if (C.UPF_ON) {
+    const U = UP3.upperPlatformSpec()
+    const linkTop = S.y1 + S.h + S.wt
+    ok(Math.abs(U.yUnder - linkTop) < 1e-9,
+      `새 층 바닥 밑면 ${U.yUnder.toFixed(2)} = 통로 천장 ${linkTop.toFixed(2)}(층이 통로 위에서 시작한다)`)
+    ok(U.yWalk > linkTop,
+      `새 층 걷는 면 ${U.yWalk.toFixed(2)} > 통로 최고점 ${linkTop.toFixed(2)} — 통로가 어느 방위를 점유해도 이 층은 안 걸린다`)
+
+    //  ⓗ ★드럼행 기하 = **새 층 출발**(현도 확정 ⓒ). 선언된 빚(35° 초과)을 수치로 박는다.
+    const rw = SG3.wellWallR(U.yWalk, { forceSpire: true })
+    const H = C.BOX_X0 - rw, V = U.yWalk - 108.30            // 108.30 = 진출 관 천장
+    const ang = Math.atan2(V, H) * D
+    ok(H > 0 && V > 0, `드럼행 재료: 최단 수평 ${H.toFixed(2)} · 강하 ${V.toFixed(2)}(둘 다 양수)`)
+    ok(ang > 35,
+      `⚠선언된 빚 — 새 층 출발 직선 ${ang.toFixed(2)}° > 상한 35°: 수평 ${(V / Math.tan(35 * Math.PI / 180) - H).toFixed(2)}을 더 벌어야 한다(경로 = 현도 그림 대기)`)
+    //  참고값: 테라스에서 나갔다면 30.46°였다 — 현도는 ⓒ(새 층)를 택했다(조형·층 분리 우선)
+    const angT = Math.atan2(C.SPT_Y - 108.30, C.BOX_X0 - SG3.wellWallR(C.SPT_Y, { forceSpire: true })) * D
+    ok(angT < ang, `대조: 테라스 y${C.SPT_Y.toFixed(2)} 출발이면 ${angT.toFixed(2)}°(현도가 ⓒ를 택해 쓰지 않는 길)`)
+  } else {
+    ok(true, '⏸ UPF_ON=false — 층 분리 항목 건너뜀(새 층 소등 중)')
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  ★★★133 1p4 방위 0° 복합체 — 2층 계단 관 + 참 + 기둥 + 아치 (2026.08.15 · ★133-b 아치 개정 · ★133-c 복구)
+//  ⚠이 절이 지키는 것: ⓐ 좌표가 전부 정본 파생인가(참 = 나선 참) ⓑ ★133-b 삭제의 완결성
+//   (윗층·포털·소멸 노브가 소스에 없는가) ⓒ 걷는 선 상한 ⓓ 아치 닫힌형(두 접선 조건)과
+//   돔 관통 금지 ⓔ 벽 접합(매몰·수직 구간) ⓕ 밀봉.
+// ══════════════════════════════════════════════════════════════════════
+console.log('\n── ★133 1p4 복합체(2층 관·참·기둥·아치 — ★133-b/c) ──')
+{
+  const C = await import('./constants.js')
+  const BG = await import('./bridgeComplexGeometry.js')
+  const LP4 = await import('./linkPassageGeometry.js')
+  const SG4 = await import('./spireGeometry.js')
+  const roomSrc = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+  if (!C.BRG_ON) {
+    ok(BG.buildBridgeComplex() === null, '⏸ BRG_ON=false — 복합체 소등(보존계 복귀 확인)')
+  } else {
+    const B = BG.bridgeSpec()
+    const L = LP4.linkSpec(), S = SG4.spireSpec()
+
+    //  ⓐ 파생 — 손으로 적은 좌표가 없는가
+    ok(Math.abs(B.r0 - Math.hypot(L.P0[0], L.P0[1])) < 1e-12,
+      `참 반경 ${B.r0.toFixed(2)} = 셸 나선 참 바깥 끝(linkSpec P0 — 사본 0)`)
+    ok(Math.abs(B.yLand - L.y0) < 1e-12, `참 레벨 ${B.yLand.toFixed(2)} = 나선 참 문지방(linkSpec y0)`)
+    ok(Math.abs(B.rw - SG4.wellWallR(C.SPT_Y, { spec: S, forceSpire: true })) < 1e-12,
+      `벽 ${B.rw.toFixed(2)} = wellWallR(테라스 레벨)`)
+    {
+      const src = readFileSync(new URL('./bridgeComplexGeometry.js', import.meta.url), 'utf8')
+      const noC = src.replace(/\/\/.*$/gm, '')
+      ok(!/44\.61|112\.5|133\.3|127(?![0-9])|22\.2(?![0-9])|6\.30/.test(noC),
+        '주석 밖 좌표 하드코딩 0(44.61·112.5·133.3·127·22.2·6.30 전부 파생)')
+      //  ⓕ 밀봉 — 문 컷 소스 없음(다음 조각)
+      ok(!/BRG_DOOR|cutBridge|door/i.test(noC), '개구 0 — 문 컷 소스 없음(밀봉 어법 · 컷 = 다음 조각)')
+      //  ⓑ ★133-c 복구의 완결성 — 윗층 관·포털이 되살아났는가(★133-b 오독 삭제의 원상)
+      ok(/upMass/.test(noC) && /portal/.test(noC) && /ftU/.test(noC),
+        '★133-c: 윗층 관·어귀 포털 존치(★133-b 오독 삭제를 원상 복구)')
+      ok((noC.match(/buildTube\(/g) || []).length === 3,
+        'buildTube 정의 1 + 호출 2(아래층·윗층 — 적층 복구)')
+    }
+    ok(C.BRG_ARCH_XC_F === undefined && C.BRG_ARCH_DROP === undefined,
+      '소멸 노브 2(XC_F·DROP)가 constants에 없음 — 아치는 닫힌형(노브 0)')
+    //  적층 산술(★131 ⓛ 연속) — 복구분
+    ok(Math.abs(B.ftU - (B.gap - B.h - B.wt + C.BRG_SINK)) < 1e-12,
+      `윗층 바닥 ${B.ftU.toFixed(2)} = 층차 − 내부고 − 천장살 + 관입(§2-D를 깨는 선언된 비용 — ★131 ⓛ 연속)`)
+    ok(Math.abs(((B.yTerr + B.gap - B.ftU) - (B.yTerr + B.h + B.wt)) + C.BRG_SINK) < 1e-9,
+      `적층 접면 관입 = SINK(공면 z-fighting 방지 · 틈 0)`)
+    ok(Math.abs((B.yTerr + B.gap) - (await import('./upperPlatformGeometry.js')).upperPlatformSpec().yWalk) < 1e-12,
+      `윗층 문지방 ${(B.yTerr + B.gap).toFixed(2)} = ★131 새 층 걷는 면`)
+
+    //  ⓒ 계단 — 부동소수점 봉인 + 독립 재계산 + 상한
+    ok(B.steps === Math.max(2, Math.ceil(B.rise / C.BRG_STEP - 1e-9)),
+      `단수 ${B.steps} — 허용오차 ceil(★131 계열 봉인 · rise ${B.rise.toFixed(12)})`)
+    ok(Math.abs(B.riser * B.steps - B.rise) < 1e-9, `단높이 ${B.riser.toFixed(4)} × ${B.steps} = 상승(나머지 0)`)
+    {
+      const st2 = Math.max(2, Math.ceil((C.SPT_Y - L.y0) / C.BRG_STEP - 1e-9))
+      const wd2 = Math.atan2((C.SPT_Y - L.y0) / st2, (B.r0 - (B.rw - L.emb)) / st2) * 180 / Math.PI
+      ok(st2 === B.steps && Math.abs(wd2 - B.walkDeg) < 1e-9,
+        `독립 재계산 일치(${st2}단 · 걷는 선 ${wd2.toFixed(2)}°)`)
+    }
+    ok(B.walkDeg <= C.BRG_WALK_MAX, `걷는 선 ${B.walkDeg.toFixed(2)}° ≤ 상한 ${C.BRG_WALK_MAX}°`)
+
+    //  참·소핏 연속
+    ok(Math.abs(B.soffit(B.r0) - B.yLandU) < 1e-9,
+      `소핏(참 자리) ${B.soffit(B.r0).toFixed(2)} = 참 밑면(관 바닥 1.5 = 참 매스 1.5 — 연속)`)
+    ok(Math.abs(B.landT - B.ft) < 1e-12, '참 매스 = 관 바닥 매스(연속의 전제 — 값이 갈리면 위 검사도 갈린다)')
+
+    //  ⓓ 아치 — ★133-b 닫힌형(두 접선 조건) · 돔 관통 금지
+    {
+      const dome = BG.bridgeDomeY
+      //  기둥 바닥이 돔을 좇는가(폭 방향 최대 반경 기준 — 규율 6)
+      const x0 = B.xCol - B.colW / 2, x1 = B.xCol + B.colW / 2
+      let confOK = true
+      for (let i = 0; i <= 8; i++) {
+        const x = x0 + (x1 - x0) * i / 8
+        if (!(dome(Math.hypot(x, B.colD / 2)) - C.BRG_SEAT < B.yLandU)) confOK = false
+      }
+      ok(confOK, '기둥 바닥 전 표본이 참 밑면 아래(돔 좇는 식 성립)')
+      const { xJ, yJ, xB, yB, yCt } = B.arch
+      //  도착점 J = 접합부 끝(아래층 소핏이 벽에 닿는 모서리 — 벽 속 emb 매몰)
+      ok(Math.abs(xJ - (B.rw - B.emb)) < 1e-12 && Math.abs(yJ - (C.SPT_Y - B.ft)) < 1e-12,
+        `아치 도착점 J(${xJ.toFixed(2)}, ${yJ.toFixed(2)}) = 접합부 끝(소핏·벽 모서리 — ★133-b 현도)`)
+      //  접선 조건 ⓐ 기둥 수직 발진(C.x = B.x — 구조) ⓑ J에서 소핏 나란 합류: 독립 재유도 대조
+      ok(Math.abs(yCt - (yJ - B.rise / B.run * (xB - xJ))) < 1e-12,
+        `제어점 y ${yCt.toFixed(2)} = 소핏 접선 재유도(닫힌형 — 크라운 노브 0)`)
+      //  볼록포 실증: 인트라도스 전 표본이 소핏선 아래(스팬드럴 두께 비음수) + 돔 위(관통 0)
+      const q = (P0, Cc, P1, t) => { const u = 1 - t
+        return [u*u*P0[0]+2*u*t*Cc[0]+t*t*P1[0], u*u*P0[1]+2*u*t*Cc[1]+t*t*P1[1]] }
+      let below = true, above = true, minClr = Infinity
+      for (let i = 0; i <= 96; i++) {
+        const p = q([xJ, yJ], [xB, yCt], [xB, yB], i / 96)
+        if (p[1] > B.soffit(p[0]) + 1e-9) below = false
+        const clr = p[1] - (dome(p[0]) - C.BRG_SEAT)
+        minClr = Math.min(minClr, clr)
+        if (clr < -1e-9) above = false
+      }
+      ok(below, '인트라도스 97표본 전부 소핏선 아래(볼록포 논증 실증 — 두께 비음수)')
+      ok(above, `인트라도스 97표본 전부 돔−SEAT 위(최소 여유 ${minClr.toFixed(3)} — 관통 0)`)
+      ok(Math.abs(yB - (dome(B.xCol) + C.BRG_ARCH_UPB)) < 1e-9,
+        `아치 발 B = 기둥 자리 돔 + ${C.BRG_ARCH_UPB}(기둥 아래에서 발원 — 불변)`)
+    }
+
+    //  ⓔ 벽 접합 — 매몰·수직 구간
+    ok(B.emb >= B.rw - Math.sqrt(B.rw ** 2 - (B.wOut / 2) ** 2) + 1e-9,
+      `매몰 ${B.emb} ≥ 곡면 z끝 새그 ${(B.rw - Math.sqrt(B.rw ** 2 - (B.wOut / 2) ** 2)).toFixed(3)}(규율 7 — 틈 0)`)
+    {
+      //  아래층은 벽이 전 구간 수직(빗면 아래) — 포털 불요의 근거
+      const yLoTop = B.yTerr + B.h + B.wt
+      const rTop = SG4.wellWallR(yLoTop, { spec: S, forceSpire: true })
+      ok(Math.abs(rTop - B.rw) < 1e-9, `아래층 지붕 높이 ${yLoTop.toFixed(2)}까지 벽 ${rTop.toFixed(2)} 수직 — 포털 불요`)
+      //  윗층은 빗면을 가로지른다 — 포털이 필요한 이유가 실재하는가
+      const yUpTop = B.yTerr + B.gap + B.h + B.wt
+      const rUpTop = SG4.wellWallR(yUpTop, { spec: S, forceSpire: true })
+      ok(rUpTop < B.rw - 1, `윗층 지붕 높이 ${yUpTop.toFixed(2)}의 벽 ${rUpTop.toFixed(2)} ≪ ${B.rw.toFixed(2)} — 빗면 교차 실재(포털의 존재 이유)`)
+      //  포털 왼 변이 벽 살 속인가
+      const yBot = B.yTerr + B.gap - B.ftU
+      let inWall = true
+      for (let i = 0; i <= 16; i++) {
+        const y = yBot + (yUpTop - yBot) * i / 16
+        const rWallY = SG4.wellWallR(y, { spec: S, forceSpire: true })
+        const xl = rWallY - B.emb
+        if (!(xl > rWallY - S.T + 0.05 && xl < rWallY - 0.05)) inWall = false
+      }
+      ok(inWall, `포털 왼 변 17표본 전부 벽 살 속(내면+0.05 ~ 벽면−0.05)`)
+    }
+
+    //  진출 박스 침범 금지 + z 전폭 + 부재 수 + 부피
+    {
+      const P = BG.buildBridgeComplex()
+      let maxX = -Infinity, maxZ = 0
+      for (const { geo } of [...P.walk, ...P.solid]) {
+        geo.computeBoundingBox()
+        maxX = Math.max(maxX, geo.boundingBox.max.x)
+        maxZ = Math.max(maxZ, Math.abs(geo.boundingBox.min.z), geo.boundingBox.max.z)
+      }
+      ok(maxX < C.BOX_X0 - 1, `동단 x ${maxX.toFixed(2)} < 진출 박스 ${C.BOX_X0} − 1(침범 0 — 그 사이 = 미정 구간)`)
+      ok(maxZ <= B.wOut / 2 + 1e-6, `z 전폭 ±${maxZ.toFixed(2)} ≤ 관 외곽 반폭(방위 0° 축에 정렬 — 1e-6: Float32 극한)`)
+      ok(P.walk.length === 3 && P.solid.length === 14,
+        `부재 수 walk 3(계단 매스 2 + 참) · solid 14(벽4·지붕2·캡4·기둥·스팬드럴·브래킷·포털)`)
+      const vol = g => { const a = g.getAttribute('position'); let v = 0
+        for (let i = 0; i < a.count; i += 3) {
+          const x1=a.getX(i),y1=a.getY(i),z1=a.getZ(i),x2=a.getX(i+1),y2=a.getY(i+1),z2=a.getZ(i+1),x3=a.getX(i+2),y3=a.getY(i+2),z3=a.getZ(i+2)
+          v += (x1*(y2*z3-y3*z2)-y1*(x2*z3-x3*z2)+z1*(x2*y3-x3*y2))/6 }
+        return Math.abs(v) }
+      const land = P.walk.find(w => w.id === 'landing')
+      ok(Math.abs(vol(land.geo) - B.landD * B.landT * B.wOut) / (B.landD * B.landT * B.wOut) < 0.01,
+        `참 부피 메시 ${vol(land.geo).toFixed(2)} ↔ 해석 ${(B.landD * B.landT * B.wOut).toFixed(2)}(±1%)`)
+      const lowMass = P.walk.find(w => w.id === 'lowMass')
+      //  ⚠1차판 오식 자가 적발 흔적: run·rise/2를 더했었다 — 소핏은 걷는 선과 평행이라 그 삼각형은 애초에 없다.
+      const aProf = B.run * B.ft - B.steps * (B.tread * B.riser / 2)
+      ok(Math.abs(vol(lowMass.geo) - aProf * 2 * B.hw) / (aProf * 2 * B.hw) < 0.02,
+        `계단 매스 부피 메시 ${vol(lowMass.geo).toFixed(2)} ↔ 해석 ${(aProf * 2 * B.hw).toFixed(2)}(±2%)`)
+    }
+
+    //  배선
+    ok(/buildBridgeComplex/.test(roomSrc) && /bridgeParts/.test(roomSrc), 'Room.jsx: 복합체 마운트(별개 메시)')
+    ok(/BRG_ON/.test(roomSrc), 'Room.jsx: BRG_ON 보존계 게이트(한 줄 소등)')
+    //  ⚠★135 픽커는 폐기됐지만(렉) **name 부여는 존치**한다 — 런타임 비용 0이고 코드 가독성·지목에 쓰인다.
+    ok((roomSrc.match(/name=\{'1p4복합체\/' \+ id\}/g) || []).length === 2,
+      'Room.jsx: 복합체 walk/solid 둘 다 name 부여(부재 식별 — 픽커 폐기와 무관하게 존치)')
+  }
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} check_rooms: ${n - fail}/${n} 통과`)
 process.exit(fail === 0 ? 0 : 1)

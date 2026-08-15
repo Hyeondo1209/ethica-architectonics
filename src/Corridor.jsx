@@ -45,12 +45,15 @@ import {
   COR_CYL_X0,
   ORB_R, ORB_CX, ORB_CY, ORB_T, ORB_FLOOR_Y, ORB_FLOOR_R, ORB_WEST_X, ORB_DOOR_W, ORB_DOOR_H,
   ORB_OPEN_X, ORB_RING_R, ORB_RING_T, ASC_TUN_T, ASC_TUN_UNDER,
+  BOX_TUBE_ON, BOX_FLOOR_ON, BOX_CAP_ON, BOX_SKIRT_ON,      // ★134 박스 관 소등 보존계
 } from './constants'
 
 // ════════ ★진입 시퀀스(㊴): 수평 다리 → 하강 계단 → 낮은 플랫폼 ════════
 
 // ── ★㊵-4 목 스커트(㊵ (4) 유지·동단 재앵커): 부양된 구 ↔ 지상 드럼 사이 목 밑 앞치마(위로 볼록) ──
 export function NeckSkirt() {
+  //  ⛔★134-b: 박스 밑 앞치마 — 관이 사라지면 홀로 뜬다(현도 지목 ③). BOX_SKIRT_ON 한 줄 복귀.
+  //  ⚠hook은 조건 앞에서 부른다(early return이 useMemo보다 앞서면 Hook 순서 규칙 위반 — 상수라 무해하나 규율).
   const geo = useMemo(() => {
     const N = 36, pos = [], idx = []
     for (let i = 0; i <= N; i++) {
@@ -64,8 +67,9 @@ export function NeckSkirt() {
     g.setIndex(idx); g.computeVertexNormals()
     return g
   }, [])
+  if (!BOX_SKIRT_ON) return null
   return (
-    <mesh geometry={geo}>
+    <mesh name="목 스커트" geometry={geo}>
       <meshStandardMaterial color="#b89a6a" roughness={0.92} side={THREE.DoubleSide} />
     </mesh>
   )
@@ -74,9 +78,11 @@ export function NeckSkirt() {
 //  ★㊴-5: 짧은 다리(입구 직후 끝) → **긴 하강 계단** → 깊은 결절 착지(DESC_X0/X1 정본은 constants).
 export function Bridge() {
   //  ★㊾: 새 하강 두 체제는 박스 출구(BOX_X1 = ASC_X0)에서 곧장 시작 — 다리는 거기서 0.5 물려 끝난다.
+  //  ⛔★134: 관 바닥판이므로 관과 함께 꺼진다(BOX_FLOOR_ON=true면 바닥만 되살림 — 노브).
+  if (!BOX_TUBE_ON && !BOX_FLOOR_ON) return null
   const xEnd = HALL_ENTRY === 'descent' ? DESC_X0 : ASC_X0 + 0.5
   return (
-    <mesh position={[(BOX_X0 + xEnd) / 2, COR_Y0, 0]} userData={{ walkable: true }}>
+    <mesh name="박스 바닥판(Bridge)" position={[(BOX_X0 + xEnd) / 2, COR_Y0, 0]} userData={{ walkable: true }}>
       <boxGeometry args={[xEnd - BOX_X0, COR_THICK, COR_FLOOR_HW * 2]} />
       <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.DoubleSide} />
     </mesh>
@@ -1254,16 +1260,23 @@ export function Corridor() {
         <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
       </mesh>
 
-      {/* === 박스 연결부(방 ↔ 원기둥): 측벽(돔 표면까지 클립) + 천장, 양끝 트임 === */}
-      <mesh geometry={boxWallCut}>
-        <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
-      </mesh>
-      <mesh geometry={boxCeilCut}>
-        <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
-      </mesh>
-      <mesh geometry={boxCap}>
-        <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
-      </mesh>
+      {/* === 박스 연결부(방 ↔ 원기둥): 측벽(돔 표면까지 클립) + 천장, 양끝 트임 ===
+           ⛔★134(현도): 관 소등 — 새 구조물(★133 복합체의 연장선)이 들어올 자리를 **열어둔다**.
+           캡은 아래에 존치(방 문 봉인). BOX_TUBE_ON=true 한 줄이면 옛 관 복귀(보존계). */}
+      {BOX_TUBE_ON && (<>
+        <mesh name="박스 측벽" geometry={boxWallCut}>
+          <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
+        </mesh>
+        <mesh name="박스 천장" geometry={boxCeilCut}>
+          <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
+        </mesh>
+      </>)}
+      {/* 서캡 — ⚠방 동쪽 문 봉인을 맡는다. BOX_CAP_ON=false로 끌 수 있으나 그 자리가 뚫린다(★134-b 주석). */}
+      {BOX_CAP_ON && (
+        <mesh name="박스 서캡" geometry={boxCap}>
+          <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
+        </mesh>
+      )}
     </group>
   )
 }

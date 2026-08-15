@@ -8,7 +8,7 @@
 import {
   COR_R, COR_CX, COR_WALL_SEG, COR_Y0, COR_THICK, CEIL_LO, CEIL_HI, ceilY,
   WIN_HALF, WIN_SILL_Y, WIN_TOP_Y,
-  BOX_IN_H, BOX_TOP, BOX_X0, BOX_X1, BOX_HW, DOOR_HALF,
+  BOX_IN_H, BOX_TOP, BOX_X0, BOX_X1, BOX_HW, DOOR_HALF, BOX_TUBE_ON, BOX_FLOOR_ON,
   RAD_TOP, RAD_DOOR_H, RAD_PCY, RAD_PRY, RAD_R, RAD_FLOOR_Y, RAD_SKIRT_MAX,
   LIFT_Y, ROOM_FLOOR_Y, ROOM_CEIL_Y, ROOM_HEIGHT, domeClipY, SKIRT_X0, SKIRT_X1, SKIRT_Y1, skirtY, neckBottomY,
   HALL_ENTRY, ASC_RISE, ASC_X0, ASC_X1, ASC_SLOPE, ORB_R, ORB_CX, ORB_CY, ORB_T, ORB_FLOOR_Y, ORB_FLOOR_R, ORB_WEST_X, ORB_DOOR_W, ORB_DOOR_H,
@@ -374,7 +374,10 @@ console.log('— O. ★셀라(㊶) — 배경 상자 봉인 · 근호 노출 차
   }
   //  박스(밀폐 연결부) 측벽 차폐 — passes2D는 드럼 원만 알므로, 박스 안 눈(다리 서반부)에서 드럼 원을
   //  아예 안 지나는 광선이 모델상 무차단으로 샜다(실제는 박스 벽이 막음 — B절 밀폐의 2D 대응물).
+  //  ⛔★134(2026.08.15): 이 차폐는 **관이 있을 때만** 성립한다. 관을 소등하면(BOX_TUBE_ON=false)
+  //   측벽이 실재하지 않으므로 막지 못한다 — 스위치를 모르는 채 두면 '거짓 안전'이 된다(★132 계열 적발).
   const boxBlocks = (ex, ez, tx, tz) => {
+    if (!BOX_TUBE_ON) return false
     const dx = tx - ex, dz = tz - ez
     if (Math.abs(dz) < 1e-12) return false
     for (const s of [1, -1]) {
@@ -420,8 +423,13 @@ console.log('— O. ★셀라(㊶) — 배경 상자 봉인 · 근호 노출 차
       }
       worstCnt = Math.max(worstCnt, cnt)
     }
-    ok(leak === null, `★|k|≥3 전 시점 불가시(셈-시점 + 계단 판 ${eyesAll.length}곳) — 창가 근호 노출(구 동시 15) 기하 소멸` + (leak ? ` ✗ 눈(${leak[0]},${leak[1]})→#${leak[2]}` : ''))
-    ok(worstCnt <= 5 && worstCnt >= 5, `동시 가시 최대 ${worstCnt} = 5 — 배경이 상자 내벽으로 닫혀 '다섯이 선다'가 전 시점 성립`)
+    //  ⛔★134(2026.08.15 현도 "열어둬"): 박스 관을 소등하면 이 두 항목이 **선언된 빚**이 된다.
+    //   관 측벽이 맡던 스포 차폐가 실재하지 않으므로 |k|≥3 리브가 새고 동시 가시가 5를 넘는다.
+    //   ⚠빚을 green으로 위장하지 않는다 — 실패로 남기되 **이유와 대책 조건**을 메시지에 박는다.
+    //   해소 조건 = 그 자리에 올 새 구조물(★133 복합체의 연장선)이 차폐를 인수하는 것. 그때 이 두 항이 자동 복귀.
+    const DEBT134 = !BOX_TUBE_ON ? ' ⚠★134 선언된 빚(박스 관 소등 — 새 구조물이 차폐 인수 전까지 존치)' : ''
+    ok(leak === null, `★|k|≥3 전 시점 불가시(셈-시점 + 계단 판 ${eyesAll.length}곳) — 창가 근호 노출(구 동시 15) 기하 소멸` + (leak ? ` ✗ 눈(${leak[0]},${leak[1]})→#${leak[2]}${DEBT134}` : ''))
+    ok(worstCnt <= 5 && worstCnt >= 5, `동시 가시 최대 ${worstCnt} = 5 — 배경이 상자 내벽으로 닫혀 '다섯이 선다'가 전 시점 성립` + (worstCnt !== 5 ? DEBT134 : ''))
   }
 }
 
