@@ -33,8 +33,9 @@ import { buildSpire } from './spireGeometry.js'   // ★127 빛우물 첨탑(순
 import { buildSpireTerrace } from './spireTerraceGeometry.js'   // ★128 첨탑 테라스(고리 판 — 좌표는 전부 spireSpec 파생)
 import { buildUpperPlatform } from './upperPlatformGeometry.js' // ★131 새 층 플랫폼 + 좌우 계단 2기(테라스 위 — 드럼행 문의 자리)
 import { buildBridgeComplex } from './bridgeComplexGeometry.js' // ★133 1p4 방위 0° 복합체(2층 계단 관 + 참 + 기둥 + 아치)
-import { buildLink4 } from './link4Geometry.js'                   // ★136 1p4 셸 나선 참 → ★133 참 수평 접속 관
-import { SPIRE_ON, SPT_ON, UPF_ON, BRG_ON, LK4_ON } from './constants.js'
+import { buildLink4 } from './link4Geometry.js'
+import { buildLink3 } from './link3Geometry.js'                   // ★137 1p3 셸 → 테라스 통로(두 오르막 + 띄운 참)                   // ★136 1p4 셸 나선 참 → ★133 참 수평 접속 관
+import { SPIRE_ON, SPT_ON, UPF_ON, BRG_ON, LK4_ON, LK3_ON } from './constants.js'
 import { buildRoomRibs } from './roomRibGeometry'   // ★116 방 돔 살 여덟(순수 기하 — 사본 금지)   // ★114 벽 밑동 팔각 각뿔대(순수 기하 — 사본 금지)
 
 // ════════ 지하 정의·공리 방 ════════
@@ -150,6 +151,8 @@ export function DefAxiomRoom({ stairKind }) {
   const bridgeParts = useMemo(() => (SPIRE_ON && SPT_ON && BRG_ON ? buildBridgeComplex() : null), [])
   //  ★136 — ★133 참이 도착지이므로 BRG_ON에 종속(복합체가 없으면 갈 곳이 없다)
   const link4Parts = useMemo(() => (SPIRE_ON && SPT_ON && BRG_ON && LK4_ON ? buildLink4() : null), [])
+  //  ★137 — ★133 복합체와 무관(다른 셸·다른 방위)이라 BRG_ON에 매지 않는다
+  const link3Parts = useMemo(() => (SPIRE_ON && SPT_ON && LK3_ON ? buildLink3() : null), [])
   const wellCut = useMemo(() => {
     if (SPIRE_ON) return buildSpire()
     const ev = new Evaluator()
@@ -454,6 +457,17 @@ export function DefAxiomRoom({ stairKind }) {
         </mesh>
       ))}
       {/* ★136-c 접합부 아치 — 관 곡선을 따라 휘는 스윕(걷는 면 아님). 재질 = ★133 solid 가족 */}
+      {/* ★★★137 1p3 셸 → 테라스 통로(2026.08.15) — ① 오르막 직선 관 · 띄운 참 · ② 오르막 관 · 기둥 · 아치 */}
+      {link3Parts && link3Parts.walk.map(({ id, geo }) => (
+        <mesh key={'lk3-' + id} name={'1p3통로/' + id} geometry={geo} userData={{ walkable: true }}>
+          <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.FrontSide} />
+        </mesh>
+      ))}
+      {link3Parts && link3Parts.solid.map(({ id, geo }) => (
+        <mesh key={'lk3-' + id} name={'1p3통로/' + id} geometry={geo} userData={{ walkable: false }}>
+          <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
+        </mesh>
+      ))}
       {link4Parts && link4Parts.solid.map(({ id, geo }) => (
         <mesh key={'lk4-' + id} name={'1p4접속관/' + id} geometry={geo} userData={{ walkable: false }}>
           <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />

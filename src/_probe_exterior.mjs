@@ -13,7 +13,8 @@ import { buildArm13 } from './armGeometry.js'
 import { buildSpire } from './spireGeometry.js'   // ★127 첨탑 정본
 import { buildLinkParts, linkSpec } from './linkPassageGeometry.js'   // ★130 접속 통로
 import { buildBridgeComplex } from './bridgeComplexGeometry.js'   // ★133 1p4 복합체
-import { buildLink4, link4Spec } from './link4Geometry.js'        // ★136 1p4 접속 관(정본 빌더 직결)
+import { buildLink4, link4Spec } from './link4Geometry.js'
+import { buildLink3, link3Spec } from './link3Geometry.js'         // ★137 1p3 통로(정본 빌더 직결)        // ★136 1p4 접속 관(정본 빌더 직결)
 import { ARM13_ON, ARM13_K } from './constants.js'
 
 const W = 880, H = 495, BG = [18, 18, 20]
@@ -74,6 +75,12 @@ const COL = {
     if (L4) {
       for (const { geo } of L4.walk) addGeo(geo, COL.lk4)
       for (const { geo } of L4.solid) addGeo(geo, COL.lk4a)   // ⛔누락 적발: solid(아치)를 안 그리고 있었다
+    }
+    //  ★137 1p3 통로 — 관/참 = 주황 · 기둥·아치 = 보라
+    const L3 = buildLink3(link3Spec({ on: true }))
+    if (L3) {
+      for (const { geo } of L3.walk) addGeo(geo, COL.lk4)
+      for (const { geo } of L3.solid) addGeo(geo, COL.lk4a)
     }
   }
 }

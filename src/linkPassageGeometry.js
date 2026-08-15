@@ -243,10 +243,25 @@ export function buildLinkTube(pts, yOf, S = linkSpec(), caps = [true, true], opt
     if (i === pts.length - 2 && opts.tan1) return opts.tan1
     let d = sub(pts[i + 1], pts[i]); const L = nrm(d) || 1; return [d[0] / L, d[1] / L]
   }
+  //  ★★★137-b opts.yByArc: 높이를 **호길이 비**로 매긴다(기본 false = 옛 거동 · ★130·★133·★136 무회귀).
+  //   ⛔`i/(n−1)`은 **점이 등간격일 때만** 호길이 비와 같다. 1p3 ① 관은 양 끝에 전이점을 둬 간격이
+  //    1.42 / 27.02 / 1.49로 불균등한데 상승을 1/3씩 나눠 버려 **63.7° → 6.1° → 62.5°**의 계단이 생겼다
+  //    (의도값 16.03°). 현도 보고 "나선참 통로 접합부가 굉장히 이상하다"의 진범 — 양 끝이 정확히 그 급경사다.
+  const arcF = (() => {
+    if (!opts.yByArc) return null
+    const c = [0]
+    for (let i = 1; i < pts.length; i++) c.push(c[i - 1] + nrm(sub(pts[i], pts[i - 1])))
+    const T = c[c.length - 1] || 1
+    return c.map(v => v / T)
+  })()
   const frames = pts.map((p, i) => {
-    const y = yOf(i / (pts.length - 1))
-    if (i === 0 && opts.tan0) { const d = opts.tan0; return { p, n: [-d[1], d[0]], y } }
-    if (i === pts.length - 1 && opts.tan1) { const d = opts.tan1; return { p, n: [-d[1], d[0]], y } }
+    const y = yOf(arcF ? arcF[i] : i / (pts.length - 1))
+    //  ★★★137 scale0/scale1: 끝 단면을 **상대 면의 평면으로 비스듬히 자른다**(기본 1 = 옛 거동).
+    //   ⛔비스듬히 꽂히는 관의 끝을 축에 수직으로 자르면 한쪽 모서리가 상대 몸속으로 들어가고 반대쪽은 밖으로 튄다
+    //    (1p3 ① 관 실측: θ 28.96°에서 각각 1.31). 법선을 그 면의 법선으로 두고 반폭을 1/cos θ 만큼 늘리면
+    //    단면이 그 평면 안에 놓이면서 **진짜 폭(축에 수직)은 보존**된다 → 면 위 발자국이 정확히 상대 면을 채운다.
+    if (i === 0 && opts.tan0) { const d = opts.tan0, k = opts.scale0 ?? 1; return { p, n: [-d[1] * k, d[0] * k], y } }
+    if (i === pts.length - 1 && opts.tan1) { const d = opts.tan1, k = opts.scale1 ?? 1; return { p, n: [-d[1] * k, d[0] * k], y } }
     if (opts.miter) {
       const a = i > 0 ? seg(i - 1) : seg(0), b = i + 1 < pts.length ? seg(i) : seg(pts.length - 2)
       const n1 = [-a[1], a[0]], n2 = [-b[1], b[0]]
@@ -269,13 +284,17 @@ export function buildLinkTube(pts, yOf, S = linkSpec(), caps = [true, true], opt
     for (let k = 0; k < 4; k++) {
       const k2 = (k + 1) % 4
       quad(W(f, OUT[k]), W(g, OUT[k]), W(g, OUT[k2]), W(f, OUT[k2]))   // 바깥면
-      quad(W(f, IN[k]), W(g, IN[k]), W(g, IN[k2]), W(f, IN[k2]))       // 안면(관 내부)
+      //  ⛔★137-h: 안면은 바깥면과 **반대로** 감아야 한다(법선이 터널 쪽을 봐야 안에서 벽이 보인다).
+      //   같은 감김이면 법선이 살 속을 향해 FrontSide 컬링에 잘려 나간다 — 부호 있는 부피가 (겉+속)이 되어
+      //   전체 검사도 통과해 버리므로 **에지 일관성**으로만 잡힌다.
+      quad(W(f, IN[k2]), W(g, IN[k2]), W(g, IN[k]), W(f, IN[k]))       // 안면(관 내부)
     }
   }
   for (const [f, s, on] of [[frames[0], 1, caps[0]], [frames[frames.length - 1], -1, caps[1]]]) {  // 끝 캡 = 고리
     if (!on) continue
     for (let k = 0; k < 4; k++) {
       const k2 = (k + 1) % 4
+      //  ⛔★137-h: 시작 캡의 법선은 −t, 끝 캡은 +t다. 두 순서가 서로 바뀌어 있었다.
       if (s > 0) quad(W(f, OUT[k]), W(f, OUT[k2]), W(f, IN[k2]), W(f, IN[k]))
       else quad(W(f, OUT[k2]), W(f, OUT[k]), W(f, IN[k]), W(f, IN[k2]))
     }

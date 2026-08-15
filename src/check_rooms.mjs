@@ -3571,5 +3571,406 @@ console.log('\n── ★133 1p4 복합체(2층 관·참·기둥·아치 — ★
   }
 }
 
+// ══════════════ ★★★137 1p3 셸 → 첨탑 테라스 통로 ══════════════
+{
+  console.log('\n— ★137. 1p3 통로: 두 오르막 + 띄운 참 + 기둥 + 아치 —')
+  const { link3Spec, buildLink3 } = await import('./link3Geometry.js')
+  const { archY } = await import('./link4Geometry.js')
+  const { extSpiralSpec } = await import('./extSpiralGeometry.js')
+  const { bridgeDomeY: domeY3 } = await import('./bridgeComplexGeometry.js')
+  const C3 = await import('./constants.js')
+  const { linkSpec: linkSpec3, buildLinkTube: _bt3 } = await import('./linkPassageGeometry.js')
+  const { bridgeSpec: bridgeSpec3 } = await import('./bridgeComplexGeometry.js')
+  const { wellWallR: wellWallR3 } = await import('./spireGeometry.js')
+  //  ⚠전역 스위치와 무관하게 — 소등 체제 스윕에서도 검사는 살아 있어야 한다(o.on 계열 규율)
+  const S3 = link3Spec({ on: true, archOn: true, arch2On: true, shellOn: true }), L3 = linkSpec3()
+
+  //  ① 사본 금지 — 시작·단면은 전부 linkSpec에서 받아 k=3으로 돌린 것
+  {
+    const a = 3 * Math.PI / 2, c = Math.cos(a), s = Math.sin(a)
+    const px = L3.P0[0] * c - L3.P0[1] * s, pz = L3.P0[0] * s + L3.P0[1] * c
+    ok(Math.abs(S3.P0[0] - px) < 1e-12 && Math.abs(S3.P0[1] - pz) < 1e-12,
+      `시작 = linkSpec().P0을 k=3(+270°)로 돌린 값 (${S3.P0[0].toFixed(3)}, ${S3.P0[1].toFixed(3)}) — 손 좌표 아님`)
+    ok(S3.hw === L3.hw && S3.h === L3.h && S3.ft === L3.ft && S3.wt === L3.wt,
+      `단면 승계: 내부 ${(2 * S3.hw).toFixed(2)}×${S3.h} · 바닥 ${S3.ft} · 벽·천장 ${S3.wt}`)
+  }
+  //  ② ★★깊이가 자기를 부르는 방정식 — 수렴과 닫힘
+  ok(S3.resid < 1e-9, `참 깊이 고정점 수렴: 반복 ${S3.iter} · 잔차 ${S3.resid.toExponential(1)}`)
+  ok(Math.abs(S3.foot - S3.d) < 1e-9,
+    `틈 0 실증: ①이 −x 변에 ${S3.theta.toFixed(3)}° 비스듬 → 면 위 발자국 ${S3.foot.toFixed(4)} = 참 깊이 ${S3.d.toFixed(4)}`)
+  ok(Math.abs(S3.d - S3.wOut / Math.cos(S3.theta * Math.PI / 180)) < 1e-9, `— 그 닫힘 조건 d = 관 외곽 폭 / cos θ`)
+  ok(S3.d > S3.wOut, `⚠정사각 ${S3.wOut.toFixed(2)}로 두면 ${(S3.d - S3.wOut).toFixed(4)} 넘친다(비스듬 꽂힘의 대가)`)
+  //  ③ 현도 확정값이 살아 있는가
+  ok(Math.abs(-S3.land.z1 - C3.LK3_R) < 1e-12, `참 안쪽 면 반경 ${(-S3.land.z1).toFixed(2)} = 현도 확정 ${C3.LK3_R}`)
+  ok(Math.abs(S3.land.yTop - C3.LK3_Y) < 1e-12, `참 걷는 면 ${S3.land.yTop} = 현도 확정 ${C3.LK3_Y}`)
+  ok(Math.abs(S3.rise1 + S3.rise2 - (C3.SPT_Y - L3.y0)) < 1e-9,
+    `상승이 두 구간에 나뉜다: ${S3.rise1.toFixed(2)} + ${S3.rise2.toFixed(2)} = ${(C3.SPT_Y - L3.y0).toFixed(2)}`)
+  ok(S3.walk1 < 35 && S3.walk2 < 35, `두 구간 다 상한 35° 안(① ${S3.walk1.toFixed(2)}° · ② ${S3.walk2.toFixed(2)}°)`)
+  //  ④ ⛔★130 취지 — ★133 계단 관과의 수치 일치가 **깨졌는가**
+  {
+    const B3 = bridgeSpec3()
+    ok(Math.abs(S3.walk2 - B3.walkDeg) > 1,
+      `★133 계단 관 ${B3.walkDeg.toFixed(3)}° vs ② ${S3.walk2.toFixed(3)}° — 참을 띄워 수치 일치를 깼다(★130 취지)`)
+    //  구판(참을 나선 참 높이에 두는 안)이면 소수점까지 같아졌음을 실증한다
+    const flat = Math.atan2(C3.SPT_Y - L3.y0, Math.hypot(...L3.P0) - (wellWallR3(C3.SPT_Y, { forceSpire: true }) - C3.LNK_EMB)) * 180 / Math.PI
+    ok(Math.abs(flat - B3.walkDeg) < 1e-6,
+      `⛔구판 실증: 참을 y${L3.y0}에 두면 ${flat.toFixed(6)}° = ★133 ${B3.walkDeg.toFixed(6)}° — 회전 복제였다`)
+  }
+  //  ⑤ 끝면 비스듬 절단 — 관이 참 몸속으로 삐져 들어가지 않는다
+  {
+    const P3 = buildLink3(S3)
+    const g = P3.walk.find(w => w.id === 'tube1').geo, ap = g.getAttribute('position')
+    let mx = -Infinity, mnz = Infinity
+    for (let i = 0; i < ap.count; i++) { mx = Math.max(mx, ap.getX(i)); mnz = Math.min(mnz, ap.getZ(i)) }
+    ok(mx <= -S3.hwOut + 1e-6, `① 관 x 최대 ${mx.toFixed(4)} ≤ 참 −x 면 ${(-S3.hwOut).toFixed(2)}(침범 0)`)
+    ok(Math.abs(mnz - S3.land.z0) < 1e-4, `① 끝면이 참 깊이를 정확히 채운다: z 최소 ${mnz.toFixed(4)} = 참 바깥 면 ${S3.land.z0.toFixed(4)}`)
+    ok(Math.abs(S3.eps1 - S3.hwOut * Math.tan(S3.theta * Math.PI / 180)) < 1e-12,
+      `⛔전이 길이 ε = 외곽 반폭·tan θ = ${S3.eps1.toFixed(4)}(그보다 짧으면 얇게 삐져 든다 — ε 0.02로 두고 적발)`)
+    //  ⚠불변식으로 — 넘침은 꺾임의 함수다(꺾임 0이면 넘침 0). 노브를 밀어도 이 관계는 성립한다.
+    ok(Math.abs(S3.startOverflow - S3.wOut * (1 / Math.cos(Math.abs(S3.kink) * Math.PI / 180) - 1)) < 1e-9,
+      `⚠선언된 빚: 시작면(나선 참 종단면 ${S3.wOut.toFixed(2)} 고정)에 대한 비스듬 발자국 넘침 ${S3.startOverflow.toFixed(4)} = 폭·(1/cos 꺾임 − 1) · 꺾임 ${Math.abs(S3.kink).toFixed(2)}° — 직선의 대가, 현도 판정 대기`)
+    ok((S3.startOverflow > 1e-9) === (Math.abs(S3.kink) > 1e-9), `— 꺾임이 0이면 넘침도 0(관계의 인과)`)
+    //  ⚠solid 수는 체제의 함수다: 기둥 1 + 아치 0~2 + 감싸기 0/5(모서리 띠 2 포함)
+    ok(P3.walk.length === 3 && P3.solid.length === 8,
+      `부재 walk 3(관2·참) · solid 8 = 기둥1 + 아치2 + 감싸기5(전 체제 켠 상태에서 시험)`)
+  }
+  //  ⑥ 아치 — ★136-c/d 어법 + ★137 일반화식
+  {
+    const A3 = S3.arch
+    ok(Math.abs(A3.m - S3.rise1 / S3.L1) < 1e-12,
+      `소핏 기울기 ${A3.m.toFixed(4)} = ① 상승/평면길이(관 밑면은 걷는 면과 평행) — 1p4의 수평 소핏(m=0)과 다른 국면`)
+    ok((A3.m > 1e-9) === (S3.rise1 > 1e-9), `— ① 이 오르막인 한 소핏은 기울어 있다(일반화식이 필요한 이유)`)
+    ok(Math.abs(A3.yC - (A3.yJ + A3.m * A3.L)) < 1e-12,
+      `제어점 C.y = yJ + m·L = ${A3.yC.toFixed(4)}(J에서 소핏과 나란히 합류 — ★133-b 조건 ⓑ)`)
+    //  ⛔일반화식이 1p4(수평)에서 옛 식으로 정확히 퇴화하는가
+    {
+      const f = archY({ L: 10, yJ: 100, yC: 100, yB: 80 })
+      let worst = 0
+      for (let i = 0; i <= 50; i++) { const s = 10 * i / 50
+        worst = Math.max(worst, Math.abs(f(s) - (100 + (80 - 100) * Math.pow(1 - Math.sqrt(s / 10), 2)))) }
+      ok(worst < 1e-12, `일반화식이 수평 소핏(yC=yJ)에서 ★136-c 식으로 퇴화 — 최대 차 ${worst.toExponential(1)}`)
+    }
+    const h = A3.L * 1e-5
+    //  ⚠부호: s가 커질수록(바깥으로 갈수록) 소핏은 **내려간다** → 기울기는 −m 이다
+    ok(Math.abs((A3.yOfS(A3.L) - A3.yOfS(A3.L - h)) / h + A3.m) < 1e-3,
+      `s=L에서 dy/ds ${((A3.yOfS(A3.L) - A3.yOfS(A3.L - h)) / h).toFixed(4)} ≈ 소핏 기울기 −${A3.m.toFixed(4)}(나란히 합류 — ★133-b 조건 ⓑ)`)
+    ok((A3.yOfS(h) - A3.yOfS(0)) / h > 50, `s=0에서 dy/ds → ∞(기둥에서 수직 발진)`)
+    //  아치는 어디서도 소핏을 뚫지 않는다(볼록포 논증의 실측 확인)
+    let over = 0
+    for (let i = 0; i <= 400; i++) { const s = A3.L * i / 400; if (A3.yOfS(s) > A3.soffit(s) + 1e-9) over++ }
+    ok(over === 0, `아치 밑선이 소핏을 넘는 표본 ${over}개(볼록포 논증 실측 확인 · 401표본)`)
+    ok(Math.abs(A3.yB - (domeY3(Math.hypot(S3.col.cx, S3.col.cz)) + C3.BRG_ARCH_UPB)) < 1e-12,
+      `아래 발 = 돔 + BRG_ARCH_UPB = ${A3.yB.toFixed(3)}(★133 아치와 같은 발 규약)`)
+    ok(A3.runs.length === A3.corners.length + 1, `마디 ${A3.runs.length} = 꺾임 ${A3.corners.length} + 1(★136-d 규율 승계)`)
+    ok(A3.clamped === (C3.LK3_ARC_S > A3.Lmax), `스팬 상한 = 관 자신(${A3.Lmax.toFixed(2)}) · 클램프 ${A3.clamped}`)
+  }
+  //  ⑦ 간섭 — 셸·팔·첨탑·돔
+  {
+    const ES3 = extSpiralSpec()
+    const RC3 = [C3.RAD_R * Math.cos(C3.RAD_ANG0 + 2 * Math.PI / 2), C3.RAD_R * Math.sin(C3.RAD_ANG0 + 2 * Math.PI / 2)]
+    let mnSpire = Infinity
+    for (let i = 0; i <= 200; i++) { const t = i / 200
+      const x = S3.P0[0] + (S3.E1[0] - S3.P0[0]) * t, z = S3.P0[1] + (S3.E1[1] - S3.P0[1]) * t
+      mnSpire = Math.min(mnSpire, Math.hypot(x, z)) }
+    ok(mnSpire > wellWallR3(C3.SPT_Y, { forceSpire: true }) + 5,
+      `① 현의 첨탑 최소 반경 ${mnSpire.toFixed(2)} — 벽 22.20에서 여유 ${(mnSpire - 22.2).toFixed(2)}`)
+    ok(S3.col.domeY < S3.col.top, `기둥이 돔(${S3.col.domeY.toFixed(2)})에서 참 밑(${S3.col.top.toFixed(2)})까지 선다 — 높이 ${(S3.col.top - S3.col.domeY).toFixed(2)}`)
+    ok(Math.hypot(S3.col.cx, S3.col.cz) < 64, `기둥 자리 반경 ${Math.hypot(S3.col.cx, S3.col.cz).toFixed(2)} < 돔 반경 64(돔 위에 앉는다)`)
+    //  ★126 팔: 방위대는 겹치나 높이가 갈린다
+    ok(111.0 - 106.057 > 4, `★126 팔 꼭대기 106.06 vs ① 관 밑면 시작 111.00 — 머리 위 ${(111 - 106.057).toFixed(2)}(간섭 0)`)
+  }
+  //  ⑧ ⛔★137-b 현도 로컬 반려("나선참 통로 접합부가 굉장히 이상해 · 참과 통로의 접합부도 엄청 이상해")의 진범
+  //   `buildLinkTube`이 높이를 **호길이가 아니라 인덱스 비율**로 매기고 있었다. leg1은 양 끝에 전이점을 둬
+  //   간격이 1.42 / 27.02 / 1.49로 불균등한데 상승을 1/3씩 나눠 **63.7° → 6.1° → 62.5°**의 계단이 났다.
+  //   양 끝 급경사 자리가 정확히 현도가 지목한 두 접합부다. → `opts.yByArc` 신설(기본 false = 무회귀).
+  {
+    const P = S3.leg1
+    const c = [0]
+    for (let i = 1; i < P.length; i++) c.push(c[i - 1] + Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]))
+    const T = c[c.length - 1]
+    const idxF = P.map((_, i) => i / (P.length - 1)), arcF = c.map(v => v / T)
+    ok(Math.max(...P.map((_, i) => Math.abs(idxF[i] - arcF[i]))) > 0.25,
+      `⛔점 간격이 불균등하다: 인덱스 비 ${idxF.map(v => v.toFixed(2)).join('/')} vs 호길이 비 ${arcF.map(v => v.toFixed(2)).join('/')} — 둘을 섞으면 안 되는 이유`)
+    //  두 체제를 실제로 굽혀 구간 기울기를 잰다
+    const grab = opts => { const got = []
+      _bt3(P, t => { got.push(t); return S3.y0 + S3.rise1 * t }, S3, [false, true], opts); return got }
+    const slopes = got => { const out = []
+      for (let i = 1; i < got.length; i++) out.push(Math.atan2(S3.rise1 * (got[i] - got[i - 1]), c[i] - c[i - 1]) * 180 / Math.PI)
+      return out }
+    const bad = slopes(grab({})), good = slopes(grab({ yByArc: true }))
+    //  ⚠불변식으로 — 격차의 크기는 상승량에 딸린 값이다. 박아야 할 것은 **옛 거동이 균일하지 않다**는 사실.
+    ok(Math.max(...bad) - Math.min(...bad) > 1,
+      `⛔옛 거동 실증: 구간 기울기 ${bad.map(v => v.toFixed(1) + '°').join(' / ')} — 균일하지 않다(양 끝이 치솟는다)`)
+    ok(bad[0] > bad[1] && bad[2] > bad[1],
+      `— 치솟는 자리가 **양 끝**이다(가운데보다 크다) = 현도가 지목한 두 접합부`)
+    ok(Math.max(...good) - Math.min(...good) < 1e-6,
+      `✅수리: 구간 기울기 ${good.map(v => v.toFixed(2) + '°').join(' / ')} — 전 구간 균일 = ① 걷는 선 ${S3.walk1.toFixed(2)}°`)
+    ok(Math.abs(good[0] - S3.walk1) < 1e-6, `— 그 값이 spec의 walk1과 정확히 같다`)
+  }
+  //  ⑨ ⛔★130·★133·★136 무회귀 — yByArc 기본 false는 옛 좌표를 한 점도 바꾸지 않는다
+  {
+    const Lk = linkSpec3()
+    const A = _bt3(Lk.one.pts, t => Lk.y0 + Lk.rise * t, Lk, [false, false])
+    const B = _bt3(Lk.one.pts, t => Lk.y0 + Lk.rise * t, Lk, [false, false], {})
+    const pa = A.getAttribute('position').array, pb = B.getAttribute('position').array
+    let same = pa.length === pb.length
+    for (let i = 0; same && i < pa.length; i++) if (pa[i] !== pb[i]) same = false
+    ok(same, `★130 ① 무회귀: yByArc 미지정 시 정점 ${pa.length / 3}개 전부 동일`)
+  }
+  //  ⑩ 아치가 ① 관 밑에 정확히 겹친다(수직거리 0)
+  {
+    const A3 = S3.arch
+    const u = [(S3.E1[0] - S3.P0[0]) / S3.L1, (S3.E1[1] - S3.P0[1]) / S3.L1], nn = [-u[1], u[0]]
+    for (const [nm, q] of [['join', A3.join], ['far', A3.far]]) {
+      const d = [q[0] - S3.P0[0], q[1] - S3.P0[1]]
+      ok(Math.abs(d[0] * nn[0] + d[1] * nn[1]) < 1e-9, `아치 ${nm} 점이 ① 중심선 위(수직거리 0) — 관 밑에 정확히 겹친다`)
+    }
+  }
+  //  ⑫ ★★137-c ⓐ ② 아래 아치 · ⓑ 참 밀봉 (현도 로컬 2건)
+  {
+    const A1 = S3.arch, A2 = S3.arch2
+    ok(A2.on !== undefined && A2.L > 0, `② 아치 존재: L ${A2.L.toFixed(4)}(요청 ${A2.ask} · 상한 ${A2.Lmax.toFixed(4)})`)
+    ok(A2.clamped === (C3.LK3_ARC2_S > A2.Lmax), `② 아치 스팬 상한 = ② 관 자신 · 클램프 ${A2.clamped}`)
+    ok(Math.abs(A2.yB - A1.yB) < 1e-12, `두 아치가 **같은 기둥**에서 난다: 발 y ${A2.yB.toFixed(3)} 동일`)
+    ok(A1.sgn === -1 && A2.sgn === +1,
+      `부호가 다리마다 다르다: ①은 바깥으로 갈수록 내려가고(${A1.sgn}) ②는 올라간다(${A2.sgn}) — 같은 식, 부호만 다름`)
+    ok(Math.abs(A2.yC - (A2.yJ - A2.sgn * A2.m * A2.L)) < 1e-12,
+      `② 제어점 C.y = yJ − sgn·m·L = ${A2.yC.toFixed(4)}(★133-b 조건 ⓑ)`)
+    //  두 아치 다 소핏을 뚫지 않는다(볼록포 논증 실측)
+    for (const [nm, A] of [['①', A1], ['②', A2]]) {
+      let over = 0
+      for (let i = 0; i <= 400; i++) { const s = A.L * i / 400; if (A.yOfS(s) > A.soffit(s) + 1e-9) over++ }
+      ok(over === 0, `${nm} 아치 밑선이 소핏을 넘는 표본 ${over}개 / 401`)
+      ok(Math.abs(A.yOfS(A.L) - A.soffit(A.L)) < 1e-9, `${nm} 아치가 s=L에서 소핏에 정확히 붙는다(칼날)`)
+      ok(Math.abs(A.yOfS(0) - A.yB) < 1e-9, `${nm} 아치가 s=0에서 기둥 발 높이`)
+    }
+    //  두 아치 다 돔 위에 뜬다(기둥이 받는다 — ★133 어법)
+    {
+      //  ⚠전역 스위치와 무관하게 시험한다 — ⛔세 체제에서 검사가 부재를 붙잡고 죽었다(o.on 계열의 **네 번째 재발**)
+      const P3 = buildLink3(link3Spec({ on: true, archOn: true, arch2On: true, shellOn: true }))
+      for (const id of ['arch', 'arch2']) {
+        const g = P3.solid.find(q => q.id === id).geo, ap = g.getAttribute('position')
+        let under = 0
+        for (let i = 0; i < ap.count; i++) {
+          if (ap.getY(i) < domeY3(Math.hypot(ap.getX(i), ap.getZ(i))) - 1e-6) under++
+        }
+        ok(under === 0, `${id}: 돔 표면 아래로 내려간 정점 ${under}개(관통 0)`)
+      }
+      //  ⓑ 참 밀봉 — 부재가 다 있고 높이가 관과 맞는가
+      const need = ['shellX', 'shellZ', 'shellRoof']
+      for (const id of need) ok(P3.solid.some(q => q.id === id), `참 감싸기 부재 ${id} 존재`)
+      ok(P3.solid.filter(q => q.id === 'shellXn').length === 2,
+        `−x 벽의 모서리 띠 2기(그 사이는 ① 내부 개구 — ①이 이어받는다)`)
+      const sh = S3.shell
+      ok(Math.abs(sh.yTop - (S3.Y + S3.h + S3.wt)) < 1e-12 && Math.abs(sh.yIn - (S3.Y + S3.h)) < 1e-12,
+        `참 벽·지붕 높이가 관 규격과 같다: 내부 천장 ${sh.yIn.toFixed(2)} · 지붕 윗면 ${sh.yTop.toFixed(2)}`)
+      //  ⛔모서리는 **겹쳐야** 한다(틈 금지) — 띠가 개구 쪽으로 lap 만큼 물린다
+      const bands = P3.solid.filter(q => q.id === 'shellXn').map(q => { q.geo.computeBoundingBox(); return q.geo.boundingBox })
+      const inner = bands.map(b => [b.min.z, b.max.z]).sort((u, v) => u[0] - v[0])
+      ok(inner[0][1] > sh.openZ[0] && inner[1][0] < sh.openZ[1],
+        `띠가 ① 개구(z ${sh.openZ[0].toFixed(3)}~${sh.openZ[1].toFixed(3)})로 각각 ${sh.lap} 물린다 — 겹침이지 틈이 아니다`)
+      //  참 위가 더는 열려 있지 않다: 네 방향이 전부 임자가 있다
+      ok(true === (P3.solid.some(q => q.id === 'shellX') && P3.solid.some(q => q.id === 'shellZ')),
+        `+x·바깥 z = 참 자신의 벽 · −x = ①(모서리 띠만 참이) · 안쪽 z = ② — 네 방향 임자 확정`)
+    }
+    //  ⑬ ★★137-d 기둥 아래 수리(현도 로컬 2건)
+    {
+      //  ⚠★137-d 단언은 **fit 체제**의 인과다. 보존계(colFit=false)에서도 검사가 살아 있도록 spec을 명시로 켠다.
+      const full3 = { on: true, archOn: true, arch2On: true, shellOn: true, colFit: true }
+      const S3f = link3Spec(full3), A1 = S3f.arch, A2 = S3f.arch2
+      const P3 = buildLink3(S3f)
+      const c = S3f.col
+      //  ⓐ 종잇장 소멸 — 아치 폭이 기둥 단면과 같아야 밖으로 안 나온다
+      ok(c.w >= 2 * A1.hwOut - 1e-9,
+        `① 아치 반폭 ${A1.hwOut.toFixed(3)} ≤ 기둥 z 반폭 ${(c.w / 2).toFixed(3)} → z 방향 돌출 0(종잇장 소멸)`)
+      ok(c.dd >= 2 * A2.hwOut - 1e-9,
+        `② 아치 반폭 ${A2.hwOut.toFixed(3)} ≤ 기둥 x 반폭 ${(c.dd / 2).toFixed(3)} → x 방향 돌출 0`)
+      //  ★★137-f 아치 두께 노브(현도 "테라스 쪽 아치가 약간 두껍네 — 노브로 조절할 수 있게")
+      //   ⚠수치가 아니라 **관 외곽 폭에 대한 비율**이다 — 단면이 바뀌면 아치도 따라간다.
+      for (const [nm, A, wf] of [['①', A1, C3.LK3_ARC_WF], ['②', A2, C3.LK3_ARC2_WF]]) {
+        ok(Math.abs(A.hwOut - S3f.hwOut * wf) < 1e-9,
+          `${nm} 아치 평면 폭 ${(2 * A.hwOut).toFixed(3)} = 관 외곽 폭 ${(2 * S3f.hwOut).toFixed(2)} × 비율 ${wf}(파생)`)
+        ok(Math.abs(A.emb - Math.max(A.hwOut * A.tanT, C3.LK3_ARC_EMB)) < 1e-9,
+          `${nm} 되물림이 **아치 자신의** 반폭을 따라간다: emb ${A.emb.toFixed(4)}`)
+      }
+      {
+        //  ⚠비교 기준을 **현행 값이 아니라 서로 다른 두 비율**로 잡는다(현행이 어느 값이든 성립)
+        const a = link3Spec({ ...full3, arch2Wf: 0.35 }).arch2, b = link3Spec({ ...full3, arch2Wf: 0.90 }).arch2
+        ok(a.hwOut < b.hwOut && Math.abs(a.hwOut / b.hwOut - 0.35 / 0.90) < 1e-9,
+          `노브 실증: 비율 0.35 → 폭 ${(2 * a.hwOut).toFixed(3)} · 0.90 → ${(2 * b.hwOut).toFixed(3)}(비율에 정비례)`)
+      }
+      ok(c.fit && Math.abs(c.dd - 2 * S3f.hwOut) < 1e-9 && Math.abs(c.w - S3f.d) < 1e-9,
+        `★137-e 기둥 발자국 = **참 발자국과 동일** ${c.dd.toFixed(2)}(x=관 외곽 폭) × ${c.w.toFixed(4)}(z=참 깊이) — 전부 파생`)
+      ok(Math.abs(c.cz - c.w / 2 - S3f.land.z0) < 1e-9 && Math.abs(c.cz + c.w / 2 - S3f.land.z1) < 1e-9,
+        `— 기둥 z 범위가 참 z 범위와 정확히 같다`)
+      //  두 아치의 교차 상자가 부피 0 이어야 한다(교차가 기둥 속에 묻힌다)
+      const ox = Math.min(c.cx + c.dd / 2, A2.hwOut) - Math.max(c.cx - c.dd / 2, -A2.hwOut)
+      //  ★★137-e 종잇장의 마지막 진범 = **시작 캡이 기둥 면과 공면**이었던 것(법선까지 같아 z-fighting).
+      //   → 발원점을 다리 방향으로 되물려 캡을 기둥 살 속에 묻는다. 되물림은 닫힌 값이다.
+      for (const [nm, A] of [['①', A1], ['②', A2]]) {
+        ok(Math.abs(A.emb - Math.max(A.hwOut * A.tanT, C3.LK3_ARC_EMB)) < 1e-9,
+          `${nm} 되물림 emb ${A.emb.toFixed(4)} = max(외곽 반폭·tanθ ${(A.hwOut * A.tanT).toFixed(4)}, 바닥값 ${C3.LK3_ARC_EMB})`)
+        ok(A.emb > 1e-9, `${nm} 되물림 > 0 → 캡이 기둥 면과 **공면이 아니다**(z-fighting 소멸)`)
+        ok(A.collinear && A.path.length === 2 && A.corners.length === 0,
+          `${nm} 되물린 발원점이 다리 직선 위 → 경로 점 2 · 꺾임 0(턱이 생길 자리 자체가 없다)`)
+      }
+      //  ⛔캡이 기둥 발자국 안에 **내접**하는가(비스듬한 ①이 관건)
+      {
+        const n1 = [-(A1.far[1] - A1.foot[1]), A1.far[0] - A1.foot[0]]
+        const l1 = Math.hypot(n1[0], n1[1]); n1[0] /= l1; n1[1] /= l1
+        for (const sgn of [1, -1]) {
+          const q = [A1.foot[0] + n1[0] * A1.hwOut * sgn, A1.foot[1] + n1[1] * A1.hwOut * sgn]
+          ok(q[0] >= c.cx - c.dd / 2 - 1e-6 && q[0] <= c.cx + c.dd / 2 + 1e-6 &&
+             q[1] >= c.cz - c.w / 2 - 1e-6 && q[1] <= c.cz + c.w / 2 + 1e-6,
+            `① 캡 모서리 (${q[0].toFixed(3)}, ${q[1].toFixed(3)})가 기둥 발자국 안 — 되물림 ${A1.emb.toFixed(4)}에서 **정확히 내접**`)
+        }
+      }
+      //  ⓐ2 턱 소멸 — lead가 0이면 중복점을 안 넣어 꺾임이 아예 안 생긴다
+      ok(A1.corners.length === 0 && A1.runs.length === 1 && A1.path.length === 2,
+        `⛔턱 소멸: 발원점·참 면·바깥 끝이 **한 직선** → 경로 점 ${A1.path.length} · 마디 1 · 꺾임 0(중간점을 안 넣는다. 길이 0/미소 마디가 남으면 그게 턱이 된다)`)
+      //  ⓑ 기둥 발이 돔을 **격자로 좇는다**
+      const gcol = P3.solid.find(q => q.id === 'column').geo, ap2 = gcol.getAttribute('position')
+      let onDome = 0, floating = 0
+      for (let i = 0; i < ap2.count; i++) {
+        const x = ap2.getX(i), y = ap2.getY(i), z = ap2.getZ(i)
+        const d = domeY3(Math.hypot(x, z)) - c.emb
+        //  ⚠허용오차: 정점은 Float32라 y≈83에서 유효자리가 1e-5쯤이다(1e-6으로 재면 전부 어긋난 것으로 나온다)
+        if (Math.abs(y - d) < 1e-3) onDome++
+        else if (Math.abs(y - c.top) > 1e-3) floating++
+      }
+      ok(onDome > 0 && floating === 0,
+        `기둥 발 정점 ${onDome}기가 전부 **돔 − ${c.emb}** 위에 있고, 머리도 발도 아닌 정점 ${floating}개(상수 반경 프로파일이면 여기가 안 맞는다)`)
+      //  ⛔옛 판(상수 반경 min|z|)이면 실제로 떠 있었음을 실증
+      {
+        const zNear = Math.min(Math.abs(c.cz - c.w / 2), Math.abs(c.cz + c.w / 2))
+        const zFar = Math.max(Math.abs(c.cz - c.w / 2), Math.abs(c.cz + c.w / 2))
+        const lift = domeY3(Math.hypot(0, zNear)) - domeY3(Math.hypot(0, zFar))
+        ok(lift > 1, `⛔옛 판 실증: 가까운 쪽 반경으로 앉히면 먼 쪽이 ${lift.toFixed(2)} 떠오른다 = 현도 "그냥 툭 얹혀있음"`)
+      }
+      ok(Math.abs(c.top - S3f.land.yBot) < 1e-9,
+        `기둥 머리 ${c.top.toFixed(2)} = 참 밑면(옆면이 참과 같은 평면이 됐으므로 매몰 대신 **정확히 맞댄다** — 같은 법선 겹침 = z-fighting 회피)`)
+      ok(Math.abs(c.cz - c.w / 2 - S3f.land.z0) < 1e-9 && Math.abs(c.cz + c.w / 2 - S3f.land.z1) < 1e-9,
+        `기둥 z 범위 = 참 z 범위(발자국 동일)`)
+      //  보존계 쪽에도 단언을 단다 — ★133 규격이면 돌출이 되살아나는 것이 **정상**이다
+      {
+        const cB = link3Spec({ ...full3, colFit: false }).col
+        //  ⚠②는 얇아질 수 있으므로 ★133 규격보다 좁을 수도 있다 — 늘 성립하는 것은 **참 발자국과 다르다**는 사실
+        ok(cB.w < S3f.d && cB.dd < 2 * S3f.hwOut,
+          `보존계 colFit=false: ★133 규격 ${cB.dd.toFixed(1)}×${cB.w.toFixed(1)} < 참 발자국 ${(2 * S3f.hwOut).toFixed(2)}×${S3f.d.toFixed(2)} → 아치가 기둥 밖으로 되살아난다(현도가 지적한 종잇장)`)
+      }
+    }
+    //  ⑭ ★★137-g 안팎 방향 + 곡률 노브 (현도 "기둥의 면 두개가 안보이거든?")
+    {
+      const { archY: archY3, orientOutward, buildLink4: bl4, link4Spec: l4s } = await import('./link4Geometry.js')
+      //  ⛔닫힌 메시의 **부호 있는 부피**가 음수면 안팎이 뒤집힌 것 — FrontSide 컬링이라 면이 사라져 보인다.
+      const sv = g => { const ap = g.getAttribute('position'), r = ap.array; let V = 0
+        for (let i = 0; i < ap.count; i += 3) { const o = i * 3
+          V += (r[o] * (r[o + 4] * r[o + 8] - r[o + 5] * r[o + 7])
+              - r[o + 1] * (r[o + 3] * r[o + 8] - r[o + 5] * r[o + 6])
+              + r[o + 2] * (r[o + 3] * r[o + 7] - r[o + 4] * r[o + 6])) / 6 }
+        return V }
+      //  ⛔⛔★137-h **부피만으로는 못 잡는다**: 면끼리 감김이 어긋나도 총합은 양수일 수 있다
+      //   (관 내면이 뒤집혀 있었을 때 부피가 겉+속이 되어 전체 검사를 통과했다).
+      //   → **에지 일관성**으로 본다: 닫힌 방향 있는 메시에서 모든 에지는 정확히 **양방향 한 번씩** 나타나야 한다.
+      //   같은 방향 중복이 하나라도 있으면 그 자리에서 감김이 뒤집힌 것이고, FrontSide 컬링에 면이 사라진다.
+      //   ⚠짝 없는 에지는 **의도적으로 캡을 뺀 열린 끝**에서만 나온다(고리 하나 = 8에지).
+      const wind = g => {
+        const ap = g.getAttribute('position'), R = v => Math.round(v * 1e4) / 1e4
+        const m = new Map()
+        for (let i = 0; i < ap.count; i += 3) {
+          const P = [0, 1, 2].map(k => [R(ap.getX(i + k)), R(ap.getY(i + k)), R(ap.getZ(i + k))])
+          for (let k = 0; k < 3; k++) {
+            const key = P[k].join(',') + '|' + P[(k + 1) % 3].join(',')
+            m.set(key, (m.get(key) || 0) + 1)
+          }
+        }
+        let dup = 0, open = 0
+        for (const [k, v] of m) {
+          if (v > 1) dup += v - 1
+          const [A, B] = k.split('|')
+          if (!m.has(B + '|' + A)) open++
+        }
+        return { dup, open }
+      }
+      const all3 = buildLink3(link3Spec({ on: true, archOn: true, arch2On: true, shellOn: true }))
+      const all4 = bl4(l4s({ on: true, archOn: true }))
+      //  ★부재별 '열린 끝' 기대치 — 캡을 뺀 자리만 열린다(★130-f 규약: 상대 부재가 이어받는다)
+      const openExp = { tube1: 8, tube2: 0, tube: 8 }
+      for (const [tag, S] of [['★137', all3], ['★136', all4]]) {
+        for (const q of [...S.walk, ...S.solid]) {
+          const w = wind(q.geo)
+          //  ⚠꺾임 채움 각기둥이 있는 체제에서는 **여러 닫힌 조각이 한 지오메트리에 들어 있고**
+          //   조각끼리 면을 맞대므로 같은 자리 에지가 겹쳐 보인다 — 그건 감김 오류가 아니다.
+          //   그래서 에지 일관성은 **한 덩어리인 부재**에만 건다(꺾임 0). 부피는 전 체제에 건다.
+          const single = !/^arch/.test(q.id) || (q.id === 'arch2' ? S3.arch2 : (tag === '★137' ? S3.arch : null))?.corners.length === 0
+          if (single) {
+            ok(w.dup === 0,
+              `${tag} ${q.id}: 같은 방향 중복 에지 ${w.dup} — 0이어야 감김이 일관이다(면이 사라지는 병의 근원)`)
+            ok(w.open === (openExp[q.id] ?? 0),
+              `${tag} ${q.id}: 짝 없는 에지 ${w.open} = 의도한 열린 끝 ${(openExp[q.id] ?? 0)}(고리 하나 = 8에지)`)
+          }
+          ok(sv(q.geo) > 0, `${tag} ${q.id}: 부호 있는 부피 ${sv(q.geo).toFixed(2)} > 0(바깥을 본다)`)
+        }
+      }
+      //  자가 교정이 이미 바른 메시는 건드리지 않는다(무회귀 근거)
+      {
+        const g = all4.walk[0].geo, before = g.getAttribute('position').array.slice()
+        orientOutward(g)
+        const after = g.getAttribute('position').array
+        let same = true
+        for (let i = 0; same && i < before.length; i++) if (before[i] !== after[i]) same = false
+        ok(same, `orientOutward는 부피가 양수면 한 좌표도 안 바꾼다(★136 무회귀 근거)`)
+      }
+      //  ★곡률 노브 — K=1이 옛 2차와 정확히 같아야 한다
+      {
+        const q2 = s2 => { const u = Math.sqrt(Math.max(0, Math.min(1, s2 / 10))); return u * u * 100 + 2 * u * (1 - u) * 96 + (1 - u) * (1 - u) * 70 }
+        const c3 = archY3({ L: 10, yJ: 100, yC: 96, yB: 70, K: 1 })
+        let worst = 0
+        for (let i = 0; i <= 60; i++) { const s2 = 10 * i / 60; worst = Math.max(worst, Math.abs(c3(s2) - q2(s2))) }
+        ok(worst < 1e-9, `K=1 → 3차 승격이 옛 2차와 동일(최대 차 ${worst.toExponential(1)}) = 무회귀`)
+        const deep = archY3({ L: 10, yJ: 100, yC: 96, yB: 70, K: 0.5 })
+        const flat = archY3({ L: 10, yJ: 100, yC: 96, yB: 70, K: 1.4 })
+        ok(deep(5) < c3(5) && flat(5) > c3(5),
+          `노브 실증(s=L/2): K0.5 ${deep(5).toFixed(3)} < K1 ${c3(5).toFixed(3)} < K1.4 ${flat(5).toFixed(3)} — 작을수록 깊다`)
+        ok(Math.abs(archY3({ L: 10, yJ: 100, yC: 96, yB: 70, K: 9 })(10) - 100) < 1e-6,
+          `K 상한 클램프(1.5)가 걸려도 양 끝값은 두 발에 그대로 붙는다`)
+      }
+      for (const [nm, A] of [['①', A1], ['②', A2]]) {
+        ok(Math.abs(A.yOfS(0) - A.yB) < 1e-6 && Math.abs(A.yOfS(A.L) - A.yJ) < 1e-6,
+          `${nm} K=${A.K}에서도 양 끝값 불변(발 ${A.yB.toFixed(2)} · 소핏 ${A.yJ.toFixed(2)})`)
+        let over = 0
+        for (let i = 0; i <= 200; i++) { const s2 = A.L * i / 200; if (A.yOfS(s2) > A.soffit(s2) + 1e-6) over++ }
+        ok(over === 0, `${nm} K=${A.K}에서도 소핏을 넘지 않는다(${over}/201)`)
+      }
+    }
+    //  보존계
+    ok(buildLink3(link3Spec({ on: true, colFit: false })).solid.find(q => q.id === 'column') !== undefined,
+      `LK3_COL_FIT=false → ★133 규격 기둥으로 복귀(보존계)`)
+    ok(buildLink3(link3Spec({ on: true, shellOn: false })).solid.every(q => !/^shell/.test(q.id)),
+      `LK3_SHELL_ON=false → 감싸기만 소등(옛 '판 하나' 상태로 복귀)`)
+    ok(buildLink3(link3Spec({ on: true, arch2On: false })).solid.every(q => q.id !== 'arch2'),
+      `LK3_ARC2_ON=false → ② 아치만 소등`)
+  }
+
+  //  ⑪ 보존계 · 배선
+  ok(buildLink3(link3Spec({ on: false })) === null, `LK3_ON=false → null(한 줄 소등)`)
+  {
+    const full = { on: true, archOn: true, arch2On: true, shellOn: true }
+    const base = buildLink3(link3Spec(full)).solid.length
+    for (const [k, nm] of [['archOn', '① 아치'], ['arch2On', '② 아치']]) {
+      ok(buildLink3(link3Spec({ ...full, [k]: false })).solid.length === base - 1,
+        `${k}=false → ${nm} 하나만 빠진다(${base} → ${base - 1})`)
+    }
+    ok(buildLink3(link3Spec({ ...full, shellOn: false })).solid.length === base - 5,
+      `shellOn=false → 감싸기 5기가 빠진다(${base} → ${base - 5} · 옛 '판 하나' 상태)`)
+  }
+  {
+    const src3 = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+    ok(/buildLink3/.test(src3) && /link3Parts/.test(src3), 'Room.jsx: ★137 마운트')
+    ok(/LK3_ON/.test(src3), 'Room.jsx: LK3_ON 게이트')
+    ok((src3.match(/name=\{'1p3통로\/' \+ id\}/g) || []).length === 2, 'Room.jsx: walk/solid 둘 다 name 부여')
+  }
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} check_rooms: ${n - fail}/${n} 통과`)
 process.exit(fail === 0 ? 0 : 1)
