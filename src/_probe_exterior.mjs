@@ -9,13 +9,14 @@ import * as C from './constants.js'
 import { buildPetalShell, buildCylSkirt, buildCylCollar } from './Radial.jsx'
 import { buildExtSpiral, buildExtSpiralParapet, buildExtSpiralShell, buildExtSpiralSkirt, buildExtSpiralBridge, buildExtWindowFrame } from './extSpiralGeometry.js'
 import { parseFree } from './poseFormat.js'
-import { buildArm13 } from './armGeometry.js'
+import { buildArm13, buildArmBranch, buildArm2 } from './armGeometry.js'
 import { buildSpire } from './spireGeometry.js'   // ★127 첨탑 정본
 import { buildLinkParts, linkSpec } from './linkPassageGeometry.js'   // ★130 접속 통로
 import { buildBridgeComplex } from './bridgeComplexGeometry.js'   // ★133 1p4 복합체
 import { buildLink4, link4Spec } from './link4Geometry.js'
 import { buildLink3, link3Spec } from './link3Geometry.js'         // ★137 1p3 통로(정본 빌더 직결)        // ★136 1p4 접속 관(정본 빌더 직결)
-import { ARM13_ON, ARM13_K } from './constants.js'
+import { ARM13_ON, ARM13_KS, ARM13_BR_ON, ARM13_BR_K, ARM2_ON } from './constants.js'
+const armAt = (k) => ARM13_ON && ARM13_KS.includes(k)
 
 const W = 880, H = 495, BG = [18, 18, 20]
 const ONLY13 = process.env.ONLY13 === '1'   // 1p3 권역만(방 + 그 꽃잎) — 첨탑·타 꽃잎이 시야를 막을 때
@@ -89,6 +90,7 @@ const COL = {
 //  ★MOCK13=1 — 1p3(k=2·225°) 목업: ★91 원기둥·말단·칼라 제거, 팔(열린 C) + 가는 각기둥.
 //  ⚠리드백용 가짜 기하 — 구현 아님. 경로는 방 표면·셸 하면 실측 위 회랑에 놓음.
 COL.arm = [200, 130, 210]
+COL.armBr = [110, 225, 130]                       // ★139 갈래는 몸통과 다른 색으로(육안 분리 — ★136-c 어법)
 COL.col = [235, 235, 100]
 function catmull(P, n) {
   const out = []
@@ -111,14 +113,16 @@ const sp = { mass: buildExtSpiral(), encl: C.RSP_ENCL === 'tube' ? buildExtSpira
 const sp13 = { mass: buildExtSpiral({ noCyl: true }), encl: C.RSP_ENCL === 'tube' ? buildExtSpiralShell({ noCyl: true }) : buildExtSpiralParapet({ noCyl: true }),
              wfr: buildExtWindowFrame({ noCyl: true }), skirt: buildExtSpiralSkirt({ noCyl: true }), bridge: buildExtSpiralBridge({ noCyl: true }) }
 for (let k = 0; k < 4; k++) {
-  if (ONLY13 && k !== ARM13_K) continue
+  if (ONLY13 && !armAt(k)) continue
   const ang = C.RAD_ANG0 + k * Math.PI / 2
   const m = new THREE.Matrix4()
     .makeTranslation(C.RAD_R * Math.cos(ang), 0, C.RAD_R * Math.sin(ang))
     .multiply(new THREE.Matrix4().makeRotationY(-ang))
   addGeo(petal, COL.shell, m)
-  if (ARM13_ON && k === ARM13_K) addGeo(buildArm13(), COL.arm, m)
-  if (C.RAD_CYL_ON && !(ARM13_ON && k === ARM13_K)) {
+  if (armAt(k)) addGeo(buildArm13(), COL.arm, m)
+  if (armAt(k) && ARM13_BR_ON && k === ARM13_BR_K) addGeo(buildArmBranch(), COL.armBr, m)   // ★139 갈래(소등)
+  if (armAt(k) && ARM2_ON && k === ARM13_BR_K) addGeo(buildArm2(), COL.armBr, m)              // ★140 두 번째 팔
+  if (C.RAD_CYL_ON && !armAt(k)) {
     //  말단(= 4방의 **유일한** 차별 요소)만 별색으로 분리 — 삼각형 무게중심 y가 말단 꼭대기 아래면 말단
     const g = buildCylSkirt(k).toNonIndexed(), p = g.attributes.position.array
     const top = C.RAD_CYL_TERM_TOP_BY[k]
@@ -130,9 +134,9 @@ for (let k = 0; k < 4; k++) {
       tris.push({ v: t, c: cy < top ? COL.term : COL.cyl })
     }
   }
-  if (C.RAD_CYL_ON && C.RAD_CYL_COLLAR_ON && !(ARM13_ON && k === ARM13_K)) addGeo(collar, COL.cyl, m)
+  if (C.RAD_CYL_ON && C.RAD_CYL_COLLAR_ON && !armAt(k)) addGeo(collar, COL.cyl, m)
   if (C.RSP_ON) {
-    const G = (ARM13_ON && k === ARM13_K) ? sp13 : sp
+    const G = armAt(k) ? sp13 : sp
     addGeo(G.mass, COL.spiral, m); addGeo(G.bridge, COL.spiral, m)
     addGeo(G.encl, COL.encl, m); addGeo(G.wfr, COL.encl, m); addGeo(G.skirt, COL.encl, m)
   }

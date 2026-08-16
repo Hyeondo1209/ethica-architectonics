@@ -26,6 +26,7 @@ import {
   LNK_STEP, LNK_TREAD, LNK_CURVE, LNK_BIARC_D,
   LNK_WALK_MAX, LNK_DOOR_ON, LNK_DOOR_H, LNK_DOOR_HW, LNK_DOOR_MARG,
   LNK_BEZ_K, LNK_M_AZ, LNK_M_R, LNK_M_RIN, LNK_FOOT, LNK_FOOT_DROP, LNK_NEWEL_R, LNK_EMB,
+  LNK_CONE_ON, LNK_CONE_Y, LNK_CONE_R,
   RAD_ANG0, RAD_R, SPT_Y,
 } from './constants.js'
 
@@ -167,7 +168,18 @@ export function linkSpec(opts = {}) {
   const tw = {
     rIn: LNK_M_RIN, rOut: LNK_M_RIN + LNK_TWR_T,               // 벽 = 첨탑 살 두께 승계(관이 아니라 '탑')
     yTop: y1 + LNK_H + LNK_WALL_T,                             // 둘째 다리 천장 위
-    yBot: (LNK_FOOT === 'dome' ? domeYAt(LNK_M_R) : y0 - LNK_FLOOR_T - LNK_FOOT_DROP),
+    //  ★★★139: 원뿔대 체제에서 벽의 원기둥 부분은 **바닥 슬래브 밑면**에서 끝난다(파생 — 노브 아님).
+    //   구 체제는 `LNK_FOOT_DROP`만큼 더 내려가 걷는 바닥 밑에 죽은 자락 4.5를 남겼다(현도 적발).
+    yBot: LNK_CONE_ON ? y0 - LNK_FLOOR_T
+          : (LNK_FOOT === 'dome' ? domeYAt(LNK_M_R) : y0 - LNK_FLOOR_T - LNK_FOOT_DROP),
+    //  ★원뿔대(아래로 좁아짐) — 위 = 원기둥 끝(rOut·rIn 그대로) · 아래 = LNK_CONE_R.
+    //   ⚠안반경은 **수평 벽두께 보존**으로 파생한다(rIn = rOut − LNK_TWR_T). 밑에서도 살 두께가 같다.
+    cone: LNK_CONE_ON ? {
+      yTop: y0 - LNK_FLOOR_T, yBot: LNK_CONE_Y,
+      rOut: LNK_CONE_R, rIn: Math.max(0.05, LNK_CONE_R - LNK_TWR_T),
+      h: (y0 - LNK_FLOOR_T) - LNK_CONE_Y,
+      wallDeg: Math.atan2((y0 - LNK_FLOOR_T) - LNK_CONE_Y, (LNK_M_RIN + LNK_TWR_T) - LNK_CONE_R) * 180 / Math.PI,
+    } : null,
     newel: LNK_NEWEL_R,
   }
   //  나선: 뉴얼~안벽 중간반경에서 디딤을 재 한 바퀴 단수를 얻는다(닫힌 식 — 표본 없음)
@@ -343,10 +355,21 @@ export function buildLinkTower(S = linkSpec(), SEG = 48) {
     }
     const _skip = 0
     quad(at(T.rOut, T.yTop, k), at(T.rIn, T.yTop, k), at(T.rIn, T.yTop, k + 1), at(T.rOut, T.yTop, k + 1))         // 지붕 고리
-    quad(at(T.rOut, T.yBot, k), at(T.rIn, T.yBot, k), at(T.rIn, T.yBot, k + 1), at(T.rOut, T.yBot, k + 1))         // 밑 고리
-    //  지붕·바닥 슬래브(밀봉 — 안쪽을 덮는다)
+    //  ★★★139 원뿔대: 원기둥 밑(yBot = 바닥 슬래브 밑면)에서 아래로 좁아진다.
+    //   ⚠원뿔대가 켜지면 **밑 고리·밑 슬래브는 원뿔대 밑으로 내려간다**(여기서 닫으면 이중 바닥).
+    if (T.cone) {
+      const C0 = T.cone
+      const ap = (r, y, kk) => at(r, y, kk)
+      quad(ap(T.rOut, C0.yTop, k), ap(C0.rOut, C0.yBot, k), ap(C0.rOut, C0.yBot, k + 1), ap(T.rOut, C0.yTop, k + 1))   // 원뿔 바깥벽
+      quad(ap(C0.rIn, C0.yBot, k), ap(T.rIn, C0.yTop, k), ap(T.rIn, C0.yTop, k + 1), ap(C0.rIn, C0.yBot, k + 1))       // 원뿔 안벽
+      quad(ap(C0.rOut, C0.yBot, k), ap(C0.rIn, C0.yBot, k), ap(C0.rIn, C0.yBot, k + 1), ap(C0.rOut, C0.yBot, k + 1))   // 밑 고리
+      tri([S.two.M[0], C0.yBot, S.two.M[1]], ap(C0.rIn, C0.yBot, k + 1), ap(C0.rIn, C0.yBot, k))                       // 밑 슬래브
+    } else {
+      quad(at(T.rOut, T.yBot, k), at(T.rIn, T.yBot, k), at(T.rIn, T.yBot, k + 1), at(T.rOut, T.yBot, k + 1))         // 밑 고리
+      tri([S.two.M[0], T.yBot, S.two.M[1]], at(T.rIn, T.yBot, k + 1), at(T.rIn, T.yBot, k))
+    }
+    //  지붕 슬래브(밀봉 — 안쪽을 덮는다)
     tri([S.two.M[0], T.yTop, S.two.M[1]], at(T.rIn, T.yTop, k), at(T.rIn, T.yTop, k + 1))
-    tri([S.two.M[0], T.yBot, S.two.M[1]], at(T.rIn, T.yBot, k + 1), at(T.rIn, T.yBot, k))
   }
   return toGeo(pos)
 }

@@ -10,7 +10,7 @@ import * as THREE from 'three'
 import { Brush, Evaluator, HOLLOW_SUBTRACTION, INTERSECTION } from 'three-bvh-csg'
 import { linkSpec, buildLinkParts } from './linkPassageGeometry.js'   // ★130 셸→테라스 접속 통로(밀봉 관·미니 첨탑)
 import { ascSpec, ascDoorCut, buildAscentMass, buildAscentWalls, buildAscentCeiling, buildAscentColumns, buildAscentOverlook, buildAscentMouthSill } from './ascentTunnelGeometry.js'
-import { buildArm13 } from './armGeometry.js'   // ★126 1p3 지지 팔
+import { buildArm13, buildArmBranch, buildArm2 } from './armGeometry.js'   // ★126 지지 팔 · ★139 갈래(소등) · ★140 두 번째 팔
 import { extSpiralSpec, buildExtSpiral, buildExtSpiralParapet, buildExtSpiralShell, buildExtSpiralSkirt, buildExtSpiralBridge, buildExtWindowFrame, extWindowRibbonGeo, winBandAt, winBandOver } from './extSpiralGeometry.js'   // ★122·★122-b·★122-c·★123
 import { wellWallR } from './spireGeometry.js'   // ★127 빛우물 벽 사면 단일 정본(구 로컬 coneR 사본 폐기)
 import {
@@ -28,7 +28,7 @@ import {
   RAD_CYL_ON, RAD_CYL_R, RAD_CYL_Y0, RAD_CYL_SEG, RAD_CYL_CLIP_ROOM,
   RAD_CYL_TERM_BY, RAD_CYL_TERM_TOP_BY, RAD_CYL_SPH_SEG, termSpec,
   RAD_CYL_DOOR_ON, RAD_CYL_DOOR_RING_ONLY, RAD_CYL_DOOR_M, CYL_TAN_DOOR_M,
-  ARM13_ON, ARM13_K,
+  ARM13_ON, ARM13_KS, ARM13_BR_ON, ARM13_BR_K, ARM2_ON,
   RAD_CYL_COLLAR_ON, RAD_CYL_COLLAR_T,
 } from './constants'
 
@@ -656,7 +656,13 @@ export function RadialRooms() {
     bridge: buildExtSpiralBridge({ noCyl: true }),
   } : null), [])
   const armGeo = useMemo(() => (ARM13_ON ? buildArm13() : null), [])   // ★126 팔(스팬드럴·돔 융합·날·컵·각기둥)
-  const cylAt = (k) => RAD_CYL_ON && !(ARM13_ON && k === ARM13_K)     // ★126 게이트 — k=2 원기둥·말단·칼라 소등
+  //  ★★★139 갈래 — ② 미니 첨탑 하단 원뿔대를 받친다. 꽃잎 ARM13_BR_K에만(파생).
+  const armBrGeo = useMemo(() => (ARM13_ON && ARM13_BR_ON ? buildArmBranch() : null), [])
+  //  ★★★140 두 번째 팔 — 셸 팔과 같은 어휘로 미니 첨탑을 받친다(갈래를 대체). 꽃잎 ARM13_BR_K에만.
+  const arm2Geo = useMemo(() => (ARM2_ON ? buildArm2() : null), [])
+  //  ★★★139 팔이 서는 꽃잎이 **둘**이 됐다 — 단일 k 비교를 목록 판정으로 교체(1p3·1p1)
+  const armAt = (k) => ARM13_ON && ARM13_KS.includes(k)
+  const cylAt = (k) => RAD_CYL_ON && !armAt(k)                        // ★126 게이트 — 팔이 선 꽃잎은 원기둥·말단·칼라 소등
   const cylGeos = useMemo(() => [0, 1, 2, 3].map(buildCylSkirt), [])   // ★말단이 넷 다 달라 개별 기하
   const collarGeo = useMemo(buildCylCollar, [])   // ★123 적도 칼라(넷 동일 — 말단과 무관)
   const stairGeos = useMemo(buildStairs, [])
@@ -685,8 +691,20 @@ export function RadialRooms() {
             </mesh>
           )}
           {/* ★★★126 1p3 지지 팔(2026.08.13 현도 스케치) — 원기둥 대체: 스팬드럴+돔융합+날+컵+각기둥 */}
-          {ARM13_ON && k === ARM13_K && (
+          {armAt(k) && (
             <mesh geometry={armGeo} userData={{ walkable: false }}>
+              <meshStandardMaterial color={MAT_SHELL} roughness={0.88} />
+            </mesh>
+          )}
+          {/* ★★★139 갈래 팔 — 몸통 s50에서 갈라져 ② 미니 첨탑 하단 원뿔대를 면으로 받는다 */}
+          {armAt(k) && ARM13_BR_ON && k === ARM13_BR_K && armBrGeo && (
+            <mesh geometry={armBrGeo} userData={{ walkable: false }}>
+              <meshStandardMaterial color={MAT_SHELL} roughness={0.88} />
+            </mesh>
+          )}
+          {/* ★★★140 두 번째 팔 — 소핏 갈고리·돔 융합 몸통·날·원반 2단(셸 팔 어휘 그대로) */}
+          {armAt(k) && ARM2_ON && k === ARM13_BR_K && arm2Geo && (
+            <mesh geometry={arm2Geo} userData={{ walkable: false }}>
               <meshStandardMaterial color={MAT_SHELL} roughness={0.88} />
             </mesh>
           )}
@@ -725,7 +743,7 @@ export function RadialRooms() {
           })()}
           {/* ★★★122 셸 외부 나선 계단(2026.08.12 현도 그림) — 꽃잎 로컬 마운트 = 4방 등형 자동.
               새 문(π) → 접선 −z 문, 61단(오름 61·내림 61 대칭), 안 가장자리 = 셸/★91 원기둥 물림 */}
-          {RSP_ON && (() => { const EG = (ARM13_ON && k === ARM13_K && extSpiralGeos13) || extSpiralGeos; return (
+          {RSP_ON && (() => { const EG = (armAt(k) && extSpiralGeos13) || extSpiralGeos; return (
             <>
               <mesh geometry={EG.mass} userData={{ walkable: true }}>
                 <meshStandardMaterial color={MAT_FLOOR} roughness={0.9} />
