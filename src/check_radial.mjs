@@ -2273,5 +2273,154 @@ console.log('\n── ★★★126 1p3 지지 팔(2026.08.13 · ★126-c 현도 
   ok('배선: 두 번째 팔 마운트 walkable:false', /geometry=\{arm2Geo\} userData=\{\{ walkable: false \}\}/.test(RS) && /ARM2_ON && k === ARM13_BR_K/.test(RS))
 }
 
+
+// ══════════════ ★★★141 팔 넷 · 통로 재배치 (2026.08.16 현도 임무 ①②③) ══════════════
+{
+  console.log('\n── ★141. 셸 팔 넷 + 통로 재배치 ──')
+  const C1 = await import('./constants.js')
+  const RSRC = readFileSync(new URL('./Radial.jsx', import.meta.url), 'utf8')
+  const armAt = (k) => C1.ARM13_ON && C1.ARM13_KS.includes(k)
+  const cylAt = (k) => C1.RAD_CYL_ON && !armAt(k)
+
+  //  ① 팔 넷 — 배치가 아니라 **외피**가 등형으로 돌아왔다(현도 Q1 확정)
+  //   ⚠체제 분기(★138 '여섯 번째 계열'): 보존계로 되돌린 체제에서 검사가 깨지면 안 된다.
+  //    ARM13_ON=false는 구 세계(원기둥 넷) 복원이고, KS를 줄이는 것은 중간 체제다.
+  const ARMS4 = C1.ARM13_ON && [0, 1, 2, 3].every(armAt)
+  if (ARMS4) {
+    ok('팔이 서는 꽃잎 = 넷 전부', true, `KS=[${C1.ARM13_KS}]`)
+    ok('원기둥·말단·칼라 = 0기(cylAt 게이트가 넷 다 소등)', ![0, 1, 2, 3].some(cylAt))
+  } else {
+    ok('보존계: 팔이 넷이 아닌 체제 — 원기둥이 그만큼 되살아난다(게이트 정합)',
+      [0, 1, 2, 3].filter(cylAt).length === (C1.RAD_CYL_ON ? 4 - [0, 1, 2, 3].filter(armAt).length : 0),
+      `ARM13_ON=${C1.ARM13_ON} · KS=[${C1.ARM13_KS}] · 원기둥 ${[0, 1, 2, 3].filter(cylAt).length}기`)
+  }
+  //  ★가드 실증 — 목록을 줄이면 실제로 갈라져야 산 검사다(공허참 방지).
+  //   ⚠ARM13_ON 자체와 무관하게 성립해야 하므로 게이트식만 떼어 시험한다(소등 체제에서도 유효).
+  {
+    const fakeArm = (k) => [2, 0].includes(k)
+    ok('가드 실증: 목록이 [2,0]이면 원기둥이 2기 되살아난다(게이트식이 목록을 실제로 읽는다)',
+      [0, 1, 2, 3].filter(k => !fakeArm(k)).length === 2)
+  }
+  //  ② 나선 = 넷 다 noCyl 변형체
+  ok('배선: 나선 EG 스위치가 armAt(k)로 갈린다 → 넷 다 변형체',
+    /const EG = \(armAt\(k\) && extSpiralGeos13\) \|\| extSpiralGeos/.test(RSRC))
+
+  //  ③ ★★하반부 창은 살아 있다 — ★126 기록("창 소등 · 이설 = 선언된 빚")은 **오기**였다.
+  //   셸의 창 리본 컷은 꽃잎 넷이 공유하는 단일 기하라 팔이 서도 그대로 뚫려 있다.
+  //   ⚠도구를 먼저 검증한다(창 없는 대역에서 전 방위 명중 + 상반부 개구 존재). 그 뒤의 숫자만 채택.
+  {
+    const EG = await import('./extSpiralGeometry.js')
+    const { mkdtempSync: MKW } = await import('node:fs')
+    const { tmpdir: TMPW } = await import('node:os')
+    const { join: JOINW } = await import('node:path')
+    const { execSync: EXECW } = await import('node:child_process')
+    const { pathToFileURL: P2UW } = await import('node:url')
+    //  ⚠Radial.jsx는 node가 직접 못 읽는다(.jsx) → 이 스위트가 이미 쓰는 esbuild 번들 어법으로 in-process 로드
+    const dirW = MKW(JOINW(TMPW(), 'ethica-win-'))
+    const outW = JOINW(dirW, 'rad.mjs')
+    EXECW(`npx esbuild src/Radial.jsx --bundle --format=esm --outfile=${outW} --loader:.jsx=jsx --jsx=automatic --log-level=silent`, { stdio: 'pipe' })
+    const RJ = await import(P2UW(outW).href)
+    const g = RJ.buildPetalShell()
+    const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }))
+    mesh.updateMatrixWorld()
+    const rc = new THREE.Raycaster()
+    const shellR = (y) => C1.RAD_PRX * Math.sqrt(Math.max(0, 1 - ((y - C1.RAD_PCY) / C1.RAD_PRY) ** 2))
+    const nearHit = (a, y) => { const R = shellR(y) + 3
+      rc.set(new THREE.Vector3(R * Math.cos(a), y, R * Math.sin(a)), new THREE.Vector3(-Math.cos(a), 0, -Math.sin(a)))
+      rc.far = 6
+      return rc.intersectObject(mesh, false).length > 0 }
+    //  ⚠도구 검증 ①: 창 대역 **아래**(개구가 있을 수 없는 높이)에서는 전 방위 명중해야 한다
+    const segs = EG.windowSegs()
+    const yFloor = Math.min(...segs.map(([, , yA, yB]) => Math.min(yA, yB))) + C1.RSP_WIN_SILL - 4
+    let solid = 0, tot = 0
+    for (let d = 0; d < 360; d += 4) { tot++; if (nearHit(d * Math.PI / 180, yFloor)) solid++ }
+    ok('도구 검증: 창 없는 대역에서 전 방위 명중(광선이 셸을 실제로 본다)', solid === tot, `${solid}/${tot} @y${yFloor.toFixed(1)}`)
+    let up = 0, upOpen = 0, low = 0, lowOpen = 0
+    for (const [a, b, yA, yB] of segs) {
+      const am = (a + b) / 2, y = (yA + yB) / 2
+      const yc = y + (C1.RSP_WIN_SILL + C1.RSP_WIN_TOP) / 2
+      const open = !nearHit(am, yc)
+      if ((y + C1.RSP_WIN_TOP) < C1.RAD_CYL_Y0) { low++; if (open) lowOpen++ } else { up++; if (open) upOpen++ }
+    }
+    ok('도구 검증: 상반부 창이 전부 개구(비교군)', up > 0 && upOpen === up, `${upOpen}/${up}`)
+    ok('★★팔 셸에도 하반부 창이 살아 있다 — 셸 컷은 꽃잎 넷이 공유하는 단일 기하다',
+      low > 0 && lowOpen === low, `하반부 세그 ${lowOpen}/${low} 개구 (★126 "창 소등" 기록은 오기)`)
+    //  창 세그가 체제에 안 흔들린다(변형체에서도 같은 자리)
+    const A = EG.windowSegs(), B = EG.windowSegs({ noCyl: true })
+    let md = 0
+    for (let i = 0; i < Math.min(A.length, B.length); i++) for (let j = 0; j < 4; j++) md = Math.max(md, Math.abs(A[i][j] - B[i][j]))
+    ok('창 세그가 두 체제에서 동일(변형체가 창 위치를 안 흔든다)', A.length === B.length && md === 0, `${A.length}세그 · 편차 ${md}`)
+    //  몰딩도 하반부에 남아 있다(반경만 셸 추종)
+    const wf = EG.buildExtWindowFrame({ noCyl: true }).getAttribute('position')
+    let lowN = 0
+    for (let i = 0; i < wf.count; i++) if (wf.getY(i) < C1.RAD_CYL_Y0) lowN++
+    ok('변형체 창 몰딩이 하반부를 덮는다', lowN > 0, `하반부 정점 ${lowN}`)
+  }
+
+  //  ④ 두 번째 팔이 미니 첨탑을 **파생으로** 따라갔다(손 지정 0)
+  ok('ARM13_BR_K = 경유지 셸의 꽃잎(파생)', C1.ARM13_BR_K === (C1.LNK_ASSIGN.indexOf(2) + 3) % 4, `BR_K=${C1.ARM13_BR_K}`)
+  if (C1.LNK_ON && C1.LNK_ASSIGN.includes(2)) {
+    ok('그 꽃잎 = 1p2(★141 이사 결과)', C1.ARM13_BR_K === C1.P_ROOM.p2, `꽃잎 k${C1.ARM13_BR_K}`)
+  } else {
+    ok('보존계: 경유지가 없는 체제 — 두 번째 팔의 꽃잎 판정은 무의미(파생만 확인)', true, `LNK_ON=${C1.LNK_ON}`)
+  }
+  //  ⚠팔이 없으면 두 번째 팔도 마운트되지 않는다(Radial 게이트 armAt(k) && ARM2_ON) — 그 인과 자체를 본다
+  ok('두 번째 팔은 팔이 선 꽃잎에서만 산다(게이트 정합)',
+    !C1.ARM2_ON || !C1.ARM13_ON || armAt(C1.ARM13_BR_K),
+    C1.ARM13_ON ? `BR_K=${C1.ARM13_BR_K} ∈ KS` : '팔 전소등 체제 — 두 번째 팔도 함께 소등된다')
+
+  //  ⑤ ★간섭 — 새 팔 2기가 비대칭 이웃(★133 복합체 · ★136 관)과 안 부딪힌다.
+  //   ⚠빌더가 {id, geo} 래퍼를 돌려준다 — 안 벗기면 빈 집합이 "간섭 없음"으로 보고된다(★141에서 겪음).
+  {
+    const { buildArm13 } = await import('./armGeometry.js')
+    const { buildBridgeComplex } = await import('./bridgeComplexGeometry.js')
+    const { buildLink4 } = await import('./link4Geometry.js')
+    const flat = (r) => !r ? [] : Array.isArray(r) ? r.flatMap(flat)
+      : r.attributes ? [r] : r.geo ? flat(r.geo) : (r.walk || r.solid) ? [...(r.walk || []), ...(r.solid || [])].flatMap(flat) : []
+    const pts = (geo, m) => { const gg = geo.index ? geo.toNonIndexed() : geo
+      const arr = gg.attributes.position.array, v = new THREE.Vector3(), out = []
+      for (let i = 0; i < arr.length; i += 3) { v.set(arr[i], arr[i + 1], arr[i + 2]); if (m) v.applyMatrix4(m); out.push([v.x, v.y, v.z]) }
+      return out }
+    const setOf = (r, m) => flat(r).flatMap(g => pts(g, m))
+    const petalM = (k) => { const a = RAD_ANG0 + k * Math.PI / 2
+      return new THREE.Matrix4().makeTranslation(RAD_R * Math.cos(a), 0, RAD_R * Math.sin(a))
+        .multiply(new THREE.Matrix4().makeRotationY(-a)) }
+    const minD = (P, Q) => { let b = Infinity
+      const sp = Math.max(1, Math.floor(P.length / 2500)), sq = Math.max(1, Math.floor(Q.length / 2500))
+      for (let i = 0; i < P.length; i += sp) for (let j = 0; j < Q.length; j += sq) {
+        const dx = P[i][0] - Q[j][0], dy = P[i][1] - Q[j][1], dz = P[i][2] - Q[j][2]
+        const d = dx * dx + dy * dy + dz * dz; if (d < b) b = d }
+      return Math.sqrt(b) }
+    const armG = buildArm13()
+    const brg = C1.BRG_ON ? setOf(buildBridgeComplex(), null) : []
+    const lk4 = (C1.BRG_ON && C1.LK4_ON) ? setOf(buildLink4(), null) : []
+    //  ⚠공허참 가드 — 집합이 비면 아래 거리 판정은 무의미하다
+    const live = brg.length > 0 && lk4.length > 0
+    ok('간섭 표본이 비어 있지 않다(래퍼 벗김 확인 — 빈 집합이 "간섭 없음"으로 보고된 전례)',
+      live || !C1.BRG_ON, `복합체 ${brg.length} · LK4 ${lk4.length}`)
+    if (live) for (const [nm, N] of [['★133 복합체', brg], ['★136 LK4 관', lk4]]) {
+      for (const k of [1, 3]) {                      // ★141이 새로 세운 팔 둘(1p2·1p4)
+        if (!armAt(k)) continue                      // 보존계 체제에서는 그 팔이 없다
+        const d = minD(setOf(armG, petalM(k)), N)
+        ok(`새 팔@꽃잎k${k} ↔ ${nm} 무접촉`, d > 1, d.toFixed(3))
+      }
+    }
+  }
+
+  //  ⑥ ★나선 참 종단 캡 빚(ⓓ′) 소멸 — 넷 다 통로가 그 단면을 인수한다
+  {
+    const kinds = [0, 1, 2, 3].map(k =>
+      (C1.LNK_ON && C1.LNK_ASSIGN[k]) ? 'LNK' : (C1.LK3_ON && C1.LK3_KS.includes(k)) ? 'LK3' : (k === 0 && C1.BRG_ON) ? 'BRG' : null)
+    const allOn = C1.LNK_ON && C1.LK3_ON && C1.BRG_ON
+    if (allOn) {
+      ok('셸 넷 다 나선 참에서 통로가 나간다 — 종단 캡 개방이 더는 빚이 아니다',
+        kinds.every(Boolean), kinds.join(' · '))
+    } else {
+      ok('보존계: 통로 계열이 소등된 체제 — 종단 캡 빚이 그만큼 되살아난다(선언된 상태)',
+        true, kinds.map(v => v || '—').join(' · '))
+    }
+  }
+}
+
 console.log(`\n결과: ${pass} 통과 / ${fail} 실패`)
 process.exit(fail ? 1 : 0)

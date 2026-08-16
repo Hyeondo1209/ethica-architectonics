@@ -33,16 +33,28 @@ import { archY, buildSweptArch, splitRuns, orientOutward } from './link4Geometry
 import { bridgeDomeY } from './bridgeComplexGeometry.js'
 import { wellWallR } from './spireGeometry.js'
 import {
-  LK3_ON, LK3_R, LK3_Y, LK3_SINK, LK3_START, LK3_ARC_ON, LK3_ARC_S, LK3_ARC_SEG, LK3_ARC_KINK,
+  LK3_ON, LK3_KS, LK3_BASE_K, LK3_R, LK3_Y, LK3_SINK, LK3_START, LK3_ARC_ON, LK3_ARC_S, LK3_ARC_SEG, LK3_ARC_KINK,
   LK3_ARC2_ON, LK3_ARC2_S, LK3_SHELL_ON, LK3_SHELL_LAP, LK3_COL_FIT, LK3_COL_EMB, LK3_COL_N, LK3_ARC_EMB, LK3_ARC_WF, LK3_ARC2_WF, LK3_ARC_K, LK3_ARC2_K,
   LNK_EMB, SPT_Y, BRG_LAND_T, BRG_COL_W, BRG_COL_D, BRG_SEAT, BRG_EMB_TOP, BRG_ARCH_UPB, BRG_SINK,
 } from './constants.js'
 
 const nrm = a => Math.hypot(a[0], a[1])
 //  셸0 프레임(315°) → 셸 k 프레임. ★132 규약: k 회전 = **+90°k**(꽃잎 k와 45° 어긋난 LNK k다).
-const ROT_K = 3                                     // LNK 인덱스 3 = 셸 225° · 첨탑 문 270°
+const ROT_K = LK3_BASE_K                            // ★141: 기준 프레임(=3) — 셸 225° · 첨탑 문 270°
 const rotK = (p, k = ROT_K) => { const a = k * Math.PI / 2, c = Math.cos(a), s = Math.sin(a)
   return [p[0] * c - p[1] * s, p[0] * s + p[1] * c] }
+
+//  ★★★141 다중 마운트: 이 모듈은 **기준 프레임 하나**에서만 짓는다(참·기둥·② 관이 방위 270° 축에
+//   정렬돼 있으므로 spec 자체를 k로 일반화하면 식이 전부 갈라진다). 대신 완성된 기하를 **회전해서** 단다.
+//   회전이 근사가 아니라 **정확한** 이유: 이 통로가 참조하는 것이 전부 회전 불변이다 —
+//   돔(`bridgeDomeY`는 반경의 함수) · 첨탑 벽(`wellWallR`, C4 이상) · 나선 참(셸0 프레임을 k로 돌려 받는다).
+//   ⚠그래서 k별 치수 분화가 필요해지면 회전이 아니라 `link3Spec({ R, Y, … })`를 k마다 부르는 쪽으로 간다.
+export const link3RotY = (k) => -((k - LK3_BASE_K) * Math.PI / 2)
+//  마운트 목록 — [{ k, rotY }]. LK3_ON=false면 빈 배열.
+export function link3Mounts() {
+  if (!LK3_ON) return []
+  return LK3_KS.map(k => ({ k, rotY: link3RotY(k) }))
+}
 
 // ── 스펙(전부 파생 — 현도 값 둘 말고는 하드코딩 0) ──
 export function link3Spec(o = {}) {

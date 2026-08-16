@@ -14,7 +14,7 @@ import { buildSpire } from './spireGeometry.js'   // ★127 첨탑 정본
 import { buildLinkParts, linkSpec } from './linkPassageGeometry.js'   // ★130 접속 통로
 import { buildBridgeComplex } from './bridgeComplexGeometry.js'   // ★133 1p4 복합체
 import { buildLink4, link4Spec } from './link4Geometry.js'
-import { buildLink3, link3Spec } from './link3Geometry.js'         // ★137 1p3 통로(정본 빌더 직결)        // ★136 1p4 접속 관(정본 빌더 직결)
+import { buildLink3, link3Spec, link3Mounts } from './link3Geometry.js'         // ★137 1p3 통로(정본 빌더 직결)        // ★136 1p4 접속 관(정본 빌더 직결)
 import { ARM13_ON, ARM13_KS, ARM13_BR_ON, ARM13_BR_K, ARM2_ON } from './constants.js'
 const armAt = (k) => ARM13_ON && ARM13_KS.includes(k)
 
@@ -77,11 +77,16 @@ const COL = {
       for (const { geo } of L4.walk) addGeo(geo, COL.lk4)
       for (const { geo } of L4.solid) addGeo(geo, COL.lk4a)   // ⛔누락 적발: solid(아치)를 안 그리고 있었다
     }
-    //  ★137 1p3 통로 — 관/참 = 주황 · 기둥·아치 = 보라
+    //  ★137 1p3형 통로 — 관/참 = 주황 · 기둥·아치 = 보라
+    //  ★★★141: **두 벌**이 됐다(1p3 + 1p1). 정본과 같은 회전 마운트를 그대로 쓴다(프로브가 손각도를 쓰면
+    //   화면과 실제가 어긋나 진단이 거짓말을 한다 — ★122 계열 전례).
     const L3 = buildLink3(link3Spec({ on: true }))
     if (L3) {
-      for (const { geo } of L3.walk) addGeo(geo, COL.lk4)
-      for (const { geo } of L3.solid) addGeo(geo, COL.lk4a)
+      for (const { k, rotY } of link3Mounts()) {
+        const m3 = new THREE.Matrix4().makeRotationY(rotY)
+        for (const { geo } of L3.walk) addGeo(geo, COL.lk4, m3)
+        for (const { geo } of L3.solid) addGeo(geo, COL.lk4a, m3)
+      }
     }
   }
 }

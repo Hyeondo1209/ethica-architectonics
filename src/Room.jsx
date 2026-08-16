@@ -34,7 +34,10 @@ import { buildSpireTerrace } from './spireTerraceGeometry.js'   // ★128 첨탑
 import { buildUpperPlatform } from './upperPlatformGeometry.js' // ★131 새 층 플랫폼 + 좌우 계단 2기(테라스 위 — 드럼행 문의 자리)
 import { buildBridgeComplex } from './bridgeComplexGeometry.js' // ★133 1p4 방위 0° 복합체(2층 계단 관 + 참 + 기둥 + 아치)
 import { buildLink4 } from './link4Geometry.js'
-import { buildLink3 } from './link3Geometry.js'                   // ★137 1p3 셸 → 테라스 통로(두 오르막 + 띄운 참)                   // ★136 1p4 셸 나선 참 → ★133 참 수평 접속 관
+import { buildLink3, link3Mounts } from './link3Geometry.js'                   // ★137 1p3형 셸 → 테라스 통로(두 오르막 + 띄운 참) · ★141 다중 마운트                   // ★136 1p4 셸 나선 참 → ★133 참 수평 접속 관
+//  ★141 이름표용 — LNK 인덱스 → 정리 번호(★132 규약: k0=1p4 · k1=1p1 · k2=1p2 · k3=1p3).
+//  ⚠꽃잎 k와 45° 어긋난 다른 규약이다. CoordHud로 부재를 짚을 때 이 이름이 나온다.
+const LK3_PROP = [4, 1, 2, 3]
 import { SPIRE_ON, SPT_ON, UPF_ON, BRG_ON, LK4_ON, LK3_ON } from './constants.js'
 import { buildRoomRibs } from './roomRibGeometry'   // ★116 방 돔 살 여덟(순수 기하 — 사본 금지)   // ★114 벽 밑동 팔각 각뿔대(순수 기하 — 사본 금지)
 
@@ -457,16 +460,22 @@ export function DefAxiomRoom({ stairKind }) {
         </mesh>
       ))}
       {/* ★136-c 접합부 아치 — 관 곡선을 따라 휘는 스윕(걷는 면 아님). 재질 = ★133 solid 가족 */}
-      {/* ★★★137 1p3 셸 → 테라스 통로(2026.08.15) — ① 오르막 직선 관 · 띄운 참 · ② 오르막 관 · 기둥 · 아치 */}
-      {link3Parts && link3Parts.walk.map(({ id, geo }) => (
-        <mesh key={'lk3-' + id} name={'1p3통로/' + id} geometry={geo} userData={{ walkable: true }}>
-          <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.FrontSide} />
-        </mesh>
-      ))}
-      {link3Parts && link3Parts.solid.map(({ id, geo }) => (
-        <mesh key={'lk3-' + id} name={'1p3통로/' + id} geometry={geo} userData={{ walkable: false }}>
-          <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
-        </mesh>
+      {/* ★★★137 1p3형 셸 → 테라스 통로 — ① 오르막 직선 관 · 띄운 참 · ② 오르막 관 · 기둥 · 아치
+          ★★★141(2026.08.16): **1p1에도 같은 형태**. 기하는 한 벌이고 `link3Mounts()`가 준 각도로 돌려 단다
+          (꽃잎·LNK 통로 가족과 같은 어법 — 기하 사본 0. k3 = 0° · k1 = 180°). */}
+      {link3Parts && link3Mounts().map(({ k, rotY }) => (
+        <group key={'lk3g-' + k} rotation-y={rotY}>
+          {link3Parts.walk.map(({ id, geo }) => (
+            <mesh key={'lk3-' + k + '-' + id} name={'1p' + LK3_PROP[k] + '통로/' + id} geometry={geo} userData={{ walkable: true }}>
+              <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.FrontSide} />
+            </mesh>
+          ))}
+          {link3Parts.solid.map(({ id, geo }) => (
+            <mesh key={'lk3s-' + k + '-' + id} name={'1p' + LK3_PROP[k] + '통로/' + id} geometry={geo} userData={{ walkable: false }}>
+              <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
+            </mesh>
+          ))}
+        </group>
       ))}
       {link4Parts && link4Parts.solid.map(({ id, geo }) => (
         <mesh key={'lk4-' + id} name={'1p4접속관/' + id} geometry={geo} userData={{ walkable: false }}>

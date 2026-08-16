@@ -23,9 +23,9 @@ import { extSpiralSpec } from './extSpiralGeometry.js'   // ★130-c 시작 = �
 import { wellWallR } from './spireGeometry.js'
 import {
   LNK_ON, LNK_ASSIGN, LNK_PHI, LNK_HW, LNK_H, LNK_FLOOR_T, LNK_WALL_T, LNK_TWR_T, LNK_BITE,
-  LNK_STEP, LNK_TREAD, LNK_CURVE, LNK_BIARC_D,
+  LNK_STEP, LNK_TREAD,
   LNK_WALK_MAX, LNK_DOOR_ON, LNK_DOOR_H, LNK_DOOR_HW, LNK_DOOR_MARG,
-  LNK_BEZ_K, LNK_M_AZ, LNK_M_R, LNK_M_RIN, LNK_FOOT, LNK_FOOT_DROP, LNK_NEWEL_R, LNK_EMB,
+  LNK_M_AZ, LNK_M_R, LNK_M_RIN, LNK_FOOT, LNK_FOOT_DROP, LNK_NEWEL_R, LNK_EMB,
   LNK_CONE_ON, LNK_CONE_Y, LNK_CONE_R,
   RAD_ANG0, RAD_R, SPT_Y,
 } from './constants.js'
@@ -108,50 +108,10 @@ export function linkSpec(opts = {}) {
   const P1 = [rWall - LNK_EMB, 0]
   const T1 = [-1, 0]                                // 반경 방향 진입(첨탑에 반듯하게 꽂힌다)
 
-  // ── ① 단일 곡선 ──
-  let pts1, oneR1 = Infinity, oneR2 = Infinity, oneMinR = Infinity, oneRev = false
-  if (LNK_CURVE === 'smooth') {
-    //  ★★130-e(현도 "왜 중간에 한번 꺾였냐 — 한 덩어리로"): 쌍원호는 **접선만** 잇고 곡률은 이음매에서 튄다
-    //   (16.47 → 22.19). 그 계단이 주름으로 보인다. → **3차 베지어**: 양 끝 접선을 지키면서 곡률이 **연속**이고
-    //   이음매 자체가 없다(한 덩어리). 손잡이 길이 = LNK_BEZ_K × 현 길이.
-    const ch = nrm(sub(P1, P0)), hh = LNK_BEZ_K * ch / 3
-    const B = [P0, add(P0, mul(T0, hh)), sub(P1, mul(T1, hh)), P1]
-    const at = t => { const u = 1 - t
-      return [u * u * u * B[0][0] + 3 * u * u * t * B[1][0] + 3 * u * t * t * B[2][0] + t * t * t * B[3][0],
-              u * u * u * B[0][1] + 3 * u * u * t * B[1][1] + 3 * u * t * t * B[2][1] + t * t * t * B[3][1]] }
-    const d1 = t => { const u = 1 - t
-      return [3 * (u * u * (B[1][0] - B[0][0]) + 2 * u * t * (B[2][0] - B[1][0]) + t * t * (B[3][0] - B[2][0])),
-              3 * (u * u * (B[1][1] - B[0][1]) + 2 * u * t * (B[2][1] - B[1][1]) + t * t * (B[3][1] - B[2][1]))] }
-    const d2 = t => { const u = 1 - t
-      return [6 * (u * (B[2][0] - 2 * B[1][0] + B[0][0]) + t * (B[3][0] - 2 * B[2][0] + B[1][0])),
-              6 * (u * (B[2][1] - 2 * B[1][1] + B[0][1]) + t * (B[3][1] - 2 * B[2][1] + B[1][1]))] }
-    const N = 144
-    pts1 = []
-    let sgn = 0
-    for (let i = 0; i <= N; i++) {
-      const t = i / N
-      pts1.push(at(t))
-      const a = d1(t), b = d2(t), cr = a[0] * b[1] - a[1] * b[0], sp = nrm(a)
-      if (Math.abs(cr) > 1e-9) {
-        oneMinR = Math.min(oneMinR, sp * sp * sp / Math.abs(cr))
-        if (sgn === 0) sgn = Math.sign(cr); else if (Math.sign(cr) !== sgn) oneRev = true
-      }
-    }
-  } else if (LNK_CURVE === 'biarc') {
-    //  ★130-d: 출발 접선(나선 접선)과 도착 접선(첨탑 반경 방향)을 **둘 다** 만족하는 쌍원호(★51 어휘).
-    //   반경은 **해석식**으로 낸다 — 표본으로 재면 두 원호의 이음매에서 허위값이 난다(실측 적발).
-    const J = mul(add(add(P0, mul(T0, LNK_BIARC_D)), sub(P1, mul(T1, LNK_BIARC_D))), 0.5)
-    const a1 = arcPts(P0, T0, J, 96), a2 = arcPts(P1, [-T1[0], -T1[1]], J, 96)
-    oneR1 = a1.R; oneR2 = a2.R
-    pts1 = [...a1.pts, ...a2.pts.slice(0, -1).reverse()]
-  } else {
-    //  자연 곡선 = 반경이 방위에 따라 줄어드는 극좌표 보간(최소 곡률반경 21.35 실측 — 셸 나선 16.3보다 완만)
-    const r0 = nrm(P0), az0 = Math.atan2(P0[1], P0[0]), rE = nrm(P1), N = 96
-    pts1 = []
-    for (let i = 0; i <= N; i++) { const t = i / N, a = az0 * (1 - t), r = r0 + (rE - r0) * t; pts1.push([r * Math.cos(a), r * Math.sin(a)]) }
-  }
-  pts1 = biteStart(pts1, LNK_BITE)                  // ★130-b 시작 관입(상승 관 벽을 뚫고 밖에서 T자)
-  const L1 = plLen(pts1)
+  // ⛔① 단일 곡선 = **삭제**(★141 · 2026.08.16 현도 임무 ②·Q5 "삭제가 맞아").
+  //  3차 베지어·쌍원호·극좌표 세 체제와 `pts1`·`L1`·`one` 반환이 전부 제거됐다.
+  //  이 통로가 서 있던 셸(1p2)은 ② 경유지를 받고, 1p1은 ★137형(link3Geometry)을 받는다.
+  //  ⚠부활은 스위치가 아니라 재구현이다 — 노브(LNK_CURVE·BEZ_K·BIARC_D)도 함께 지웠다.
 
   // ── ② 경유지 ──
   const aM = LNK_M_AZ * Math.PI / 180
@@ -210,8 +170,6 @@ export function linkSpec(opts = {}) {
   //   각 접합의 위치·법선·문 직사각(폭 2·hw × 높이 h)을 지금 파생해 둔다. 컷 조각은 이 표만 읽으면 된다.
   const doorW = 2 * LNK_HW, doorH = LNK_H
   const junctions = [
-    { id: 'asc→①', host: '상승 관 +z 벽', p: P0, az: Math.atan2(T0[1], T0[0]), y: y0, w: doorW, h: doorH },
-    { id: '①→첨탑', host: '첨탑 정방위 벽', p: [rWall, 0], az: Math.PI, y: y1, w: doorW, h: doorH },
     { id: 'asc→②', host: '상승 관 +z 벽', p: P0, az: Math.atan2(T0[1], T0[0]), y: y0, w: doorW, h: doorH },
     { id: '②A→탑', host: '미니 첨탑 벽(다리A 방위)', p: legA.pts[legA.pts.length - 1], az: null, y: y0, w: doorW, h: doorH },
     { id: '탑→②B', host: '미니 첨탑 벽(다리B 방위)', p: legBp[0], az: null, y: y1, w: doorW, h: doorH },
@@ -221,8 +179,6 @@ export function linkSpec(opts = {}) {
     on: LNK_ON, assign: LNK_ASSIGN, y0, y1, rise, P0, T0, P1, T1, rWall, emb: LNK_EMB,
     phiDeg, phiL0deg, phi0deg, phiStepDeg, insideLanding, armDeg, Ploc, Tloc, rc,
     hw: LNK_HW, h: LNK_H, ft: LNK_FLOOR_T, wt: LNK_WALL_T, bite: LNK_BITE, junctions,
-    one: { pts: pts1, R1: oneR1, R2: oneR2, minR: oneMinR, rev: oneRev,
-           mode: LNK_CURVE, biarc: LNK_CURVE === 'biarc', smooth: LNK_CURVE === 'smooth', L: L1, slope: Math.atan2(rise, L1) * 180 / Math.PI, steps: Math.round(rise / LNK_STEP), tread: L1 / Math.round(rise / LNK_STEP) },
     two: { M, legA: legA.pts, legB: legBp, LA: plLen(legA.pts), LB: plLen(legBp), RA: legA.R, RB: legB.R,
            tw, rMid, stepsTurn, steps, stepRise, turns, walkDeg, tread, azIn, azOut, landAz, sweep },
   }
@@ -449,17 +405,13 @@ export function buildLinkParts(S = linkSpec()) {
     if (!mode) return
     //  ★130-f 캡 규약: 시작(나선 참) · 끝(첨탑 벽) · 탑 양쪽 — 문이 나는 쪽은 캡을 뺀다.
     const C = LNK_DOOR_ON ? [false, false] : [true, true]
-    if (mode === 1) {
-      const o = S.one
-      out.push({ k, walk: [buildLinkTube(o.pts, t => S.y0 + S.rise * t, S, C)], solid: [] })
-    } else {
-      const w = S.two
-      out.push({
-        k,
-        walk: [buildLinkTube(w.legA, () => S.y0, S, C), buildLinkTube(w.legB, () => S.y1, S, C), buildLinkStair(S)],
-        solid: [buildLinkTower(S)],
-      })
-    }
+    //  ★141: 배정값은 이제 0(없음)/2(경유지)뿐이다 — ① 단일 곡선 갈래는 삭제됐다.
+    const w = S.two
+    out.push({
+      k,
+      walk: [buildLinkTube(w.legA, () => S.y0, S, C), buildLinkTube(w.legB, () => S.y1, S, C), buildLinkStair(S)],
+      solid: [buildLinkTower(S)],
+    })
   })
   return out
 }

@@ -2596,41 +2596,36 @@ console.log('\n── ★130 접속 통로(밀봉 관 · 미니 첨탑) ──')
     const tubeHW = K.hw + K.wt                        // ★130-b: 관 바깥 반폭 = 내부 반폭 + **벽 0.40**(구 1.5 — 두께 위계 수리)
     ok(45 - halfAz - Math.atan2(tubeHW, K.rWall) * 180 / Math.PI > 5,
       `정방위 도착이 대각 개구권과 무충돌: 액자 반각 ${halfAz.toFixed(1)}° + 관 반각 ${(Math.atan2(tubeHW, K.rWall) * 180 / Math.PI).toFixed(1)}° < 45°`)
-    //  ③ 배정 — 넷을 같게 두면 대칭이 안 깨진다(현도 지시의 검사판)
-    const used = K.assign.filter(Boolean)
-    ok(used.length >= 2 && new Set(used).size >= 2,
-      `배정 ${JSON.stringify(K.assign)} — 서로 다른 접근법 ${new Set(used).size}종이 ${used.length}기(넷 다 같으면 C4 대칭 존치)`)
-    //  ④ ① 단일 곡선: 경사·곡률
-    const o = K.one
-    ok(o.slope < 35, `① 경사 ${o.slope.toFixed(2)}° < 35°(하강로 상한 · 기존 상승 관 ${A.slopeDeg.toFixed(1)}°)`)
-    //  ⛔★130-d: 곡률을 **표본 삼각형**으로 재던 것을 폐기 — 두 원호의 이음매에서 표본 밀도가 달라
-    //   허위 최소값(0.44~1.95)이 났다. 쌍원호는 반경이 해석적으로 둘뿐이다.
-    //  ★130-e: 'smooth'는 곡률이 해석적으로 나온다(빌더가 유도해 스펙에 실어 보낸다) — 표본 삼각형 금지
-    const curv = o.smooth ? o.minR : o.biarc ? Math.min(o.R1, o.R2) : (() => {
-      let m = 1e9
-      for (let i = 2; i < o.pts.length - 2; i++) {
-        const [ax, az2] = o.pts[i - 2], [bx, bz] = o.pts[i], [cx, cz] = o.pts[i + 2]
-        const a = Math.hypot(bx - ax, bz - az2), b = Math.hypot(cx - bx, cz - bz), c = Math.hypot(cx - ax, cz - az2)
-        const sp = (a + b + c) / 2, ar = Math.sqrt(Math.max(0, sp * (sp - a) * (sp - b) * (sp - c)))
-        if (ar > 1e-9) m = Math.min(m, a * b * c / (4 * ar))
-      }
-      return m
-    })()
-    ok(curv > tubeHW * 2,
-      `① 최소 곡률반경 ${curv.toFixed(2)}(${o.smooth ? '해석·곡률 연속' : o.biarc ? `해석 ${o.R1.toFixed(1)}/${o.R2.toFixed(1)}` : '표본'}) > 관 반폭 ${tubeHW.toFixed(2)}의 2배`)
-    //  ★130-e 한 덩어리: ⓐ 곡률 불연속(이음매)이 없을 것 ⓑ 휘는 방향이 한쪽일 것(S자 반전 = 또 하나의 주름)
-    ok(o.smooth, `① 곡선 체제 '${o.mode}' — 곡률 **연속**(쌍원호는 이음매에서 곡률이 튀어 주름으로 보였다)`)
-    ok(!o.rev, '① 곡률 부호 반전 없음(한 방향으로만 휘는 한 덩어리 — S자 아님)')
-    //  ★130-d 핵심: ①도 **출발 접선을 지킨다**(구 'polar'는 T0를 아예 안 썼다 — 현도 "단일통로는 왜 그대로냐")
-    {
-      const d0 = [o.pts[1][0] - o.pts[0][0], o.pts[1][1] - o.pts[0][1]]
-      const L0 = Math.hypot(d0[0], d0[1]) || 1
-      const cosA = (d0[0] * K.T0[0] + d0[1] * K.T0[1]) / L0
-      ok(cosA > 0.999, `① 출발 접선 = 나선 접선(cos ${cosA.toFixed(4)} — 'polar'는 이 값이 0.83까지 떨어졌다)`)
-      const dE = [o.pts[o.pts.length - 1][0] - o.pts[o.pts.length - 2][0], o.pts[o.pts.length - 1][1] - o.pts[o.pts.length - 2][1]]
-      const LE = Math.hypot(dE[0], dE[1]) || 1
-      ok((dE[0] * K.T1[0] + dE[1] * K.T1[1]) / LE > 0.999, '① 도착 접선 = 첨탑 반경 방향(반듯하게 꽂힘)')
+    //  ③ ★★★141 배정 — 넷 다 접근법을 갖되 **한 종류로 수렴하지는 않는다**.
+    //   ⚠★130의 "넷 다 서로 달라야 한다"는 현도가 철회했다(2026.08.16 Q3: "전에 했던 말은 취소야").
+    //    그래서 판정은 '전부 다름'이 아니라 **① 빈 셸 0 ② 종류 ≥ 2**로 바뀐다.
+    //   ⚠종류는 배정표만으로 못 센다 — LK3형(★137)·복합체(★133+LK4)는 다른 모듈 소관이다.
+    const kindOf = (k) => {
+      if (K.assign[k]) return 'LNK' + K.assign[k]            // 2 = 경유지(미니 첨탑)
+      if (C.LK3_ON && C.LK3_KS.includes(k)) return 'LK3'     // ★137형(관·참·기둥·아치)
+      if (k === 0 && C.BRG_ON) return 'BRG'                  // ★133 복합체 + ★136 접속 관
+      return null
     }
+    const kinds = [0, 1, 2, 3].map(kindOf)
+    //  ⚠체제 분기 — 어느 계열이든 소등하면 빈 셸이 생기는 게 **정상**이다(★138 '여섯 번째 계열' 재발 방지).
+    const famOn = C.LNK_ON && C.LK3_ON && C.BRG_ON
+    if (famOn) {
+      ok(kinds.every(Boolean), `셸 넷 다 접근법을 가진다 — ${kinds.join(' · ')}(빈 셸 ${kinds.filter(v => !v).length}기)`)
+    } else {
+      ok(true, `보존계: 통로 계열 소등 체제(LNK ${C.LNK_ON}·LK3 ${C.LK3_ON}·BRG ${C.BRG_ON}) — 빈 셸 ${kinds.filter(v => !v).length}기는 선언된 상태`)
+    }
+    ok(new Set(kinds.filter(Boolean)).size >= 2 || !famOn,
+      `접근법 ${new Set(kinds.filter(Boolean)).size}종 — 넷이 한 종류로 수렴하면 C4 대칭이 그대로 남는다`)
+    //  ★한 셸에 두 통로가 겹치지 않는다(배정표와 LK3_KS는 서로소여야 한다)
+    ok(!C.LK3_KS.some(k => K.assign[k]),
+      `배정표 ∩ LK3_KS = ∅(LNK ${JSON.stringify(K.assign)} · LK3 ${JSON.stringify(C.LK3_KS)})`)
+    //  ④ ⛔★141: ① 단일 곡선은 **삭제**됐다 — 스펙에도 상수에도 남아 있으면 안 된다(현도 Q5 "삭제가 맞아").
+    ok(K.one === undefined && !('LNK_CURVE' in C) && !('LNK_BEZ_K' in C) && !('LNK_BIARC_D' in C),
+      '① 단일 곡선 삭제 확인 — linkSpec().one · LNK_CURVE · LNK_BEZ_K · LNK_BIARC_D 전부 없음')
+    ok(!K.assign.includes(1),
+      `배정값에 1(단일 곡선)이 없다 — ${JSON.stringify(K.assign)}(0=없음 · 2=경유지만 유효)`)
+    ok(K.junctions.every(j => !j.id.includes('①')),
+      `접합부 표에서 ① 항목이 사라졌다(현 ${K.junctions.length}항: ${K.junctions.map(j => j.id).join(' · ')})`)
     //  ⑤ ② 경유지: 정중앙 금지 · 나선 걷기 · 다리 길이
     const w = K.two
     ok(Math.abs(C.LNK_M_AZ) >= 5,
@@ -2681,10 +2676,12 @@ console.log('\n── ★130 접속 통로(밀봉 관 · 미니 첨탑) ──')
       if (d < petalGap) { petalGap = d; pk = k }
     }
     ok(petalGap > 1, `② 경유지 ↔ 가장 가까운 셸 껍질 여유 ${petalGap.toFixed(2)}(셸 ${((C.RAD_ANG0 + pk * Math.PI / 2) * 180 / Math.PI).toFixed(0)}°)`)
-    const allPts = [...o.pts, ...w.legA, ...w.legB]
+    //  ★141: ① 삭제로 표본이 ② 다리 둘만 남았다 — 자기 자신의 90° 회전상과의 거리로 본다
+    //   (배정이 어느 k로 가든 이웃 셸의 같은 통로와 부딪히지 않아야 한다는 불변식).
+    const allPts = [...w.legA, ...w.legB]
     let near = 1e9
     for (const p of allPts) for (const q of allPts) {
-      const q2 = [q[0] * Math.cos(Math.PI / 2) - q[1] * Math.sin(Math.PI / 2), q[0] * Math.sin(Math.PI / 2) + q[1] * Math.cos(Math.PI / 2)]
+      const q2 = [-q[1], q[0]]                                  // +90° 회전(cos·sin 전개 대신 정확값)
       near = Math.min(near, Math.hypot(p[0] - q2[0], p[1] - q2[1]))
     }
     ok(near > tubeHW * 2 + 1,
@@ -2709,10 +2706,12 @@ console.log('\n── ★130 접속 통로(밀봉 관 · 미니 첨탑) ──')
       `★밀봉(문 체제 ${C.LNK_DOOR_ON ? 'ON' : 'OFF'}): 관의 열린 에지 = ${tubeOE.join('/')} = 문 개구 둘레 ${expOE}뿐(옆구리 누수 0)`)
     ok(solidOE === 0, '미니 첨탑·나선 계단은 관통 구멍이 있어도 표면 닫힘(열린 에지 0 — 마구리 캡이 벽 두께를 봉합)')
     ok(!nan && tris > 0, `기하 유한 · 삼각형 ${tris}(4기 중 ${K.assign.filter(Boolean).length}기 배정)`)
-    //  ⑧ 부피 해석 대조 — 관은 각기둥이므로 단면적 × 길이가 정확식
+    //  ⑧ 부피 해석 대조 — 관은 각기둥이므로 단면적 × 길이가 정확식.
+    //   ★141: ① 관이 삭제돼 표본을 **② 다리 A**로 옮긴다(같은 빌더·같은 단면 — 검사의 뜻은 그대로).
+    //   ⛔유효한 이유는 그대로다: 단면이 **연직**이고 상승은 y 전단일 뿐이라 부피는 **평면 길이**로 닫힌다.
     {
       const secA = (2 * (K.hw + K.wt)) * (K.h + K.ft + K.wt) - (2 * K.hw) * K.h   // ★130-b 바닥 1.5 · 벽/천장 0.4
-      const g = LP.buildLinkTube(K.one.pts, t => K.y0 + K.rise * t, K)
+      const g = LP.buildLinkTube(w.legA, () => K.y0, K)
       const arr = g.getAttribute('position').array, idx = g.index.array
       let vm = 0
       for (let t = 0; t < idx.length; t += 3) {
@@ -2720,11 +2719,9 @@ console.log('\n── ★130 접속 통로(밀봉 관 · 미니 첨탑) ──')
         const [a, b, c] = [P(0), P(1), P(2)]
         vm += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6
       }
-      //  ⛔1차 작성분 정정: 3D 실길이를 곱했다(1179 vs 메시 1054 = 10.6% 어긋남). 단면이 **연직**이고
-      //   상승은 y 전단일 뿐이라 **부피는 평면 길이로 닫힌다**(전단은 부피를 보존한다 · 파푸스: 단면 중심이 중심선 위).
-      const va = secA * K.one.L
+      const va = secA * w.LA
       ok(vm > 0 && Math.abs(vm - va) / va < 0.01,
-        `① 관 부피 ${vm.toFixed(1)} = 단면 ${secA.toFixed(2)} × **평면** 길이 ${K.one.L.toFixed(2)} = ${va.toFixed(1)}(±1% — 연직 단면이라 상승은 전단)`)
+        `② 다리A 부피 ${vm.toFixed(1)} = 단면 ${secA.toFixed(2)} × **평면** 길이 ${w.LA.toFixed(2)} = ${va.toFixed(1)}(±1%)`)
     }
     //  ⑧-b ★130-b 반려 수리 불변식: 두께 위계 · 접합 관입 · 문 명세 파생
     ok(K.wt < K.ft && Math.abs(K.wt - 0.4) < 1e-9,
@@ -2742,7 +2739,8 @@ console.log('\n── ★130 접속 통로(밀봉 관 · 미니 첨탑) ──')
       ok(ls > A.sWallEnd + 0.3, `시작 s ${ls.toFixed(2)} > 상승 관 벽 끝 ${A.sWallEnd.toFixed(2)}(계단 옆구리 아님 — 나선 관 위)`)
     }
     //  ★★130-f 구멍 6곳이 실제로 났는가 — 명세가 아니라 **기하**로 확인한다
-    ok(K.junctions.length === 6, `접합 명세 6건(문 직사각 ${(2 * C.LNK_DOOR_HW).toFixed(1)}×${C.LNK_DOOR_H})`)
+    //  ★141: ① 삭제로 접합 명세가 6 → **4**가 됐다(asc→② · ②A→탑 · 탑→②B · ②B→첨탑).
+    ok(K.junctions.length === 4, `접합 명세 4건(★141 ① 삭제로 6→4 · 문 직사각 ${(2 * C.LNK_DOOR_HW).toFixed(1)}×${C.LNK_DOOR_H})`)
     {
       //  ⓐ 나선 참 종단 캡이 사라졌는가(문이 됐는가) — 캡 삼각형은 그 평면에 모여 있다
       const EG = await import('./extSpiralGeometry.js')
@@ -3046,61 +3044,91 @@ console.log('\n── ★132 ① 이사 · 0° 대역 · 층 분리 ──')
      petalKOf(2) === C.P_ROOM.p2 && petalKOf(3) === C.P_ROOM.p3,
     'LNK k0=1p4(315°) · k1=1p1(45°) · k2=1p2(135°) · k3=1p3(225°) — ⚠꽃잎 k와 45° 어긋남')
 
-  //  ⓒ 현도 확정 배정(2026.08.15): ① 단일 곡선 = 1p2 셸 · ② 경유지 = 1p1 셸 그대로
-  const kOne = C.LNK_ASSIGN.indexOf(1), kTwo = C.LNK_ASSIGN.indexOf(2)
-  ok(kOne >= 0 && petalKOf(kOne) === C.P_ROOM.p2,
-    `① 단일 곡선 = LNK k${kOne} = 1p2 셸 ${shellAzOf(kOne).toFixed(0)}° → 첨탑 문 ${deg(kOne * Math.PI / 2).toFixed(0)}°`)
-  ok(kTwo >= 0 && petalKOf(kTwo) === C.P_ROOM.p1,
-    `② 경유지 = LNK k${kTwo} = 1p1 셸 ${shellAzOf(kTwo).toFixed(0)}° → 첨탑 문 ${deg(kTwo * Math.PI / 2).toFixed(0)}°(이사 없음)`)
-  ok(C.LNK_ASSIGN.filter(v => v).length === 2,
-    `배정된 통로 ${C.LNK_ASSIGN.filter(v => v).length}기 · 빈 셸 ${C.LNK_ASSIGN.filter(v => !v).length}기(③④ = 현도 그림 대기)`)
+  //  ⓒ ★★★141 현도 확정 배치(2026.08.16): ② 경유지 = 1p2 셸 · LK3형 = 1p3·1p1 · 복합체 = 1p4.
+  //   ⛔① 단일 곡선은 삭제됐다(그 자리 = 1p2가 경유지를 받았다).
+  const kTwo = C.LNK_ASSIGN.indexOf(2)
+  ok(kTwo >= 0 && petalKOf(kTwo) === C.P_ROOM.p2,
+    `② 경유지 = LNK k${kTwo} = 1p2 셸 ${shellAzOf(kTwo).toFixed(0)}° → 첨탑 문 ${deg(kTwo * Math.PI / 2).toFixed(0)}°(★141 이사)`)
+  ok(C.LK3_KS.includes(3) && C.LK3_KS.includes(1) &&
+     petalKOf(3) === C.P_ROOM.p3 && petalKOf(1) === C.P_ROOM.p1,
+    `LK3형 = LNK k${JSON.stringify(C.LK3_KS)} = 1p3(225°·문 270°) + 1p1(45°·문 90°) — ★141 신설`)
+  //  ⚠LK3_KS는 **소등과 무관한 배치 목록**이다(소등은 LK3_ON) — 위 판정은 두 체제 다 성립해야 한다
+  ok(!C.LNK_ASSIGN.includes(1) && C.LNK_ASSIGN.filter(v => v).length === 1,
+    `배정표에 남은 통로 ${C.LNK_ASSIGN.filter(v => v).length}기(경유지 하나) · 값 1(단일 곡선) 소멸`)
+  //  ★두 LK3가 서로 180° 점대칭인가 — 회전 마운트의 정본 확인(사본이면 이 관계가 깨질 수 있다)
+  //   ⚠체제 분기: LK3_ON=false면 마운트가 0기다(★138 '여섯 번째 계열' — 여기서 실제로 크래시했다)
+  {
+    const L3M = await import('./link3Geometry.js')
+    const ms = L3M.link3Mounts()
+    if (!C.LK3_ON) {
+      ok(ms.length === 0, `보존계: LK3_ON=false → 마운트 0기(1p1·1p3 둘 다 소등)`)
+    } else {
+      const d = ms.length >= 2 ? Math.abs(Math.abs(ms[0].rotY - ms[1].rotY) - Math.PI) : Infinity
+      ok(ms.length === C.LK3_KS.length && d < 1e-12,
+        `LK3 두 마운트가 정확히 180° 어긋남(편차 ${Number.isFinite(d) ? d.toExponential(1) : '—'}) — 1p1은 1p3의 점대칭 상이다`)
+    }
+    ok(ms.every(m => Math.abs(m.rotY + (m.k - C.LK3_BASE_K) * Math.PI / 2) < 1e-12),
+      `마운트 각이 전부 파생 −(k − ${C.LK3_BASE_K})·90°(손 각도 0 · ${ms.length}기)`)
+  }
 
-  //  ⓓ ★0° 대역 점유 — 배정에서 **유도**한다(수치를 박지 않는다).
-  //   관 외곽 반폭 안에 0°축이 들어오면 그 반경대는 드럼행이 못 쓴다.
+  //  ⓓ ★0° 대역 점유 — **모든 통로 가족**에서 유도한다(수치를 박지 않는다).
+  //   ⚠★141 정정: 구판은 LNK 배정표만 훑었다. 경유지가 k2(반대편)로 이사한 순간 +x 반평면 표본이
+  //    0이 되어 "점유 0"이 **공허참**이 됐다(공허참 가드가 즉시 잡았다). 0°를 실제로 쓰는 것은
+  //    이제 ★133 복합체·★136 관이므로, 그것들을 포함해야 이 판정이 뜻을 가진다.
   const halfOut = S.hw + S.wt
-  const occupy = assign => {
+  const LK3S = C.LK3_ON ? (await import('./link3Geometry.js')).link3Spec() : null
+  const occupy = (assign, extra = true) => {
     const hit = []                                    // {x, clr}
     let seen = 0
+    const scan = (pts, k, half) => { for (const p of pts) {
+      const [x, z] = rot(p, k)
+      if (x <= 0) continue
+      seen++
+      const clr = Math.abs(z) - half
+      if (clr < 0) hit.push({ x, clr })
+    } }
     assign.forEach((mode, k) => {
       if (!mode) return
-      const paths = mode === 1 ? [S.one.pts] : [S.two.legA, S.two.legB]
-      for (const pts of paths) for (const p of pts) {
-        const [x, z] = rot(p, k)
-        if (x <= 0) continue
-        seen++
-        const clr = Math.abs(z) - halfOut
-        if (clr < 0) hit.push({ x, clr })
-      }
-      if (mode === 2) {                               // 미니 첨탑(원기둥)도 센다
-        const [x, z] = rot(S.two.M, k)
-        if (x > 0) { seen++; const clr = Math.abs(z) - S.two.tw.rOut; if (clr < 0) hit.push({ x, clr }) }
-      }
+      scan(S.two.legA, k, halfOut); scan(S.two.legB, k, halfOut)
+      scan([S.two.M], k, S.two.tw.rOut)               // 미니 첨탑(원기둥)도 센다
     })
+    if (extra && LK3S) {                              // LK3형(회전 마운트)의 평면 발자국
+      for (const k of C.LK3_KS) {
+        const dk = k - C.LK3_BASE_K
+        scan([LK3S.P0, LK3S.E1, [0, -(LK3S.R + LK3S.d)], [0, -LK3S.R]], dk, halfOut)
+      }
+    }
     return { seen, hit }
   }
   {
     const cur = occupy(C.LNK_ASSIGN)
-    //  ⚠공허참 가드 — +x 반평면 표본이 0이면 "침범 없음"은 무의미하다
-    ok(cur.seen > 0, `0°축 스캔 표본 ${cur.seen} > 0(빈 배열이면 아래 판정이 공허참)`)
-    ok(cur.hit.length === 0,
-      `현행 배정에서 테라스 레벨 0° 대역 점유 0(표본 ${cur.seen} 전부 순 여유 ≥ 0)`)
-
-    //  ⓔ ★가드 실증 — **옛 배정이면 실제로 잡혀야** 이 검사가 살아 있는 검사다
-    const old = occupy([1, 2, 0, 0])
-    ok(old.hit.length > 0, `가드 실증: 옛 배정 [1,2,0,0]에선 0°축 침범 ${old.hit.length}점(검사가 죽지 않았다)`)
-    if (old.hit.length) {
-      const xs = old.hit.map(q => q.x), len = Math.max(...xs) - Math.min(...xs)
-      ok(len > 10, `옛 배정 침범 길이 ${len.toFixed(1)}(x ${Math.min(...xs).toFixed(2)}~${Math.max(...xs).toFixed(2)}) — ★131이 층을 올린 사유`)
+    //  ⚠공허참 가드 — +x 반평면 표본이 0이면 "침범 없음"은 무의미하다.
+    //   ⚠단 소등 체제(LK3_ON=false 등)에서는 표본이 실제로 0이 되는 게 정상이므로 체제로 가른다.
+    const liveFam = C.LNK_ON && C.LK3_ON
+    if (liveFam) {
+      ok(cur.seen > 0, `0°축 스캔 표본 ${cur.seen} > 0(빈 배열이면 아래 판정이 공허참)`)
+      ok(cur.hit.length === 0,
+        `현행 배치에서 LNK·LK3 가족의 테라스 레벨 0° 대역 점유 0(표본 ${cur.seen} 전부 순 여유 ≥ 0)`)
+    } else {
+      ok(true, `보존계: 통로 계열 소등 체제 — 0°축 표본 ${cur.seen}(점유 판정 자체가 무의미하다는 선언)`)
+      ok(cur.hit.length === 0, `그 체제에서도 침범은 0(표본 ${cur.seen})`)
     }
 
-    //  ⓕ ★인과의 유효기간 — 0°가 비어 있는 것은 **셸 315°(1p4)가 아직 비었기 때문**이다.
-    //   거기 통로가 배정되면 다시 막힌다 = 드럼행이 새 층에 있어야 하는 이유(현도 ⓒ).
-    const kZero = 0                                    // 첨탑 문 0°를 쓰는 셸
+    //  ⓔ ★가드 실증 — 경유지를 k0(첨탑 문 0°)에 두면 **실제로 잡혀야** 이 검사가 살아 있는 검사다
+    const bad = occupy([2, 0, 0, 0], false)
+    ok(bad.hit.length > 0, `가드 실증: 경유지를 k0에 두면 0°축 침범 ${bad.hit.length}점(검사가 죽지 않았다)`)
+    if (bad.hit.length) {
+      const xs = bad.hit.map(q => q.x), len = Math.max(...xs) - Math.min(...xs)
+      //  ⚠상한을 숫자로 박지 않는다 — 침범이 '스치는 점'이 아니라 **관 폭보다 긴 구간**이어야 뜻이 있다
+      ok(len > 2 * halfOut, `그 침범 길이 ${len.toFixed(1)} > 관 외곽 폭 ${(2 * halfOut).toFixed(2)}(x ${Math.min(...xs).toFixed(2)}~${Math.max(...xs).toFixed(2)}) — ★131이 층을 올린 사유`)
+    }
+
+    //  ⓕ ★인과 — 0° 문의 임자는 1p4이고, 그 셸은 **이제 ★133 복합체가 맡는다**.
+    //   즉 테라스 레벨 0°는 비어 있지 않다 = 드럼행이 새 층(y133.30)에 있어야 하는 이유(현도 확정 ⓒ).
+    const kZero = 0
     ok(petalKOf(kZero) === C.P_ROOM.p4,
       `첨탑 0° 문의 임자 = LNK k0 = 1p4 셸(${shellAzOf(kZero).toFixed(0)}°)`)
-    const future = occupy(C.LNK_ASSIGN.map((v, k) => (k === kZero && !v ? 1 : v)))
-    ok(C.LNK_ASSIGN[kZero] !== 0 || future.hit.length > 0,
-      `1p4 셸에 통로가 오면 0° 대역이 다시 막힌다(가정 배치 시 침범 ${future.hit.length}점) — 층 분리가 그래서 필요하다`)
+    ok(C.BRG_ON, '그 셸의 접근법 = ★133 복합체(BRG_ON) — 0°는 비어 있지 않다')
   }
 
   //  ⓖ ★층 분리 불변식 — 통로 4기 어느 배정이든 새 층 바닥 밑면 아래에서 끝난다
@@ -3390,13 +3418,15 @@ console.log('\n── ★133 1p4 복합체(2층 관·참·기둥·아치 — ★
 
   //  ⑧ ⛔★130 무회귀 — miter 옵션 기본값이 옛 거동과 **한 좌표도** 다르지 않다
   {
-    const P = buildLinkTube(L.one.pts, t => L.y0 + L.rise * t, L, [false, false])
-    const Q = buildLinkTube(L.one.pts, t => L.y0 + L.rise * t, L, [false, false], {})
+    //  ★141: ① 삭제로 표본을 ② 다리 A로 옮긴다(같은 빌더 — 무회귀의 뜻은 그대로다)
+    const REF = L.two.legA
+    const P = buildLinkTube(REF, () => L.y0, L, [false, false])
+    const Q = buildLinkTube(REF, () => L.y0, L, [false, false], {})
     const a = P.getAttribute('position').array, b = Q.getAttribute('position').array
     let same = a.length === b.length
     for (let i = 0; same && i < a.length; i++) if (a[i] !== b[i]) same = false
-    ok(same, `★130 ① 무회귀: opts 없음 ↔ opts {} 정점 ${a.length / 3}개 전부 동일(miter 기본 false)`)
-    const R = buildLinkTube(L.one.pts, t => L.y0 + L.rise * t, L, [false, false], { miter: true })
+    ok(same, `★130 무회귀: opts 없음 ↔ opts {} 정점 ${a.length / 3}개 전부 동일(miter 기본 false)`)
+    const R = buildLinkTube(REF, () => L.y0, L, [false, false], { miter: true })
     ok(R.getAttribute('position').count === P.getAttribute('position').count,
       `— miter를 켜도 위상은 같다(정점 수 불변, 좌표만 이동)`)
   }
@@ -3715,12 +3745,13 @@ console.log('\n── ★133 1p4 복합체(2층 관·참·기둥·아치 — ★
   //  ⑨ ⛔★130·★133·★136 무회귀 — yByArc 기본 false는 옛 좌표를 한 점도 바꾸지 않는다
   {
     const Lk = linkSpec3()
-    const A = _bt3(Lk.one.pts, t => Lk.y0 + Lk.rise * t, Lk, [false, false])
-    const B = _bt3(Lk.one.pts, t => Lk.y0 + Lk.rise * t, Lk, [false, false], {})
+    const REF3 = Lk.two.legA                       // ★141: ① 삭제로 표본 이동(같은 빌더)
+    const A = _bt3(REF3, () => Lk.y0, Lk, [false, false])
+    const B = _bt3(REF3, () => Lk.y0, Lk, [false, false], {})
     const pa = A.getAttribute('position').array, pb = B.getAttribute('position').array
     let same = pa.length === pb.length
     for (let i = 0; same && i < pa.length; i++) if (pa[i] !== pb[i]) same = false
-    ok(same, `★130 ① 무회귀: yByArc 미지정 시 정점 ${pa.length / 3}개 전부 동일`)
+    ok(same, `★130 무회귀: yByArc 미지정 시 정점 ${pa.length / 3}개 전부 동일`)
   }
   //  ⑩ 아치가 ① 관 밑에 정확히 겹친다(수직거리 0)
   {
@@ -3973,7 +4004,11 @@ console.log('\n── ★133 1p4 복합체(2층 관·참·기둥·아치 — ★
     const src3 = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
     ok(/buildLink3/.test(src3) && /link3Parts/.test(src3), 'Room.jsx: ★137 마운트')
     ok(/LK3_ON/.test(src3), 'Room.jsx: LK3_ON 게이트')
-    ok((src3.match(/name=\{'1p3통로\/' \+ id\}/g) || []).length === 2, 'Room.jsx: walk/solid 둘 다 name 부여')
+    //  ★141: 이름이 마운트 k에 따라 '1p1통로/…' · '1p3통로/…'로 갈린다(LK3_PROP 표에서 파생)
+    ok((src3.match(/name=\{'1p' \+ LK3_PROP\[k\] \+ '통로\/' \+ id\}/g) || []).length === 2,
+      'Room.jsx: walk/solid 둘 다 name 부여(정리 번호는 LNK k에서 파생 — 손으로 안 적는다)')
+    ok(/link3Mounts\(\)/.test(src3) && /rotation-y=\{rotY\}/.test(src3),
+      'Room.jsx: ★141 다중 마운트 배선(link3Mounts의 각도로 회전 — 기하 사본 0)')
   }
 }
 
