@@ -42,6 +42,7 @@
 import * as THREE from 'three'
 import { orientOutward } from './orientGeo.js'
 import { spireSpec, wellWallR } from './spireGeometry.js'
+import { seqVolume } from './spireStairGeometry.js'  // ★144-b 부피 정본(사본 금지 — 빌더가 받는 그 시퀀스를 그대로 적분한다)
 import { linkSpec } from './linkPassageGeometry.js'
 import {
   UPF_ON, UPF_T, UPF_W, UPF_D, UPF_RISE, UPF_TREAD, UPF_SIDE,
@@ -176,21 +177,30 @@ export function stairSoffitAt(aAbs, U = upperPlatformSpec()) {
 //  ★노드가 **자기 높이를 들고 다닌다** — 빌더가 방위로 높이를 되묻지 않는다.
 //   구판은 세그먼트 양 끝에서 `stairYAt(a)`를 다시 불렀고, 그 함수가 방위를 인덱스로 역산하다
 //   경계에서 한 칸씩 튀어 **디딤이 경사면으로 그려졌다**(현도 "이 나간 톱니").
-function sweepSeq(seq, ri, ro) {
+// ── 호 프리즘 빌더: 노드 열(방위 + 윗면 + 밑면)을 그대로 스윕한 닫힌 몸 ──
+//  ★노드가 **자기 높이를 들고 다닌다** — 빌더가 방위로 높이를 되묻지 않는다.
+//   구판은 세그먼트 양 끝에서 `stairYAt(a)`를 다시 불렀고, 그 함수가 방위를 인덱스로 역산하다
+//   경계에서 한 칸씩 튀어 **디딤이 경사면으로 그려졌다**(현도 "이 나간 톱니").
+//  ★★★144-b: 노드가 **자기 반경도** 들고 다닐 수 있게 넓혔다(`s.ri`/`s.ro`가 있으면 그것이 이긴다).
+//   근거 = 내벽 나선의 `SPS_TOP='follow'` 체제는 바깥 끝이 높이마다 다르다(`wellWallR` 추종).
+//   인자 ri/ro는 **기본값**으로 남으므로 ★131 호출 셋은 무손상이다(검사가 무회귀를 박는다).
+export function sweepSeq(seq, ri, ro) {
   const pos = []
   const tri = (a, b, c) => pos.push(...a, ...b, ...c)
   const quad = (a, b, c, d) => { tri(a, b, c); tri(a, c, d) }
   const P = (a, r, y) => [r * Math.cos(a), y, r * Math.sin(a)]
+  const RI = s => s.ri ?? ri, RO = s => s.ro ?? ro
   for (let i = 0; i + 1 < seq.length; i++) {
     const s0 = seq[i], s1 = seq[i + 1]
-    quad(P(s0.a, ri, s0.top), P(s0.a, ro, s0.top), P(s1.a, ro, s1.top), P(s1.a, ri, s1.top))   // 윗면
-    quad(P(s0.a, ri, s0.bot), P(s1.a, ri, s1.bot), P(s1.a, ro, s1.bot), P(s0.a, ro, s0.bot))   // 밑면
-    quad(P(s0.a, ro, s0.top), P(s0.a, ro, s0.bot), P(s1.a, ro, s1.bot), P(s1.a, ro, s1.top))   // 바깥 옆면
-    quad(P(s0.a, ri, s0.top), P(s1.a, ri, s1.top), P(s1.a, ri, s1.bot), P(s0.a, ri, s0.bot))   // 안쪽 옆면
+    const i0 = RI(s0), o0 = RO(s0), i1 = RI(s1), o1 = RO(s1)
+    quad(P(s0.a, i0, s0.top), P(s0.a, o0, s0.top), P(s1.a, o1, s1.top), P(s1.a, i1, s1.top))   // 윗면
+    quad(P(s0.a, i0, s0.bot), P(s1.a, i1, s1.bot), P(s1.a, o1, s1.bot), P(s0.a, o0, s0.bot))   // 밑면
+    quad(P(s0.a, o0, s0.top), P(s0.a, o0, s0.bot), P(s1.a, o1, s1.bot), P(s1.a, o1, s1.top))   // 바깥 옆면
+    quad(P(s0.a, i0, s0.top), P(s1.a, i1, s1.top), P(s1.a, i1, s1.bot), P(s0.a, i0, s0.bot))   // 안쪽 옆면
   }
   const f = seq[0], l = seq[seq.length - 1]
-  quad(P(f.a, ri, f.top), P(f.a, ri, f.bot), P(f.a, ro, f.bot), P(f.a, ro, f.top))             // 시작 캡
-  quad(P(l.a, ri, l.top), P(l.a, ro, l.top), P(l.a, ro, l.bot), P(l.a, ri, l.bot))             // 끝 캡
+  quad(P(f.a, RI(f), f.top), P(f.a, RI(f), f.bot), P(f.a, RO(f), f.bot), P(f.a, RO(f), f.top)) // 시작 캡
+  quad(P(l.a, RI(l), l.top), P(l.a, RO(l), l.top), P(l.a, RO(l), l.bot), P(l.a, RI(l), l.bot)) // 끝 캡
   const g = new THREE.BufferGeometry()
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
   g.setIndex(Array.from({ length: pos.length / 3 }, (_, i) => i))
@@ -198,22 +208,30 @@ function sweepSeq(seq, ri, ro) {
   return orientOutward(g)
 }
 
-// ── 플랫폼 판(직사각 — 방위 ±halfPlat · 반경 ri~roEmb) ──
-export function buildUpperSlab(U = upperPlatformSpec()) {
+// ── 시퀀스 정본(★144-b: 빌더와 부피식이 같은 배열을 쓴다 — 분할이 갈릴 여지 제거) ──
+export function slabSeq(U = upperPlatformSpec()) {
   const n = Math.max(4, Math.round(U.seg * (2 * U.halfPlat) / (Math.PI * 2)))
-  const seq = Array.from({ length: n + 1 }, (_, i) => ({
+  return Array.from({ length: n + 1 }, (_, i) => ({
     a: -U.halfPlat + (2 * U.halfPlat) * i / n, top: U.yWalk, bot: U.yUnder,
   }))
-  return sweepSeq(seq, U.ri, U.roEmb)
+}
+
+export function stairSeq(sign, U = upperPlatformSpec()) {
+  const N = stairNodes(U)
+  const seq = N.map(nd => ({ a: sign * nd.a, top: nd.y, bot: stairSoffitOf(nd, U) }))
+  if (sign < 0) seq.reverse()
+  return seq
+}
+
+// ── 플랫폼 판(직사각 — 방위 ±halfPlat · 반경 ri~roEmb) ──
+export function buildUpperSlab(U = upperPlatformSpec()) {
+  return sweepSeq(slabSeq(U), U.ri, U.roEmb)
 }
 
 // ── 계단 한 기(sign = +1 / −1) ──
 //  ★노드 정본을 **그대로** 스윕한다 — 방위를 다시 인덱스로 되돌리지 않는다(톱니 버그의 근본 수리).
 export function buildUpperStair(sign, U = upperPlatformSpec()) {
-  const N = stairNodes(U)
-  const seq = N.map(nd => ({ a: sign * nd.a, top: nd.y, bot: stairSoffitOf(nd, U) }))
-  if (sign < 0) seq.reverse()
-  return sweepSeq(seq, U.ri, U.roEmb)
+  return sweepSeq(stairSeq(sign, U), U.ri, U.roEmb)
 }
 
 // ── 전체(마운트용) ──
@@ -230,19 +248,15 @@ export function buildUpperPlatform(opts = {}) {
   ]
 }
 
-// ── 부피 해석식(검사 대조용 — 프리즘 사슬이라 정확식) ──
+// ── 부피 해석식(검사 대조용) ──
+//  ⛔★★★★144-b에서 적발·수리(편차 0.097 + 판 0.69): 구판은 ⓐ 사다리꼴(윗면−밑면 평균) 공식을 썼고
+//   ⓑ 판을 한 덩어리로 쟀다. 메시는 ⓐ 사각 면을 대각선으로 두 삼각형으로 나누고(삼각형 위 평균은
+//   **세 꼭짓점의 평균**) ⓑ 판을 n조각으로 쪼갠다. 이제 **빌더가 받는 그 시퀀스**를 그대로 적분한다.
 export function upperVolume(U = upperPlatformSpec()) {
-  const ringA = (a, ri, ro) => a / 2 * (ro * ro - ri * ri)   // 부채꼴 고리 면적
-  const slab = ringA(2 * U.halfPlat, U.ri, U.roEmb) * U.t
-  //  ★노드 정본에서 적분한다(디딤 구간마다 실제 윗면·밑면 — 역산 없음)
-  let stair = 0
-  const N = stairNodes(U)
-  for (let i = 0; i + 1 < N.length; i++) {
-    const da = Math.abs(N[i].a - N[i + 1].a)
-    if (da < 1e-12) continue                                  // 챌판(폭 0)
-    //  윗면·밑면 둘 다 **노드에서** 온다(구간 양 끝 밑면의 평균 = 사다리꼴 정확식)
-    const b0 = stairSoffitOf(N[i], U), b1 = stairSoffitOf(N[i + 1], U)
-    stair += ringA(da, U.ri, U.roEmb) * (N[i + 1].y - (b0 + b1) / 2)
-  }
-  return { slab, stair, total: slab + 2 * stair }
+  const slab = seqVolume(slabSeq(U), U.ri, U.roEmb)
+  //  ⚠좌우 두 기는 **거울상이지만 부피가 미세하게 다르다**(0.205) — 삼각분할의 대각선이 거울에서
+  //   같이 뒤집히지 않기 때문이다. 구판처럼 `2 × 한 기`로 적으면 그만큼 어긋난다. 둘 다 적분한다.
+  const stair = seqVolume(stairSeq(+1, U), U.ri, U.roEmb)
+  const stairN = seqVolume(stairSeq(-1, U), U.ri, U.roEmb)
+  return { slab, stair, stairN, total: slab + stair + stairN }
 }

@@ -32,6 +32,7 @@ import { buildWallBase } from './wallBaseGeometry'
 import { buildSpire } from './spireGeometry.js'   // ★127 빛우물 첨탑(순수 기하 + CSG — 사본 금지·wellWallR 단일 정본)
 import { buildSpireTerrace } from './spireTerraceGeometry.js'   // ★128 첨탑 테라스(고리 판 — 좌표는 전부 spireSpec 파생)
 import { buildUpperPlatform } from './upperPlatformGeometry.js' // ★131 새 층 플랫폼 + 좌우 계단 2기(테라스 위 — 드럼행 문의 자리)
+import { buildSpireStairParts, terraceHoleOf } from './spireStairGeometry.js' // ★★★★144-b 내벽 나선(허브→테라스) + 그 도착 구멍
 import { buildBridgeComplex } from './bridgeComplexGeometry.js' // ★133 1p4 방위 0° 복합체(2층 계단 관 + 참 + 기둥 + 아치)
 import { buildLink4 } from './link4Geometry.js'
 import { buildLink3, link3Mounts } from './link3Geometry.js'
@@ -147,7 +148,12 @@ export function DefAxiomRoom({ stairKind }) {
   //  ⛔보존계 — SPIRE_ON=false 한 줄로 복귀(코드·CSG 로직 무손상 보존, 삭제 금지 규율).
   // ★★★128 첨탑 테라스(2026.08.14 현도) — 첨탑 본체와 **별개 메시**다:
   //  ⓐ 보존계가 독립(SPT_ON 한 줄) ⓑ 부피·watertight 검사가 본체와 섞이지 않는다 ⓒ CSG 대상이 아니다(문·돔 대역 위).
-  const terrGeo = useMemo(() => (SPIRE_ON && SPT_ON ? buildSpireTerrace() : null), [])
+  //  ★★★★144-b: 테라스 판은 이제 나선의 **도착 구멍**을 안다. 구멍 제원은 `spireStairGeometry`가 계산해 주고
+  //   이 파일이 넘긴다 — 테라스 모듈이 나선 모듈을 임포트하면 upperPlatform→linkPassage 사슬로 순환이 된다(㉒ TDZ 계열).
+  const terrGeo = useMemo(() => (SPIRE_ON && SPT_ON ? buildSpireTerrace({ hole: terraceHoleOf() }) : null), [])
+  //  ★★★★144-b 내벽 나선 — 첨탑·테라스와 **별개 메시**(보존계 독립 SPS_ON · CSG 대상 아님).
+  //   ★144-a로 셸→테라스 통로 넷을 철거한 뒤 테라스로 오르는 **유일한 길**이다.
+  const stairParts = useMemo(() => (SPIRE_ON && SPT_ON ? buildSpireStairParts() : []), [])
   // ★★★131 새 층(2026.08.14): 테라스 위 한 층. 테라스·첨탑과 **또 별개 메시**다 —
   //  ⓐ 보존계 독립(UPF_ON 한 줄) ⓑ 부피·watertight 검사 분리 ⓒ CSG 대상 아님(문은 아직 안 뚫는다 = 밀봉 유지).
   const upperParts = useMemo(() => (SPIRE_ON && SPT_ON && UPF_ON ? buildUpperPlatform() : []), [])
@@ -442,6 +448,17 @@ export function DefAxiomRoom({ stairKind }) {
         <mesh key={id} geometry={geo} userData={{ walkable: true }}>
           <meshStandardMaterial color="#97784e" roughness={0.92} side={THREE.FrontSide} />
         </mesh>
+      ))}
+      {/* ★★★★144-b 내벽 나선 계단 — 본체는 밟는 면, 난간(턱)은 아니다.
+          ⚠walkable은 리터럴로 적는다(check_waypoints 메시 센서스가 소스를 파싱한다 — ★131 교훈). */}
+      {stairParts.map(({ id, geo, walk }) => (
+        walk
+          ? <mesh key={'sps-' + id} name={'첨탑나선/' + id} geometry={geo} userData={{ walkable: true }}>
+              <meshStandardMaterial color="#97784e" roughness={0.92} side={THREE.FrontSide} />
+            </mesh>
+          : <mesh key={'sps-' + id} name={'첨탑나선/' + id} geometry={geo} userData={{ walkable: false }}>
+              <meshStandardMaterial color="#97784e" roughness={0.92} side={THREE.FrontSide} />
+            </mesh>
       ))}
       {/* ★★★133 1p4 방위 0° 복합체(2026.08.15) — 2층 계단 관(참→테라스 · 참 위→새 층) + 참 + 기둥 + 아치.
           별개 메시(보존계 독립 · CSG 대상 아님 — 밀봉: 문 컷 = 다음 조각). 재질 = ★130 통로 가족(길 연속). */}

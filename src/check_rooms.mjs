@@ -2422,7 +2422,9 @@ console.log('\n── ★128 첨탑 테라스(원기둥 안 고리 판 · 구멍
 
   if (!C.SPT_ON) {
     //  ⛔보존계(소등 중) — 배선만: 한 줄 복귀 게이트가 살아 있는가
-    ok(/SPIRE_ON && SPT_ON \? buildSpireTerrace\(\)/.test(roomSrc), '보존계: SPT_ON 한 줄 게이트 보존')
+    //  ⛔★144-b: 호출에 인자(도착 구멍)가 붙으면서 `\(\)`를 요구하던 구판이 깨졌다(스윕에서 적발).
+    //   불변식은 "SPT_ON 한 줄로 소등되는가"이지 "인자가 없는가"가 아니다.
+    ok(/SPIRE_ON && SPT_ON \? buildSpireTerrace\(/.test(roomSrc), '보존계: SPT_ON 한 줄 게이트 보존')
   } else {
     const S = SG.spireSpec()
     const T = ST.spireTerraceSpec()
@@ -2541,8 +2543,13 @@ console.log('\n── ★128 첨탑 테라스(원기둥 안 고리 판 · 구멍
       'h₀ = 0은 구멍 = 내벽일 때뿐 — 문지방은 어떤 구멍으로도 안 보인다(윗부분만)')
 
     //  ⑨ 배선(사본 소멸·게이트)
-    ok(/buildSpireTerrace/.test(roomSrc) && /SPIRE_ON && SPT_ON \? buildSpireTerrace\(\)/.test(roomSrc),
+    //  ★★★★144-b: 호출이 `buildSpireTerrace({ hole: terraceHoleOf() })`로 바뀌었다(도착 구멍).
+    //   게이트 정규식은 **인자를 묻지 않는다** — 묻던 구판이 인자가 붙는 순간 깨졌다(구현 중 적발).
+    //   불변식은 "SPT_ON 한 줄로 소등되는가"이지 "인자가 없는가"가 아니다(규율 = 현재값 아닌 불변식).
+    ok(/SPIRE_ON && SPT_ON \? buildSpireTerrace\(/.test(roomSrc),
       'Room.jsx: 별개 메시 + SPT_ON 한 줄 게이트(보존계)')
+    ok(/buildSpireTerrace\(\{ hole: terraceHoleOf\(\) \}\)/.test(roomSrc),
+      'Room.jsx: 테라스가 나선의 도착 구멍을 받는다(제원은 호출자가 넘긴다 — 순환 방지 규약)')
     const terrSrc = readFileSync(new URL('./spireTerraceGeometry.js', import.meta.url), 'utf8')
     ok(/from '\.\/spireGeometry\.js'/.test(terrSrc) && !/rCylIn\s*=\s*1[0-9]/.test(terrSrc),
       '테라스 모듈: 첨탑 좌표를 spireSpec에서만 받는다(사본 금지)')
@@ -4268,6 +4275,287 @@ console.log('\n── ★133 1p4 복합체(2층 관·참·기둥·아치 — ★
     const want = (C2.LK2_ON && C2.LNK_ON) ? C2.LNK_ASSIGN.map((m, k) => (m === 2 ? k : -1)).filter(k => k >= 0) : []
     ok(JSON.stringify(L2.link2Ks()) === JSON.stringify(want),
       `마운트 k = 경유지 배정에서 파생 ${JSON.stringify(L2.link2Ks())}${want.length ? '' : '(소등 체제 — 빈 목록이 정답)'}`)
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ★★★★144 — 통로 전면 철거(144-a) + 첨탑 내벽 나선 계단(144-b)
+//  ⚠규율: 단언은 **현재 수치가 아니라 불변식**이다. 아래 어느 항도 "지금 값이 X다"를 묻지 않고
+//   "무엇에서 파생되는가 / 무엇을 넘지 않는가 / 소등하면 흔적이 없는가"를 묻는다.
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  console.log('\n── ★★★★144 철거 + 첨탑 내벽 나선 ──')
+  const C4 = await import('./constants.js')
+  const SG = await import('./spireStairGeometry.js')
+  const TG = await import('./spireTerraceGeometry.js')
+  const UP = await import('./upperPlatformGeometry.js')
+  const { spireSpec, wellWallR } = await import('./spireGeometry.js')
+  const { ascSpec } = await import('./ascentTunnelGeometry.js')
+  const roomSrc4 = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+  const S4 = spireSpec(), A4 = ascSpec()
+
+  //  ── 기하 감사 도구(경계·감김·부피) — ★137-h 어법 승계 ──
+  const audit4 = (geom) => {
+    const pp = (geom.index ? geom.toNonIndexed() : geom).getAttribute('position').array
+    const nT = pp.length / 9
+    let vol = 0, degen = 0
+    const Q = 1e4, vk = i => Math.round(pp[i] * Q) + ',' + Math.round(pp[i + 1] * Q) + ',' + Math.round(pp[i + 2] * Q)
+    const em = new Map()
+    for (let ti = 0; ti < nT; ti++) {
+      const b = ti * 9
+      const A = [pp[b], pp[b + 1], pp[b + 2]], B = [pp[b + 3], pp[b + 4], pp[b + 5]], C = [pp[b + 6], pp[b + 7], pp[b + 8]]
+      vol += (A[0] * (B[1] * C[2] - B[2] * C[1]) - A[1] * (B[0] * C[2] - B[2] * C[0]) + A[2] * (B[0] * C[1] - B[1] * C[0])) / 6
+      const ks = [vk(b), vk(b + 3), vk(b + 6)]
+      if (ks[0] === ks[1] || ks[1] === ks[2] || ks[0] === ks[2]) { degen++; continue }
+      for (let e = 0; e < 3; e++) {
+        const a2 = ks[e], c2 = ks[(e + 1) % 3], rev = c2 + '|' + a2
+        if (em.has(rev)) em.set(rev, em.get(rev) + 1)
+        else em.set(a2 + '|' + c2, (em.get(a2 + '|' + c2) || 0) + 1000)
+      }
+    }
+    let open = 0, bad = 0
+    for (const v of em.values()) { const f = Math.floor(v / 1000), r = v % 1000; if (f === 1 && r === 1) continue; else if (f + r === 1) open++; else bad++ }
+    return { vol, open, bad, degen, tri: nT }
+  }
+
+  // ── ⓐ ★144-a 철거: 소등 체제에서 **흔적이 없나**(★141·★142 어법 승계 — 값이 아니라 부재를 묻는다) ──
+  {
+    const L2 = await import('./link2Geometry.js')
+    const L3 = await import('./link3Geometry.js')
+    const L4 = await import('./link4Geometry.js')
+    const LP = await import('./linkPassageGeometry.js')
+    const off = !C4.LNK_ON && !C4.LK3_ON && !C4.LK4_ON
+    ok(off === (L3.buildLink3() === null), `철거: LK3_ON=${C4.LK3_ON} ↔ 1p1·1p3 통로 ${L3.buildLink3() === null ? '없음' : '있음'}`)
+    ok(C4.LK4_ON === (L4.buildLink4() !== null), `철거: LK4_ON=${C4.LK4_ON} ↔ 1p4 관 ${L4.buildLink4() === null ? '없음' : '있음'}`)
+    ok((C4.LK2_ON && C4.LNK_ON) === (L2.buildLink2() !== null),
+      `철거: 1p2 기둥·아치는 LK2_ON(${C4.LK2_ON}) **및** LNK_ON(${C4.LNK_ON})에 걸린다 — 자기 스위치만 보면 거짓 통과한다`)
+    ok(LP.linkSpec().on === C4.LNK_ON, `철거: 경유지·미니 첨탑 = LNK_ON(${C4.LNK_ON})`)
+    //  ★133 복합체는 **살아 있어야 한다**(현도 명시: "1p4 복합체 제외")
+    ok(C4.BRG_ON === true, '철거 예외: ★133 복합체(BRG_ON)는 살려 둔다 — 현도 명시')
+    //  나선 참 종단 캡: 통로가 사라지면 **다시 밀봉**된다(빚이 아니라 복귀다)
+    const ES = await import('./extSpiralGeometry.js')
+    const vShell = ES.buildExtSpiralShell().getAttribute('position').count
+    ok(vShell > 0, `철거: 셸 종단 캡 재밀봉(정점 ${vShell} — 통로가 인수하던 단면을 되찾았다)`)
+  }
+
+  // ── ⓑ 파생 항등: 이 모듈에 손 좌표가 0개인가 ──
+  const K4 = SG.spireStairSpec()
+  {
+    const wallIn = y => wellWallR(y, { spec: S4, forceSpire: true }) - S4.T
+    ok(Math.abs(K4.rOut0 - wallIn(K4.y0)) < 1e-12, `띠 바깥 = 출발 높이의 내벽(wellWallR 파생) ${K4.rOut0.toFixed(4)}`)
+    ok(Math.abs(K4.rIn0 - (K4.rOut0 - C4.SPS_W)) < 1e-12, `띠 안쪽 = 바깥 − 폭(${C4.SPS_W})`)
+    //  ★현도 판정(셋째 대화)으로 승계원이 바뀌었다: RSP_W(밀봉 관 어휘) → ROOM_STAIR_WIDTH·RISE(방 나선 어휘).
+    ok(Math.abs(C4.SPS_W - C4.ROOM_STAIR_WIDTH) < 1e-12, '폭 = ROOM_STAIR_WIDTH 승계(방 내벽 나선 어휘 — 새 숫자 0)')
+    ok(Math.abs(C4.SPS_STEP - C4.ROOM_STAIR_RISE) < 1e-12, '단높이 목표 = ROOM_STAIR_RISE 승계(같은 근거)')
+    ok(K4.rise <= C4.DESC_RISE_MAX + 1e-9,
+      `실단높이 ${K4.rise.toFixed(4)} ≤ DESC_RISE_MAX ${C4.DESC_RISE_MAX} — 이 나선은 내려올 수도 있다(하강 규율)`)
+    ok(Math.abs(K4.y0 - A4.y0) < 1e-12, `출발 레벨 = ascSpec().y0 파생 ${K4.y0.toFixed(3)}`)
+    ok(Math.abs(K4.yTop - C4.SPT_Y) < 1e-12, '도착 = SPT_Y 파생(테라스 걷는 면)')
+    ok(K4.petal === ((C4.SPS_LNK_K + 3) % 4), `꽃잎 인덱스 = (LNK k + 3) mod 4 = ${K4.petal} — ARM13_BR_K와 같은 식`)
+    ok(Math.abs(K4.azTunnel - (C4.RAD_ANG0 + K4.petal * Math.PI / 2)) < 1e-12, '관 방위 = RAD_ANG0 + 꽃잎·90° 파생')
+    ok(Math.abs(K4.doorHalf - Math.asin(A4.massHW / K4.rMid)) < 1e-12, '문 반각 = 관 반폭/평균반경 파생(도수 아님)')
+  }
+
+  // ── ⓒ 계단 산술: ★131이 남긴 ceil 함정의 가드 ──
+  {
+    ok(Math.abs(K4.steps * K4.rise - K4.climb) < 1e-9, `단수×단높이 = 상승(나머지 0으로 닫힘) ${K4.steps}단`)
+    ok(K4.rise <= C4.SPS_STEP + 1e-9, `실단높이 ${K4.rise.toFixed(4)} ≤ 목표 ${C4.SPS_STEP}(ceil이므로 절대 초과 안 함)`)
+    ok(K4.steps === Math.max(2, Math.ceil(K4.climb / C4.SPS_STEP - 1e-9)),
+      '단수 = ceil(상승/목표 − 1e-9) — ⛔허용오차 없는 ceil은 파생 사슬의 부동소수점 잔재에 한 칸 튄다(★131 실측)')
+    //  노드 정본: 디딤은 평평하고 챌판은 폭이 0이어야 한다(★131 '이 나간 톱니'의 근본 가드)
+    const N4 = SG.stairNodes(K4)
+    let flat = 0, riser = 0, bad = 0
+    for (let i = 0; i + 1 < N4.length; i++) {
+      const dA = Math.abs(N4[i].travel - N4[i + 1].travel), dY = Math.abs(N4[i].y - N4[i + 1].y)
+      if (dA < 1e-12) { riser++; if (Math.abs(dY - K4.rise) > 1e-9) bad++ }
+      else if (dY < 1e-12) flat++
+      else bad++
+    }
+    ok(bad === 0 && flat === K4.steps && riser === K4.steps,
+      `노드 정본: 디딤 ${flat}(전부 평평) · 챌판 ${riser}(전부 폭 0·같은 단높이) · 어긋남 ${bad}`)
+  }
+
+  // ── ⓓ 걷는 선·문 앞 통과 = **성립 창의 두 벽**(바퀴 수가 이 창을 벗어나면 실패한다) ──
+  {
+    ok(K4.walkDeg <= K4.walkMax + 1e-9, `걷는 선 ${K4.walkDeg.toFixed(2)}° ≤ 상한 ${K4.walkMax}° — 창의 아래 벽`)
+    ok(K4.crossings.length >= 1, `반 바퀴 동안 상승 관 ${K4.crossings.length}기 앞을 지난다`)
+    let worst = Infinity
+    for (const c of K4.crossings) worst = Math.min(worst, c.clear)
+    ok(worst > 0, `문 앞 통과: 최악 여유 ${worst.toFixed(3)} > 0 — 창의 위 벽`)
+    //  ⛔기준이 무엇인가 — Claude가 구현 전 실측에서 틀린 자리를 못 박는다
+    ok(Math.abs(S4.portal.hubLinTop - (A4.y0 + A4.clear + 0.6)) < 1e-9,
+      `기준 = 허브 쪽 상인방 윗면 ${S4.portal.hubLinTop.toFixed(2)} = 관 바닥+내부고+0.6(portalSpec 파생)`)
+    ok(S4.portal.hubLinTop < A4.linTop - 1,
+      `⛔바깥 문 린텔 ${A4.linTop.toFixed(2)}은 기준이 **아니다** — 같은 부재의 다른 위치 값(11.22 차이)`)
+    //  ★가드 실증 ①: 바퀴를 창 밖으로 밀면 검사가 잡는가
+    const tooMany = SG.spireStairSpec({ turns: 0.9 })
+    ok(Math.min(...tooMany.crossings.map(c => c.clear)) < 0,
+      '가드 실증: 0.9바퀴면 첫 관 앞에서 여유가 음수 — 창의 위 벽이 실제로 막는다')
+    const tooFew = SG.spireStairSpec({ turns: 0.3 })
+    ok(tooFew.walkDeg > tooFew.walkMax,
+      '가드 실증: 0.3바퀴면 걷는 선이 상한을 넘는다 — 창의 아래 벽이 실제로 막는다')
+  }
+
+  // ── ⓔ 현도 주의사항 ②: 종잇장 금지 + 물림이 바깥에서 안 보이는가 ──
+  {
+    ok(C4.SPS_EMB > 0 && C4.SPS_EMB < S4.T,
+      `물림 ${C4.SPS_EMB} ∈ (0, 벽 두께 ${S4.T}) — 바깥면까지 살 ${(S4.T - C4.SPS_EMB).toFixed(2)} 남는다(밖에서 안 보임)`)
+    ok(C4.SPS_T > 0 && C4.SPS_TREAD_T > 0 && C4.SPS_RAIL_H > 0 && C4.SPS_RAIL_W > 0,
+      '종잇장 금지: 매스·낱장·난간 전부 두께 > 0')
+    //  실제 기하로 확인 — 스펙만 보면 거짓 통과한다(★143 false-safety 전례)
+    const g = SG.buildSpireStair(K4)
+    const pa = g.getAttribute('position')
+    let yLo = Infinity, yHi = -Infinity, rLo = Infinity, rHi = -Infinity
+    for (let i = 0; i < pa.count; i++) {
+      const x = pa.getX(i), y = pa.getY(i), z = pa.getZ(i), r = Math.hypot(x, z)
+      yLo = Math.min(yLo, y); yHi = Math.max(yHi, y); rLo = Math.min(rLo, r); rHi = Math.max(rHi, r)
+    }
+    ok(Math.abs(yHi - K4.yTop) < 1e-3, `실기하 최고점 ${yHi.toFixed(3)} = 테라스 걷는 면(스펙이 아니라 정점으로 확인)`)
+    //  ⚠허용오차 1e-3: position은 **Float32**라 99.78이 99.7799988로 저장된다(1e-6로 잡으면 거짓 실패)
+    ok(yLo > K4.y0 - K4.t - 1e-3, `실기하 최저점 ${yLo.toFixed(3)} ≥ 첫 단 밑면 — 디스크 아래로 안 흘러내린다`)
+    ok(rLo > C4.SPT_R + 1e-9, `실기하 최소 반경 ${rLo.toFixed(3)} > 테라스 구멍 ${C4.SPT_R} — 빛우물을 안 덮는다`)
+    //  ⛔체제를 보는 단언으로 고쳤다(스윕에서 적발): 구판은 최대 반경을 **출발 반경**과 비교했는데
+    //   'follow' 체제는 위로 갈수록 바깥이 커진다(21.35). 불변식은 "어느 높이에서든 물림이 벽 두께 안"이다.
+    let worstPen = -Infinity, rEmbMax = 0
+    for (const nd of SG.stairNodes(K4)) {
+      worstPen = Math.max(worstPen, K4.rEmbAt(nd.y) - K4.wallInAt(nd.y))
+      rEmbMax = Math.max(rEmbMax, K4.rEmbAt(nd.y))
+    }
+    ok(worstPen <= C4.SPS_EMB + 1e-9 && worstPen < S4.T,
+      `물림 최대 ${worstPen.toFixed(3)} ≤ ${C4.SPS_EMB} < 벽 두께 ${S4.T} — 어느 높이에서도 바깥면을 안 뚫는다`)
+    ok(Math.abs(rHi - rEmbMax) < 1e-3,
+      `실기하 최대 반경 ${rHi.toFixed(3)} = 높이별 바깥+물림의 최대(${rEmbMax.toFixed(3)}) — 체제 무관 항등`)
+  }
+
+  // ── ⓕ 메시 무결 + 부피 항등(해석식은 프리즘 사슬이라 정확식) ──
+  {
+    const V = SG.spireStairVolume(K4)
+    const a1 = audit4(SG.buildSpireStair(K4))
+    //  ⚠퇴화 삼각은 **정상**이다: 챌판(폭 0 구간)의 옆면 사각이 한 선으로 눌린 것으로,
+    //   면적이 0이라 부피 항등이 그 무해함을 증명한다(감사도 건너뛴다). 불변식은 경계·감김 0이다.
+    ok(a1.open === 0 && a1.bad === 0,
+      `계단 메시: 삼각 ${a1.tri} · 경계 ${a1.open} · 감김 불일치 ${a1.bad} · 퇴화 ${a1.degen}(= 챌판 옆면 · 면적 0)`)
+    ok(Math.abs(a1.vol - V.body) < Math.max(1e-3, V.body * 1e-5),
+      `계단 부피 메시 ${a1.vol.toFixed(3)} = 해석식 ${V.body.toFixed(3)}`)
+    const rg = SG.buildSpireStairRail(K4)
+    if (rg) {
+      const a2 = audit4(rg)
+      ok(a2.open === 0 && a2.bad === 0, `난간(${K4.rail}) 메시: 경계 ${a2.open} · 불일치 ${a2.bad}`)
+      ok(Math.abs(a2.vol - V.rail) < Math.max(1e-3, V.rail * 1e-5),
+        `난간 부피 메시 ${a2.vol.toFixed(3)} = 해석식 ${V.rail.toFixed(3)}`)
+      //  ★★난간 형(현도 셋째 "톱니 별로 — 부드럽게"): 'smooth'면 윗변이 램프 위의 **한 직선**이어야 한다.
+      //   판정식 = 모든 표본에서 top − rampAt(travel) 가 상수 h(체제 무관 항등 — 톱니면 ±단높이로 출렁인다).
+      const rq = SG.railSeqs(K4)
+      if (K4.railForm === 'smooth') {
+        const h4 = K4.rail === 'parapet' ? K4.paraH : K4.railH
+        let dev = 0
+        for (const sq of rq) for (const it of sq) {
+          const tr = K4.hand * (it.a - K4.az0)
+          dev = Math.max(dev, Math.abs((it.top - K4.rampAt(tr)) - h4), Math.abs((K4.rampAt(tr) - it.bot) - K4.lap))
+        }
+        ok(dev < 1e-9, `난간 'smooth': 윗변 = 램프 + ${h4} · 밑변 = 램프 − lap (최대 편차 ${dev.toExponential(1)}) — 톱니 소멸`)
+        //  ★넷째 판정("끝이 테라스 위로 삐쭉" 반려): 난간은 윗변이 테라스 면에 닿는 곳에서 끝난다.
+        //   실기하로 박는다(스펙만 보면 거짓 통과) — 어느 정점도 걷는 면 위로 안 나온다 + 끝은 정확히 닿는다.
+        const rg4 = SG.buildSpireStairRail(K4)
+        let railHi = -Infinity
+        { const pa4 = rg4.getAttribute('position'); for (let i = 0; i < pa4.count; i++) railHi = Math.max(railHi, pa4.getY(i)) }
+        ok(railHi <= K4.yTop + 1e-3 && railHi > K4.yTop - 1e-3,
+          `난간 최고점 ${railHi.toFixed(3)} = 테라스 걷는 면(돌출 0 · 끝단이 면에 정확히 닿는다)`)
+        //  틈 0의 근거를 명시로: 램프는 각 디딤의 먼 끝에서 윗면과 만난다(가까운 끝 +단높이) → 밑변이 항상 물린다
+        ok(Math.abs(K4.rampAt(K4.sweep) - K4.yTop) < 1e-9 && Math.abs(K4.rampAt(0) - K4.y0) < 1e-9,
+          '램프 양 끝 = 계단 양 끝(먼 끝 접점 산술의 전제)')
+      } else {
+        ok(K4.railForm === 'stepped', "난간 형 = 'stepped'(보존계 — 구판 톱니)")
+      }
+    } else ok(K4.rail === 'off', "난간 없음 = SPS_RAIL 'off' 체제")
+  }
+
+  // ── ⓖ 도착 구멍: 머리 위가 구멍을 부른다(위치를 손으로 적지 않는다) ──
+  {
+    const H = K4.hole
+    ok(!!H === (C4.SPS_HOLE_ON && C4.SPS_ON), `구멍 유무 = SPS_HOLE_ON(${C4.SPS_HOLE_ON})·SPS_ON(${C4.SPS_ON})`)
+    if (H) {
+      const yAtOpen = K4.y0 + K4.climb * H.travel0 / K4.sweep
+      ok(Math.abs((K4.yPlateBot - yAtOpen) - C4.SPS_HEAD) < 1e-9,
+        `구멍은 머리 위가 ${C4.SPS_HEAD}로 줄어드는 지점에서 열린다(판 밑면 ${K4.yPlateBot} − 걷는 면 ${yAtOpen.toFixed(3)})`)
+      ok(Math.abs(H.travel1 - K4.sweep) < 1e-12, '구멍은 나선 끝까지 이어진다(중간에 다시 닫히지 않는다)')
+      ok(Math.abs(H.rIn - (K4.rInAt(K4.yTop) + C4.SPS_LAP)) < 1e-12 &&
+         Math.abs(H.rOut - (K4.rOutAt(K4.yTop) - C4.SPS_LAP)) < 1e-12,
+        `구멍이 나선보다 양쪽 ${C4.SPS_LAP}씩 **작다** → 판이 계단을 문다(공면·틈 동시 제거)`)
+      ok(H.rIn > C4.SPT_R, `구멍 안쪽 ${H.rIn.toFixed(2)} > 테라스 구멍 ${C4.SPT_R} — 두 구멍이 안 합쳐진다`)
+      //  판 자체의 무결 — 구멍이 뚫려도 워터타이트인가 + 해석식이 따라오는가(세 구멍 체제 전부)
+      const hole = SG.terraceHoleOf(K4)
+      for (const m of ['circle', 'pit', 'tunnel']) {
+        const T4 = TG.spireTerraceSpec({ holeMode: m, hole })
+        const a = audit4(TG.buildSpireTerrace({ terr: T4 }))
+        const va = TG.terraceVolume(T4)
+        ok(a.open === 0 && a.bad === 0 && Math.abs(a.vol - va) < Math.max(1e-3, va * 1e-6),
+          `테라스(${m}) 구멍 뚫린 채 경계 ${a.open}·불일치 ${a.bad} · 부피 ${a.vol.toFixed(3)} = 해석식 ${va.toFixed(3)}`)
+      }
+      //  ★가드 실증 ②: 구멍을 안 뚫으면 판이 나선을 막는가 — 부피 차가 곧 막힌 살이다
+      const vNo = TG.terraceVolume(TG.spireTerraceSpec({ hole: null }))
+      const vYes = TG.terraceVolume(TG.spireTerraceSpec({ hole }))
+      ok(vNo - vYes > 1, `가드 실증: 구멍이 판에서 걷어낸 살 ${(vNo - vYes).toFixed(2)} > 0 — 소등하면 나선이 판 밑에서 막힌다`)
+    }
+  }
+
+  // ── ⓗ 체제 스윕: 12가지가 전부 서는가(기본값 한 벌 외에는 '무너지지 않는가'만 묻는다) ──
+  {
+    let built = 0, broke = []
+    for (const kind of SG.SPS_KINDS) for (const top of SG.SPS_TOPS) for (const rail of SG.SPS_RAILS) {
+      for (const hand of SG.SPS_HANDS) {
+        try {
+          const K = SG.spireStairSpec({ kind, top, rail, hand })
+          const a = audit4(SG.buildSpireStair(K))
+          const r = SG.buildSpireStairRail(K)
+          const ar = r ? audit4(r) : { open: 0, bad: 0 }
+          if (a.open || a.bad || ar.open || ar.bad || !(K.walkDeg > 0)) broke.push(`${kind}/${top}/${rail}/${hand}`)
+          built++
+        } catch (e) { broke.push(`${kind}/${top}/${rail}/${hand}:${e.message}`) }
+      }
+    }
+    ok(broke.length === 0, `체제 스윕 ${built}가지 전부 경계 0·불일치 0 (실패 ${broke.length}${broke.length ? ' — ' + broke.slice(0, 3).join(' · ') : ''})`)
+    //  'follow'는 위 띠가 밖으로 밀려나야 한다 — 두 체제가 **실제로 다른가**(스위치가 죽어 있지 않은가)
+    const Kf = SG.spireStairSpec({ top: 'follow' }), Kh = SG.spireStairSpec({ top: 'hold' })
+    ok(Kf.rOutAt(Kf.yTop) > Kh.rOutAt(Kh.yTop) + 1,
+      `체제 분기 실증: follow 위 바깥 ${Kf.rOutAt(Kf.yTop).toFixed(2)} > hold ${Kh.rOutAt(Kh.yTop).toFixed(2)} — 노브가 살아 있다`)
+    ok(Math.abs(Kh.gapMax - (Kh.wallInAt(Kh.yTop) - Kh.rOut0)) < 1e-9 && Kf.gapMax === 0,
+      `hold의 최대 틈 ${Kh.gapMax.toFixed(2)} = 벽 물러섬(★129 SPW_D) · follow는 0 — 현도 확정 ⓶의 대가를 명시로 잠근다`)
+    //  ⛔체제 무관하게 물어야 한다(스윕에서 적발): 구판은 기본 체제가 'right'라고 가정해
+    //   K4를 오른쪽 대표로 썼는데, SPS_HAND='left' 스윕에서 K4가 왼쪽이 되어 거짓 실패했다.
+    const KR = SG.spireStairSpec({ hand: 'right' }), KL = SG.spireStairSpec({ hand: 'left' })
+    ok(KR.az0 > KR.azTunnel && KL.az0 < KL.azTunnel && Math.abs((KR.az0 - KR.azTunnel) + (KL.az0 - KL.azTunnel)) < 1e-12,
+      "손 분기 실증: 'right'는 방위 증가 쪽, 'left'는 감소 쪽 — 관 축에 대해 정확히 대칭")
+  }
+
+  // ── ⓘ 소등 체제(보존계 — 규율 13′) ──
+  {
+    ok((SG.buildSpireStairParts({ K: { ...K4, on: false } }) || []).length === 0,
+      '보존계: SPS_ON=false면 부재 0(마운트가 빈 배열을 받는다)')
+    const T0 = TG.spireTerraceSpec({ hole: null })
+    const a0 = audit4(TG.buildSpireTerrace({ terr: T0 }))
+    ok(a0.open === 0 && a0.bad === 0 && !T0.hole,
+      '보존계: 구멍 없는 테라스는 ★128 상태 그대로(경계 0 — 판이 무손상으로 복귀)')
+  }
+
+  // ── ⓙ 무회귀: sweepSeq를 넓혔는데 ★131이 그대로인가 ──
+  {
+    const U = UP.upperPlatformSpec()
+    const v = UP.upperVolume(U)
+    const a = audit4(UP.buildUpperStair(+1, U))
+    ok(a.open === 0 && a.bad === 0, `★131 무회귀: 계단 메시 경계 ${a.open}·불일치 ${a.bad}(노드가 반경을 안 들면 인자 기본값이 이긴다)`)
+    ok(Math.abs(a.vol - v.stair) < Math.max(1e-3, v.stair * 1e-5),
+      `★131 무회귀: 계단 부피 ${a.vol.toFixed(4)} = 해석식 ${v.stair.toFixed(4)}`)
+    const aN = audit4(UP.buildUpperStair(-1, U))
+    ok(Math.abs(aN.vol - v.stairN) < Math.max(1e-3, v.stairN * 1e-5) && Math.abs(v.stair - v.stairN) > 1e-3,
+      `★131 정정: 좌우 두 기는 거울상이지만 부피가 다르다(${v.stair.toFixed(3)} vs ${v.stairN.toFixed(3)}) — 삼각분할 대각선이 거울에서 안 뒤집힌다`)
+  }
+
+  // ── ⓚ 배선 ──
+  {
+    ok(/buildSpireStairParts/.test(roomSrc4) && /stairParts\.map/.test(roomSrc4), '배선: Room.jsx가 나선 부재를 마운트한다')
+    ok(/userData=\{\{ walkable: true \}\}/.test(roomSrc4) && /userData=\{\{ walkable: false \}\}/.test(roomSrc4),
+      '배선: walkable 리터럴 두 갈래(본체=밟는 면 / 난간=아님) — 축약형은 센서스가 못 읽는다')
   }
 }
 

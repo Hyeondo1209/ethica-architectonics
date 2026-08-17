@@ -55,10 +55,18 @@ export function spireTerraceSpec(opts = {}) {
   const cornerAz0 = mode === 'pit' ? 0 : Math.PI / 8
   const rHoleMax = oct ? A / COS8 : A                // 모서리 = 보행 폭의 최악점
   const seg = SPT_SEG
+  //  ★★★★144-b 도착 구멍 — **제원은 호출자가 준다**(순환 방지 규약: 눈 좌표와 같은 이유.
+  //   이 파일이 `spireStairGeometry`를 임포트하면 upperPlatform→linkPassage 사슬로 고리가 생긴다).
+  //   { aLo, width, rIn, rOut } — 방위는 월드 rad, 반경은 나선 띠에서 `SPS_LAP`만큼 **좁힌** 값.
+  const hRaw = opts.hole ?? null
+  const hole = hRaw && hRaw.width > 1e-9 && hRaw.rIn > rHoleMax + 1e-9 ? {
+    aLo: hRaw.aLo, width: hRaw.width, rIn: hRaw.rIn, rOut: hRaw.rOut,
+    inAt: a => (((a - hRaw.aLo) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) < hRaw.width,
+  } : null
   return {
     on: SPT_ON, mode, oct, yTop, yBot, t, A, rOut, rWall, rCyl: S.rCyl, wallT: S.T,
     wallInAt, ys, crossSlope, emb: SPT_EMB, rCylTop: S.rCylTop, wD: S.wD,
-    cornerAz0, rHoleMax, rHoleMin: A, seg,
+    cornerAz0, rHoleMax, rHoleMin: A, seg, hole,
     walkFace: rWall - A, walk: rWall - rHoleMax,     // 보행 폭(면 / 모서리 = 최악)
     ledgeSoffit: S.y1 - S.ledgeH,                    // 머리 위 천장(L-턱 소핏)
     head: (S.y1 - S.ledgeH) - yTop,
@@ -84,26 +92,77 @@ export function sightSpec({ yEye, rEye, doorAz = Math.PI / 4, doorH, T = spireTe
   return { Reff, D, h0, seen: h - h0, needR: (D * W - h * a) / (D + h) }
 }
 
-// ── 빌드: 고리 프리즘(윗면·밑면·안벽·바깥벽) ──
+// ── ★★★★144-b 공용 분해: 방위 격자 · 반경 밴드 (빌더와 부피 해석식이 **같은 것**을 쓴다) ──
+//  ⛔사본 금지의 실전: 구멍이 생기면서 격자가 불균등해졌고, 부피식이 균등 격자를 가정한 채로
+//   남으면 메시와 0.056 어긋난다(구현 중 실측). 분해를 하나로 묶어 그 어긋남을 원천 제거한다.
+export function terraceAzs(T = spireTerraceSpec()) {
+  const TAU = Math.PI * 2
+  let azs = Array.from({ length: T.seg + 1 }, (_, k) => T.cornerAz0 + k / T.seg * TAU)
+  if (T.hole) {
+    for (const a of [T.hole.aLo, T.hole.aLo + T.hole.width]) {
+      azs.push(T.cornerAz0 + (((a - T.cornerAz0) % TAU) + TAU) % TAU)
+    }
+    azs = [...new Set(azs.map(a => +a.toFixed(12)))].sort((x, y) => x - y)
+  }
+  return azs
+}
+
+//  경계 반경 배열 + 밴드 유무. `null` 경계 = 벽(높이의 함수 — ★129 빗면 추종).
+export function terraceBands(T, aMid) {
+  if (!T.hole) return { bnd: [a => holeRAt(a, T), null], on: [true] }
+  return {
+    bnd: [a => holeRAt(a, T), () => T.hole.rIn, () => T.hole.rOut, null],
+    on: [true, !T.hole.inAt(aMid), true],
+  }
+}
+
+// ── 빌드: 고리 프리즘(윗면·밑면·안벽·바깥벽) + 도착 구멍 ──
 //  ⚠k % N: 이음매를 비트 동일 좌표로(★127 '음의 영' 함정 — orientGeo 용접이 깨진다)
 export function buildSpireTerrace(opts = {}) {
   const T = opts.terr ?? spireTerraceSpec(opts)
-  const N = T.seg
-  const az = k => T.cornerAz0 + (k % N) / N * Math.PI * 2
   //  ★129: 바깥 반경 = 그 높이의 내벽 + 매몰(빗면을 가로질러도 편차 0)
   const rO = y => T.wallInAt(y) + T.emb
-  const OUT = (k, y) => [rO(y) * Math.cos(az(k)), y, rO(y) * Math.sin(az(k))]
-  const IN = (k, y) => { const a = az(k), r = holeRAt(a, T); return [r * Math.cos(a), y, r * Math.sin(a)] }
+  const P = (a, r, y) => [r * Math.cos(a), y, r * Math.sin(a)]
 
   const pos = []
   const tri = (a, b, c) => pos.push(...a, ...b, ...c)
   const quad = (a, b, c, d) => { tri(a, b, c); tri(a, c, d) }
-  for (let k = 0; k < N; k++) {
-    quad(OUT(k, T.yTop), OUT(k + 1, T.yTop), IN(k + 1, T.yTop), IN(k, T.yTop))   // 윗면(걷는 면)
-    quad(OUT(k, T.yBot), OUT(k + 1, T.yBot), IN(k + 1, T.yBot), IN(k, T.yBot))   // 밑면
-    quad(IN(k, T.yTop), IN(k + 1, T.yTop), IN(k + 1, T.yBot), IN(k, T.yBot))     // 구멍 안벽(두께의 얼굴)
-    for (let m = 0; m + 1 < T.ys.length; m++)                                     // 바깥벽(벽 속에 묻힘 — 빗면 추종)
-      quad(OUT(k, T.ys[m + 1]), OUT(k + 1, T.ys[m + 1]), OUT(k + 1, T.ys[m]), OUT(k, T.ys[m]))
+
+  const azs = terraceAzs(T)
+  //  null 경계 = 벽(높이의 함수)
+  const bAt = (fn, a, y) => (fn === null ? rO(y) : fn(a))
+
+  for (let i = 0; i + 1 < azs.length; i++) {
+    const a0 = azs[i], a1 = azs[i + 1]
+    if (a1 - a0 < 1e-12) continue
+    const { bnd, on } = terraceBands(T, (a0 + a1) / 2)
+    for (let b = 0; b < on.length; b++) {
+      if (!on[b]) continue
+      const lo = bnd[b], hi = bnd[b + 1]
+      quad(P(a0, bAt(hi, a0, T.yTop), T.yTop), P(a1, bAt(hi, a1, T.yTop), T.yTop),
+           P(a1, bAt(lo, a1, T.yTop), T.yTop), P(a0, bAt(lo, a0, T.yTop), T.yTop))          // 윗면
+      quad(P(a0, bAt(hi, a0, T.yBot), T.yBot), P(a1, bAt(hi, a1, T.yBot), T.yBot),
+           P(a1, bAt(lo, a1, T.yBot), T.yBot), P(a0, bAt(lo, a0, T.yBot), T.yBot))          // 밑면
+    }
+    //  세로 얼굴은 **살의 유무가 바뀌는 경계에만** 선다(안 그러면 속에 겹면이 생긴다)
+    for (let k = 0; k < bnd.length; k++) {
+      const inner = k === 0 ? false : on[k - 1], outer = k === on.length ? false : on[k]
+      if (inner === outer) continue
+      if (bnd[k] === null) {                                                                 // 벽 쪽 = 빗면 추종
+        for (let m = 0; m + 1 < T.ys.length; m++)
+          quad(P(a0, rO(T.ys[m + 1]), T.ys[m + 1]), P(a1, rO(T.ys[m + 1]), T.ys[m + 1]),
+               P(a1, rO(T.ys[m]), T.ys[m]), P(a0, rO(T.ys[m]), T.ys[m]))
+      } else {
+        const r0 = bnd[k](a0), r1 = bnd[k](a1)
+        quad(P(a0, r0, T.yTop), P(a1, r1, T.yTop), P(a1, r1, T.yBot), P(a0, r0, T.yBot))
+      }
+    }
+  }
+  //  구멍의 두 마구리(방위 방향 절단면) — 없으면 판이 열린 채로 남는다
+  if (T.hole) {
+    for (const a of [T.hole.aLo, T.hole.aLo + T.hole.width]) {
+      quad(P(a, T.hole.rIn, T.yBot), P(a, T.hole.rOut, T.yBot), P(a, T.hole.rOut, T.yTop), P(a, T.hole.rIn, T.yTop))
+    }
   }
   const g = new THREE.BufferGeometry()
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
@@ -112,18 +171,34 @@ export function buildSpireTerrace(opts = {}) {
   return orientOutward(g)                            // 감김은 도구가 보증(규율 ⑨)
 }
 
-// ── 부피 해석식(프리즘이라 **정확식**) — 검사 대조용 ──
+// ── 부피 해석식(프리즘 사슬이라 **정확식**) — 검사 대조용 ──
+//  ★★★★144-b: 빌더와 **같은 분해**(terraceAzs · terraceBands)로 적분한다.
+//   구판은 균등 격자를 가정해 `polyK`를 썼는데, 도착 구멍이 격자 밖 방위를 끼워 넣으면서
+//   그 가정이 깨졌다(실측 편차 0.056). 이제 격자가 어떻게 쪼개지든 메시와 항등이다.
+//   원리: 원점 기준 삼각형 넓이 = ½·sin(Δa)·r(a₀)·r(a₁) — 다각형이므로 호가 아니라 **현**이다.
 export function terraceVolume(T = spireTerraceSpec()) {
-  const N = T.seg
-  const polyK = 0.5 * N * Math.sin(Math.PI * 2 / N)                // 정N각형 면적 = polyK·r²
-  const aIn = T.oct ? 8 * T.A * T.A * Math.tan(Math.PI / 8)        // 정팔각형(아포템 A)
-                    : polyK * T.A * T.A
-  //  ★129: 바깥이 빗면을 타면 각뿔대 정확식 사슬 V = (h/3)·k·(r₁²+r₂²+r₁r₂). 수직이면 이 식이 원기둥으로 퇴화한다.
-  let vOut = 0
-  for (let m = 0; m + 1 < T.ys.length; m++) {
-    const y0 = T.ys[m], y1 = T.ys[m + 1]
-    const r0 = T.wallInAt(y0) + T.emb, r1 = T.wallInAt(y1) + T.emb
-    vOut += (y1 - y0) / 3 * polyK * (r0 * r0 + r1 * r1 + r0 * r1)
+  const azs = terraceAzs(T)
+  const rO = y => T.wallInAt(y) + T.emb
+  let V = 0
+  for (let i = 0; i + 1 < azs.length; i++) {
+    const a0 = azs[i], a1 = azs[i + 1], d = a1 - a0
+    if (d < 1e-12) continue
+    const half = 0.5 * Math.sin(d)
+    const { bnd, on } = terraceBands(T, (a0 + a1) / 2)
+    for (let b = 0; b < on.length; b++) {
+      if (!on[b]) continue
+      const lo = bnd[b], hi = bnd[b + 1]
+      //  바깥: 벽이면 각뿔대 사슬(빗면) · 아니면 프리즘
+      let vOut
+      if (hi === null) {
+        vOut = 0
+        for (let m = 0; m + 1 < T.ys.length; m++) {
+          const r0 = rO(T.ys[m]), r1 = rO(T.ys[m + 1])
+          vOut += (T.ys[m + 1] - T.ys[m]) / 3 * half * (r0 * r0 + r1 * r1 + r0 * r1)
+        }
+      } else vOut = half * hi(a0) * hi(a1) * T.t
+      V += vOut - half * lo(a0) * lo(a1) * T.t
+    }
   }
-  return vOut - aIn * T.t
+  return V
 }
