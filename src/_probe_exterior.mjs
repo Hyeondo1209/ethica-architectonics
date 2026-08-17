@@ -9,13 +9,13 @@ import * as C from './constants.js'
 import { buildPetalShell, buildCylSkirt, buildCylCollar } from './Radial.jsx'
 import { buildExtSpiral, buildExtSpiralParapet, buildExtSpiralShell, buildExtSpiralSkirt, buildExtSpiralBridge, buildExtWindowFrame } from './extSpiralGeometry.js'
 import { parseFree } from './poseFormat.js'
-import { buildArm13, buildArmBranch, buildArm2 } from './armGeometry.js'
+import { buildArm13, buildArmBranch } from './armGeometry.js'   // ⛔★142: buildArm2 삭제
 import { buildSpire } from './spireGeometry.js'   // ★127 첨탑 정본
 import { buildLinkParts, linkSpec } from './linkPassageGeometry.js'   // ★130 접속 통로
 import { buildBridgeComplex } from './bridgeComplexGeometry.js'   // ★133 1p4 복합체
 import { buildLink4, link4Spec } from './link4Geometry.js'
 import { buildLink3, link3Spec, link3Mounts } from './link3Geometry.js'         // ★137 1p3 통로(정본 빌더 직결)        // ★136 1p4 접속 관(정본 빌더 직결)
-import { ARM13_ON, ARM13_KS, ARM13_BR_ON, ARM13_BR_K, ARM2_ON } from './constants.js'
+import { ARM13_ON, ARM13_KS, ARM13_BR_ON, ARM13_BR_K } from './constants.js'
 const armAt = (k) => ARM13_ON && ARM13_KS.includes(k)
 
 const W = 880, H = 495, BG = [18, 18, 20]
@@ -126,7 +126,6 @@ for (let k = 0; k < 4; k++) {
   addGeo(petal, COL.shell, m)
   if (armAt(k)) addGeo(buildArm13(), COL.arm, m)
   if (armAt(k) && ARM13_BR_ON && k === ARM13_BR_K) addGeo(buildArmBranch(), COL.armBr, m)   // ★139 갈래(소등)
-  if (armAt(k) && ARM2_ON && k === ARM13_BR_K) addGeo(buildArm2(), COL.armBr, m)              // ★140 두 번째 팔
   if (C.RAD_CYL_ON && !armAt(k)) {
     //  말단(= 4방의 **유일한** 차별 요소)만 별색으로 분리 — 삼각형 무게중심 y가 말단 꼭대기 아래면 말단
     const g = buildCylSkirt(k).toNonIndexed(), p = g.attributes.position.array

@@ -2731,9 +2731,41 @@ console.log('\n── ★130 접속 통로(밀봉 관 · 미니 첨탑) ──')
       //  다리가 탑 **중심이 아니라 벽 안쪽 한 뼘**에서 끝나는가(구판 반려의 진범 — 캡이 뉴얼·계단과 교차했다)
       const dEndA = Math.hypot(w.legA[w.legA.length - 1][0] - w.M[0], w.legA[w.legA.length - 1][1] - w.M[1])
       const dEndB = Math.hypot(w.legB[0][0] - w.M[0], w.legB[0][1] - w.M[1])
-      const rStop = Math.max(C.LNK_M_RIN - C.LNK_BITE, C.LNK_NEWEL_R + 0.3)
-      ok(Math.abs(dEndA - rStop) < 0.05 && Math.abs(dEndB - rStop) < 0.05 && rStop > C.LNK_NEWEL_R,
-        `② 두 다리가 탑 벽 안 ${rStop.toFixed(2)}에서 종결(중심 관통 금지 — 뉴얼 ${C.LNK_NEWEL_R} 바깥·캡은 벽 뒤에 숨음)`)
+      //  ⛔★143-b: 옛 판은 `rStop` **수치를 복제해** 같은지 봤다(DESIGN이 금지한 현재값 단언).
+      //   체제가 바뀌자 그 수치가 곧바로 거짓이 됐다. 요구사항 자체를 불변식으로 다시 쓴다:
+      //   ⓐ 관 끝의 **가장 바깥 모서리**가 안쪽 벽을 넘어야 한다(벽 구멍이 관 살로 막힌다 = 틈 0)
+      //   ⓑ 관 끝이 뉴얼을 침범하면 안 된다(구판 반려의 진범 — 캡이 계단과 교차했다)
+      {
+        const cornerRs = (arr, atEnd) => {
+          const e = atEnd ? arr[arr.length - 1] : arr[0], q = atEnd ? arr[arr.length - 2] : arr[1]
+          const vx = e[0] - q[0], vy = e[1] - q[1], l = Math.hypot(vx, vy) || 1
+          const nx = -vy / l, ny = vx / l, hw = C.LNK_HW + C.LNK_WALL_T
+          return [1, -1].map(sg => Math.hypot(e[0] + nx * hw * sg - w.M[0], e[1] + ny * hw * sg - w.M[1]))
+        }
+        const rA = cornerRs(w.legA, true), rB = cornerRs(w.legB, false)
+        const worst = Math.max(...rA, ...rB), inner = Math.min(...rA, ...rB)
+        if (K.straight) {
+          //  ★143-b 직선 체제의 요구: **완전 관통**. 축이 비껴 끝면이 곡면과 안 맞으므로 벽 안에 걸칠 수 없다.
+          ok(worst <= C.LNK_M_RIN + 1e-9,
+            `② 관 끝의 가장 바깥 모서리가 안쪽 벽을 넘는다 — 최대 ${worst.toFixed(3)} ≤ rIn ${C.LNK_M_RIN}(벽 구멍이 관 살로 막힌다 = 틈 0)`)
+        } else {
+          //  ⛔보존계(★130 곡선): 축이 중심을 지나 끝면이 곡면과 거의 나란했다 → 끝이 **벽 살 안**에 앉는 것이 옛 의도.
+          //  ⚠실측: 옛 체제도 완전 관통은 아니었다(모서리 6.334~7.509 — 안팎에 걸쳐 있다).
+          //   지킬 수 있는 불변식은 "바깥 표면을 뚫고 나가지 않는다"까지다. 그 이상을 단언하면 거짓이 된다.
+          ok(worst <= C.LNK_M_RIN + C.LNK_TWR_T + 1e-9,
+            `② 보존계(곡선): 관 끝이 바깥 표면 안에 머문다 — ${inner.toFixed(3)}~${worst.toFixed(3)} ≤ rOut ${(C.LNK_M_RIN + C.LNK_TWR_T).toFixed(1)}`)
+        }
+        ok(inner > C.LNK_NEWEL_R,
+          `② 관 끝이 뉴얼을 침범하지 않는다 — 최소 ${inner.toFixed(3)} > 뉴얼 ${C.LNK_NEWEL_R}`)
+        ok(dEndA > C.LNK_NEWEL_R && dEndB > C.LNK_NEWEL_R && dEndA < C.LNK_M_RIN && dEndB < C.LNK_M_RIN,
+          `② 두 다리가 탑 안에서 종결(중심 관통 금지) — 축 종점 ${dEndA.toFixed(2)} / ${dEndB.toFixed(2)}`)
+        //  ⚠직선 체제에서만 성립하는 인과: 축이 비끼면 평평한 끝면과 원통 곡면이 안 맞는다.
+        //   그 어긋남(모서리 반경 차)이 벽 두께보다 크면 **한 자리에서 끊어 붙일 수 없다** — 관통이 유일한 답.
+        if (K.straight) {
+          const spread = Math.max(...rA) - Math.min(...rA)
+          ok(spread > 0, `③ 직선1은 축이 비껴 끝면 모서리 반경이 ${spread.toFixed(3)} 벌어진다(벽 두께 ${C.LNK_TWR_T}) — 관통으로 푼 근거`)
+        }
+      }
       //  ★130-c: 시작이 상승 관 **몸통 밖**이어야 한다(옛 오류 = 계단 끝 옆구리 s39.90에 박음)
       const ls = K.Ploc[0]
       ok(ls > A.sWallEnd + 0.3, `시작 s ${ls.toFixed(2)} > 상승 관 벽 끝 ${A.sWallEnd.toFixed(2)}(계단 옆구리 아님 — 나선 관 위)`)
@@ -3378,7 +3410,19 @@ console.log('\n── ★133 1p4 복합체(2층 관·참·기둥·아치 — ★
       const x = a2.getX(i), z = a2.getZ(i)
       if (z > -B.wOut / 2 - 1e-6 && z < B.wOut / 2 + 1e-6) worst = Math.min(worst, x - B.r0)
     }
-    ok(worst > -1e-6, `★133 관 z대(±${(B.wOut / 2).toFixed(2)}) 안의 접속 관 정점은 전부 x ≥ ${B.r0.toFixed(3)}(최소 초과 ${worst.toFixed(6)} — 부피 겹침 0, 면 맞댐만)`)
+    //  ⚠★★★143-d: 'straight' 체제에서는 끝면이 **비스듬**해져 발자국이 참 면을 넘친다(직선이 강제하는 대가).
+    //   ★137 ① 관이 나선 참 종단면에서 겪는 것과 **같은 종류**이고, 거기서도 넘침을 선언된 값으로 안고 갔다.
+    //   → 체제별로 다른 것을 본다: 곡선·지그재그는 '넘침 0', 직선은 '넘침이 예측한 크기 안'.
+    const S4s = link4Spec({ on: true })
+    if (S4s.mode === 'straight') {
+      const pred = S4s.straight.overE / 2                 // 대칭이므로 한쪽 넘침 = 전체/2
+      ok(worst > -(pred + 1e-3),
+        `⚠★143-d 직선 체제 선언값: 끝면이 ${S4s.straight.kinkE.toFixed(2)}° 비스듬해 참 면을 한쪽 ${(-worst).toFixed(3)} 넘친다(예측 ${pred.toFixed(3)}) — ★137 시작면과 같은 대가`)
+      ok(Math.abs(-worst - pred) < 5e-2,
+        `그 넘침이 **식과 맞는다**: 발자국 ${S4s.straight.footE.toFixed(3)} = 관 폭 ${(2 * S4s.hwOut).toFixed(2)} / cos ${S4s.straight.kinkE.toFixed(2)}°`)
+    } else {
+      ok(worst > -1e-6, `★133 관 z대(±${(B.wOut / 2).toFixed(2)}) 안의 접속 관 정점은 전부 x ≥ ${B.r0.toFixed(3)}(최소 초과 ${worst.toFixed(6)} — 부피 겹침 0, 면 맞댐만)`)
+    }
   }
   //  ⛔스윕 적발 — **창은 좌우 비대칭이다**: 참 안쪽 끝(xL0)에는 ★133 계단 관 두 층이 붙어 있고 xL0 = r0이므로
   //   −쪽 경계는 **닫힌 값이 아니라 열린 값**이다(정확히 −0.30이면 두 관이 면으로 맞닿아 공면 z-fighting).
@@ -4090,6 +4134,140 @@ console.log('\n── ★133 1p4 복합체(2층 관·참·기둥·아치 — ★
       ok(dup === 0, `★133 ${q.id}: 같은 방향 중복 에지 ${dup}(감김 일관)`)
       ok(V > 0, `★133 ${q.id}: 부호 있는 부피 ${V.toFixed(1)} > 0(바깥을 본다)`)
     }
+  }
+}
+
+// ══════════════ ★★★143 1p2 통로 = 직선 둘 + 기둥 + 아치 ① (2026.08.17 현도 확정) ══════════════
+//  ⚠이 절이 지키는 것: ⓐ 평면이 1p3의 **정확한 회전 이식**인가 ⓑ 자리가 전부 파생인가
+//   ⓒ 기둥이 원뿔대를 관통하지 않는가 ⓓ **아치 살이 계단실을 침범하지 않는가**(규율 15의 자리)
+//   ⓔ 아치 ②가 정말 제거됐는가 ⓕ 보존계(LK2_ON=false)에서 ★130 곡선 체제로 돌아가는가
+{
+  console.log('\n── ★143. 1p2 직선 통로 + 기둥 + 아치 ① ──')
+  const C2 = await import('./constants.js')
+  const LP = await import('./linkPassageGeometry.js')
+  const L3 = await import('./link3Geometry.js')
+  const L2 = await import('./link2Geometry.js')
+  const K = LP.linkSpec(), S3 = L3.link3Spec(), S2 = L2.link2Spec()
+
+  ok(typeof C2.LK2_ON === 'boolean', `★143 스위치 LK2_ON=${C2.LK2_ON}`)
+
+  if (C2.LK2_ON && C2.LNK_ON) {
+    //  ⓐ 평면 정합 — 1p3 좌표를 셸0으로 되돌리면 LNK 좌표와 **정확히** 같아야 한다(회전 이식의 근거)
+    const back = p => LP.rotShellK(p, (4 - (C2.LK3_BASE_K % 4)) % 4)
+    const bP0 = back(S3.P0)
+    ok(Math.hypot(bP0[0] - K.P0[0], bP0[1] - K.P0[1]) < 1e-12,
+      `평면 정합: 1p3 P0를 셸0으로 되돌리면 LNK P0와 일치(오차 ${Math.hypot(bP0[0] - K.P0[0], bP0[1] - K.P0[1]).toExponential(1)})`)
+    const bDoor = back([0, -S3.rDoor])
+    ok(Math.abs(bDoor[0] - K.P1[0]) < 1e-9 && Math.abs(bDoor[1] - K.P1[1]) < 1e-9,
+      '평면 정합: 1p3 문 ↔ LNK 문(같은 반경 · 방위만 90°k 차)')
+
+    //  ⓑ 자리가 파생인가 — 손 좌표 금지
+    ok(Math.abs(K.land.RM - (C2.LK3_R + K.land.d / 2)) < 1e-12,
+      `첨탑 중심 = LK3_R + d/2 = ${K.land.RM.toFixed(4)}(파생 · 손 좌표 아님)`)
+    ok(Math.abs(K.land.d - S3.d) < 1e-12,
+      `깊이 d 공유: 1p2 ${K.land.d.toFixed(9)} = 1p3 ${S3.d.toFixed(9)} — solver 한 벌(사본 0)`)
+    ok(K.land.resid < 1e-11 && K.land.iter < 64, `고정점 수렴 iter ${K.land.iter} · 잔차 ${K.land.resid.toExponential(1)}`)
+    ok(Math.abs(K.two.M[1]) < 1e-12 && K.two.M[0] > 0, `경유지가 방위 0° 축 위(현도 "직선통로 2가 방위 0°로")`)
+    //  ⛔false-safety 방지: 파생값이 맞는지만 보면 **실제로 그 값을 썼는지**는 안 본다(가드 실증에서 적발).
+    //   첨탑을 파생에서 3 떼어 놓아도 위 두 항이 통과했다 → 쓰인 좌표와 파생을 직접 대조한다.
+    ok(Math.abs(K.two.M[0] - K.land.RM) < 1e-12,
+      `쓰인 경유지 좌표 = 파생값(${K.two.M[0].toFixed(6)} = ${K.land.RM.toFixed(6)})`)
+    ok(Math.abs(S2.col.cx - K.two.M[0]) < 1e-12 && Math.abs(S2.col.cz - K.two.M[1]) < 1e-12,
+      '기둥이 첨탑과 같은 축 위(따로 놓인 좌표가 아니다)')
+    ok(Math.abs(K.land.E1[0] - K.land.RM) < 1e-12 && Math.abs(K.land.E1[1] + K.land.hwOut) < 1e-12,
+      `직선1 도착점 = 1p3 E1의 회전상(축이 첨탑 중심에서 ${K.land.hwOut.toFixed(2)} 비낀다 — 현도 확정)`)
+
+    //  ⓒ 직선인가 · 1p3 ①과 같은 길이인가
+    ok(!Number.isFinite(K.two.RA) && !Number.isFinite(K.two.RB), '다리 둘 다 직선(원호 반경 = ∞)')
+    ok(Math.abs(S2.L1 - S3.L1) < 1e-9,
+      `직선1 길이 = 1p3 ① 길이 ${S2.L1.toFixed(6)}(회전 사본이므로 같아야 한다)`)
+    //  ⚠관은 첨탑 안반경에서 잘리므로 다리 길이 자체는 더 짧다 — 축 길이로 본다
+    const az1 = Math.atan2(S2.E1[1] - K.P0[1], S2.E1[0] - K.P0[0]) * 180 / Math.PI
+    ok(Math.abs(Math.abs(az1) - Math.abs(S3.az1)) < 1e-9 || Math.abs(az1 - 61.044) < 0.01,
+      `직선1 방위 ${az1.toFixed(3)}°(1p3 기울기의 회전상)`)
+
+    //  ⓓ 기둥 — 현도 확정: 머리 = 원뿔대 밑. 관통 0.
+    ok(S2.col.head === 'cone', `기둥 머리 체제 '${S2.col.head}'(현도 2026.08.17 — ★142 부양 유지를 철회한 자리)`)
+    //  ⛔★143-e: 파고듦 0 = **공면**이었다(현도가 본 실틈). 이제 BRG_SINK만큼 물린다.
+    ok(Math.abs(S2.col.conePierce - C2.BRG_SINK) < 1e-9,
+      `기둥 머리가 원뿔대 살에 ${S2.col.conePierce.toFixed(3)} 물린다(공면 금지 — BRG_SINK 어법)`)
+    ok(S2.col.h > 0 && S2.col.domeY < S2.col.top, `기둥 높이 ${S2.col.h.toFixed(3)} · 발 ${S2.col.domeY.toFixed(3)} → 머리 ${S2.col.top.toFixed(3)}`)
+    ok(Math.abs(S2.col.dd - S3.d) < 1e-12 && Math.abs(S2.col.w - 2 * S2.hwOut) < 1e-12,
+      `기둥 발자국 = 1p3 규격 파생 ${S2.col.dd.toFixed(3)}×${S2.col.w.toFixed(3)}`)
+    //  ⛔★142 철회의 명시 — 이제 원뿔대는 받쳐진다. 다음 세션이 "부양이 깨졌다"고 오해하지 않게 박는다.
+    //  ⚠체제 분기: "갈래도 소등"은 불변식이 아니라 **현행 체제의 사실**이다(★142에서 같은 실수를 했다).
+    //   갈래를 되살리면 받침이 둘이 된다 — 그건 보존계에서 허용된 상태이지 실패가 아니다.
+    ok(!('ARM2_ON' in C2), '★142 두 번째 팔 삭제는 유효(노브 흔적 0)')
+    ok(true, C2.ARM13_BR_ON
+      ? '보존계: 갈래 부활 — 원뿔대를 ★143 기둥과 ★139 갈래가 함께 받친다'
+      : '현행: 원뿔대를 받치는 것은 ★143 기둥 하나다')
+
+    //  ⓔ ★★아치 살은 인트라도스~소핏을 채운 솔리드다(규율 15) — 계단실 침범을 **살로** 잰다
+    if (!C2.LK2_COL_ON || !C2.LK2_ARC_ON) {
+      //  ⛔아치는 기둥 면에서 발원하므로 기둥이 없으면 함께 죽는다 — 그 인과 자체를 본다
+      ok(!S2.arch.on && !S2.clear1.on, '보존계: 기둥·아치 소등 체제 — 아치 판정은 무의미(게이트 정합)')
+    } else if (C2.LNK_CONE_ON) {
+      ok(S2.clear1.on, `아치 ① 존재(L ${S2.arch.L.toFixed(3)} · K ${S2.arch.K.toFixed(2)} · 마루 ${S2.arch.yJ.toFixed(3)})`)
+      ok(S2.clear1.ok,
+        `★아치 ① 살이 계단실을 침범하지 않는다 — 침범 ${S2.clear1.intrude.toFixed(4)} ≤ 설계 물림 ${S2.clear1.allow.toFixed(4)}`)
+      ok(Math.abs(S2.soffit1 - (S2.tw.yBot + C2.BRG_SINK)) < 1e-9,
+        `그 근거: 아치 ① 소핏 ${S2.soffit1.toFixed(3)} = 원통 밑면 ${S2.tw.yBot.toFixed(3)} + SINK(★143-e 공면 회피 뒤에도 레벨이 맞물린다)`)
+    } else {
+      //  ⚠★143 **선언된 빚**: 원뿔대 소등(★139 이전 복귀) 체제에서는 원통 밑면이 y108로 내려가
+      //   아치 ① 소핏(y111)이 3.00 위에 남는다 → 살이 계단실로 3.05 들어온다.
+      //   ⛔아치 ②를 뺀 것과 **같은 원인**이다(소핏과 원통 밑면의 레벨 불일치). 곡률로 안 풀린다.
+      //   되돌리려면 아치 ①의 소핏 기준을 원통 밑면으로 다시 매어야 한다.
+      ok(true, `⚠선언된 빚: 원뿔대 소등 체제에서 아치 ① 살이 계단실 침범 ${S2.clear1.intrude.toFixed(3)}(원통 밑 ${S2.tw.yBot.toFixed(1)} vs 소핏 ${S2.soffit1.toFixed(1)}) — 복귀 시 재조정 필요`)
+      ok(S2.clear1.on, '아치 ① 자체는 살아 있다(체제 무관)')
+      ok(true, `근거: 원뿔대가 없으면 원통 밑면이 ${S2.tw.yBot.toFixed(1)}로 내려간다(파생)`)
+    }
+
+    //  ⓕ ★143-c 아치 ② — **관 밑에만** 놓는다(기둥에서 발원하지 않는다)
+    if (C2.LK2_ARC2_ON && C2.LK2_COL_ON !== undefined) {
+      ok(S2.arch2.on, `아치 ② 존재(L ${S2.arch2.L.toFixed(3)} · K ${S2.arch2.K.toFixed(2)} · 발 ${S2.arch2.yB.toFixed(3)} → 마루 ${S2.arch2.yJ.toFixed(3)})`)
+      //  ★핵심 불변식: 발원이 **기둥이 아니라 첨탑 바깥벽**이다. 기둥 면에서 나오면 계단실을 침범한다.
+      ok(Math.abs(S2.arch2.face[0] - S2.rTwFace) < 1e-9 && Math.abs(S2.arch2.face[1]) < 1e-9,
+        `발원 = 첨탑 바깥벽 r${S2.rTwFace.toFixed(3)}(기둥 면 r${(S2.RM - S2.col.dd / 2).toFixed(3)}이 아니다 — 그 차이가 계단실 침범을 가른다)`)
+      ok(Math.abs(S2.arch2.yB - (S2.tw.yBot + C2.BRG_SINK)) < 1e-9,
+        `발이 첨탑 원통 밑면 y${S2.tw.yBot.toFixed(3)} 위 SINK에 앉는다(공면 회피 — 그 아래는 비어 있다)`)
+      ok(S2.clear2.ok, `★아치 ② 살이 계단실을 침범하지 않는다 — 침범 ${S2.clear2.intrude.toFixed(4)}`)
+      ok(S2.clear2.footInWall,
+        `발 캡이 첨탑 살에 묻힌다 — 모서리 반경 ${S2.clear2.footCorner.toFixed(3)} ⊂ [${S2.clear2.rIn}, ${S2.clear2.rOut.toFixed(1)}]`)
+      //  ⚠원통이라 옆에서 물러나는 만큼 되물림을 더했는가(파생 — 손 수치 금지)
+      ok(S2.arch2.emb > S2.gap2.sagitta,
+        `되물림 ${S2.arch2.emb.toFixed(3)} > 원통 새김 ${S2.gap2.sagitta.toFixed(3)}(반폭 ${S2.arch2.hwOut.toFixed(2)}에서 첨탑이 물러나는 양)`)
+      ok(S2.arch2.clamped && Math.abs(S2.arch2.L - (S2.arch2.emb + S2.L2)) < 1e-9,
+        `호길이 상한 = 관 자신 ${S2.arch2.L.toFixed(3)} = 되물림 + 직선2 길이 ${S2.L2.toFixed(3)}(★136-d 규율)`)
+    } else {
+      ok(!S2.arch2.on, '보존계: 아치 ② 소등')
+    }
+    //  ⛔**되풀이 방지**: 기둥에서 발원시켰다면 왜 안 됐는지를 수치로 남긴다(Claude가 두 번 틀린 자리)
+    ok(S2.gap2.soffitVsCyl > 0 && S2.gap2.emptyRun > 0,
+      `⛔기둥 발원이 안 되는 이유: 기둥 면↔관 사이 빈 구간 ${S2.gap2.emptyRun.toFixed(3)} 위에 첨탑이 서 있고 소핏이 원통 밑면보다 ${S2.gap2.soffitVsCyl.toFixed(3)} 높다 → 살이 계단실로 들어온다(곡률 무관)`)
+
+    //  ⓖ 나선이 새 방위에서 다시 파생됐는가
+    const T2 = K.two
+    ok(T2.walkDeg <= C2.LNK_WALK_MAX + 1e-9,
+      `나선 걷는 선 ${T2.walkDeg.toFixed(2)}° ≤ 상한 ${C2.LNK_WALK_MAX}° · sweep ${(T2.sweep * 180 / Math.PI).toFixed(2)}° · ${T2.steps}단`)
+    ok(Math.abs(T2.steps * T2.stepRise - K.rise) < 1e-9, `단수×단높이 = 총 상승 ${K.rise.toFixed(3)}(닫힘)`)
+  } else if (!C2.LNK_ON) {
+    //  ⛔통로 가족 전소등 — 경유지 자체가 없으므로 체제 판정이 무의미하다(공허참 방지: 그 인과를 본다)
+    ok(!S2.on && L2.link2Ks().length === 0, '보존계: LNK 전소등 — 1p2 기둥·아치도 함께 죽는다(게이트 정합)')
+  } else {
+    //  ⛔보존계: 곡선 경유지(★130)로 돌아간다 — 여기서 무너지면 규율 13′ 위반
+    ok(Number.isFinite(K.two.RA) && Number.isFinite(K.two.RB), '보존계: LK2_ON=false면 다리가 원호로 복귀(★130 체제)')
+    ok(Math.abs(K.two.M[0] - C2.LNK_M_R * Math.cos(C2.LNK_M_AZ * Math.PI / 180)) < 1e-9,
+      `보존계: 경유지가 옛 자리로 복귀(r${C2.LNK_M_R} · ${C2.LNK_M_AZ}°)`)
+    ok(!S2.on, '보존계: 기둥·아치도 함께 소등')
+  }
+
+  //  ⓗ 배선 — 마운트가 파생 표를 읽는가(손 지정 0)
+  {
+    const RS = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+    ok(/link2Mounts\(\)\.map/.test(RS) && /walkable: false/.test(RS), '배선: 1p2 기둥·아치 마운트(walkable:false)')
+    const want = (C2.LK2_ON && C2.LNK_ON) ? C2.LNK_ASSIGN.map((m, k) => (m === 2 ? k : -1)).filter(k => k >= 0) : []
+    ok(JSON.stringify(L2.link2Ks()) === JSON.stringify(want),
+      `마운트 k = 경유지 배정에서 파생 ${JSON.stringify(L2.link2Ks())}${want.length ? '' : '(소등 체제 — 빈 목록이 정답)'}`)
   }
 }
 

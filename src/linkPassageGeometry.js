@@ -27,6 +27,7 @@ import {
   LNK_WALK_MAX, LNK_DOOR_ON, LNK_DOOR_H, LNK_DOOR_HW, LNK_DOOR_MARG,
   LNK_M_AZ, LNK_M_R, LNK_M_RIN, LNK_FOOT, LNK_FOOT_DROP, LNK_NEWEL_R, LNK_EMB,
   LNK_CONE_ON, LNK_CONE_Y, LNK_CONE_R,
+  LK2_ON, LK3_R, LK3_BASE_K, BRG_SINK,
   RAD_ANG0, RAD_R, SPT_Y,
 } from './constants.js'
 
@@ -36,6 +37,32 @@ const add = (a, b) => [a[0] + b[0], a[1] + b[1]]
 const mul = (a, k) => [a[0] * k, a[1] * k]
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1]
 const nrm = a => Math.hypot(a[0], a[1])
+
+//  ★★★143 셸0 프레임 → 셸 k 프레임(★132 규약: +90°k · LNK k다). link3Geometry가 쓰던 로컬 rotK를
+//   여기로 내렸다 — 1p2도 같은 회전이 필요해졌고, 두 벌로 두면 규약이 갈라진다(규율: 사본 금지).
+export const rotShellK = (p, k) => { const a = k * Math.PI / 2, c = Math.cos(a), s = Math.sin(a)
+  return [p[0] * c - p[1] * s, p[0] * s + p[1] * c] }
+
+//  ★★★143 "깊이가 자기를 부르는 방정식"(★137) — 이것도 여기로 내렸다.
+//   ①이 참의 −x 변에 비스듬히 꽂히므로 d → 끝점 → θ → d. 고정점 반복으로 닫는다.
+//   ⚠**d는 프레임 무관한 스칼라**라 1p3와 1p2가 같은 값을 받는다(회전 사본의 근거).
+//   ⚠사본 금지: link3Spec도 이 함수를 부른다. 식이 여기 한 벌만 존재한다.
+export function landingDepth({ P0k, R, hwOut, wOut }) {
+  let d = wOut, iter = 0, resid = Infinity
+  for (; iter < 64; iter++) {
+    const E = [-hwOut, -(R + d / 2)]
+    const u = [E[0] - P0k[0], E[1] - P0k[1]]
+    const th = Math.abs(Math.atan2(u[1], u[0]))
+    const dn = wOut / Math.cos(th)
+    resid = Math.abs(dn - d); d = dn
+    if (resid < 1e-12) break
+  }
+  return { d, iter, resid }
+}
+
+//  ★직선 경로를 표본으로 편다(trimAt·buildLinkTube가 폴리라인을 전제한다)
+const straightPts = (A, B, n = 64) => Array.from({ length: n + 1 },
+  (_, i) => [A[0] + (B[0] - A[0]) * i / n, A[1] + (B[1] - A[1]) * i / n])
 
 //  A에서 접선 t로 출발해 B에 닿는 유일한 원호(★51 하강로 어휘 — 접선 연속의 기계)
 function arcPts(A, t, B, n = 64) {
@@ -114,15 +141,53 @@ export function linkSpec(opts = {}) {
   //  ⚠부활은 스위치가 아니라 재구현이다 — 노브(LNK_CURVE·BEZ_K·BIARC_D)도 함께 지웠다.
 
   // ── ② 경유지 ──
+  //  ★★★143(2026.08.17 현도): 다리 둘이 **원호 → 직선**이 됐고, 경유지가 **1p3 기둥 자리**로 이사했다.
+  //   현도: *"쉘 > 직선통로1 > 미니첨탑(원통) > 상승 > 직선통로2 > 테라스. 직선통로 1과 2는 위에서 봤을 때
+  //    1p3 테라스 통로의 직선 형태를 가져야 해. 직선통로 2가 방위 0°로, 직선통로 1은 1p3 첫 직선의 기울기로."*
+  //   ⚠평면만 이식한다 — 상승은 여전히 **나선이 전부 먹는다**(관 둘은 수평 y112.5 / y127).
+  //   ⚠사본 금지: 자리는 손 좌표가 아니라 **1p3 기둥 중심의 파생** = LK3_R + d/2. d는 공유 solver가 푼다.
+  //   ⛔LK2_ON=false면 ★130 곡선 경유지(LNK_M_AZ·LNK_M_R)로 한 줄에 복귀한다(보존계).
+  const hwOutL = LNK_HW + LNK_WALL_T, wOutL = 2 * hwOutL
+  const LD = landingDepth({ P0k: rotShellK(P0, LK3_BASE_K), R: LK3_R, hwOut: hwOutL, wOut: wOutL })
+  const RM2 = LK3_R + LD.d / 2                                // 1p3 기둥 중심 반경(파생)
   const aM = LNK_M_AZ * Math.PI / 180
-  const M = [LNK_M_R * Math.cos(aM), LNK_M_R * Math.sin(aM)]
-  const legA0 = arcPts(P0, T0, M, 72)                         // 수평 y0(원호 자체는 중심까지 유도 — 접선 조건)
-  const legB0 = arcPts(P1, [-T1[0], -T1[1]], M, 64)           // 수평 y1(첨탑에서 역방향)
+  const M = LK2_ON ? [RM2, 0] : [LNK_M_R * Math.cos(aM), LNK_M_R * Math.sin(aM)]
+  //  ★직선 1의 도착점 = 1p3 E1의 회전상(현도 확정 "1p3 그대로" — 축이 첨탑 중심에서 hwOut 비낀다)
+  const E1s = [RM2, -hwOutL]
+  const legA0 = LK2_ON ? { pts: straightPts(P0, E1s, 72), R: Infinity } : arcPts(P0, T0, M, 72)
+  const legB0 = LK2_ON ? { pts: straightPts(P1, [RM2, 0], 64), R: Infinity } : arcPts(P1, [-T1[0], -T1[1]], M, 64)
   //  ★130-b: 다리는 탑 **벽 안쪽 한 뼘**에서 끝난다(관입 = 벽을 완전히 뚫고 캡은 내부에 숨음)
-  const rStop = Math.max(LNK_M_RIN - LNK_BITE, LNK_NEWEL_R + 0.3)
+  //  ★★★143-b(2026.08.17 현도 "직선통로 1과 미니첨탑 입구 부분 틈이 있어"):
+  //   ⛔옛 값 `LNK_M_RIN − BITE`는 **곡선 체제의 값**이었다. 그때는 다리가 첨탑 중심을 향해 유도돼
+  //    축이 중심을 지났고(비낌 0), 축에 수직인 평평한 끝면이 원통 곡면과 거의 나란했다.
+  //   ⚠직선 체제에서는 축이 중심에서 hwOut만큼 비껴 있다(1.307 실측) → 같은 자리에서 자르면
+  //    끝면 두 모서리의 반경이 **6.418 / 7.437로 1.019 벌어지고**, 안쪽 모서리가 안쪽 벽에서
+  //    **0.018**밖에 안 떨어진 공면이 된다. 벽 두께 1.2에 그 폭을 욱여넣을 수 없다 = 현도가 본 틈.
+  //   ★수리: 자르는 자리를 **파생**시킨다. 끝면의 **가장 바깥 모서리**가 안쪽 벽을 여유 `LNK_EMB`만큼
+  //    넘어서도록 축 상의 지점을 역산한다 → 벽 구멍이 관 살로 완전히 막힌다(곡률과 무관하게 틈 0).
+  //   ⚠**다리마다 다르다**: 축 비낌 h는 도착점 오프셋이 아니라 M에서 그 직선까지의 **수선거리**다
+  //    (직선1은 hwOut·cos(방위) = 1.307 · 직선2는 반경 방향이라 0). 손 수치 금지 — 선분에서 직접 잰다.
+  const perpDist = (A, B) => { const vx = B[0] - A[0], vy = B[1] - A[1], L = Math.hypot(vx, vy) || 1
+    return Math.abs((M[0] - A[0]) * vy - (M[1] - A[1]) * vx) / L }
+  const rStopFor = (A, B) => {
+    const h = perpDist(A, B)
+    const rTgt = LNK_M_RIN - LNK_EMB                   // 가장 바깥 모서리가 도달해야 할 반경
+    const t2 = rTgt * rTgt - (h + hwOutL) * (h + hwOutL)
+    if (!(t2 > 0)) return Math.max(LNK_NEWEL_R + 0.3, 0.1)   // 기하가 안 닫히면 옛 하한으로(체제 안전)
+    return Math.max(Math.sqrt(t2 + h * h), LNK_NEWEL_R + 0.3)
+  }
+  const rStopA = LK2_ON ? rStopFor(P0, E1s) : Math.max(LNK_M_RIN - LNK_BITE, LNK_NEWEL_R + 0.3)
+  const rStopB = LK2_ON ? rStopFor(P1, [RM2, 0]) : Math.max(LNK_M_RIN - LNK_BITE, LNK_NEWEL_R + 0.3)
   //  legA는 M쪽이 **끝**(순방향 순회로 경계에서 멈춤) · legB는 뒤집으면 M쪽이 **앞**(fromEnd로 자름)
-  const legA = { pts: biteStart(trimAt(legA0.pts, M, rStop, false), LNK_BITE), R: legA0.R }
-  const legBp = trimAt(legB0.pts.slice().reverse(), M, rStop, true)
+  //  ★★★143-e 시작 끝면 — 직선 체제에서 나선 참 종단면과 **몇 도 어긋나는가**(곡선 체제는 접선 출발이라 0).
+  //   ⛔현도 *"쉘과 직선통로 1 사이의 틈이 생겼어"*의 진범: 옵션을 안 주면 끝면이 진행 방향에 수직으로
+  //    잘려 참 종단면과 이 각도만큼 벌어진다 = 쐐기 틈. ★137 ①이 이미 `tan0`+`scale0`로 푼 자리인데
+  //    1p2 관은 `buildLinkParts`가 옵션 없이 지어 그 경로를 못 탔다.
+  const startKinkDeg = LK2_ON
+    ? Math.abs(Math.atan2(E1s[1] - P0[1], E1s[0] - P0[0]) - Math.atan2(T0[1], T0[0])) * 180 / Math.PI
+    : 0
+  const legA = { pts: biteStart(trimAt(legA0.pts, M, rStopA, false), LNK_BITE), R: legA0.R }
+  const legBp = trimAt(legB0.pts.slice().reverse(), M, rStopB, true)
   const legB = { pts: legBp, R: legB0.R }
   //  미니 첨탑: 닫힌 원통 — 두 다리의 내부고를 다 품어야 한다
   const tw = {
@@ -130,14 +195,18 @@ export function linkSpec(opts = {}) {
     yTop: y1 + LNK_H + LNK_WALL_T,                             // 둘째 다리 천장 위
     //  ★★★139: 원뿔대 체제에서 벽의 원기둥 부분은 **바닥 슬래브 밑면**에서 끝난다(파생 — 노브 아님).
     //   구 체제는 `LNK_FOOT_DROP`만큼 더 내려가 걷는 바닥 밑에 죽은 자락 4.5를 남겼다(현도 적발).
-    yBot: LNK_CONE_ON ? y0 - LNK_FLOOR_T
+    //  ⛔★★★143-e 공면 제거(현도 *"외부에서 봤을 때는 그대로 있어 … 어정쩡하게 그냥 붙어있어서"*):
+    //   첨탑 밑면이 **관 바닥 밑면과 정확히 같은 평면**(y111)이었다 → 두 면이 겹쳐 실틈·깜빡임으로 보인다.
+    //   `BRG_SINK` 어법(프로젝트 표준 공면 회피)으로 첨탑을 그만큼 **더 내려** 관 바닥이 첨탑 살에 묻히게 한다.
+    //   ⚠조형 변화 0.05 — 원뿔대 높이만 그만큼 길어진다(밑 y는 노브 그대로).
+    yBot: LNK_CONE_ON ? y0 - LNK_FLOOR_T - BRG_SINK
           : (LNK_FOOT === 'dome' ? domeYAt(LNK_M_R) : y0 - LNK_FLOOR_T - LNK_FOOT_DROP),
     //  ★원뿔대(아래로 좁아짐) — 위 = 원기둥 끝(rOut·rIn 그대로) · 아래 = LNK_CONE_R.
     //   ⚠안반경은 **수평 벽두께 보존**으로 파생한다(rIn = rOut − LNK_TWR_T). 밑에서도 살 두께가 같다.
     cone: LNK_CONE_ON ? {
-      yTop: y0 - LNK_FLOOR_T, yBot: LNK_CONE_Y,
+      yTop: y0 - LNK_FLOOR_T - BRG_SINK, yBot: LNK_CONE_Y,   // ★143-e 위 = 원기둥 끝(내려간 값 그대로 물려받는다)
       rOut: LNK_CONE_R, rIn: Math.max(0.05, LNK_CONE_R - LNK_TWR_T),
-      h: (y0 - LNK_FLOOR_T) - LNK_CONE_Y,
+      h: (y0 - LNK_FLOOR_T - BRG_SINK) - LNK_CONE_Y,
       wallDeg: Math.atan2((y0 - LNK_FLOOR_T) - LNK_CONE_Y, (LNK_M_RIN + LNK_TWR_T) - LNK_CONE_R) * 180 / Math.PI,
     } : null,
     newel: LNK_NEWEL_R,
@@ -179,6 +248,7 @@ export function linkSpec(opts = {}) {
     on: LNK_ON, assign: LNK_ASSIGN, y0, y1, rise, P0, T0, P1, T1, rWall, emb: LNK_EMB,
     phiDeg, phiL0deg, phi0deg, phiStepDeg, insideLanding, armDeg, Ploc, Tloc, rc,
     hw: LNK_HW, h: LNK_H, ft: LNK_FLOOR_T, wt: LNK_WALL_T, bite: LNK_BITE, junctions,
+    straight: LK2_ON, rStopA, rStopB, startKink: startKinkDeg, land: { R: LK3_R, d: LD.d, iter: LD.iter, resid: LD.resid, RM: RM2, E1: E1s, hwOut: hwOutL, wOut: wOutL },
     two: { M, legA: legA.pts, legB: legBp, LA: plLen(legA.pts), LB: plLen(legBp), RA: legA.R, RB: legB.R,
            tw, rMid, stepsTurn, steps, stepRise, turns, walkDeg, tread, azIn, azOut, landAz, sweep },
   }
@@ -407,9 +477,15 @@ export function buildLinkParts(S = linkSpec()) {
     const C = LNK_DOOR_ON ? [false, false] : [true, true]
     //  ★141: 배정값은 이제 0(없음)/2(경유지)뿐이다 — ① 단일 곡선 갈래는 삭제됐다.
     const w = S.two
+    //  ★★★143-e 직선 체제: 시작 끝면을 **나선 참 종단면의 평면으로** 비스듬히 자른다(★137 ① 어법 승계).
+    //   ⚠`scale0 = 1/cos(kink)`은 반폭을 늘려 그 면 위의 발자국을 관 폭에 맞추는 값이다.
+    //    참 종단면은 5.40 고정이라 발자국 6.098이 **0.698 넘친다** — ★137 ①과 똑같은 대가(선언된 값).
+    //    ⛔넘침을 피하려고 옵션을 빼면 27.674° 쐐기 틈이 돌아온다. 둘 중에는 맞물림이 옳다(현도 판정).
+    const R = Math.PI / 180
+    const optA = S.straight ? { tan0: S.T0, scale0: 1 / Math.cos(S.startKink * R) } : {}
     out.push({
       k,
-      walk: [buildLinkTube(w.legA, () => S.y0, S, C), buildLinkTube(w.legB, () => S.y1, S, C), buildLinkStair(S)],
+      walk: [buildLinkTube(w.legA, () => S.y0, S, C, optA), buildLinkTube(w.legB, () => S.y1, S, C), buildLinkStair(S)],
       solid: [buildLinkTower(S)],
     })
   })

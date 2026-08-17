@@ -34,7 +34,8 @@ import { buildSpireTerrace } from './spireTerraceGeometry.js'   // ★128 첨탑
 import { buildUpperPlatform } from './upperPlatformGeometry.js' // ★131 새 층 플랫폼 + 좌우 계단 2기(테라스 위 — 드럼행 문의 자리)
 import { buildBridgeComplex } from './bridgeComplexGeometry.js' // ★133 1p4 방위 0° 복합체(2층 계단 관 + 참 + 기둥 + 아치)
 import { buildLink4 } from './link4Geometry.js'
-import { buildLink3, link3Mounts } from './link3Geometry.js'                   // ★137 1p3형 셸 → 테라스 통로(두 오르막 + 띄운 참) · ★141 다중 마운트                   // ★136 1p4 셸 나선 참 → ★133 참 수평 접속 관
+import { buildLink3, link3Mounts } from './link3Geometry.js'
+import { buildLink2, link2Mounts } from './link2Geometry.js'                    // ★143 1p2 통로의 기둥 + 아치 ①                   // ★137 1p3형 셸 → 테라스 통로(두 오르막 + 띄운 참) · ★141 다중 마운트                   // ★136 1p4 셸 나선 참 → ★133 참 수평 접속 관
 //  ★141 이름표용 — LNK 인덱스 → 정리 번호(★132 규약: k0=1p4 · k1=1p1 · k2=1p2 · k3=1p3).
 //  ⚠꽃잎 k와 45° 어긋난 다른 규약이다. CoordHud로 부재를 짚을 때 이 이름이 나온다.
 const LK3_PROP = [4, 1, 2, 3]
@@ -156,6 +157,8 @@ export function DefAxiomRoom({ stairKind }) {
   const link4Parts = useMemo(() => (SPIRE_ON && SPT_ON && BRG_ON && LK4_ON ? buildLink4() : null), [])
   //  ★137 — ★133 복합체와 무관(다른 셸·다른 방위)이라 BRG_ON에 매지 않는다
   const link3Parts = useMemo(() => (SPIRE_ON && SPT_ON && LK3_ON ? buildLink3() : null), [])
+  //  ★★★143 1p2: 관 둘·첨탑·나선은 Radial의 LinkPassages가 짓는다. 여기서 더하는 것은 기둥 1기 + 아치 ① 뿐.
+  const link2Parts = useMemo(() => (SPIRE_ON && SPT_ON ? buildLink2() : null), [])
   const wellCut = useMemo(() => {
     if (SPIRE_ON) return buildSpire()
     const ev = new Evaluator()
@@ -472,6 +475,18 @@ export function DefAxiomRoom({ stairKind }) {
           ))}
           {link3Parts.solid.map(({ id, geo }) => (
             <mesh key={'lk3s-' + k + '-' + id} name={'1p' + LK3_PROP[k] + '통로/' + id} geometry={geo} userData={{ walkable: false }}>
+              <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
+            </mesh>
+          ))}
+        </group>
+      ))}
+      {/* ★★★143 1p2 통로의 기둥 + 아치 ① — 경유지가 배정된 셸에만(파생 마운트 · 손 지정 0).
+          ⛔아치 ②는 짓지 않는다(현도 2026.08.17): 기둥 면과 ② 관 사이 빈 구간 4.51 위에 첨탑 원통이
+          서 있어 살이 계단실로 14.55 들어온다 — 곡률로 안 풀린다. 사유 전문 = constants.js LK2_* 절. */}
+      {link2Parts && link2Mounts().map(({ k, rotY }) => (
+        <group key={'lk2g-' + k} rotation-y={rotY}>
+          {link2Parts.solid.map(({ id, geo }) => (
+            <mesh key={'lk2s-' + k + '-' + id} name={'1p2통로/' + id} geometry={geo} userData={{ walkable: false }}>
               <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
             </mesh>
           ))}

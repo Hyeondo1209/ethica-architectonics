@@ -2071,8 +2071,12 @@ console.log('\n── ★★★126 1p3 지지 팔(2026.08.13 · ★126-c 현도 
   ok('★139 첨탑 원뿔대 스위치', C9.LNK_CONE_ON === true || C9.LNK_CONE_ON === false)
   if (C9.LNK_CONE_ON) {
     const yFloorUnder = S9.y0 - C9.LNK_FLOOR_T
-    ok('원뿔대 위 끝 = 바닥 슬래브 밑면(파생 — 노브 아님)', Math.abs(tw.cone.yTop - yFloorUnder) < 1e-9, `${tw.cone.yTop} = ${S9.y0} − ${C9.LNK_FLOOR_T}`)
-    ok('원기둥 벽이 걷는 바닥 밑으로 안 내려간다(죽은 자락 0)', Math.abs(tw.yBot - yFloorUnder) < 1e-9, `yBot ${tw.yBot} vs 바닥 ${S9.y0}`)
+    //  ⛔★143-e: 첨탑 밑면이 관 바닥 밑면과 **공면**이라 실틈으로 보였다(현도 적발) → BRG_SINK만큼 더 내렸다.
+    //   불변식의 뜻은 그대로다: "죽은 자락이 없다"(옛 결함은 4.5였다). 물림 0.05는 **의도된 값**이다.
+    const yEmb = yFloorUnder - C9.BRG_SINK
+    ok('원뿔대 위 끝 = 바닥 슬래브 밑면 − SINK(파생 — 노브 아님)', Math.abs(tw.cone.yTop - yEmb) < 1e-9, `${tw.cone.yTop} = ${S9.y0} − ${C9.LNK_FLOOR_T} − ${C9.BRG_SINK}`)
+    ok('원기둥 벽의 죽은 자락 0(물림 SINK만 허용)', Math.abs(tw.yBot - yEmb) < 1e-9 && yFloorUnder - tw.yBot <= C9.BRG_SINK + 1e-9,
+      `yBot ${tw.yBot.toFixed(3)} · 바닥 밑면 ${yFloorUnder.toFixed(3)} → 물림 ${(yFloorUnder - tw.yBot).toFixed(3)}`)
     ok('⛔구 체제 대조: LNK_FOOT_DROP 자락이 실제로 있었다', C9.LNK_FOOT_DROP > 0 && (S9.y0 - C9.LNK_FLOOR_T - C9.LNK_FOOT_DROP) < yFloorUnder, `구 yBot ${(S9.y0 - C9.LNK_FLOOR_T - C9.LNK_FOOT_DROP).toFixed(2)} → 신 ${yFloorUnder}`)
     ok('원뿔대는 아래로 좁아진다', tw.cone.rOut < tw.rOut && tw.cone.yBot < tw.cone.yTop, `${tw.rOut}→${tw.cone.rOut}`)
     ok('원뿔대 벽 두께 = 탑 살 두께(수평 보존)', Math.abs((tw.cone.rOut - tw.cone.rIn) - C9.LNK_TWR_T) < 1e-9)
@@ -2192,87 +2196,57 @@ console.log('\n── ★★★126 1p3 지지 팔(2026.08.13 · ★126-c 현도 
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-//  ★★★140 두 번째 팔 — 셸 팔 어휘로 미니 첨탑을 받친다 (2026.08.16 현도 확정)
+//  ⛔★★★142 두 번째 팔(★140) **삭제** 확인 (2026.08.17 현도 "우선 제거하자")
+//   ⚠소등이 아니라 삭제다 → 검사도 "값이 맞나"가 아니라 **"흔적이 없나"**를 본다
+//   (★141 ① 단일 곡선 삭제 가드와 같은 어법 — check_rooms 2623행).
 // ══════════════════════════════════════════════════════════════════════════
 {
-  console.log('\n— ★140 두 번째 팔 —')
+  console.log('\n— ⛔★142 두 번째 팔 삭제 확인 —')
   const CA = await import('./constants.js')
   const AA = await import('./armGeometry.js')
-  const SA = (await import('./ascentTunnelGeometry.js')).ascSpec()
-  ok('★140 스위치', typeof CA.ARM2_ON === 'boolean', `ARM2_ON=${CA.ARM2_ON} · BR_ON=${CA.ARM13_BR_ON}(★139 갈래 소등)`)
-  ok('⛔갈래와 두 번째 팔이 동시에 켜지지 않는다(대체 관계)', !(CA.ARM2_ON && CA.ARM13_BR_ON))
-  if (CA.ARM2_ON) {
-    const A2 = AA.arm2Spec()
-    //  ★현도 "동일한 곳에서 시작" — 셸 팔의 안쪽 끝과 같은 점
-    ok('★시작점 = 셸 팔 안쪽 끝(파생 · 손 좌표 아님)', Math.abs(A2.P0[0] - SA.s0) < 1e-12 && Math.abs(A2.P0[1]) < 1e-12, `s${A2.P0[0]}`)
-    ok('★끝점 = 미니 첨탑 축(LNK 정본에서 회전 한 줄)', Math.abs(A2.ms - AA.towerLocal()[0]) < 1e-12 && Math.abs(A2.mz - AA.towerLocal()[1]) < 1e-12)
-    ok('★사선이다(꽃잎 축이 아니다)', A2.diagDeg > 20 && A2.diagDeg < 80, `${A2.diagDeg.toFixed(2)}°`)
-    //  ★현도 "모양은 쉘 팔과 똑같이" → 날 각이 셸 팔과 **같다**(파생)
-    ok('★날 각 = 셸 팔과 동일(이분법 파생 — 노브 아님)', !CA.ARM2_BLADE_MATCH || (A2.matched && Math.abs(A2.bladeDeg - A2.bladeDegRef) < 1e-6),
-       `${A2.bladeDeg.toFixed(2)}° = ${A2.bladeDegRef.toFixed(2)}°`)
-    ok('두께·반폭·물림이 셸 팔 승계', A2.T === CA.ARM13_T && A2.hw === CA.ARM13_HW && A2.emb === CA.ARM13_EMBED)
-    //  ★현도 "밑면 전체를 감싸도록" — 원반이 원뿔대 밑 원보다 커야 한다
-    ok('★위 원반이 원뿔대 밑면을 덮는다', A2.d1R > A2.cone.rOut, `r${A2.d1R.toFixed(2)} > ${A2.cone.rOut} (밖으로 ${(A2.d1R - A2.cone.rOut).toFixed(2)})`)
-    ok('원반 2단이 아래로 좁아진다', A2.d2R < A2.d1R && A2.d2Bot < A2.d1Bot && A2.d1Bot < A2.d1Top)
-    ok('원반 꼭대기가 원뿔대에 파고들어 융합', Math.abs((A2.d1Top - A2.cone.yBot) - CA.ARM2_CONE_EMB) < 1e-9)
-    ok('⚠원반이 원기둥 구간까지 먹지 않는다', A2.d1Top <= A2.cone.yTop + 1e-9, `원반 꼭대기 ${A2.d1Top.toFixed(2)} ≤ 원뿔 위끝 ${A2.cone.yTop}`)
-    ok('날 꼭대기 = 아래 원반 밑면', Math.abs(A2.bladeTop[1] - A2.d2Bot) < 1e-12)
-    ok('★126-e 원형 클램프 승계: seatX = √(D2R²−HW²)', Math.abs(A2.seatX - Math.sqrt(A2.d2R ** 2 - A2.hw ** 2)) < 1e-12)
-    //  ★소핏 갈고리 — 현도 "터널을 벗어나기 전까지만"
-    ok('★갈고리 터널단이 발자국 안(벗어나기 전)', !A2.sofOn || A2.uSofOut <= A2.uExit + 1e-9, `u${A2.uSofOut.toFixed(2)} ≤ ${A2.uExit.toFixed(2)}`)
-    ok('★갈고리 착지가 터널단보다 바깥(셸 팔과 같은 순서)', !A2.sofOn || A2.uSofLand > A2.uSofOut)
-    ok('갈고리 세로가 양수(방향이 안 뒤집혔다)', !A2.sofOn || A2.sofA[1] > A2.sofB[1], `${(A2.sofA[1] - A2.sofB[1]).toFixed(2)} (셸 팔 9.16)`)
-    //  ★프로파일 — 자기교차 0
-    {
-      const P2 = AA.arm2Profile()
-      const o = (p, q, r) => (r[1] - p[1]) * (q[0] - p[0]) - (q[1] - p[1]) * (r[0] - p[0])
-      const cross = (a, b, c, d) => ((o(a, b, c) > 0) !== (o(a, b, d) > 0)) && ((o(c, d, a) > 0) !== (o(c, d, b) > 0))
-      let x = 0
-      for (let i = 0; i < P2.length; i++) for (let j = i + 2; j < P2.length; j++) {
-        if (i === 0 && j === P2.length - 1) continue
-        if (cross(P2[i], P2[(i + 1) % P2.length], P2[j], P2[(j + 1) % P2.length])) x++
+  const KNOBS = ['ARM2_ON', 'ARM2_T', 'ARM2_HW', 'ARM2_EMBED', 'ARM2_SOF_ON', 'ARM2_SOF_A', 'ARM2_SOF_B',
+    'ARM2_SOF_SPAN', 'ARM2_BLADE_MATCH', 'ARM2_U_DEP', 'ARM2_D1_M', 'ARM2_D2_K', 'ARM2_DISC_H',
+    'ARM2_CONE_EMB', 'ARM2_SEAT_N', 'ARM2_FLARE_L', 'ARM2_SEG']
+  const left = KNOBS.filter(k => k in CA)
+  ok('⛔ARM2_* 노브 17개 전부 삭제(스위치로 되살릴 수 없다)', left.length === 0, left.length ? `남음: ${left.join(',')}` : '남은 노브 0')
+  const FNS = ['arm2Spec', 'arm2Profile', 'arm2HalfWidths', 'buildArm2']
+  const leftF = FNS.filter(f => f in AA)
+  ok('⛔빌더·스펙 4종 삭제', leftF.length === 0, leftF.length ? `남음: ${leftF.join(',')}` : '남은 export 0')
+  //  ★남겨야 하는 것 — 지우면 ★139 갈래(보존계)가 죽는다
+  ok('★towerLocal은 남는다(★139 갈래가 쓴다)', typeof AA.towerLocal === 'function' && Number.isFinite(AA.towerLocal()[0]))
+  ok('★ARM13_BR_K 파생은 남는다(갈래 마운트)', Number.isInteger(CA.ARM13_BR_K))
+  //  ★배선 — 소스에 흔적이 남아 있으면 삭제가 덜 된 것이다
+  {
+    const fsp = await import('node:fs/promises')
+    const RS = await fsp.readFile(new URL('./Radial.jsx', import.meta.url), 'utf8')
+    const PR = await fsp.readFile(new URL('./_probe_exterior.mjs', import.meta.url), 'utf8')
+    ok('배선: Radial.jsx에 arm2 흔적 0', !/arm2|ARM2_/.test(RS))
+    ok('배선: 프로브에 arm2 흔적 0', !/arm2|ARM2_/i.test(PR.replace(/★142.*/g, '')))
+    ok('★갈래 마운트는 그대로 남아 있다(보존계)', /geometry=\{armBrGeo\}/.test(RS) && /ARM13_BR_ON && k === ARM13_BR_K/.test(RS))
+  }
+  //  ★★현도 확정: 원뿔대는 **받침 없이 부양**한다 — 그 사실 자체를 박는다(다음 세션이 빚으로 오해하지 않게)
+  {
+    const LK = (await import('./linkPassageGeometry.js')).linkSpec()
+    const cone = LK.two.tw.cone
+    if (CA.LNK_CONE_ON && cone) {
+      const domeHere = AA.domeY(CA.LNK_M_R)
+      ok('★원뿔대는 살아 있다(★139 — 팔만 지웠다)', cone.yBot < cone.yTop && cone.rOut > 0,
+        `y${cone.yTop.toFixed(1)}→${cone.yBot.toFixed(1)} · r${cone.rOut}`)
+      ok('★원뿔대 밑면은 돔에 안 닿는다(기하 사실 — 체제 무관)', cone.yBot - domeHere > 0,
+        `허공 ${(cone.yBot - domeHere).toFixed(3)}(돔 y${domeHere.toFixed(3)})`)
+      //  ⚠체제 분기: '부양'은 불변식이 아니라 **받침이 없을 때의 귀결**이다.
+      //   갈래(보존계)를 켜면 받침이 생기므로 무조건 단언하면 그 체제에서 무너진다(실측으로 잡음).
+      if (!CA.ARM13_BR_ON) {
+        ok('★★현도 확정(★142): 받침 부재 0 — 원뿔대는 부양한다', true,
+          `허공 ${(cone.yBot - domeHere).toFixed(3)} — 빚 아님, 확정된 체제`)
+      } else {
+        ok('보존계: 갈래 부활 체제 — 원뿔대가 받쳐진다(부양 판정 무효)', true, 'ARM13_BR_ON=true')
       }
-      //  ⚠원뿔대 소등 체제(LNK_CONE_ON=false)는 ★139가 폐기한 옛 원기둥 자락으로 되돌리는 **복귀 스위치**이고,
-      //   두 번째 팔은 원뿔대를 전제로 치수가 맞춰졌다(받침 레벨 y106). 그 체제에서 프로파일이 한 번 꼬인다 —
-      //   **선언된 빚**: 원뿔대를 되돌리려면 두 번째 팔의 uMerge·날 발도 함께 재조정해야 한다.
-      if (CA.LNK_CONE_ON) ok('★프로파일 자기교차 0(갈고리 제어점 부호를 실측으로 잡았다)', x === 0, `교차 ${x}`)
-      else ok('⚠선언된 빚: 원뿔대 소등 체제에서 프로파일 자기교차', true, `교차 ${x} — 복귀 시 재조정 필요`)
+    } else {
+      ok('보존계: 원뿔대 소등 체제 — 부양 판정 무의미', true, `LNK_CONE_ON=${CA.LNK_CONE_ON}`)
     }
-    //  ★실기하 — 감김·밀봉·**성분별** 부피·간섭
-    {
-      const g2 = AA.buildArm2(), Q = g2.getAttribute('position').array
-      const K = i => [Q[i * 3].toFixed(4), Q[i * 3 + 1].toFixed(4), Q[i * 3 + 2].toFixed(4)].join(',')
-      const key = (a, b) => a + '|' + b, dm = new Map()
-      const volOf = (a, b) => { let v = 0
-        for (let t = a; t < b; t++) { const i = t * 9
-          const A3 = [Q[i], Q[i + 1], Q[i + 2]], B3 = [Q[i + 3], Q[i + 4], Q[i + 5]], C3 = [Q[i + 6], Q[i + 7], Q[i + 8]]
-          v += (A3[0] * (B3[1] * C3[2] - B3[2] * C3[1]) - A3[1] * (B3[0] * C3[2] - B3[2] * C3[0]) + A3[2] * (B3[0] * C3[1] - B3[1] * C3[0])) / 6 }
-        return v }
-      for (let t = 0; t < Q.length / 9; t++) { const i = t * 3, a = K(i), b = K(i + 1), c = K(i + 2)
-        for (const [u, v] of [[a, b], [b, c], [c, a]]) dm.set(key(u, v), (dm.get(key(u, v)) || 0) + 1) }
-      let dup = 0, un = 0
-      for (const [k2, c2] of dm) { if (c2 > 1) dup += c2 - 1; const [u, v] = k2.split('|'); if (!dm.has(key(v, u))) un++ }
-      ok('★감김 일관: 같은 방향 중복 에지 0', dup === 0, `중복 ${dup}`)
-      ok('★밀봉: 짝 없는 에지 0', un === 0, `짝없음 ${un}`)
-      //  ⚠전체 합만 보면 한 성분이 뒤집혀도 통과할 수 있다(★138 계열) → **성분별**로 본다
-      const nT = Q.length / 9, nPrism = nT - 384
-      ok('★성분별 부피 > 0 — 프리즘', volOf(0, nPrism) > 0, volOf(0, nPrism).toFixed(1))
-      ok('★성분별 부피 > 0 — 위 원반', volOf(nPrism, nPrism + 192) > 0, volOf(nPrism, nPrism + 192).toFixed(1))
-      ok('★성분별 부피 > 0 — 아래 원반', volOf(nPrism + 192, nT) > 0, volOf(nPrism + 192, nT).toFixed(1))
-      ok('NaN 없음', Q.every(Number.isFinite))
-      let mnDome = Infinity, mnTun = Infinity
-      for (let i = 0; i < Q.length; i += 3) { const lx = Q[i], y = Q[i + 1], z = Q[i + 2], ss = lx + CA.RAD_R
-        mnDome = Math.min(mnDome, y - AA.domeY(Math.hypot(ss, z)))
-        if (Math.abs(z) <= SA.massHW && ss >= SA.sWall0 && ss <= SA.sFace) mnTun = Math.min(mnTun, AA.tunnelBotY(ss, SA) - y) }
-      //  ⚠사선이라 법선이 반경 방향이 아니다 — 중심선의 돔만 재면 한쪽이 0.67 뚫는다(실측). 모서리별로 재야 한다.
-      ok('★방 안으로 안 뚫는다(돔 물림 ≤ EMBED)', mnDome >= -A2.emb - 1e-4, `${mnDome.toFixed(3)} (허용 −${A2.emb})`)
-      ok('★상승 터널 밑선을 안 넘는다', mnTun === Infinity || mnTun >= -1e-4, mnTun === Infinity ? '무겹침' : mnTun.toFixed(3))
-    }
-  } else { ok('보존계: ARM2_ON=false면 두 번째 팔 없음', true) }
-  const RS = await (await import('node:fs/promises')).readFile(new URL('./Radial.jsx', import.meta.url), 'utf8')
-  ok('배선: 두 번째 팔 마운트 walkable:false', /geometry=\{arm2Geo\} userData=\{\{ walkable: false \}\}/.test(RS) && /ARM2_ON && k === ARM13_BR_K/.test(RS))
+  }
 }
-
 
 // ══════════════ ★★★141 팔 넷 · 통로 재배치 (2026.08.16 현도 임무 ①②③) ══════════════
 {
@@ -2364,10 +2338,11 @@ console.log('\n── ★★★126 1p3 지지 팔(2026.08.13 · ★126-c 현도 
   } else {
     ok('보존계: 경유지가 없는 체제 — 두 번째 팔의 꽃잎 판정은 무의미(파생만 확인)', true, `LNK_ON=${C1.LNK_ON}`)
   }
-  //  ⚠팔이 없으면 두 번째 팔도 마운트되지 않는다(Radial 게이트 armAt(k) && ARM2_ON) — 그 인과 자체를 본다
-  ok('두 번째 팔은 팔이 선 꽃잎에서만 산다(게이트 정합)',
-    !C1.ARM2_ON || !C1.ARM13_ON || armAt(C1.ARM13_BR_K),
-    C1.ARM13_ON ? `BR_K=${C1.ARM13_BR_K} ∈ KS` : '팔 전소등 체제 — 두 번째 팔도 함께 소등된다')
+  //  ⛔★142: 두 번째 팔이 삭제돼 이 인과의 대상이 **갈래(보존계)** 하나로 줄었다.
+  //   ⚠갈래도 같은 게이트(armAt(k) && ARM13_BR_ON && k === ARM13_BR_K)를 쓰므로 인과는 그대로 살아 있다.
+  ok('미니 첨탑 부재는 팔이 선 꽃잎에서만 산다(게이트 정합)',
+    !C1.ARM13_BR_ON || !C1.ARM13_ON || armAt(C1.ARM13_BR_K),
+    C1.ARM13_BR_ON ? `BR_K=${C1.ARM13_BR_K} ∈ KS` : '갈래 소등 · 두 번째 팔 삭제 — 받침 부재 0')
 
   //  ⑤ ★간섭 — 새 팔 2기가 비대칭 이웃(★133 복합체 · ★136 관)과 안 부딪힌다.
   //   ⚠빌더가 {id, geo} 래퍼를 돌려준다 — 안 벗기면 빈 집합이 "간섭 없음"으로 보고된다(★141에서 겪음).
@@ -2396,7 +2371,7 @@ console.log('\n── ★★★126 1p3 지지 팔(2026.08.13 · ★126-c 현도 
     const lk4 = (C1.BRG_ON && C1.LK4_ON) ? setOf(buildLink4(), null) : []
     //  ⚠공허참 가드 — 집합이 비면 아래 거리 판정은 무의미하다
     const live = brg.length > 0 && lk4.length > 0
-    ok('간섭 표본이 비어 있지 않다(래퍼 벗김 확인 — 빈 집합이 "간섭 없음"으로 보고된 전례)',
+    ok('간섭 표본이 비어 있지 않다(래퍼 벗김 확인 — 빈 집합이 "간섭 없음"으로 보고된 전례)', !C1.LK4_ON ||
       live || !C1.BRG_ON, `복합체 ${brg.length} · LK4 ${lk4.length}`)
     if (live) for (const [nm, N] of [['★133 복합체', brg], ['★136 LK4 관', lk4]]) {
       for (const k of [1, 3]) {                      // ★141이 새로 세운 팔 둘(1p2·1p4)

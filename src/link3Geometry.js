@@ -28,7 +28,7 @@
 //  ⚠밀봉: 이 판의 개구는 0이다(문 컷 = 다음 조각 — ★133·★136 어법).
 //  ⚠보존계: LK3_ON=false 한 줄이면 전부 소등.
 import * as THREE from 'three'
-import { linkSpec, buildLinkTube } from './linkPassageGeometry.js'
+import { linkSpec, buildLinkTube, rotShellK, landingDepth } from './linkPassageGeometry.js'
 import { archY, buildSweptArch, splitRuns, orientOutward } from './link4Geometry.js'
 import { bridgeDomeY } from './bridgeComplexGeometry.js'
 import { wellWallR } from './spireGeometry.js'
@@ -41,8 +41,8 @@ import {
 const nrm = a => Math.hypot(a[0], a[1])
 //  셸0 프레임(315°) → 셸 k 프레임. ★132 규약: k 회전 = **+90°k**(꽃잎 k와 45° 어긋난 LNK k다).
 const ROT_K = LK3_BASE_K                            // ★141: 기준 프레임(=3) — 셸 225° · 첨탑 문 270°
-const rotK = (p, k = ROT_K) => { const a = k * Math.PI / 2, c = Math.cos(a), s = Math.sin(a)
-  return [p[0] * c - p[1] * s, p[0] * s + p[1] * c] }
+//  ★★★143: 회전은 `rotShellK`(linkPassageGeometry)로 내렸다 — 1p2도 같은 규약을 쓴다(사본 0).
+const rotK = (p, k = ROT_K) => rotShellK(p, k)
 
 //  ★★★141 다중 마운트: 이 모듈은 **기준 프레임 하나**에서만 짓는다(참·기둥·② 관이 방위 270° 축에
 //   정렬돼 있으므로 spec 자체를 k로 일반화하면 식이 전부 갈라진다). 대신 완성된 기하를 **회전해서** 단다.
@@ -68,15 +68,9 @@ export function link3Spec(o = {}) {
   const rDoor = wellWallR(SPT_Y, { forceSpire: true }) - LNK_EMB   // 문 매몰면(틈 금지 — ★128 어법)
 
   //  ★★깊이가 자기를 부르는 방정식: d → 끝점 → θ → d.  잔차를 들고 나가 검사가 수렴을 박는다.
-  let d = wOut, iter = 0, resid = Infinity
-  for (; iter < 64; iter++) {
-    const E = [-hwOut, -(R + d / 2)]
-    const u = [E[0] - P0[0], E[1] - P0[1]]
-    const th = Math.abs(Math.atan2(u[1], u[0]))      // ① 축과 −x 면 법선(+x)의 사이각
-    const dn = wOut / Math.cos(th)
-    resid = Math.abs(dn - d); d = dn
-    if (resid < 1e-12) break
-  }
+  //  ★★★143: 식 자체는 `landingDepth`(linkPassageGeometry)로 내렸다 — 1p2가 같은 d를 써야 하고
+  //   두 벌로 두면 갈라진다. 여기는 그 값을 받아 쓰기만 한다(사본 0).
+  const { d, iter, resid } = landingDepth({ P0k: P0, R, hwOut, wOut })
   const E1 = [-hwOut, -(R + d / 2)]                  // ① 끝점 = 참 −x 변의 중점(비스듬 꽂힘의 중심)
   const u1 = [E1[0] - P0[0], E1[1] - P0[1]], L1 = nrm(u1)
   const az1 = Math.atan2(u1[1], u1[0]) * 180 / Math.PI
@@ -146,7 +140,7 @@ export function link3Spec(o = {}) {
 // ── ★137 아치 스펙(두 다리 공용) — 기둥 한 면에서 발원해 그 관 밑면을 따라(★136-c/d 어법) ──
 //  ★소핏이 기울어도 성립한다: ★133-b의 두 접선 조건을 호길이 s 위에서 풀면 제어점이 **C = (0, yJ + m·L)**.
 //   m = 0(수평)이면 ★136-c 식으로 정확히 퇴화한다.
-function legArch({ o, A0: face, join, uOut, legLen, m, landBot, colDomeY, hwOut, wf, K, on, ask, kink, seg }) {
+export function legArch({ o, A0: face, join, uOut, legLen, m, landBot, colDomeY, hwOut, wf, K, on, ask, kink, seg }) {
   //  ★★137-e 발원점을 기둥 면에서 **다리 방향으로 되물려** 살 속에 묻는다(캡이 기둥 면과 공면이 되는 것을 막는다).
   //   ⚠기둥 면·참 면·바깥 끝이 원래 한 직선 위에 있으므로, 되물린 A0도 그 직선 위다 → 경로에 꼭짓점이 없다 = 꺾임 0 보장.
   //  ★★137-e 닫힌 되물림: emb = max(외곽 반폭 · tanθ, 바닥값).
@@ -166,16 +160,19 @@ function legArch({ o, A0: face, join, uOut, legLen, m, landBot, colDomeY, hwOut,
   const collinear = cross < 1e-9
   const path = collinear ? [A0, far] : [A0, join, far]
   const sArr = collinear ? [0, L] : [0, lead, L]
-  return finishLeg({ on, path, sArr, L, lead, Lmax, clamped, ask, hwOut, wf, K, m, landBot, colDomeY, kink, seg, uOut, emb, face, collinear, tanT })
+  return finishLeg({ on, path, sArr, L, lead, Lmax, clamped, ask, hwOut, wf, K, m, landBot, colDomeY, kink, seg, uOut, emb, face, collinear, tanT,
+    footY: o.footY })
 }
-function finishLeg({ on, path, sArr, L, lead, Lmax, clamped, ask, hwOut, wf, K, m, landBot, colDomeY, kink, seg, uOut, emb, face, collinear, tanT }) {
+function finishLeg({ on, path, sArr, L, lead, Lmax, clamped, ask, hwOut, wf, K, m, landBot, colDomeY, kink, seg, uOut, emb, face, collinear, tanT, footY }) {
   //  ⚠부호: ①은 바깥으로 갈수록 **내려가고**(나선 참이 낮다), ②는 바깥으로 갈수록 **올라간다**(테라스가 높다).
   //   두 경우 다 "참 밑에서 멀어질수록 소핏이 |m|만큼 변한다"는 같은 식이고, 부호만 다리마다 다르다.
   const sgn = uOut[0] === 0 && uOut[1] === 1 ? +1 : -1     // ② (반경 방향 안쪽 = +z)면 오르막
   const soffit = s => (s <= lead ? landBot : landBot + sgn * m * (s - lead))
   const yJ = soffit(L)
   const yC = yJ - sgn * m * L                              // J에서 소핏과 나란히 합류(★133-b 조건 ⓑ)
-  const yB = colDomeY + BRG_ARCH_UPB                       // 아래 발 = 돔 + UPB(★133 아치와 같은 발 규약)
+  //  ★★★143-c: 발을 **돔이 아닌 다른 부재**에 앉힐 수 있어야 한다(1p2 아치 ②는 첨탑 벽에 묻는다).
+  //   ⚠기본은 옛 규약 그대로 — 지정이 없으면 돔 + UPB. 1p3·1p4는 한 글자도 안 바뀐다.
+  const yB = Number.isFinite(footY) ? footY : colDomeY + BRG_ARCH_UPB
   const yOfS = archY({ L, yJ, yC, yB, K })
   const { dirs, runs, corners } = splitRuns(path, sArr, kink)
   //  ⚠경로 점 수가 체제에 따라 2 또는 3이므로(lead 0 여부) **인덱스가 아니라 이름**으로 내보낸다
@@ -209,44 +206,8 @@ export function buildLink3(S = link3Spec()) {
   walk.push({ id: 'landing', geo: extrude(
     [[S.land.x0, S.land.yBot], [S.land.x1, S.land.yBot], [S.land.x1, S.land.yTop], [S.land.x0, S.land.yTop]],
     S.land.z0, S.land.z1) })
-  //  ④ ★137-d ⓑ 기둥 1기 — 바닥을 **돔에 맞춘 격자면**으로 만든다(x·z 양방향 추종).
-  //   ⛔옛 판: 상수 반경 프로파일(min|z|)로 앉혀 정점 120개 중 76개가 떠 있었다 = 현도 "그냥 툭 얹혀있음".
-  //   팔 어법(ARM13_EMBED) 승계 — 표면보다 emb만큼 파고들어 **잘린 자리가 곧 접지선**이 된다.
-  {
-    const c = S.col, n = c.n
-    const x0 = c.cx - c.dd / 2, x1 = c.cx + c.dd / 2, z0 = c.cz - c.w / 2, z1 = c.cz + c.w / 2
-    const X = i => x0 + (x1 - x0) * i / n, Z = j => z0 + (z1 - z0) * j / n
-    const yb = (x, z) => bridgeDomeY(Math.hypot(x, z)) - c.emb
-    const pos = []
-    const tri = (a, b, d) => { for (const q of [a, b, d]) for (const v of q) pos.push(v) }
-    const quad4 = (a, b, d, e) => { tri(a, b, d); tri(a, d, e) }
-    const top = c.top
-    //  옆면 4개 — 밑변이 돔을 좇으므로 격자 단위로 쪼갠다
-    for (let i = 0; i < n; i++) {
-      const xa = X(i), xb = X(i + 1)
-      quad4([xa, yb(xa, z0), z0], [xb, yb(xb, z0), z0], [xb, top, z0], [xa, top, z0])
-      quad4([xb, yb(xb, z1), z1], [xa, yb(xa, z1), z1], [xa, top, z1], [xb, top, z1])
-    }
-    for (let j = 0; j < n; j++) {
-      const za = Z(j), zb = Z(j + 1)
-      quad4([x1, yb(x1, za), za], [x1, yb(x1, zb), zb], [x1, top, zb], [x1, top, za])
-      quad4([x0, yb(x0, zb), zb], [x0, yb(x0, za), za], [x0, top, za], [x0, top, zb])
-    }
-    //  바닥 격자(돔 추종) · 윗면
-    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
-      const xa = X(i), xb = X(i + 1), za = Z(j), zb = Z(j + 1)
-      quad4([xa, yb(xa, za), za], [xa, yb(xa, zb), zb], [xb, yb(xb, zb), zb], [xb, yb(xb, za), za])
-    }
-    //  ⛔★137-h: 윗면을 통짜로 두면 옆면(격자 n등분)과 **T-교차** 44곳이 생겨 실틈이 난다 → 같은 격자로 쪼갠다
-    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
-      const xa = X(i), xb = X(i + 1), za = Z(j), zb = Z(j + 1)
-      quad4([xa, top, za], [xb, top, za], [xb, top, zb], [xa, top, zb])
-    }
-    const g = new THREE.BufferGeometry()
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
-    g.computeVertexNormals()
-    solid.push({ id: 'column', geo: orientOutward(g) })   // ★137-g 안팎 자가 교정
-  }
+  //  ④ ★137-d ⓑ 기둥 1기 — 빌더는 아래 `buildDomeFootColumn`으로 뺐다(★143에서 1p2도 쓴다 · 사본 0).
+  solid.push({ id: 'column', geo: buildDomeFootColumn(S.col) })
   //  ⑤ ★★137-c ⓑ 참 감싸기 — 관 어휘 그대로(벽 0.40 · 지붕 0.40 · 내부고 4.72).
   //   −x는 ①이, 안쪽 z는 ②가 이어받는다(★130-f 규약). 모서리는 **겹치게** 만든다 — 틈보다 겹침이 안전하다.
   //   ⛔수리 전 상태: 참은 판 하나뿐이라 위가 통째로 열려 있었다(현도 "참부분 밀봉이 안됐잖아").
@@ -272,4 +233,39 @@ export function buildLink3(S = link3Spec()) {
   if (S.arch.on) solid.push({ id: 'arch', geo: buildSweptArch(S.arch) })
   if (S.arch2.on) solid.push({ id: 'arch2', geo: buildSweptArch(S.arch2) })
   return { walk, solid }
+}
+
+// ── ★★★137-d ⓑ / ★143 공용: 돔을 좇는 발을 가진 기둥 ──
+//  ⛔옛 판: 상수 반경 프로파일(min|z|)로 앉혀 정점 120개 중 76개가 떠 있었다 = 현도 "그냥 툭 얹혀있음".
+//   팔 어법(ARM13_EMBED) 승계 — 표면보다 emb만큼 파고들어 **잘린 자리가 곧 접지선**이 된다.
+//  ⚠★137-h: 윗면을 통짜로 두면 옆면(격자 n등분)과 T-교차 44곳이 생겨 실틈이 난다 → 같은 격자로 쪼갠다.
+//  ⚠★143: 1p2 기둥은 머리 높이(top)만 다르고 나머지는 같은 규칙이다 → 인자로 받는다(사본 0).
+export function buildDomeFootColumn(c) {
+  const n = c.n
+  const x0 = c.cx - c.dd / 2, x1 = c.cx + c.dd / 2, z0 = c.cz - c.w / 2, z1 = c.cz + c.w / 2
+  const X = i => x0 + (x1 - x0) * i / n, Z = j => z0 + (z1 - z0) * j / n
+  const yb = (x, z) => bridgeDomeY(Math.hypot(x, z)) - c.emb
+  const pos = []
+  const tri = (a, b, d) => { for (const q of [a, b, d]) for (const v of q) pos.push(v) }
+  const quad4 = (a, b, d, e) => { tri(a, b, d); tri(a, d, e) }
+  const top = c.top
+  for (let i = 0; i < n; i++) {
+    const xa = X(i), xb = X(i + 1)
+    quad4([xa, yb(xa, z0), z0], [xb, yb(xb, z0), z0], [xb, top, z0], [xa, top, z0])
+    quad4([xb, yb(xb, z1), z1], [xa, yb(xa, z1), z1], [xa, top, z1], [xb, top, z1])
+  }
+  for (let j = 0; j < n; j++) {
+    const za = Z(j), zb = Z(j + 1)
+    quad4([x1, yb(x1, za), za], [x1, yb(x1, zb), zb], [x1, top, zb], [x1, top, za])
+    quad4([x0, yb(x0, zb), zb], [x0, yb(x0, za), za], [x0, top, za], [x0, top, zb])
+  }
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    const xa = X(i), xb = X(i + 1), za = Z(j), zb = Z(j + 1)
+    quad4([xa, yb(xa, za), za], [xa, yb(xa, zb), zb], [xb, yb(xb, zb), zb], [xb, yb(xb, za), za])
+    quad4([xa, top, za], [xb, top, za], [xb, top, zb], [xa, top, zb])
+  }
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  g.computeVertexNormals()
+  return orientOutward(g)   // ★137-g 안팎 자가 교정
 }

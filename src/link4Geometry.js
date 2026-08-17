@@ -92,14 +92,29 @@ export function link4Spec(o = {}) {
     }
   }
 
+  //  ⓒ ★★★143-d 직선(2026.08.17 현도: *"1p4 쉘에서 복합체까지 가는 통로 직선형으로 만들어줘"*)
+  //   ★1p2·1p3과 같은 어법으로 통일된다 — 셸 넷 중 셋이 직선 관이 된다.
+  //   ⚠대가: 곡선은 양 끝에 **수직으로** 꽂혔지만(접선 준수) 직선은 두 면 다 비스듬해진다.
+  //    시작 = 나선 참 종단 캡과 kinkS · 끝 = ★133 참 −z 면과 kinkE. 둘 다 ★137 비스듬 절단으로 받는다
+  //    (끝면 반폭을 1/cosθ 늘려 발자국을 면에 맞춘다 — 그만큼 상대 면을 **넘칠 수 있다**. 검사가 잰다).
+  const str = [P0, E]
+  const dS = unit(P0, E), azS = degOf(dS)
+  const kinkS = Math.abs(azS - t0deg)                // 시작: 나선 참 접선과의 사이각
+  const kinkE = Math.abs(90 - azS)                   // 끝: 참 수직(+z)과의 사이각
+  const secS = 1 / Math.cos(kinkS * Math.PI / 180), secE = 1 / Math.cos(kinkE * Math.PI / 180)
+  const straight = { pts: str, L: plLen(str), az: azS, kinkS, kinkE,
+    footS: 2 * hwOut * secS, footE: 2 * hwOut * secE,        // 비스듬 절단 발자국(면 위에서의 폭)
+    overS: 2 * hwOut * secS - 2 * hwOut, overE: 2 * hwOut * secE - 2 * hwOut }
+
   const mode = o.mode ?? LK4_MODE
-  const pts = mode === 'smooth' ? smooth : zig
+  const pts = mode === 'smooth' ? smooth : mode === 'straight' ? str : zig
   return {
     on: o.on ?? LK4_ON, mode, joint: o.joint ?? LK4_JOINT, y, rise: B.yLand - L.y0,
     P0, T0, T1, t0deg, E, xE, xOff, xWin, zFace, sink: LK4_SINK,
     hw: L.hw, h: L.h, ft: L.ft, wt: L.wt, hwOut,
     zig: { pts: zig, A1, A2, seg1, seg3, az2, kink1, kink2, miter: zigMiter, L: plLen(zig) },
     smooth: { pts: smooth, ctrl: Bz, minR, rev, K: o.bezK ?? LK4_BEZ_K, L: plLen(smooth) },
+    straight,
     pts, len: plLen(pts),
     //  검사용 파생: 관 x 최저점이 ★133 계단 관 끝(B.r0)을 넘지 않아야 한다(관끼리 겹침 금지)
     xMinEnd: xE - hwOut, xMaxEnd: xE + hwOut, brgTubeEnd: B.r0, landX0: B.xL0, landX1: B.xL1,
@@ -171,6 +186,16 @@ export function buildLink4(S = link4Spec()) {
   const sol = arch ? [{ id: 'arch', geo: arch }] : []
   if (S.mode === 'smooth') {
     return { walk: [{ id: 'tube', geo: buildLinkTube(S.pts, yOf, S, caps, tan) }], solid: sol }
+  }
+  //  ★★★143-d 직선 — 마디가 하나뿐이라 마이터가 필요 없다. 양 끝면만 상대 면에 맞춰 **비스듬히** 자른다.
+  //   ⚠`scale0`/`scale1` = 1/cos θ: 끝면을 기울인 만큼 반폭을 늘려 발자국이 상대 면 위에서 폭 5.40을 유지하게.
+  //    (★137 ① 관과 같은 어법 — 사본이 아니라 같은 옵션 경로다.)
+  if (S.mode === 'straight') {
+    const R = Math.PI / 180
+    return { walk: [{ id: 'tube', geo: buildLinkTube(S.pts, yOf, S, caps, {
+      tan0: S.T0, scale0: 1 / Math.cos(S.straight.kinkS * R),
+      tan1: S.T1, scale1: 1 / Math.cos(S.straight.kinkE * R),
+    }) }], solid: sol }
   }
   if (S.joint === 'butt') {
     //  보존계: 마디를 따로 짓는다(꺾임에 쐐기 틈이 남는다 — 마감 어휘를 바꿀 때의 자리)
