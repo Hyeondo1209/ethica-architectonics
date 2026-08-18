@@ -13,6 +13,8 @@ import {
   DRG_S_BAND, DRG_COL_S0, DRG_R_IN, DRG_W, DRG_Y, DRG_H, DRG_SEG, DRG_LAP, DRG_PLAN,
   DRG_SECT, DRG_ARC_MODE, DRG_ARC, DRG_FLR, DRG_ROOF, DRG_SPRING, DRG_WALL_T, DRG_RAIL_H, DRG_RAIL_W,
   DRG_IN, DRG_IN_DIV, DRG_IN_W, DRG_IN_LINT,
+  DRG_JP_ON, DRG_JP_OVER, DRG_JP_WM, DRG_JP_WB, DRG_JP_L, DRG_JP_T,
+  DRG_JC_W, DRG_JC_AOFF, DRG_JC_RISE_IN, DRG_JC_RISE_OUT, DRG_JC_BULGE,
 } from './constants.js'
 import { domeY, domeDY } from './armGeometry.js'
 import { spireSpec } from './spireGeometry.js'
@@ -352,14 +354,170 @@ function mergeCurbs(r0, r1, yTop) {
   })
 }
 
+//  ── ★★★146-b 접합부 팔각 앵커판 + ∩아치 기둥 (2026.08.18 현도 2차 스케치·위젯 확정 — 같은 세션의 -a 개작) ──
+//   ① 판 = 팔각 표면판: 상변 꼭짓점 = **리브 옆변 위**(상변 폭 = 2·HW 파생), 최대폭 꼭짓점 넷 = **띠 윗변·밑변 위**
+//      (옆변 구간 = 정확히 띠 구간, 모따기 세로 = OVER − 2·HW — 전부 파생, 폭 노브는 WM·WB 둘뿐).
+//   ② 기둥 = (r,y) 폐다각 프로파일을 접선 ±W/2 압출: 끝면(A–B)이 판 속 LAP 물림으로 통째로 심기고,
+//      윗변 사선 → 안쪽 수직 목(r0) → 밑면 전폭 상면(y0+LAP 바닥판 속 물림) → 바깥 수직 목(r1) → ∩아치 → B.
+export function jointSpec(A = domeRingSpec()) {
+  const sTop = sAtArc(A.sHi, DRG_JP_OVER, -1)          // 판 상변 호 자리(띠 밑변 위 OVER)
+  const sBot = sAtArc(A.sHi, DRG_JP_L, +1)             // 판 하변 호 자리
+  const sA = sAtArc(A.sHi, DRG_JC_AOFF, +1)            // 기둥 윗변 시작(A)의 호 자리
+  const P = (s, v) => { const d = domeDY(s), m = Math.hypot(1, d); return [s + (-d / m) * v, domeY(s) + (1 / m) * v] }
+  const vEnd = DRG_JP_T - DRG_LAP                       // 끝면은 판 **속**에 LAP 물림(바깥면 동일평면 금지)
+  const AA = P(sA, vEnd), BB = P(sBot, vEnd)
+  const Ti = [A.corr.r0, A.corr.y0 - DRG_JC_RISE_IN]    // 안쪽 수직 목 하단(사선이 꺾이는 점)
+  const TiT = [A.corr.r0, A.corr.y0 + DRG_LAP]          // 목 상단 = 바닥판 속 물림(동일평면 0)
+  //  ⚠바깥 목은 **내접 현**: 평면 압출의 접선 모서리(±W/2)가 원기둥 r1 밖으로 0.036 튀는 것을(실측 87.286)
+  //   막기 위해 면을 √(r1²−(W/2)²)에 둔다 — 모서리가 정확히 r1 원통 위(파생 · 손 수치 0)
+  const rOutCh = Math.sqrt(A.corr.r1 ** 2 - (DRG_JC_W / 2) ** 2)
+  const ToT = [rOutCh, A.corr.y0 + DRG_LAP]
+  const S = [rOutCh, A.corr.y0 - DRG_JC_RISE_OUT]       // 바깥 수직 목 하단(∩아치가 꺾이는 점)
+  //  ∩ 아치: S→BB 2차 베지에 — 제어점 = 현 중점 + 위쪽 법선 × 2·BULGE(꼭대기 이탈량 = BULGE, 해석 파생)
+  const cm = [(BB[0] + S[0]) / 2, (BB[1] + S[1]) / 2]
+  const dx = S[0] - BB[0], dy = S[1] - BB[1], cl = Math.hypot(dx, dy)
+  const up = [-dy / cl, dx / cl]
+  const ctrl = [cm[0] + up[0] * 2 * DRG_JC_BULGE, cm[1] + up[1] * 2 * DRG_JC_BULGE]
+  return { on: DRG_JP_ON, sTop, sBot, sA, vEnd, AA, BB, Ti, TiT, ToT, S, ctrl }
+}
+
+//  ★판 격자 — **빌더·부피식·검사가 같은 배열을 읽는다**(★144 규율). 행 = { v(띠 밑변 기준 호), s, phi(각반폭) }.
+//   폭 W(v)는 앵커 꼭짓점 사이 선형: [−OVER: 2·HW] → [−2·HW: WM] → [0: WM] → [+L: WB].
+//   ⚠경계행(v=−2·HW, 0)은 반드시 행으로 존재해야 모서리가 선다 — 구간별로 따로 등분한다.
+export function jointPlateGrid(A = domeRingSpec(), J = jointSpec(A)) {
+  const bw = 2 * DRG_HW                                 // 띠 폭(호) — 앵커 파생의 기준
+  const segs = [
+    [-DRG_JP_OVER, bw, -bw, DRG_JP_WM, 4],              // 모따기(상변→최대폭)
+    [-bw, DRG_JP_WM, 0, DRG_JP_WM, 4],                  // 옆변(= 띠 구간, 폭 일정)
+    [0, DRG_JP_WM, DRG_JP_L, DRG_JP_WB, 14],            // 아랫빗변(최대폭→하변)
+  ]
+  const rows = []
+  for (const [v0, w0, v1, w1, N] of segs) {
+    for (let i = (rows.length ? 1 : 0); i <= N; i++) {  // 경계행 중복 금지(첫 구간만 0부터)
+      const v = v0 + (v1 - v0) * i / N
+      const w = w0 + (w1 - w0) * i / N
+      const s = v < 0 ? sAtArc(A.sHi, -v, -1) : (v === 0 ? A.sHi : sAtArc(A.sHi, v, +1))
+      rows.push({ v, s, phi: (w / 2) / s })             // 접선 폭도 **호길이** 정의
+    }
+  }
+  return rows
+}
+
+
+//  판 솔리드 — 6면(바깥·안·좌우 빗변 벽·상단·하단 캡)을 격자에서 직조. 좌우 대칭.
+export function buildJointPlate(A = domeRingSpec(), J = jointSpec(A)) {
+  const rows = jointPlateGrid(A, J)
+  const P = (s, da, v) => {
+    const d = domeDY(s), m = Math.hypot(1, d)
+    const ns = -d / m, ny = 1 / m
+    const r = s + ns * v
+    return [r * Math.cos(da), domeY(s) + ny * v, r * Math.sin(da)]
+  }
+  const OUT = DRG_JP_T, IN = -DRG_EMB
+  return quadGeo((q) => {
+    for (let i = 0; i < rows.length - 1; i++) {
+      const a = rows[i], b = rows[i + 1]
+      q(P(a.s, -a.phi, OUT), P(a.s, a.phi, OUT), P(b.s, b.phi, OUT), P(b.s, -b.phi, OUT))   // 바깥면
+      q(P(a.s, -a.phi, IN), P(b.s, -b.phi, IN), P(b.s, b.phi, IN), P(a.s, a.phi, IN))       // 안면(표면 속)
+      q(P(a.s, -a.phi, IN), P(a.s, -a.phi, OUT), P(b.s, -b.phi, OUT), P(b.s, -b.phi, IN))   // 옆 벽 −
+      q(P(a.s, a.phi, IN), P(b.s, b.phi, IN), P(b.s, b.phi, OUT), P(a.s, a.phi, OUT))       // 옆 벽 +
+    }
+    const t = rows[0], u = rows[rows.length - 1]
+    q(P(t.s, -t.phi, IN), P(t.s, t.phi, IN), P(t.s, t.phi, OUT), P(t.s, -t.phi, OUT))        // 상단 캡
+    q(P(u.s, -u.phi, IN), P(u.s, -u.phi, OUT), P(u.s, u.phi, OUT), P(u.s, u.phi, IN))        // 하단 캡
+  })
+}
+
+//  ★판 부피 해석식 — 빌더와 **같은 격자**를 같은 면 순서·같은 삼각 분해로 적분한다(★144 규율).
+export function jointPlateVolume(A = domeRingSpec(), J = jointSpec(A)) {
+  const rows = jointPlateGrid(A, J)
+  const P = (s, da, v) => {
+    const d = domeDY(s), m = Math.hypot(1, d)
+    const r = s + (-d / m) * v
+    return [r * Math.cos(da), domeY(s) + (1 / m) * v, r * Math.sin(da)]
+  }
+  let vol = 0
+  const tri = (a, b, c) => { vol += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6 }
+  const quad = (a, b, c, d) => { tri(a, b, c); tri(a, c, d) }
+  const OUT = DRG_JP_T, IN = -DRG_EMB
+  for (let i = 0; i < rows.length - 1; i++) {
+    const a = rows[i], b = rows[i + 1]
+    quad(P(a.s, -a.phi, OUT), P(a.s, a.phi, OUT), P(b.s, b.phi, OUT), P(b.s, -b.phi, OUT))
+    quad(P(a.s, -a.phi, IN), P(b.s, -b.phi, IN), P(b.s, b.phi, IN), P(a.s, a.phi, IN))
+    quad(P(a.s, -a.phi, IN), P(a.s, -a.phi, OUT), P(b.s, -b.phi, OUT), P(b.s, -b.phi, IN))
+    quad(P(a.s, a.phi, IN), P(b.s, b.phi, IN), P(b.s, b.phi, OUT), P(a.s, a.phi, OUT))
+  }
+  const t = rows[0], u = rows[rows.length - 1]
+  quad(P(t.s, -t.phi, IN), P(t.s, t.phi, IN), P(t.s, t.phi, OUT), P(t.s, -t.phi, OUT))
+  quad(P(u.s, -u.phi, IN), P(u.s, -u.phi, OUT), P(u.s, u.phi, OUT), P(u.s, u.phi, IN))
+  return Math.abs(vol)
+}
+
+//  ★기둥 프로파일(-b) — (r,y) 폐다각 하나: AA → Ti(안쪽 목 하단) → TiT → ToT(밑면 전폭 상면 · y0+LAP)
+//   → S(바깥 목 하단) → ∩아치 샘플(S→BB) → 끝면(판 속 v=vEnd 곡면을 sBot→sA로 거슬러 AA 복귀).
+//   **빌더·부피식·검사가 이 배열 하나를 공유한다**(★144 규율).
+export function jointColumnProfile(A = domeRingSpec(), J = jointSpec(A)) {
+  const prof = [J.AA, J.Ti, J.TiT, J.ToT, J.S]
+  const NB = 24
+  for (let i = 1; i <= NB; i++) {                        // ∩아치: t=0(S) 제외, t=1(BB) 포함
+    const t = i / NB, u = 1 - t
+    prof.push([u * u * J.S[0] + 2 * u * t * J.ctrl[0] + t * t * J.BB[0],
+               u * u * J.S[1] + 2 * u * t * J.ctrl[1] + t * t * J.BB[1]])
+  }
+  const NE = 10                                          // 끝면: 판 속 등가면(v=vEnd)을 따라 sBot→sA(양 끝점 제외)
+  const P = (s, v) => { const d = domeDY(s), m = Math.hypot(1, d); return [s + (-d / m) * v, domeY(s) + (1 / m) * v] }
+  for (let i = 1; i < NE; i++) prof.push(P(J.sBot + (J.sA - J.sBot) * i / NE, J.vEnd))
+  return prof
+}
+
+export function jointColumnVolume(A = domeRingSpec(), J = jointSpec(A)) {
+  const prof = jointColumnProfile(A, J)                  // 프리즘: 부피 = |면적(신발끈)| × 접선 폭 — 같은 배열
+  let a2 = 0
+  for (let i = 0; i < prof.length; i++) {
+    const p = prof[i], q = prof[(i + 1) % prof.length]
+    a2 += p[0] * q[1] - q[0] * p[1]
+  }
+  return Math.abs(a2) / 2 * DRG_JC_W
+}
+
+export function buildJointColumn(A = domeRingSpec(), J = jointSpec(A)) {
+  const S = jointColumnProfile(A, J)
+  const hw = DRG_JC_W / 2
+  const pos = []
+  const tri = (a, b, c) => { pos.push(...a, ...b, ...c) }
+  const V = (p, z) => [p[0], p[1], z]
+  const faces = THREE.ShapeUtils.triangulateShape(S.map(p => new THREE.Vector2(p[0], p[1])), [])
+  for (const [i, j, k] of faces) {
+    tri(V(S[i], hw), V(S[j], hw), V(S[k], hw))
+    tri(V(S[k], -hw), V(S[j], -hw), V(S[i], -hw))
+  }
+  for (let i = 0; i < S.length; i++) {
+    const j = (i + 1) % S.length
+    tri(V(S[i], hw), V(S[i], -hw), V(S[j], -hw))
+    tri(V(S[i], hw), V(S[j], -hw), V(S[j], hw))
+  }
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  g.setIndex(Array.from({ length: pos.length / 3 }, (_, i) => i))
+  g.computeVertexNormals()
+  return orientOutward(g)
+}
+
 //  ── 마운트 묶음 — Room.jsx가 이것만 받는다(스위치 인식: 소등이면 null) ──
 export function buildDomeRingParts() {
   if (!DRG_ON) return null
   const A = domeRingSpec()
+  const J = jointSpec(A)
   return {
     spec: A,
     rib: buildDomeRib(A),
-    col: buildDomeColumn(A),
+    //  ★146: 접합부 판 체제면 옛 곧은 기둥은 **소등**(코드 무손상 — DRG_JP_ON=false 한 줄로 복귀)
+    col: DRG_JP_ON ? null : buildDomeColumn(A),
+    joint: DRG_JP_ON ? {
+      spec: J,
+      plate: buildJointPlate(A, J),
+      col: buildJointColumn(A, J),
+    } : null,
     band: buildDomeBand(A),
     corrParts: buildCorridorParts(A),   // ★145-d: walk(바닥판·지붕판) / solid(안벽·아케이드·난간). 'block'이면 블록 하나
     //  방위 = 90°·k. 로컬 +x가 그 방위를 보게 rotation-y = −a(꽃잎·LNK 가족과 같은 규약).

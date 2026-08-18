@@ -526,9 +526,23 @@ export function DefAxiomRoom({ stairKind }) {
           <mesh name={'돔리브/' + k} geometry={ringParts.rib} userData={{ walkable: false }}>
             <meshStandardMaterial color={P.shell} roughness={0.95} fog={RFOG} />
           </mesh>
-          <mesh name={'통로기둥/' + k} geometry={ringParts.col} userData={{ walkable: false }}>
-            <meshStandardMaterial color={P.shell} roughness={0.95} fog={RFOG} />
-          </mesh>
+          {/* ★145 곧은 기둥 — ★146 접합부 체제(DRG_JP_ON)면 소등(보존계) */}
+          {ringParts.col && (
+            <mesh name={'통로기둥/' + k} geometry={ringParts.col} userData={{ walkable: false }}>
+              <meshStandardMaterial color={P.shell} roughness={0.95} fog={RFOG} />
+            </mesh>
+          )}
+          {/* ★★★146-b 접합부 팔각 앵커판 + ∩아치 기둥(상면이 회랑 밑면 전폭을 진다 — 머리 별도 부재 없음) */}
+          {ringParts.joint && (
+            <>
+              <mesh name={'접합판/' + k} geometry={ringParts.joint.plate} userData={{ walkable: false }}>
+                <meshStandardMaterial color={P.shell} roughness={0.95} fog={RFOG} />
+              </mesh>
+              <mesh name={'지지기둥/' + k} geometry={ringParts.joint.col} userData={{ walkable: false }}>
+                <meshStandardMaterial color={P.shell} roughness={0.95} fog={RFOG} />
+              </mesh>
+            </>
+          )}
         </group>
       ))}
       {ringParts && (
