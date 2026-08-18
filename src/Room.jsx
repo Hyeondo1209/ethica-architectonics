@@ -40,6 +40,7 @@ import { buildLink2, link2Mounts } from './link2Geometry.js'                    
 //  ★141 이름표용 — LNK 인덱스 → 정리 번호(★132 규약: k0=1p4 · k1=1p1 · k2=1p2 · k3=1p3).
 //  ⚠꽃잎 k와 45° 어긋난 다른 규약이다. CoordHud로 부재를 짚을 때 이 이름이 나온다.
 const LK3_PROP = [4, 1, 2, 3]
+import { buildDomeRingParts } from './domeRingGeometry.js'   // ★★★145 돔 리브·띠·기둥·고리 통로(2026.08.18 현도 스케치 블록아웃)
 import { SPIRE_ON, SPT_ON, UPF_ON, BRG_ON, LK4_ON, LK3_ON } from './constants.js'
 import { buildRoomRibs } from './roomRibGeometry'   // ★116 방 돔 살 여덟(순수 기하 — 사본 금지)   // ★114 벽 밑동 팔각 각뿔대(순수 기하 — 사본 금지)
 
@@ -165,6 +166,9 @@ export function DefAxiomRoom({ stairKind }) {
   const link3Parts = useMemo(() => (SPIRE_ON && SPT_ON && LK3_ON ? buildLink3() : null), [])
   //  ★★★143 1p2: 관 둘·첨탑·나선은 Radial의 LinkPassages가 짓는다. 여기서 더하는 것은 기둥 1기 + 아치 ① 뿐.
   const link2Parts = useMemo(() => (SPIRE_ON && SPT_ON ? buildLink2() : null), [])
+  //  ★★★145 돔 리브·띠·기둥·고리 통로 — 첨탑(리브 상단)과 돔(띠)에 동시에 매인다.
+  //   ⚠SPT_ON에 매지 않는다: 리브 상단은 **빗면 아래끝**(SPW_Y0)이지 테라스 판이 아니다.
+  const ringParts = useMemo(() => (SPIRE_ON ? buildDomeRingParts() : null), [])
   const wellCut = useMemo(() => {
     if (SPIRE_ON) return buildSpire()
     const ev = new Evaluator()
@@ -511,6 +515,37 @@ export function DefAxiomRoom({ stairKind }) {
       ))}
       {link4Parts && link4Parts.solid.map(({ id, geo }) => (
         <mesh key={'lk4-' + id} name={'1p4접속관/' + id} geometry={geo} userData={{ walkable: false }}>
+          <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
+        </mesh>
+      ))}
+      {/* ★★★145 돔 리브 · 띠 · 기둥 · 고리 통로(2026.08.18 현도 스케치 — 블록아웃).
+          리브·기둥은 방위 90°k의 회전 마운트(기하 한 벌 — 사본 0), 띠·통로는 회전체라 그대로 한 번.
+          ⚠k0(0°)은 ★133 복합체 자리라 `DRG_KS`에서 빠져 있다 — 넷째는 그 배열에 0을 넣는 한 줄. */}
+      {ringParts && ringParts.mounts.map(({ k, rotY }) => (
+        <group key={'drg-' + k} rotation-y={rotY}>
+          <mesh name={'돔리브/' + k} geometry={ringParts.rib} userData={{ walkable: false }}>
+            <meshStandardMaterial color={P.shell} roughness={0.95} fog={RFOG} />
+          </mesh>
+          <mesh name={'통로기둥/' + k} geometry={ringParts.col} userData={{ walkable: false }}>
+            <meshStandardMaterial color={P.shell} roughness={0.95} fog={RFOG} />
+          </mesh>
+        </group>
+      ))}
+      {ringParts && (
+        <mesh name="돔띠" geometry={ringParts.band} userData={{ walkable: false }}>
+          <meshStandardMaterial color={P.shell} roughness={0.95} fog={RFOG} />
+        </mesh>
+      )}
+      {/* ★145-d 고리 회랑 — walk(바닥판·지붕판 상면 = 회랑 바닥·옥상) / solid(안벽·아케이드·난간).
+          아케이드 벽은 실두께 1.2(SPIRE_T 승계) + 인트라도스·문설주 리빌 면 = §2-D 종잇장 금지.
+          'block' 체제(보존계)면 walk에 민짜 블록 하나만 온다 — 마운트 코드는 그대로다. */}
+      {ringParts && ringParts.corrParts.walk.map(({ id, geo }) => (
+        <mesh key={'drgc-' + id} name={'고리회랑/' + id} geometry={geo} userData={{ walkable: true }}>
+          <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.FrontSide} />
+        </mesh>
+      ))}
+      {ringParts && ringParts.corrParts.solid.map(({ id, geo }) => (
+        <mesh key={'drgs-' + id} name={'고리회랑/' + id} geometry={geo} userData={{ walkable: false }}>
           <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
         </mesh>
       ))}

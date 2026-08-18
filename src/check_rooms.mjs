@@ -4551,8 +4551,244 @@ console.log('\n── ★133 1p4 복합체(2층 관·참·기둥·아치 — ★
       `★131 정정: 좌우 두 기는 거울상이지만 부피가 다르다(${v.stair.toFixed(3)} vs ${v.stairN.toFixed(3)}) — 삼각분할 대각선이 거울에서 안 뒤집힌다`)
   }
 
+  // ── ⓛ ★★★145 돔 리브 · 띠 · 기둥 · 고리 통로 ──
+  //  ⚠규율 13′: 이 절이 건드리는 스위치(DRG_ON)를 먼저 소등 체제로 돌려 본 뒤 닫았다.
+  {
+    const DR = await import('./domeRingGeometry.js')
+    const AG = await import('./armGeometry.js')
+    const parts = DR.buildDomeRingParts()
+    ok(C4.DRG_ON === (parts !== null),
+      `스위치 인식: DRG_ON=${C4.DRG_ON} ↔ 부재 ${parts === null ? '없음' : '있음'}(값이 아니라 부재를 묻는다)`)
+    if (parts) {
+      const A = parts.spec
+      //  ★파생 항등 — 리브 두께가 테라스 확장량이라는 것이 "스며든다"의 정확한 뜻이다
+      ok(Math.abs(A.rOut - S4.rCylTop) < 1e-12,
+        `리브 바깥면 ${A.rOut.toFixed(3)} = 첨탑 확장 외반경 rCylTop ${S4.rCylTop.toFixed(3)} — 항등(새 숫자 0)`)
+      ok(Math.abs(A.rIn - S4.rCyl) < 1e-12 && Math.abs(A.yTop - C4.SPW_Y0) < 1e-12,
+        `리브가 첨탑 벽 ${A.rIn}에 붙고 상단 ${A.yTop} = 빗면 아래끝(SPW_Y0) — 그 위는 빗면이 이어받는다`)
+      ok(Math.abs(A.sB - C4.ARM13_S_DEP) < 1e-12,
+        `띠 자리 ${A.sB} = 팔이 돔을 떠나는 s(ARM13_S_DEP) — 팔 접촉의 최하점에서 파생(손 수치 아님)`)
+
+      //  ★실기하 범위(Float32 — 1e-3 대조. 규율: 스펙끼리는 1e-9, 실기하는 1e-3)
+      const rng = (geo) => {
+        const a = geo.getAttribute('position').array
+        let r0 = Infinity, r1 = -Infinity, y0 = Infinity, y1 = -Infinity, nan = 0
+        for (let i = 0; i < a.length; i += 3) {
+          const r = Math.hypot(a[i], a[i + 2])
+          if (!Number.isFinite(r + a[i + 1])) nan++
+          r0 = Math.min(r0, r); r1 = Math.max(r1, r); y0 = Math.min(y0, a[i + 1]); y1 = Math.max(y1, a[i + 1])
+        }
+        return { r0, r1, y0, y1, nan }
+      }
+      //  ★145-d: 통로는 이제 파츠 묶음(walk 2 + solid 3, 'block'이면 walk 1) — 전 파츠 합집합으로 잰다
+      const kAll = [...parts.corrParts.walk, ...parts.corrParts.solid]
+      const gR = rng(parts.rib), gB = rng(parts.band), gC = rng(parts.col)
+      const gKs = kAll.map(x => rng(x.geo))
+      const gK = gKs.reduce((a, b) => ({ r0: Math.min(a.r0, b.r0), r1: Math.max(a.r1, b.r1),
+        y0: Math.min(a.y0, b.y0), y1: Math.max(a.y1, b.y1), nan: a.nan + b.nan }))
+      ok(gR.nan + gB.nan + gC.nan + gK.nan === 0, '전 기하 NaN 0')
+      ok(Math.abs(gR.y1 - A.yTop) < 1e-3 && Math.abs(gR.y0 - (AG.domeY(A.sB) - C4.DRG_EMB)) < 1e-3,
+        `리브 실기하 y ${gR.y0.toFixed(2)}~${gR.y1.toFixed(2)} = [띠 밑면, 빗면 아래끝]`)
+      const railTop = C4.DRG_SECT === 'block' ? 0 : C4.DRG_RAIL_H
+      ok(Math.abs(gK.r0 - A.corr.r0) < 1e-3 && Math.abs(gK.r1 - A.corr.r1) < 1e-3
+        && Math.abs(gK.y0 - A.corr.y0) < 1e-3 && Math.abs(gK.y1 - (A.corr.y1 + railTop)) < 1e-3,
+        `회랑 합집합 r ${gK.r0.toFixed(1)}~${gK.r1.toFixed(1)} · y ${gK.y0.toFixed(1)}~${gK.y1.toFixed(1)} = 스펙(+난간 ${railTop})`)
+
+      //  ★★규율 ⑥ — 곡면에 붙는 부재는 폭 **전 구간**에서 물려야 한다(단면 하나로 잡으면 반대쪽이 뜬다).
+      //   띠는 표면 추종형이므로 밑변이 어디서나 정확히 −EMB, 윗변이 +T여야 한다(법선 거리).
+      const surfDist = (s, y) => {                       // 부호 있는 최단거리(음 = 돔 안)
+        let best = Infinity
+        for (let t = 0; t <= 3000; t++) {
+          const ss = C4.ROOM_R * t / 3000
+          best = Math.min(best, Math.hypot(ss - s, AG.domeY(ss) - y))
+        }
+        const F = (s / C4.ROOM_R) ** 2 + ((y - C4.ROOM_FLOOR_Y) / C4.ROOM_HEIGHT) ** 2 - 1
+        return (F < 0 ? -1 : 1) * best
+      }
+      const sec = DR.bandSection(A), half = sec.length / 2
+      let bWorst = -Infinity, tWorst = Infinity
+      for (let i = 0; i < half; i++) bWorst = Math.max(bWorst, surfDist(sec[i][0], sec[i][1]))
+      for (let i = half; i < sec.length; i++) tWorst = Math.min(tWorst, surfDist(sec[i][0], sec[i][1]))
+      ok(bWorst < -C4.DRG_EMB + 1e-3,
+        `띠 밑변이 폭 전 구간에서 물린다(최악 ${bWorst.toFixed(4)} ≤ −EMB ${(-C4.DRG_EMB).toFixed(2)}) — 평면 단면이면 여기서 0.13 뜬다`)
+      ok(Math.abs(tWorst - C4.DRG_T) < 1e-3,
+        `띠 윗변이 폭 전 구간에서 표면 위 ${C4.DRG_T} 항등(최악 ${tWorst.toFixed(4)})`)
+      //  띠 폭은 반경 차가 아니라 **호길이**여야 팔 폭과 같다
+      const arcOf = (a, b) => { let acc = 0; const N = 400
+        for (let i = 0; i < N; i++) { const s0 = a + (b - a) * i / N, s1 = a + (b - a) * (i + 1) / N
+          acc += Math.hypot(s1 - s0, AG.domeY(s1) - AG.domeY(s0)) } return acc }
+      //  ⛔초판 오류(같은 세션에서 적발): 물림 **오프셋된** 점의 s로 호길이를 쟀다 — 폭은 *표면 위*에서 정의된다.
+      //   → 폭의 정본을 스펙(sLo·sHi)으로 올려 빌더와 검사가 같은 값을 읽게 했다.
+      ok(Math.abs(arcOf(A.sLo, A.sHi) - 2 * C4.DRG_HW) < 5e-3,
+        `띠 폭 = 표면 호길이 ${(2 * C4.DRG_HW).toFixed(2)}(= 팔 폭) — 반경 차 ${(A.sHi - A.sLo).toFixed(2)}와 다르다`)
+      //  리브 밑변도 돔 안에 있어야 한다(팔과 같은 **연직** 물림 어법이라 값은 EMB·cos — 부호만 잠근다)
+      const RP = DR.ribProfile(A)
+      let rWorst = -Infinity
+      for (let i = 0; i <= 24; i++) rWorst = Math.max(rWorst, surfDist(RP[i][0], RP[i][1]))
+      ok(rWorst < 0, `리브 밑변이 전 구간 돔 안(최악 ${rWorst.toFixed(4)}) — 팔의 연직 물림 어법 승계`)
+
+      //  ★기둥: 각도는 파생이고, 양 끝은 띠·통로에 **물려야** 한다(허공 접합 금지)
+      const th = Math.atan2(A.corr.y0 - A.y0, A.corr.r0 - A.s0)
+      ok(Math.abs(A.theta - th) < 1e-12, `기둥 각도 ${deg(A.theta).toFixed(2)}° = 출발점→통로 안쪽밑의 파생`)
+      ok(gC.r1 > A.corr.r0 + 1e-6 && gC.y1 > A.corr.y0 + 1e-6,
+        `기둥 끝이 통로 안으로 물린다(r ${gC.r1.toFixed(2)} > ${A.corr.r0} · y ${gC.y1.toFixed(2)} > ${A.corr.y0})`)
+      ok(surfDist(Math.hypot(A.s0, 0) - C4.DRG_LAP * Math.cos(A.theta), A.y0 - C4.DRG_LAP * Math.sin(A.theta)) < 0,
+        '기둥 출발면이 돔 표면 안(띠 속으로 물림 — 헤어라인 접합 금지)')
+
+      //  ★★간섭: 통로 고리는 방위 45°(구·팔이 있는 자리)를 반드시 지난다 — 그 반경대의 **머리 위 상한**을 유도해 잰다.
+      //   상한 = 팔 날 / 원반 2단 / 셸 아랫배 중 가장 낮은 것. 전부 기존 상수에서 파생(하드코딩 0).
+      const armS = AG.armSpec()
+      const bladeK = (armS.bladeTop[1] - (AG.domeY(C4.ARM13_S_DEP) - C4.ARM13_EMBED)) / (armS.bladeTop[0] - C4.ARM13_S_DEP)
+      const d1Bot = C4.ARM13_D1_TOP - C4.ARM13_D1_H, d2Bot = d1Bot - C4.ARM13_D2_H
+      const ceilAt = (r) => {
+        let c = Infinity
+        if (r >= C4.ARM13_S_DEP && r <= armS.bladeTop[0]) c = Math.min(c, AG.domeY(C4.ARM13_S_DEP) - C4.ARM13_EMBED + (r - C4.ARM13_S_DEP) * bladeK)
+        if (Math.abs(r - C4.RAD_R) < C4.ARM13_D2_R) c = Math.min(c, d2Bot)
+        if (Math.abs(r - C4.RAD_R) < C4.ARM13_D1_R) c = Math.min(c, d1Bot)
+        const d = Math.abs(r - C4.RAD_R)
+        if (d < C4.RAD_PRX) c = Math.min(c, C4.RAD_PCY - C4.RAD_PRY * Math.sqrt(1 - (d / C4.RAD_PRX) ** 2))
+        return c
+      }
+      let cMin = Infinity
+      for (let i = 0; i <= 400; i++) cMin = Math.min(cMin, ceilAt(A.corr.r0 + (A.corr.r1 - A.corr.r0) * i / 400))
+      const topAll = A.corr.y1 + (C4.DRG_SECT === 'block' ? 0 : C4.DRG_RAIL_H)   // ★145-d: 난간 꼭대기까지
+      ok(cMin === Infinity || cMin > topAll,
+        `통로 꼭대기(난간 포함) ${topAll} < 45° 상한 ${cMin === Infinity ? '없음(구 반경대 밖)' : cMin.toFixed(2)} — 구·원반·날을 안 파고든다`)
+      //  안쪽: 통로가 돔 옆구리를 파고들지 않는가(그 높이대 돔 최대 반경과 비교)
+      let dMax = 0
+      for (let i = 0; i <= 200; i++) {
+        const y = A.corr.y0 + (A.corr.y1 - A.corr.y0) * i / 200
+        dMax = Math.max(dMax, C4.ROOM_R * Math.sqrt(Math.max(0, 1 - ((y - C4.ROOM_FLOOR_Y) / C4.ROOM_HEIGHT) ** 2)))
+      }
+      ok(A.corr.r0 > dMax, `통로 안쪽 ${A.corr.r0} > 그 높이대 돔 최대 반경 ${dMax.toFixed(2)} — 돔과 겹치지 않는다`)
+
+      //  ★방위 — ⛔초판은 "0이 목록에 없다"를 박았다(현재값 단언 안티패턴): 현도가 넷째를 넣는 한 줄에
+      //   거짓 실패한다. 진짜 불변식은 **리브가 서는 방위에 다른 부재가 없다**이므로 실측으로 바꿔 쓴다.
+      //   ★133 복합체가 옮겨가거나 소등되면 이 단언은 자동으로 통과한다.
+      ok(A.ks.every(k => k >= 0 && k < 4) && new Set(A.ks).size === A.ks.length,
+        `리브·기둥 방위 ${A.ks.map(k => k * 90 + '°').join('·')} — 범위·중복 무결`)
+      {
+        const BC = await import('./bridgeComplexGeometry.js')
+        const BP = C4.BRG_ON ? BC.buildBridgeComplex() : null
+        //  리브의 (r, y) 발자국 — 첫 구간은 첨탑 벽 슬래브, 그 밖은 돔 위 두께 T의 띠
+        const inRib = (r, y) => r >= A.rIn && r <= A.sB
+          && y >= AG.domeY(r) - C4.DRG_EMB
+          && y <= (r <= A.rOut ? A.yTop : AG.domeY(r) + C4.DRG_T)
+        let clash = 0
+        for (const grp of ['walk', 'solid']) for (const { geo } of (BP?.[grp] ?? [])) {
+          const a = geo.getAttribute('position').array
+          for (let i = 0; i < a.length; i += 3) {
+            const x = a[i], y = a[i + 1], z = a[i + 2], r = Math.hypot(x, z)
+            if (r < 1e-6) continue
+            const az = Math.atan2(z, x), hw = Math.asin(Math.min(1, C4.DRG_HW / r))
+            for (const k of A.ks) {
+              let d = az - k * Math.PI / 2
+              d = Math.atan2(Math.sin(d), Math.cos(d))
+              if (Math.abs(d) <= hw && inRib(r, y)) { clash++; break }
+            }
+          }
+        }
+        ok(clash === 0,
+          `리브가 서는 방위에 ★133 복합체 살이 ${clash}점 — 0°는 복합체(r22~50 · y82~138)가 점유한다`)
+      }
+      ok(parts.mounts.every(m => Math.abs(m.rotY + m.k * Math.PI / 2) < 1e-12),
+        '마운트 회전 = −90°·k(꽃잎·LNK 가족과 같은 규약) — 기하는 한 벌')
+
+      //  ★★두 안 병존(`DRG_MODE`) — 체제가 **실제로 다른가**(스위치가 죽어 있지 않은가). 규율 14: 스윕은 능동 반증한다.
+      {
+        const pA = DR.domeRingSpec({ plan: 'A' }), pB = DR.domeRingSpec({ plan: 'B' })
+        ok(pA.corr.r0 > pB.corr.r0 + 1 && pA.corr.y0 > pB.corr.y0 + 1 && pA.theta > pB.theta + 0.1,
+          `체제 분기 실증: A(r${pA.corr.r0}·y${pA.corr.y0}·${deg(pA.theta).toFixed(2)}°) ≠ B(r${pB.corr.r0}·y${pB.corr.y0}·${deg(pB.theta).toFixed(2)}°) — 노브가 살아 있다`)
+        //  ⓐ A안은 구 반경대 **밖**(상한 없음) / ⓑ B안은 **안**(상한이 살아 있어야 한다) — 둘 다 옥상보다 위여야 통과
+        const ceilMin = (pl) => { let c = Infinity
+          for (let i = 0; i <= 400; i++) c = Math.min(c, ceilAt(pl.corr.r0 + (pl.corr.r1 - pl.corr.r0) * i / 400)); return c }
+        const cA = ceilMin(pA), cB = ceilMin(pB)
+        ok(cA === Infinity && cB !== Infinity && cB > pB.corr.y1,
+          `A안 = 구 반경대 밖(상한 없음) · B안 = 안쪽 ${(C4.RAD_R + C4.RAD_PRX - pB.corr.r0).toFixed(1)}이 구 밑을 지나며 상한 ${cB.toFixed(2)} > 옥상 ${pB.corr.y1}`)
+        ok(Math.abs(pA.corr.r1 - pA.corr.r0 - C4.DRG_W) < 1e-12 && Math.abs(pB.corr.r1 - pB.corr.r0 - C4.DRG_W) < 1e-12,
+          '두 안이 같은 폭 노브를 쓴다(표에서 파생 — 값이 흩어지지 않는다)')
+        //  ★C안 = A·B의 **산술 중점**이어야 한다(손 수치 0 — A나 B를 고치면 C가 따라온다)
+        const pC = DR.domeRingSpec({ plan: 'C' })
+        ok(Math.abs(pC.corr.r0 - (pA.corr.r0 + pB.corr.r0) / 2) < 1e-12
+          && Math.abs(pC.corr.y0 - (pA.corr.y0 + pB.corr.y0) / 2) < 1e-12
+          && Math.abs(pC.corr.y1 - (pA.corr.y1 + pB.corr.y1) / 2) < 1e-12,
+          `C안 r${pC.corr.r0}·y${pC.corr.y0} = A·B의 산술 중점(파생 항등)`)
+        ok(pB.theta < pC.theta && pC.theta < pA.theta,
+          `기둥 각도도 중간에 온다: B ${deg(pB.theta).toFixed(2)}° < C ${deg(pC.theta).toFixed(2)}° < A ${deg(pA.theta).toFixed(2)}°`)
+        //  ⚠C의 안쪽은 구 바깥 반경을 비킨다 — "구 밑을 지난다"는 성질은 B에만 있다(현도 판정용 사실)
+        ok(pC.corr.r0 > C4.RAD_R + C4.RAD_PRX && ceilMin(pC) === Infinity,
+          `C 안쪽 ${pC.corr.r0} > 구 바깥 ${C4.RAD_R + C4.RAD_PRX} (${(pC.corr.r0 - C4.RAD_R - C4.RAD_PRX).toFixed(2)} 비낌) — 구 밑 진입은 B안에만 있다`)
+      }
+
+      //  ★메시 무결(경계·감김) — 네 부재 전부
+      for (const [id, g] of [['리브', parts.rib], ['띠', parts.band], ['기둥', parts.col],
+        ...kAll.map(x => ['회랑/' + x.id, x.geo])]) {
+        const a = audit4(g)
+        ok(a.open === 0 && a.bad === 0 && a.vol > 0,
+          `${id} 메시: 경계 ${a.open}·불일치 ${a.bad}·부피 ${a.vol.toFixed(2)}(>0 = 바깥 감김)`)
+      }
+
+      //  ── ★145-d 아케이드 + 종잇장 금지(§2-D — 현도 "통로에 아치를 내면 종잇장처럼 보이는 문제 없애야해") ──
+      if (C4.DRG_SECT === 'arcade') {
+        const AS = DR.arcadeSpec(A)
+        //  ⓐ 벽 실두께 — 종잇장 금지의 정량 하한(SPIRE_T 승계 = 그 값의 출생 사유가 같은 금지였다)
+        ok(C4.DRG_WALL_T >= 0.8 && Math.abs(C4.DRG_WALL_T - C4.SPIRE_T) < 1e-12,
+          `아케이드 벽 실두께 ${C4.DRG_WALL_T} = SPIRE_T(현도 Q5 종잇장 금지의 그 값) ≥ 0.8`)
+        //  ⓑ 리빌 실증 — 아케이드 부피가 해석식(민짜 − N×개구 프리즘)과 맞아야 인트라도스·문설주 면이 실재한다.
+        //   개구가 관통 프리즘이 아니면(리빌 누락 = 종잇장) 부피가 민짜 쪽으로 치우쳐 여기서 걸린다.
+        const arcGeo = parts.corrParts.solid.find(x => x.id === '아케이드').geo
+        const aA = audit4(arcGeo)
+        const full = Math.PI * (AS.rOut ** 2 - AS.rW ** 2) * AS.clear
+        const openArea = AS.wOp * AS.spring + Math.PI * AS.wOp ** 2 / 8
+        const expect = full - AS.N * openArea * C4.DRG_WALL_T * ((AS.rW + AS.rOut) / 2 / AS.rOut)
+        ok(Math.abs(aA.vol - expect) / expect < 0.015 && aA.vol < full * 0.99,
+          `아케이드 부피 ${aA.vol.toFixed(1)} ≈ 해석식 ${expect.toFixed(1)}(±1.5%) < 민짜 ${full.toFixed(1)} — 개구 ${AS.N}기가 실두께로 관통`)
+        //  ⓒ 아치 정점이 천장(지붕판 밑면) 아래 — 위젯 판정과 같은 식
+        ok(AS.apex < AS.clear - 0.2 && AS.pier > 0.4,
+          `아치 정점 ${AS.apex.toFixed(2)} < 내부고 ${AS.clear.toFixed(2)} − 0.2 · 피어 ${AS.pier.toFixed(2)} > 0.4`)
+        //  ⓓ 두 안이 실제로 다른가 — 표(DRG_ARC)를 직접 대조(스위치 생존 실증)
+        ok(C4.DRG_ARC.a48.N !== C4.DRG_ARC.b72.N && C4.DRG_ARC.a48.O !== C4.DRG_ARC.b72.O,
+          `아케이드 두 안 분기: a48(${C4.DRG_ARC.a48.N}·${C4.DRG_ARC.a48.O}) ≠ b72(${C4.DRG_ARC.b72.N}·${C4.DRG_ARC.b72.O})`)
+        //  ⓔ 내부고 = H − 바닥판 − 지붕판(파생 항등) · 보행면 둘(바닥판·지붕판 상면)이 walk에 있다
+        const nSolid = C4.DRG_IN === 'colonnade' ? 4 : 3
+        ok(Math.abs(AS.clear - (C4.DRG_H - C4.DRG_FLR - C4.DRG_ROOF)) < 1e-12
+          && parts.corrParts.walk.length === 2 && parts.corrParts.solid.length === nSolid,
+          `내부고 ${AS.clear} = H−판 두 장 · walk 2(바닥판·지붕판)/solid ${nSolid}`)
+
+        //  ── ★145-e 안벽 열주(현도 확정: 통창 + 드문 기둥) ──
+        if (C4.DRG_IN === 'colonnade') {
+          const K = DR.colonnadeSpec(A, AS)
+          //  ⓐ 3:1 화음 — 기둥 수가 아치 수의 약수여야 두 리듬이 정합한다(파생 항등, 손 수치 0)
+          ok(Number.isInteger(K.N) && AS.N % K.N === 0 && K.N === AS.N / C4.DRG_IN_DIV,
+            `안 기둥 ${K.N}기 = 바깥 아치 ${AS.N} ÷ ${C4.DRG_IN_DIV} — 바깥 피어 ${C4.DRG_IN_DIV}개마다 하나(정수 정합)`)
+          //  ⓑ 방위 격자 포함 관계 — 안 기둥 방위가 바깥 피어 방위의 부분집합인가(실측)
+          let offGrid = 0
+          for (let k = 0; k < K.N; k++) {
+            const a = k * Math.PI * 2 / K.N, j = a / (Math.PI * 2 / AS.N)
+            if (Math.abs(j - Math.round(j)) > 1e-9) offGrid++
+          }
+          ok(offGrid === 0, `안 기둥 방위 ${K.N}기 전부 바깥 피어 격자 위(어긋남 ${offGrid})`)
+          //  ⓒ 종잇장 금지 — 기둥은 정사각 단면(방사 = 접선), 상인방은 벽 두께를 그대로 쓴다
+          ok(Math.abs(K.w - C4.DRG_WALL_T) < 1e-12 && Math.abs((K.rOut - K.rIn) - C4.DRG_WALL_T) < 1e-12,
+            `기둥 단면 ${K.w}×${(K.rOut - K.rIn).toFixed(2)} 정사각 = 벽 두께 — 어느 방향에서도 종잇장 아님`)
+          //  ⓓ 개구는 상인방 밑까지 전부 열린다(통창) — 높이 = 내부고 − 상인방
+          ok(Math.abs(K.hOpen - (AS.clear - C4.DRG_IN_LINT)) < 1e-12 && K.wOpen > K.hOpen,
+            `통창 ${K.wOpen.toFixed(2)}×${K.hOpen.toFixed(2)}(가로가 세로보다 넓다 = 전망 띠) · 상인방 ${C4.DRG_IN_LINT}`)
+          //  ⓔ ⚠상인방 스팬/깊이 — §2-D 두께 위계. 13:1은 실측상 얇게 읽힌다(현도 판정 대기, 실패 아님)
+          ok(K.wOpen / C4.DRG_IN_LINT < 20,
+            `상인방 스팬/깊이 ${(K.wOpen / C4.DRG_IN_LINT).toFixed(1)}:1 — ⚠13 넘으면 얇게 읽힌다(DRG_IN_DIV=2면 8.4)`)
+        }
+      }
+      //  ★팔 무손상 — 이 가족은 팔을 한 톨도 안 건드린다(현도 명시)
+      ok(C4.ARM13_KS.length === 4 && C4.ARM13_S_DEP === 59.3 && C4.ARM13_T === 2.8,
+        '팔 무손상: ARM13_KS 넷 · 접촉 최하 s·두께 불변(★145는 팔을 안 건드린다)')
+    }
+  }
+
   // ── ⓚ 배선 ──
   {
+    ok(/buildDomeRingParts/.test(roomSrc4) && /ringParts\.mounts\.map/.test(roomSrc4),
+      '배선: Room.jsx가 ★145 리브·기둥을 회전 마운트로, 띠·통로를 회전체로 단다')
     ok(/buildSpireStairParts/.test(roomSrc4) && /stairParts\.map/.test(roomSrc4), '배선: Room.jsx가 나선 부재를 마운트한다')
     ok(/userData=\{\{ walkable: true \}\}/.test(roomSrc4) && /userData=\{\{ walkable: false \}\}/.test(roomSrc4),
       '배선: walkable 리터럴 두 갈래(본체=밟는 면 / 난간=아님) — 축약형은 센서스가 못 읽는다')
