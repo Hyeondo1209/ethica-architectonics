@@ -3897,7 +3897,10 @@ export const SPW_TOP_MOLD = 'off'   // ★J1 플린스: 'off' = 빗면이 마감
 //  ⚠실측이 바로잡은 것(2026.08.18): 팔의 돔 융합 몸통은 s **18.05**에서 시작한다 — 첨탑 벽 반경 18과 같은
 //   자리다. 즉 팔은 이미 첨탑 밑동에서 흘러내리고 있었고, 리브는 **방위만 다른 같은 짓**이다.
 export const DRG_ON      = true          // ⛔false = 이 가족 전부 소등(보존계 — 한 줄로 ★144 상태 복귀)
-export const DRG_KS      = [1, 2, 3]     // ★리브·기둥이 서는 방위 = 90°·k. ⚠k0(0°)는 ★133 복합체 자리라 제외(현도
+export const DRG_KS      = [0, 1, 2, 3]  // ★리브·기둥이 서는 방위 = 90°·k. ★★★147(2026.08.19): **0° 복원**(현도 확정 ③)
+                                         //  — 회랑 아래 현도 스케치 선을 방위 180° 기존 부재의 미러와 대조하니 100%가 1.5u 이내
+                                         //  일치했다 = 새 기하가 아니라 이 배열 한 줄이었다. ⚠선행 = ★133 복합체 철거.
+                                         //  〔구 주석〕 ⚠k0(0°)는 ★133 복합체 자리라 제외(현도
                                          //  2026.08.18: "지금 드럼통로쪽 방위 0도는 복합체가 있는 곳이기 때문에 일단은 제외").
                                          //  넷째를 붙이는 것은 이 배열에 0을 넣는 한 줄이다.
 export const DRG_HW      = ARM13_HW      // 반폭 2.25(폭 4.5) — 팔 승계(현도 "일단 그렇게 가보자")
@@ -4112,6 +4115,13 @@ export const UPF_HEAD_MIN = 4.0  // 검사용 머리 위 하한 — 천장(팔�
 //  ⚠윗층 바깥 끝 = 참 위 종단(현도 — 목적지 보류. 캡 밀봉·나중에 이어받음).
 //  ⚠개구 0(밀봉 — 문 컷 = 다음 조각). 걷는 선 32.51°(파생 — 상한 아래 검사).
 export const BRG_ON       = true   // ⛔false = 복합체 전부 소등(보존계 — 한 줄 복귀)
+//  ★★★147(2026.08.19 현도 ⓑ 확정): **부재 단위 체제**. 새 접속 통로가 ★133 계단 관·아치·포털 자리를
+//   그대로 지나므로 그 12기는 철거해야 하는데, `BRG_ON=false`는 **★136(1p4 셸 나선 참 → ★133 참 접속 관)까지**
+//   끄고 1p4 셸이 접근법을 잃는다(★144-a에서 현도가 "★133은 살려 둔다"고 명시한 것과 충돌).
+//   → 도착지 셋만 남기는 체제를 만든다. `'full'`은 구 체제 = 보존계(한 줄 복귀).
+//   ⚠존치 3기 중 `column`은 **0° 리브 발자국을 85점 관통한다**(표면 샘플링 실측 r44.67 y89.56) — 선언된 빚.
+export const BRG_MODE     = 'stub'  // 'stub' = 참·기둥·브래킷만(★147 체제) / 'full' = 전부(구 체제·보존계)
+export const BRG_KEEP     = ['landing', 'column', 'bracket']   // 'stub'에서 남길 부재 id — 검사가 이 배열을 읽는다
 export const BRG_LAND_D   = 6.0    // ★참 깊이(반경 방향) — 현도 "알아서" 위임. 참은 r0 바깥으로 뻗는다(계단 주행을 안 먹는 쪽)
 //  ★★★136-b(2026.08.15 현도 로컬: "참과 문 사이에 약간의 틈이 있거든? 좌우로 말이야. 이부분 없애줘"):
 //   ⛔실측한 틈의 정체 = 참 깊이 6.00 vs 접속 관 외곽 폭 5.40 → 관이 참 −z 변을 다 못 덮어
@@ -4385,3 +4395,174 @@ export const SPS_RAIL_W = DISC_RAIL_W    // 'curb' 두께 0.80
 export const SPS_PARA_H = STAIR_PARA_H   // 'parapet' 높이 1.05(★75 어법)
 export const SPS_PARA_T = RSP_PARA_T     // 'parapet' 두께 0.40
 export const SPS_TREAD_T = ROOM_STAIR_SLAB  // 'tread' 체제 낱장 두께 0.35 = 방 내벽 나선 디딤판 승계
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  ★★★147 접속 통로 — 테라스(y127) → ★54 월대(y101.30) · 방위 0°
+//  (2026.08.19 현도 스케치 `다리_설계_스케치.jpg` + 색-캘리브레이션 실측 + 합의 도면 + z 위젯)
+//
+//  ★한 줄 요약: 첨탑 테라스에서 **수평 밀폐관**으로 나가 회랑 옥상 위에 선 **기둥**에 닿고,
+//   기둥 속 **직각나선**으로 10.66 내려간 뒤 **직선 계단**으로 월대에 착지한다.
+//
+//  ⚠단면(z=0)에서 확정된 값은 전부 현도 스케치 실측이고, z 방향 넷(W1~W4)은 위젯 확정이다.
+//   실측치를 그대로 박지 않고 **기존 부재에서 나오는 것은 전부 파생으로** 돌렸다(하드코딩 금지):
+//     보행면 → SPT_Y · 데크 밑 → SPT_Y−SPT_T(테라스 판 밑과 **항등**) · 기둥 두 면 → DRG 회랑 안/바깥 반경
+//     기둥 발 → DRG_Y+DRG_H(회랑 옥상) · 서단 → 첨탑 위 외벽 rCylTop · 동단 → 드럼 빗천장 ceilY 역함수
+//     착지 → woldaeSpec().yTop · 단높이 → ROOM_STAIR_RISE(여정 공통 리듬)
+//   남은 진짜 자유도만 노브다: 내부고 · 나선 하강량 · 계단 경사 · W1~W4 · 벽 두께 · 관통 개구 폭.
+// ══════════════════════════════════════════════════════════════════════════════
+export const BRD_ON       = true    // ⛔false = ★147 전부 소등(보존계 — 한 줄로 ★146 상태 복귀)
+
+//  ── z 방향 넷(현도 위젯 확정 2026.08.19) ──
+export const BRD_HW       = 5.15    // W1 통로 z 반폭(아케이드 바깥면까지) — 전폭 10.30
+export const BRD_PIER_HW  = 4.00    // W2 기둥 z 반폭 — 기둥 x 폭은 회랑 폭(8) 파생이라 8.00×8.00 정사각
+export const BRD_STAIR_HW = 3.00    // W3 직선 계단 z 반폭
+export const BRD_SPI_W    = 1.00    // W4 직각나선 답면 폭(기둥 내벽에서 안쪽으로)
+export const BRD_T        = 1.25    // 벽·판 두께(현도 위젯 — 기본 1.20 = DRG_WALL_T에서 미세 상향)
+
+//  ── 단면 노브(현도 스케치 실측에서 확정) ──
+export const BRD_CLEAR    = 7.00    // 내부고: 보행면 → 지붕 밑. ⚠위젯이 이 정의로 표시했고 현도가 그 화면에서
+                                    //  값을 확정했다 → 현도 실측선 y134.02는 **지붕 밑면**이다(상면 아님).
+export const BRD_SPI_DROP = 10.66   // 직각나선 하강량(현도 ⑤ 확정) — 127.00 → 116.34
+export const BRD_STAIR_DEG = 23.4   // 직선 계단 경사(현도 ⑥ 확정)
+export const BRD_PORT_W   = 4.60    // 회랑 옥상 보행 관통 개구 폭(x 방향 — 현도 스케치 실측 81.0~85.6)
+
+//  ── 측벽 체제 ──
+//   ⚠**-a 오독 정정(2026.08.19 ★147-b 착수 시 자가 적발)**: -a는 "측벽을 -b에서 아케이드로 교체"로 적었으나
+//    스케치를 다시 재보니 **둘은 다른 층**이다. 측벽(y127~134)은 밀폐관의 옆벽이라 **항상 필요**하고,
+//    아케이드(y115.30~125.50)는 데크 **아래**에 매달려 관을 떠받치는 **별개 부재**다.
+//    → `BRD_SIDE`는 이제 "측벽 마감 체제"만 뜻하고, 아케이드는 `BRD_ARC_ON`이 따로 켠다.
+export const BRD_SIDE     = 'solid'   // 'solid' = 민짜 측벽(현행). 훗날 다른 마감을 두면 여기서 갈린다
+
+//  ── ⛔경로 전면 수정(2026.08.19 현도 로컬 판정 2차) ──
+//   현도: *"현재 직각나선 파트, 직선계단 파트 제거하고, 직선 파트로 드럼 통로까지 간 후,
+//   드럼 통로 내부에서 월대까지 하강하는 경로를 모색하자."*
+//   사유 = 직선 계단이 ★147-c 아치 ③을 **x97~118(길이 21)** 관통했고, 밀봉도 안 됐다.
+//   ⚠코드는 지우지 않는다(현도 어법) — 스위치 둘로 소등. 나선·계단 기하·검사 전부 보존.
+//   ★새 도착 구조: 관 보행면(y127)이 드럼 안 **x130.50**까지 들어가 끝난다(빗천장 컷).
+//    그 발밑 25.70 아래가 ★54 월대(x119~137 · z±10) — 하강 경로는 **여기서** 낸다.
+export const BRD_SPI_ON   = false   // ⛔기둥 속 직각나선(★147-a) — 소등
+export const BRD_STAIR_ON = false   // ⛔직선 계단(★147-a) — 소등(아치 ③ 관통·미밀봉)
+
+
+//  ── 파생: 세로 레벨 ──
+export const BRD_YW       = SPT_Y                    // 보행면 127.00 = 테라스 상면 **항등**
+export const BRD_DECK_BOT = SPT_Y - SPT_T            // 데크 밑 125.50 = 테라스 판 밑 **항등**(판이 그대로 나간다)
+export const BRD_ROOF_BOT = BRD_YW + BRD_CLEAR       // 지붕 밑 134.00
+export const BRD_ROOF_TOP = BRD_ROOF_BOT + BRD_T     // 지붕 상면 135.25
+
+//  ── 파생: 가로 범위 ──
+//   서단 = 첨탑 위 원통 바깥면(문이 뚫릴 벽). ⚠첨탑 벽 az0° 문 컷은 ★147-c 소관 — 여기선 관만 벽까지 붙인다.
+export const BRD_X0       = 22.2                     // ⚠spireSpec().rCylTop 항등(순환 import 회피 — 검사가 박는다)
+//   동단 = 드럼 빗천장과 만나는 자리. ceilY(x) = CEIL_LO + CEIL_SLOPE·(x − COR_CYL_X0) 의 역함수.
+export const ceilXAt      = (y) => COR_CYL_X0 + (y - CEIL_LO) / CEIL_SLOPE
+export const BRD_DECK_E   = ceilXAt(BRD_DECK_BOT)    // 데크 밑선이 빗천장에 닿는 x ≈ 127.14
+export const BRD_ROOF_E   = ceilXAt(BRD_ROOF_TOP)    // 지붕 상면이 빗천장에 닿는 x ≈ 147.83
+
+//  ── 파생: 기둥 ──
+export const BRD_PX0      = DRG_R_IN                 // 79.25 = 회랑 안쪽 반경
+export const BRD_PX1      = DRG_R_IN + DRG_W         // 87.25 = 회랑 바깥 반경
+export const BRD_PIER_FOOT = DRG_Y + DRG_H           // 87.25 = 회랑 옥상 상면(기둥이 여기 선다)
+export const BRD_PIER_HEAD = BRD_DECK_BOT            // 125.50 = 데크 밑(기둥이 관을 받는다)
+export const BRD_PORT_TOP = 115.46                   // 관통 개구 머리 — ★147-b 아케이드 하현과 같은 레벨(현도 실측)
+
+//  ── 파생: 직각나선(기둥 속) ──
+export const BRD_SPI_Y1   = BRD_YW - BRD_SPI_DROP    // 나선 끝 116.34
+//   기둥 내부 사각 = 외곽 − 벽 두께. 답면 중심선 사각 = 내부 − W4/2.
+export const BRD_SPI_MIDX0 = BRD_PX0 + BRD_T + BRD_SPI_W / 2
+export const BRD_SPI_MIDX1 = BRD_PX1 - BRD_T - BRD_SPI_W / 2
+export const BRD_SPI_MIDZ  = BRD_PIER_HW - BRD_T - BRD_SPI_W / 2
+//   중심선 한 바퀴 둘레 — 30단·1.5바퀴가 여기서 나온다(값 박지 않음)
+export const BRD_SPI_LOOP  = 2 * ((BRD_SPI_MIDX1 - BRD_SPI_MIDX0) + 2 * BRD_SPI_MIDZ)
+//   ★1.5바퀴 = **기하 귀결이지 취향이 아니다**: 서변 중앙에서 들어가 동변 중앙으로 나가야 하므로
+//    (통로가 서쪽에서 오고 계단이 동쪽으로 나간다) 바퀴 수는 반드시 …0.5·1.5·2.5…다.
+//    0.5바퀴면 경사 49.8°(보행 불가), 2.5바퀴면 12.9°(기둥 속 30단이 세 바퀴 반 — 과하다). → 1.5.
+export const BRD_SPI_TURNS = 1.5
+export const BRD_SPI_N     = Math.round(BRD_SPI_DROP / ROOM_STAIR_RISE)   // 30단
+export const BRD_SPI_RISE  = BRD_SPI_DROP / BRD_SPI_N                     // 0.35533
+export const BRD_SPI_GOING = BRD_SPI_TURNS * BRD_SPI_LOOP / BRD_SPI_N     // 0.90
+export const BRD_SPI_SLAB  = ROOM_STAIR_SLAB     // 낱장 디딤판 두께 — 방 내벽 나선 승계
+
+//  ── 파생: 직선 계단 ──
+export const BRD_STAIR_X0 = BRD_PX1                  // 기둥 동면에서 시작(현도 ⓐ 확정)
+export const BRD_STAIR_Y0 = BRD_SPI_Y1               // 116.34 = 나선이 끝난 높이
+export const BRD_STAIR_TAN = Math.tan(BRD_STAIR_DEG * Math.PI / 180)
+//   착지 = ★54 월대 상면. ⚠woldaeSpec()은 corridorStairsGeometry 소관이라 여기선 그 파생 사슬을
+//    그대로 다시 쓴다(COR_Y0 + COR_THICK/2) — 사본이 아니라 **같은 식**이다(검사가 항등을 박는다).
+export const BRD_STAIR_Y1 = COR_Y0 + COR_THICK / 2   // 101.30
+export const BRD_STAIR_FALL = BRD_STAIR_Y0 - BRD_STAIR_Y1                 // 15.04
+export const BRD_STAIR_RUN  = BRD_STAIR_FALL / BRD_STAIR_TAN              // 34.76
+export const BRD_STAIR_X1   = BRD_STAIR_X0 + BRD_STAIR_RUN                // 122.01
+export const BRD_STAIR_N    = Math.round(BRD_STAIR_FALL / ROOM_STAIR_RISE)   // 43단
+export const BRD_STAIR_RISE = BRD_STAIR_FALL / BRD_STAIR_N                   // 0.34977
+export const BRD_STAIR_GOING = BRD_STAIR_RUN / BRD_STAIR_N                   // 0.80822
+export const BRD_STAIR_SLAB = ROOM_STAIR_SLAB    // 계단 밑 경사 매스 두께(연직)
+
+// ── ★★★147-b 양면 아케이드 (2026.08.19 현도 ⓑ 확정 — 3안 시각화 후 "b가 좋을 것 같다") ──
+//  ★어법 = **★145 회랑 아케이드 승계**: 발에서 spring까지 수직 문설주 → 그 위 반원.
+//   3안 비교 실측 잔차: ⓐ포물선 0.144 / **ⓑ반원 0.931** / ⓒ첨두 0.502 — 현도는 잔차가 아니라
+//   **기존 어휘와의 정합**을 골랐다(아래에서 올려다볼 때 회랑 아케이드와 한 가족으로 읽힌다).
+//  ⚠그 대가 = 어깨가 실측보다 약 1.5 넓다(y120에서 반폭 4.23 vs 스케치 2.75). 의도된 이탈.
+export const BRD_ARC_ON   = true    // ⛔false = 아케이드만 소등(관·기둥·나선·계단은 그대로 — -a 상태)
+export const BRD_ARC_Y0   = 115.30  // ★하현(아치 발) — 현도 스케치 실측
+export const BRD_ARC_APEX = 123.20  // ★아치 정점 — 실측(베이별 123.16·123.37·123.16 = 현도가 **정점을 맞췄다**)
+export const BRD_ARC_O    = 0.77    // 개구 폭 ÷ 베이 폭(실측 8.8/11.41). ⚠★145 b72는 0.70 — 이번은 더 열려 있다
+export const BRD_ARC_NW   = 5       // 서 베이 수(첨탑 벽 → 기둥 서면)
+export const BRD_ARC_NE   = 3       // 동 베이 수(기둥 동면 → 드럼 서벽)
+//  ── 파생 ──
+export const BRD_ARC_E    = COR_CYL_X0                      // 동단 = 드럼 서벽 x120(실측 119.6 → 벽까지 붙인다)
+export const BRD_ARC_TOP  = BRD_DECK_BOT                    // 상현 = 데크 밑 125.50 **항등**(아케이드가 관을 진다)
+export const BRD_ARC_BAYW = (BRD_PX0 - BRD_X0) / BRD_ARC_NW      // 서 베이 폭 11.41
+export const BRD_ARC_BAYE = (BRD_ARC_E - BRD_PX1) / BRD_ARC_NE   // 동 베이 폭 10.9167
+//  ★정점을 서·동 공통으로 두면 반지름(=베이 파생)이 달라 **spring 높이가 베이별로 갈린다**.
+//   현도 스케치가 정점을 맞췄으므로 정렬 대상은 정점이다 — spring이 파생 쪽이다.
+export const BRD_ARC_RW   = BRD_ARC_BAYW * BRD_ARC_O / 2
+export const BRD_ARC_RE   = BRD_ARC_BAYE * BRD_ARC_O / 2
+export const BRD_ARC_SPRW = BRD_ARC_APEX - BRD_ARC_RW - BRD_ARC_Y0   // 서 문설주 높이 ≈3.51
+export const BRD_ARC_SPRE = BRD_ARC_APEX - BRD_ARC_RE - BRD_ARC_Y0   // 동 문설주 높이 ≈3.99
+export const BRD_ARC_SEG  = 24      // 아치 반원 분할(★145 어법 — 인트라도스가 다각형 근사)
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  ★★★147-c 큰 아치 3기 — 기둥 2기 사이 (2026.08.19 현도 지시 + 5왕복 시각화)
+//
+//  ★한 줄 요약: ★133 존치 기둥과 접속 기둥을 교각 삼아, 그 사이·바깥에 아치 셋을 건다.
+//   ②③ = 반원(발 둘 같은 높이) · ① = **정점 공유 비대칭 아치**(동쪽 호 R1 + 서쪽 호 r).
+//
+//  ★현도 확정 경로(왕복 기록 — 왜 이 형태인지):
+//   ⑴ "기존 2아치 → 기둥 2기 사이 3아치"(★133 column 재사용 지시)
+//   ⑵ "발들 높이를 다 맞추자" → 공통 발 높이 H. ⚠돔이 곡면이라 ①의 서발이 돔을 타고 미끄러져
+//      스팬이 H에 종속됐고(H93.8이면 11.21로 뭉갬), 그래서 ①만 다른 어법이 필요해졌다.
+//   ⑶ "① 은 4분원으로, 첨탑 쪽에 발 없이" → 하프 아치
+//   ⑷ "정점을 공유하되 곡률이 반대, 우리가 아는 아치처럼 위로 볼록" → **정점 공유 비대칭 아치**
+//      (Claude가 두 번 오독: 아래로 볼록 → S자 오지. 셋째에 맞춤)
+//   ⑸ 서쪽 호 r 3안 중 **첨탑 벽에 실제 착지하는 안** 채택 → r은 파생이 된다(아래).
+//
+//  ⚠**전부 파생이다 — 이 절에 리터럴 치수는 H 하나뿐이다.**
+// ══════════════════════════════════════════════════════════════════════════════
+export const BRA_ON       = true    // ⛔false = 아치 3기만 소등(-a·-b는 그대로)
+export const BRA_H        = 97.58   // ★공통 발 높이 — 유일한 노브. 현도 스케치 서발 실측치이자
+                                    //  ①의 서발이 첨탑 아래 외벽 구간(y98~122.5)에 들어가는 값.
+export const BRA_T        = 1.25    // 살 두께(중심선 기준 위아래 T/2) — 아케이드 BRD_T 승계
+export const BRA_HW       = 2.30    // z 반폭(벽 바깥면) ⚠★133 기둥 z±2.70보다 좁게(현도 확정)
+export const BRA_WT       = 0.80    // 벽 두께 — 양면 두 장(현도 확정). 두 장 사이는 비어 있다
+export const BRA_SEG      = 40      // 호 분할
+//  ★★현도 로컬 판정 1차(2026.08.19 스크린샷): "아치는 위의 빈공간이 채워져야 하고(지금은 테두리만 있음),
+//   아케이드 부분은 바닥이 아직 없다." → 스팬드럴 + 아케이드 바닥판 신설.
+export const BRA_SPAN_ON  = true    // ⛔false = 스팬드럴 소등(아치 살만 = 판정 전 상태)
+export const BRD_ARC_FLR  = 1.00    // ★아케이드 바닥판 두께(상면 = 하현 115.30 · 밑면 = 스팬드럴 상단)
+                                    //  ⚠상한 1.22 — ③ 아치 엑스트라도스가 114.08까지 올라온다(검사가 잰다)
+
+//  ⚠**파생은 여기 두지 않는다**: ★133 기둥 x는 `bridgeSpec().xL0/xL1`이 정본인데 그것이
+//   `linkSpec()` 파생이라 constants에서 참조하면 순환한다. → 전부 `bridgeArchSpec()`이 계산한다
+//   (domeRingSpec·bridgeSpec과 같은 어법). 이 절에 남는 것은 **노브 여섯**뿐이다.
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  ★★★147-e 월대 샤프트 — 전망대(y127) → ★54 월대(y101.30) 하강 (2026.08.19 현도 판정 2차)
+//   현도: *"월대 부분에 직육면체 틀을 놓고, 그 안에 우리가 사용했던 직각 나선 형태의 계단을 놓아
+//   하강하는 경로를 만들자. 전망대가 새로 생겼으니, **월대의 의미는 이제 어떠한 참으로써 사용되는 것**이지."*
+//   ★★위상 전환: 월대 = 도착지 → **참(landing)**. 도착지는 전망대(관이 드럼 안에서 끝나는 자리)로 옮겨갔고,
+//    월대는 하강 후 ★㊾ 하강로(x124 출발)로 갈아타는 자리가 된다.
+//   ⚠전부 파생 — 노브는 답면 폭과 바퀴 수 둘뿐이다.
+// ══════════════════════════════════════════════════════════════════════════════
+export const BRD_SFT_ON    = true    // ⛔false = 샤프트 소등(전망대에서 내려갈 길 없음)
+export const BRD_SFT_W     = 1.50    // ★나선 답면 폭 — 기둥 나선(1.00)보다 넓다(주 동선으로 승격)
+export const BRD_SFT_TURNS = 2.5     // ★바퀴 수. 반홀수 = 서변 진입 → 동변 종료(전망대가 서쪽에서 온다)

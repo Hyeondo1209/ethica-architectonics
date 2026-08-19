@@ -3329,7 +3329,12 @@ console.log('\n── ★133 1p4 복합체(2층 관·참·기둥·아치 — ★
       }
       ok(maxX < C.BOX_X0 - 1, `동단 x ${maxX.toFixed(2)} < 진출 박스 ${C.BOX_X0} − 1(침범 0 — 그 사이 = 미정 구간)`)
       ok(maxZ <= B.wOut / 2 + 1e-6, `z 전폭 ±${maxZ.toFixed(2)} ≤ 관 외곽 반폭(방위 0° 축에 정렬 — 1e-6: Float32 극한)`)
-      ok(P.walk.length === 3 && P.solid.length === 14,
+      //  ★★★147 ⓑ: 체제별 부재 수. 'stub'은 BRG_KEEP 배열이 정본이다(수를 박지 않는다 — 배열을 고치면 따라온다).
+      if (C.BRG_MODE === 'stub') {
+        const ids = [...P.walk, ...P.solid].map(q => q.id)
+        ok(ids.length === C.BRG_KEEP.length && C.BRG_KEEP.every(k => ids.includes(k)),
+          `'stub' 부재 ${ids.length}기 = BRG_KEEP(${C.BRG_KEEP.join('·')}) — 그 밖은 전부 철거`)
+      } else ok(P.walk.length === 3 && P.solid.length === 14,
         `부재 수 walk 3(계단 매스 2 + 참) · solid 14(벽4·지붕2·캡4·기둥·스팬드럴·브래킷·포털)`)
       const vol = g => { const a = g.getAttribute('position'); let v = 0
         for (let i = 0; i < a.count; i += 3) {
@@ -3337,13 +3342,19 @@ console.log('\n── ★133 1p4 복합체(2층 관·참·기둥·아치 — ★
           v += (x1*(y2*z3-y3*z2)-y1*(x2*z3-x3*z2)+z1*(x2*y3-x3*y2))/6 }
         return Math.abs(v) }
       const land = P.walk.find(w => w.id === 'landing')
+      ok(land !== undefined, `참(landing) 존치 — ★136 도착지 보존(BRG_MODE='${C.BRG_MODE}')`)
       ok(Math.abs(vol(land.geo) - B.landD * B.landT * B.wOut) / (B.landD * B.landT * B.wOut) < 0.01,
         `참 부피 메시 ${vol(land.geo).toFixed(2)} ↔ 해석 ${(B.landD * B.landT * B.wOut).toFixed(2)}(±1%)`)
+      //  ★★★147 ⓑ(2026.08.19): `BRG_MODE='stub'`이면 계단 관이 철거돼 이 항의 대상이 없다.
+      //   ⚠없는 부재를 id로 찾아 `.geo`를 읽어 **검사가 크래시**했다 — 체제 스위치를 만들면
+      //   그 체제를 전제로 정해진 검사도 같이 본다(규율 10의 검사판).
       const lowMass = P.walk.find(w => w.id === 'lowMass')
-      //  ⚠1차판 오식 자가 적발 흔적: run·rise/2를 더했었다 — 소핏은 걷는 선과 평행이라 그 삼각형은 애초에 없다.
-      const aProf = B.run * B.ft - B.steps * (B.tread * B.riser / 2)
-      ok(Math.abs(vol(lowMass.geo) - aProf * 2 * B.hw) / (aProf * 2 * B.hw) < 0.02,
-        `계단 매스 부피 메시 ${vol(lowMass.geo).toFixed(2)} ↔ 해석 ${(aProf * 2 * B.hw).toFixed(2)}(±2%)`)
+      if (lowMass) {
+        //  ⚠1차판 오식 자가 적발 흔적: run·rise/2를 더했었다 — 소핏은 걷는 선과 평행이라 그 삼각형은 애초에 없다.
+        const aProf = B.run * B.ft - B.steps * (B.tread * B.riser / 2)
+        ok(Math.abs(vol(lowMass.geo) - aProf * 2 * B.hw) / (aProf * 2 * B.hw) < 0.02,
+          `계단 매스 부피 메시 ${vol(lowMass.geo).toFixed(2)} ↔ 해석 ${(aProf * 2 * B.hw).toFixed(2)}(±2%)`)
+      } else ok(C.BRG_MODE === 'stub', `계단 관 부재 — 'stub' 체제이므로 정상(BRG_MODE='${C.BRG_MODE}')`)
     }
 
     //  배선

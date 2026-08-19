@@ -40,6 +40,7 @@ import {
   BRG_ON, BRG_LAND_D, BRG_LAND_T, BRG_STEP, BRG_COL_W, BRG_COL_D,
   BRG_SINK, BRG_SEAT, BRG_EMB_TOP, BRG_ARCH_UPB, BRG_SEG, BRG_WALK_MAX, BRG_PORTAL_L,
   BRG_LAND_FLUSH, BRG_COL_FIT, BRG_COL_EMB, BRG_COL_N, BRG_ARC_EMB, BRG_ARC_WF, BRG_ARC_K,
+  BRG_MODE, BRG_KEEP,
 } from './constants.js'
 
 //  방 돔 표면(회전체 — 수평 반경 r의 함수). 전부 상수 파생(H = ROOM_CEIL_Y − LIFT_Y).
@@ -237,6 +238,13 @@ export function buildBridgeComplex(B = bridgeSpec()) {
       left.push([wellWallR(y, { spec: S2, forceSpire: true }) - B.emb, y])
     }                                                // left = yTop → yBot(내림차순 — 그대로 잇는다)
     solid.push({ id: 'portal', geo: extrude([[xR, yBot], [xR, yTop], ...left], -B.wOut / 2 + BRG_SINK, B.wOut / 2 - BRG_SINK) })
+  }
+  //  ★★★147 ⓑ 체제(2026.08.19 현도 확정): 'stub'이면 **BRG_KEEP에 있는 부재만** 남긴다.
+  //   철거 대상 = 새 접속 통로가 지나갈 자리(2층 계단 관·벽·지붕·아치·포털).
+  //   ⚠기하는 **한 톨도 안 건드린다** — 만든 뒤 걸러낼 뿐이라 'full' 복귀가 한 줄이다(코드 무손상 규율).
+  if (BRG_MODE === 'stub') {
+    const keep = (arr) => arr.filter(({ id }) => BRG_KEEP.includes(id))
+    return { walk: keep(walk), solid: keep(solid) }
   }
   return { walk, solid }
 }

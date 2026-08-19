@@ -34,6 +34,7 @@ import { buildSpireTerrace } from './spireTerraceGeometry.js'   // ★128 첨탑
 import { buildUpperPlatform } from './upperPlatformGeometry.js' // ★131 새 층 플랫폼 + 좌우 계단 2기(테라스 위 — 드럼행 문의 자리)
 import { buildSpireStairParts, terraceHoleOf } from './spireStairGeometry.js' // ★★★★144-b 내벽 나선(허브→테라스) + 그 도착 구멍
 import { buildBridgeComplex } from './bridgeComplexGeometry.js' // ★133 1p4 방위 0° 복합체(2층 계단 관 + 참 + 기둥 + 아치)
+import { buildBridgeDeckParts } from './bridgeDeckGeometry.js'  // ★★★147 접속 통로(테라스 → ★54 월대) — 관·기둥·직각나선·직선 계단
 import { buildLink4 } from './link4Geometry.js'
 import { buildLink3, link3Mounts } from './link3Geometry.js'
 import { buildLink2, link2Mounts } from './link2Geometry.js'                    // ★143 1p2 통로의 기둥 + 아치 ①                   // ★137 1p3형 셸 → 테라스 통로(두 오르막 + 띄운 참) · ★141 다중 마운트                   // ★136 1p4 셸 나선 참 → ★133 참 수평 접속 관
@@ -41,7 +42,7 @@ import { buildLink2, link2Mounts } from './link2Geometry.js'                    
 //  ⚠꽃잎 k와 45° 어긋난 다른 규약이다. CoordHud로 부재를 짚을 때 이 이름이 나온다.
 const LK3_PROP = [4, 1, 2, 3]
 import { buildDomeRingParts } from './domeRingGeometry.js'   // ★★★145 돔 리브·띠·기둥·고리 통로(2026.08.18 현도 스케치 블록아웃)
-import { SPIRE_ON, SPT_ON, UPF_ON, BRG_ON, LK4_ON, LK3_ON } from './constants.js'
+import { SPIRE_ON, SPT_ON, UPF_ON, BRG_ON, LK4_ON, LK3_ON, BRD_ON } from './constants.js'
 import { buildRoomRibs } from './roomRibGeometry'   // ★116 방 돔 살 여덟(순수 기하 — 사본 금지)   // ★114 벽 밑동 팔각 각뿔대(순수 기하 — 사본 금지)
 
 // ════════ 지하 정의·공리 방 ════════
@@ -160,6 +161,9 @@ export function DefAxiomRoom({ stairKind }) {
   const upperParts = useMemo(() => (SPIRE_ON && SPT_ON && UPF_ON ? buildUpperPlatform() : []), [])
   //  ★133 복합체 — 첨탑·테라스가 있어야 문이 생길 자리가 있다(참·기둥은 방 돔 위 자립이지만 접합 대상이 첨탑)
   const bridgeParts = useMemo(() => (SPIRE_ON && SPT_ON && BRG_ON ? buildBridgeComplex() : null), [])
+  //  ★★★147 접속 통로 — 첨탑 테라스(SPT)와 회랑 옥상(DRG)에 동시에 매인다.
+  //   ⚠BRD_ON 한 줄이 보존계. ★133과의 점유 충돌은 check_bridge가 선언된 빚으로 들고 있다.
+  const bridgeDeckParts = useMemo(() => (SPIRE_ON && SPT_ON && BRD_ON ? buildBridgeDeckParts() : null), [])
   //  ★136 — ★133 참이 도착지이므로 BRG_ON에 종속(복합체가 없으면 갈 곳이 없다)
   const link4Parts = useMemo(() => (SPIRE_ON && SPT_ON && BRG_ON && LK4_ON ? buildLink4() : null), [])
   //  ★137 — ★133 복합체와 무관(다른 셸·다른 방위)이라 BRG_ON에 매지 않는다
@@ -473,6 +477,20 @@ export function DefAxiomRoom({ stairKind }) {
       ))}
       {bridgeParts && bridgeParts.solid.map(({ id, geo }) => (
         <mesh key={'brg-' + id} name={'1p4복합체/' + id} geometry={geo} userData={{ walkable: false }}>
+          <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
+        </mesh>
+      ))}
+      {/* ★★★147 접속 통로(2026.08.19 현도 스케치 — 블록아웃 -a): 테라스 y127에서 수평 밀폐관으로 나가
+          회랑 옥상 위 기둥에 닿고, 기둥 속 직각나선으로 10.66 내려가 직선 계단으로 ★54 월대에 착지.
+          측벽은 -a에서 민짜(`BRD_SIDE='solid'`) — -b에서 양면 아케이드 8베이로 교체(한 줄).
+          재질 = ★130 통로 가족(길 연속 — walk/solid 두 톤). */}
+      {bridgeDeckParts && bridgeDeckParts.walk.map(({ id, geo }) => (
+        <mesh key={'brd-' + id} name={'1p12접속통로/' + id} geometry={geo} userData={{ walkable: true }}>
+          <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.FrontSide} />
+        </mesh>
+      ))}
+      {bridgeDeckParts && bridgeDeckParts.solid.map(({ id, geo }) => (
+        <mesh key={'brds-' + id} name={'1p12접속통로/' + id} geometry={geo} userData={{ walkable: false }}>
           <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
         </mesh>
       ))}
