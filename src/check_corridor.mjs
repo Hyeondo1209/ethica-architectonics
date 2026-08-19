@@ -8,7 +8,7 @@
 import {
   COR_R, COR_CX, COR_WALL_SEG, COR_Y0, COR_THICK, CEIL_LO, CEIL_HI, ceilY,
   WIN_HALF, WIN_SILL_Y, WIN_TOP_Y,
-  BOX_IN_H, BOX_TOP, BOX_X0, BOX_X1, BOX_HW, DOOR_HALF, BOX_TUBE_ON, BOX_FLOOR_ON,
+  BOX_IN_H, BOX_TOP, BOX_X0, BOX_X1, BOX_HW, DOOR_HALF, COR_WEST_DOOR, BOX_TUBE_ON, BOX_FLOOR_ON,
   RAD_TOP, RAD_DOOR_H, RAD_PCY, RAD_PRY, RAD_R, RAD_FLOOR_Y, RAD_SKIRT_MAX,
   LIFT_Y, ROOM_FLOOR_Y, ROOM_CEIL_Y, ROOM_HEIGHT, domeClipY, SKIRT_X0, SKIRT_X1, SKIRT_Y1, skirtY, neckBottomY,
   HALL_ENTRY, ASC_RISE, ASC_X0, ASC_X1, ASC_SLOPE, ORB_R, ORB_CX, ORB_CY, ORB_T, ORB_FLOOR_Y, ORB_FLOOR_R, ORB_WEST_X, ORB_DOOR_W, ORB_DOOR_H,
@@ -114,7 +114,10 @@ function thickenSurfaceT(geo, t) {
 const FLOOR_TOP = COR_Y0 + COR_THICK / 2                         // 다리·플랫폼 상면 ≈49.3
 const DTOP = FLOOR_TOP + RAD_DOOR_H                              // 접합문 상단 ≈53.3
 const segW = Math.PI * 2 / COR_WALL_SEG
-const tDoor = Math.floor(DOOR_HALF / segW + 0.5) * segW          // −x 문 트임 실모서리 각
+//  ★★★147-f ④(2026.08.19): 서벽 트임은 체제다 — 'sealed'면 **개구가 없다**.
+//   ⚠규율 13' 그대로의 자리: 이 각을 상수처럼 두면 벽을 봉인해도 광선이 계속 새는 것으로 **거짓 보고**된다.
+const tDoorGeom = Math.floor(DOOR_HALF / segW + 0.5) * segW       // −x 문 트임 실모서리 각(개구 체제일 때)
+const tDoor = COR_WEST_DOOR === 'open' ? tDoorGeom : 0
 const tWin  = Math.floor(WIN_HALF / segW + 0.5) * segW           // 창 실모서리 각(격자 스냅)
 const doors = hallDoors()
 
@@ -210,11 +213,19 @@ ok(CEIL_HI - BOX_TOP >= 90, `최대 해방 ${r2(CEIL_HI - BOX_TOP)} ≥ 90`)
 
 console.log('— B. 헤더 봉인 (−x 개구의 BOX_TOP 위 — 유지 확인) —')
 {
-  const xDoorEdge = COR_CX + COR_R * Math.cos(Math.PI - tDoor)
+  const xDoorEdge = COR_CX + COR_R * Math.cos(Math.PI - tDoorGeom)
   ok(ceilY(xDoorEdge) > BOX_TOP + 5, `문 트임 모서리 천장 ${r2(ceilY(xDoorEdge))} > BOX_TOP+5 — 헤더 필수 조건`)
-  ok(tDoor > 0, `−x 문 트임 존재 (${r2(tDoor * DEG)}°)`)
-  ok(COR_R * Math.sin(tDoor) <= BOX_HW + 1e-9, `문 트임 z반폭 ${r2(COR_R * Math.sin(tDoor))} ≤ 박스 반폭 ${BOX_HW}`)
-  ok(COR_R * Math.sin(tDoor) >= COR_FLOOR_HW + 0.4, `문 트임 z반폭 ≥ 다리 반폭 ${COR_FLOOR_HW}+0.4`)
+  ok(['open', 'sealed'].includes(COR_WEST_DOOR), `서벽 트임 체제 '${COR_WEST_DOOR}'`)
+  if (COR_WEST_DOOR === 'open') {
+    ok(tDoor > 0, `−x 문 트임 존재 (${r2(tDoor * DEG)}°)`)
+    ok(COR_R * Math.sin(tDoor) <= BOX_HW + 1e-9, `문 트임 z반폭 ${r2(COR_R * Math.sin(tDoor))} ≤ 박스 반폭 ${BOX_HW}`)
+    ok(COR_R * Math.sin(tDoor) >= COR_FLOOR_HW + 0.4, `문 트임 z반폭 ≥ 다리 반폭 ${COR_FLOOR_HW}+0.4`)
+  } else {
+    //  ★★★147-f ④: 박스 관이 ★134에서 소등된 뒤 이 트임은 **아무것도 안 통과하는 맨 구멍**이었다
+    //   (현도 HUD 119.73,100.51 — "밖에서 보여"). 벽을 이으면 그 자리의 스포 차폐가 **관 대신 벽으로** 인수된다.
+    ok(tDoor === 0, `서벽 트임 봉인 — 개구 각 0(광선 모델도 같은 체제를 읽는다)`)
+    ok(!BOX_TUBE_ON, `봉인의 전제 = 박스 관 소등(BOX_TUBE_ON=false) — 관이 돌아오면 'open'으로 되돌린다`)
+  }
   ok(BOX_X1 > COR_CX - Math.sqrt(COR_R * COR_R - BOX_HW * BOX_HW) + 1, `박스 물림(천장 슬랩→${BOX_X1}) 헤더 밑선 봉합`)
 }
 

@@ -22,6 +22,7 @@ import {
   DESC_HW, DESC_R, DESC_SWEEP, DESC_SWEEP_MIN, DESC_SWEEP_MAX, BOX_X1, COR_CX, COR_R, ceilY,   // ★㊾ 하강로
   DESC_GIRDER, DESC_GIRDER_TOP, DESC_GIRDER_BWF, DESC_TAIL,   // ★㊿ 몸 · ★51 꼬리
   DESC_PORT_ON, DESC_PORT_H, DESC_PORT_TOP, DESC_PORT_CLR, PIER_DEPTH, PIER_HW, PIER_OUT,   // ★53 관문
+  COR_WALL_SEG,
   WOLDAE_ON, WOLDAE_OUT, WOLDAE_HW, WOLDAE_TIP_T, WOLDAE_ROOT_D, WOLDAE_RIM, WOLDAE_EMBED, COR_RISE,   // ★54 월대
   WOLDAE_NOTCH, WOLDAE_NOTCH_R,   // ★54-2 노치
   WOLDAE_RISE, WOLDAE_RISE_H, BOX_TOP,   // ★54-3 상승단
@@ -293,16 +294,19 @@ if (HALL_ENTRY === 'axial' || HALL_ENTRY === 'lateral') {
     ok(Math.abs(w.yTop - (COR_Y0 + COR_THICK / 2)) < 1e-9 && Math.abs(w.yTop - d.yS) < 1e-9,
       `상면 y${r2(w.yTop)} = 박스 바닥 = 하강로 출발면 — 무단차`)
     //  ② 뿌리(§2-D ① 코벨): 벽 안쪽으로 물려 절단면이 안 보이고, 뿌리 반폭 = 박스 입
-    ok(w.x0 < COR_CX - COR_R, `뿌리 x${r2(w.x0)} < 드럼 내벽 ${r2(COR_CX - COR_R)} — 벽에 파고든다(절단면 은닉)`)
-    ok(Math.abs(w.hwRoot - BOX_HW) < 1e-9,
-      `뿌리 반폭 ±${w.hwRoot} = 박스 반폭 ±${BOX_HW} — 뿌리 전체가 박스 몸통 안(드럼 밖 노출 0)`)
-    //  ★사다리꼴의 존재 이유: 반폭 균일이면 뿌리 모서리가 벽 밖으로 나간다(벽 = 두께 0 셸)
+    //  ★★★147-f ④ 체제 전환(2026.08.19 현도 지적): 구 규칙은 "뿌리가 벽을 **파고든다**"였다 —
+    //   그 물림을 **박스 관이 밖에서 덮는다**는 전제였고, 박스는 ★134에서 소등됐다.
+    //   새 규칙 = **어느 정거장·어느 z에서도 벽 밖으로 안 나간다**. 판정 기준은 원이 아니라
+    //   벽 다각형의 **최소 반경**(내접 96각형 → COR_R·cos(π/N))이다(규율 ⑦).
+    const wallRMin = COR_R * Math.cos(Math.PI / COR_WALL_SEG)
     let worstOut = -1e9
-    for (const s of w.stations) if (s.hw > BOX_HW) {
-      const wallX = COR_CX - Math.sqrt(Math.max(0, COR_R * COR_R - s.hw * s.hw))
-      worstOut = Math.max(worstOut, wallX - s.x)
-    }
-    ok(worstOut <= 0, `박스가 안 덮는 구간의 벽 관통 ${r2(worstOut)} ≤ 0 — 드럼 밖 노출 없음`)
+    for (const s of w.stations) worstOut = Math.max(worstOut, Math.hypot(s.x - COR_CX, s.hw) - wallRMin)
+    ok(worstOut <= 1e-9,
+      `벽 밖 돌출 ${r2(worstOut)} ≤ 0 — 전 정거장이 벽 다각형 최소 반경 ${r2(wallRMin)} 안(드럼 밖 노출 0)`)
+    ok(Math.abs(Math.hypot(w.x0 - COR_CX, w.hwRoot) - wallRMin) < 1e-9,
+      `뿌리 모서리가 그 반경에 **정확히** 닿는다 — 물림도 틈도 아닌 접선(파생 EMBED ${r2(BOX_X1 - w.x0)})`)
+    ok(Math.abs(w.hwRoot - BOX_HW) < 1e-9,
+      `뿌리 반폭 ±${w.hwRoot} = 박스 반폭 ±${BOX_HW} — 뿌리 폭이 곧 그 접점의 z를 정한다`)
     //  ③ 밑면 = 위로 볼록(잉카 S2 어휘 — 현-위 검사). 순수 sin의 자가 교차를 두께 프로파일이 막는다
     const A = w.stations[0], B = w.stations[w.stations.length - 1]
     let chordMin = 1e9
@@ -340,9 +344,10 @@ if (HALL_ENTRY === 'axial' || HALL_ENTRY === 'lateral') {
     //  ⑨ 드럼 안 · 무간섭
     //  ⚠뿌리 정거장은 제외한다 — 뿌리는 **의도적으로** 벽을 지나 박스 안에 묻히는 물림이다(위 ②·[63]이 담당).
     //   여기서 재는 것은 '드럼 안에 있는 부분이 벽을 안 스치는가'.
+    //  ⚠★147-f ④ 이후 뿌리는 **벽에 접한다**(위 항이 그 접선을 박는다) → 여기서는 뿌리 다음부터 잰다.
     let farMost = 0
-    for (const s of w.stations) if (s.x >= COR_CX - COR_R) farMost = Math.max(farMost, Math.hypot(s.x - COR_CX, s.hw))
-    ok(farMost < COR_R - 1, `드럼 안 구간 최원단 ${r2(farMost)} < 드럼 ${COR_R}−1 — 벽 무접촉`)
+    for (const s of w.stations.slice(1)) farMost = Math.max(farMost, Math.hypot(s.x - COR_CX, s.hw))
+    ok(farMost < COR_R - 1, `뿌리 뒤 구간 최원단 ${r2(farMost)} < 드럼 ${COR_R}−1 — 벽 무접촉`)
     const bs2 = incaBladesSpec()
     let bladeGap = 1e9
     for (const b of bs2.blades.filter(b => b.tip)) for (let j = 0; j <= 20; j++) {
@@ -1255,7 +1260,7 @@ console.log('\n— W. 보행 (FREE_WALK를 끄면 걸어서 완주할 수 있는
     //   ⚠깨지면 "새 메시가 생겼다"는 뜻이다. 밟는 면이면 태그를 달고, 아니면 여기 수를 고친다.
     //   조건부 4(Dome: ring 헬퍼 walk 인자) · false 6(기둥·난간·격자 등 명시 비-바닥)은 의도된 것.
     const LEDGER = [
-      ['Corridor.jsx',      36, 17, 0, 4],   // ★94-c 중앙 기둥 · ★95 반십각 기둥 · ★96 헌치 · ★98 서쪽 빗면(전부 walkable:false)
+      ['Corridor.jsx',      37, 17, 0, 4],   // ★★★147-g(08.19) +1 = 갓 서쪽 처마 살(밟는 면 아님 — walkable 태그 없음. 36→37) · ★94-c 중앙 기둥 · ★95 반십각 기둥 · ★96 헌치 · ★98 서쪽 빗면(전부 walkable:false)
       ['Dome.jsx',          72, 21, 4, 6],   // ★87 +1 = MirrorPads · ★90 +1 = 리드 연결 계단 · ★93 +1 = 하판 고리판(전부 walkable)
       ['GraphScaffold.jsx',  1,  0, 0, 0],
       ['Lens.jsx',           1,  0, 0, 0],

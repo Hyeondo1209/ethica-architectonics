@@ -27,15 +27,16 @@ import {
   //  ★147-b 아케이드
   BRD_ARC_ON, BRD_ARC_Y0, BRD_ARC_APEX, BRD_ARC_O, BRD_ARC_NW, BRD_ARC_NE,
   BRD_ARC_E, BRD_ARC_TOP, BRD_ARC_BAYW, BRD_ARC_BAYE, BRD_ARC_RW, BRD_ARC_RE,
-  BRD_ARC_SPRW, BRD_ARC_SPRE, BRD_ARC_SEG,
+  BRD_ARC_SPRW, BRD_ARC_SPRE, BRD_ARC_SEG, BRD_ARC_MASS,
   //  ★147-c 큰 아치(노브만 — 파생은 bridgeArchSpec이 계산한다)
-  BRA_ON, BRA_H, BRA_T, BRA_HW, BRA_WT, BRA_SEG, BRA_SPAN_ON, BRD_ARC_FLR,
+  BRA_ON, BRA_H, BRA_T, BRA_HW, BRA_WT, BRA_SEG, BRA_SPAN_ON, BRA_MASS, BRD_ARC_FLR,
   BRD_SPI_ON, BRD_STAIR_ON,
   BRD_SFT_ON, BRD_SFT_W, BRD_SFT_TURNS, COR_CYL_X0, ROOM_STAIR_RISE, ROOM_STAIR_SLAB,
+  BRD_EAST, BRD_EAST_X, BRD_CEIL_LAP, BRD_SFT_DOOR_ON, DESC_HW,
 } from './constants.js'
 import { bridgeSpec } from './bridgeComplexGeometry.js'
 import { spireSpec } from './spireGeometry.js'
-import { woldaeSpec } from './corridorStairsGeometry.js'
+import { woldaeSpec, descentSpec } from './corridorStairsGeometry.js'
 
 //  ── 공용 쿼드 빌더(도메인 관례 — 감김은 orientOutward가 보증) ──
 function quadGeo(build) {
@@ -183,15 +184,21 @@ export function buildBridgeDeck(A = bridgeDeckSpec()) {
   const { hw, x0, yDeckBot, yWalk } = A
   const { inX0, inX1, inZ } = A.pier
   const xEb = ceilXAt(yDeckBot), xEt = ceilXAt(yWalk)
+  //  ★★★147-f ②: 'portal' 체제면 동단은 **수직 절단**이다(천장을 관통해 드럼 안에서 끝난다).
+  //   'ceilcut'(구 -a)면 종전대로 빗천장 면을 따라 잘린다. 조각 생성은 한 함수로 갈린다.
+  const PORTAL = BRD_EAST === 'portal'
+  const eastPiece = (q, xa, y0, y1, za, zb) =>
+    PORTAL ? box(q, xa, BRD_EAST_X, y0, y1, za, zb)
+           : boxSlantE(q, xa, y0, y1, za, zb, ceilXAt(y0), ceilXAt(y1))
   //  ⚠나선이 소등되면 데크 구멍은 **함정**이 된다 → 통짜 판으로 덮는다(현도 판정 2차).
   if (!BRD_SPI_ON) {
     //  ⚠샤프트가 켜지면 그 자리에 **구멍**이 있어야 나선이 내려간다(없으면 막힌 바닥).
-    if (!BRD_SFT_ON) return quadGeo((q) => { boxSlantE(q, x0, yDeckBot, yWalk, -hw, hw, xEb, xEt) })
+    if (!BRD_SFT_ON) return quadGeo((q) => { eastPiece(q, x0, yDeckBot, yWalk, -hw, hw) })
     const S = shaftSpec()
     return quadGeo((q) => {
       box(q, x0, S.inX0, yDeckBot, yWalk, -hw, hw)                        // 구멍 서쪽
-      boxSlantE(q, S.inX1, yDeckBot, yWalk, -hw, hw, xEb, xEt)            // 구멍 동쪽(빗천장 컷)
-      // ⚠inX1 < xEb 이므로 이 조각이 실제로 생긴다(틀 x1 = 밑면 컷 파생의 귀결)
+      eastPiece(q, S.inX1, yDeckBot, yWalk, -hw, hw)                      // 구멍 동쪽(→ 전망대 바닥)
+      // ⚠inX1 < 동단 이므로 이 조각이 실제로 생긴다(틀 x1 = 밑면 컷 파생의 귀결)
       box(q, S.inX0, S.inX1, yDeckBot, yWalk, -hw, -S.inZ)                // 남 띠
       box(q, S.inX0, S.inX1, yDeckBot, yWalk, S.inZ, hw)                  // 북 띠
     })
@@ -199,8 +206,8 @@ export function buildBridgeDeck(A = bridgeDeckSpec()) {
   return quadGeo((q) => {
     //  서 띠 (구멍 서쪽)
     box(q, x0, inX0, yDeckBot, yWalk, -hw, hw)
-    //  동 띠 (구멍 동쪽 → 빗천장 컷)
-    boxSlantE(q, inX1, yDeckBot, yWalk, -hw, hw, xEb, xEt)
+    //  동 띠 (구멍 동쪽 → 전망대 바닥 / 구 체제면 빗천장 컷)
+    eastPiece(q, inX1, yDeckBot, yWalk, -hw, hw)
     //  남·북 띠 (구멍 옆)
     box(q, inX0, inX1, yDeckBot, yWalk, -hw, -inZ)
     box(q, inX0, inX1, yDeckBot, yWalk, inZ, hw)
@@ -212,9 +219,13 @@ export function buildBridgeSides(A = bridgeDeckSpec()) {
   if (A.side !== 'solid') return null
   const { hw, t, x0, yWalk, yRoofBot } = A
   const xEb = ceilXAt(yWalk), xEt = ceilXAt(yRoofBot)
+  //  ★'portal'이면 측벽도 데크와 **같은 x**에서 수직으로 끊긴다 → 개구 = 데크 끝 × 내부고 7.00의 직사각.
+  //   ⚠구 'ceilcut'은 측벽이 빗천장을 따라 130.50~145.20으로 비스듬히 잘렸다(쐐기의 정체).
   return quadGeo((q) => {
-    boxSlantE(q, x0, yWalk, yRoofBot, -hw, -hw + t, xEb, xEt)
-    boxSlantE(q, x0, yWalk, yRoofBot, hw - t, hw, xEb, xEt)
+    for (const [za, zb] of [[-hw, -hw + t], [hw - t, hw]]) {
+      if (BRD_EAST === 'portal') box(q, x0, BRD_EAST_X, yWalk, yRoofBot, za, zb)
+      else boxSlantE(q, x0, yWalk, yRoofBot, za, zb, xEb, xEt)
+    }
   })
 }
 
@@ -358,11 +369,13 @@ export function buildBridgeArcade() {
   const bays = arcadeBaySpec()
   const stW = arcadeStations(bays.filter(b => b.side === 'W'), BRD_X0, BRD_PX0)
   const stE = arcadeStations(bays.filter(b => b.side === 'E'), BRD_PX1, BRD_ARC_E)
+  //  ★★★147-h(현도 5차): 'solid'면 **한 덩어리**로 짠다 — 같은 사슬, z대역만 바뀐다.
+  //   판 둘의 바깥면을 그대로 이어 두께 2·HW(10.30). 개구는 그 깊이를 **관통**하므로 두꺼운 아치가 된다.
+  const zBands = BRD_ARC_MASS === 'solid'
+    ? [[-BRD_HW, BRD_HW]]
+    : [[BRD_HW - BRD_T, BRD_HW], [-BRD_HW, -BRD_HW + BRD_T]]
   return quadGeo((q, tri) => {
-    for (const st of [stW, stE]) {
-      arcadeSlab(q, tri, st, BRD_HW - BRD_T, BRD_HW)          // 북면(+z)
-      arcadeSlab(q, tri, st, -BRD_HW, -BRD_HW + BRD_T)        // 남면(−z)
-    }
+    for (const st of [stW, stE]) for (const [zA, zB] of zBands) arcadeSlab(q, tri, st, zA, zB)
   })
 }
 
@@ -441,15 +454,20 @@ function centerlineWithNormals(A, seg) {
   return { pts, normals }
 }
 
+//  ★147-i 살 z대역 정본 — 아치도 스팬드럴도 **이것만** 읽는다(사본 금지 · ★144 규칙)
+export function braZBands() {
+  return BRA_MASS === 'solid'
+    ? [[-BRA_HW, BRA_HW]]
+    : [[BRA_HW - BRA_WT, BRA_HW], [-BRA_HW, -BRA_HW + BRA_WT]]
+}
+
 export function buildBridgeArches() {
   if (!BRD_ON || !BRA_ON) return null
   const A = bridgeArchSpec()
   const Cs = [A.a1, A.a2, A.a3].map(a => centerlineWithNormals(a, A.seg))
+  //  ★★★147-i(현도 6차 · 가역 시험): 'solid'면 한 덩어리 — 같은 중심선·같은 살두께, z대역만 바뀐다.
   return quadGeo((q, tri) => {
-    for (const C of Cs) {
-      archSlab(q, tri, C, A.t, A.hw - A.wt, A.hw)      // 북면
-      archSlab(q, tri, C, A.t, -A.hw, -A.hw + A.wt)    // 남면
-    }
+    for (const C of Cs) for (const [zA, zB] of braZBands()) archSlab(q, tri, C, A.t, zA, zB)
   })
 }
 
@@ -458,7 +476,16 @@ export function buildBridgeArches() {
 //   (현도 로컬 판정: "아치는 위의 빈공간이 채워져야 한다 — 지금은 테두리만 있음")
 //   ★상단 = 아케이드 바닥판 **밑면**. 좌우 = 각 아치의 두 발 x(교각 면).
 //   ⚠아치 살과 t/2 겹치게 둔다 — 인트라도스는 그대로 드러나고, 겹침은 같은 재료라 무해하다.
-export function spandrelTop() { return BRD_ARC_Y0 - BRD_ARC_FLR }
+//  ★★★147-f ④ 파급: 월대 서단이 벽까지 물러나며 ③ 아치 스팬이 1.26 늘어 엑스트라도스가 0.63 올라왔다
+//   (114.08 → 114.71). 구 두께 1.00은 아치를 0.41 뚫는다 → **바닥판 두께를 파생으로 돌린다**:
+//   "아치 위에 남는 만큼, 상한은 벽 두께" = min(BRD_ARC_FLR, 하현 − 엑스트라도스 최고). 손 수치 0.
+//   ⚠얇아지는 방향이므로 §2-D 종잇장 하한을 검사가 지킨다(현 값 0.590 — 현도 판정 대상).
+export function arcadeFloorT() {
+  const A = bridgeArchSpec()
+  const ext = Math.max(A.a1.apex.y, A.a2.y + A.a2.R, A.a3.y + A.a3.R) + A.t / 2
+  return Math.min(BRD_ARC_FLR, BRD_ARC_Y0 - ext)
+}
+export function spandrelTop() { return BRD_ARC_Y0 - arcadeFloorT() }
 
 export function buildBridgeSpandrels() {
   if (!BRD_ON || !BRA_ON || !BRA_SPAN_ON) return null
@@ -470,7 +497,7 @@ export function buildBridgeSpandrels() {
       poly.push([P[P.length - 1][0], top], [P[0][0], top])
       const v2 = poly.map(p => new THREE.Vector2(p[0], p[1]))
       const faces = THREE.ShapeUtils.triangulateShape(v2, [])
-      for (const [zA, zB] of [[A.hw - A.wt, A.hw], [-A.hw, -A.hw + A.wt]]) {
+      for (const [zA, zB] of braZBands()) {
         for (const [i, j, k] of faces) {
           tri([poly[i][0], poly[i][1], zB], [poly[j][0], poly[j][1], zB], [poly[k][0], poly[k][1], zB])
           tri([poly[k][0], poly[k][1], zA], [poly[j][0], poly[j][1], zA], [poly[i][0], poly[i][1], zA])
@@ -528,23 +555,126 @@ export function shaftSpec() {
     return { x: mx1 - u, z: -mz, dir: 'x-' }
   }
   const s0 = mz          // 서변 중앙
-  const steps = []
-  for (let k = 1; k <= n; k++) {
-    const c = at(s0 + (k - 0.5) * going)
-    steps.push({ k, cx: c.x, cz: c.z, dir: c.dir, yTop: y1 - rise * k })
+  //  ★★★147-f ①(2026.08.19 현도: "직각나선 코너에 정사각형 참 — 방향 전환이 부자연스럽다"):
+  //   나열을 **직선 구간 + 코너 참**으로 재편한다. 참 = 중심선 사각의 모서리에 놓인 한 변 `w`의 정사각형
+  //   (= 답면 폭과 같은 변 — 새 숫자 0). 참은 경로를 따라 `w`(모서리 앞뒤 w/2씩)를 먹고, **한 단**을 차지한다
+  //   (걸어 올라서서 방향을 바꾸는 자리). 남은 길이를 디딤들이 나눠 갖는다.
+  //   ⚠단수 n은 그대로다(리듬 = ROOM_STAIR_RISE) — 바뀌는 것은 **그 n을 무엇이 나눠 갖는가**뿐이다.
+  const cornerS = []
+  for (let c = 0; ; c++) {                       // 모서리 s = 0, LZ, LZ+LX, 2LZ+LX, … (loop 주기)
+    const base = Math.floor(c / 2) * (2 * mz + (mx1 - mx0)) + (c % 2 ? 2 * mz : 0)
+    void base
+    break
   }
+  {
+    const LX = mx1 - mx0, LZ = 2 * mz
+    const marks = [0, LZ, LZ + LX, 2 * LZ + LX]  // 한 바퀴 안의 모서리 네 곳
+    for (let turn = 0; turn <= Math.ceil(BRD_SFT_TURNS) + 1; turn++)
+      for (const m of marks) { const sv = m + turn * loop; if (sv > s0 + 1e-9 && sv < s0 + BRD_SFT_TURNS * loop - 1e-9) cornerS.push(sv) }
+    cornerS.sort((a, b) => a - b)
+  }
+  const bounds = [s0, ...cornerS, s0 + BRD_SFT_TURNS * loop]
+  //  구간별 '디딤이 쓸 수 있는 길이' = 구간 길이 − 양 끝 참이 먹는 w/2
+  const usable = []
+  for (let i = 0; i + 1 < bounds.length; i++) {
+    const isC0 = i > 0, isC1 = i + 2 < bounds.length
+    usable.push((bounds[i + 1] - bounds[i]) - (isC0 ? BRD_SFT_W / 2 : 0) - (isC1 ? BRD_SFT_W / 2 : 0))
+  }
+  const nLand = cornerS.length
+  const nTread = n - nLand
+  const totUse = usable.reduce((a, b) => a + b, 0)
+  //  구간별 디딤 수 = 누적 비례 배분(합이 정확히 nTread)
+  const perSeg = []
+  { let acc = 0, placed = 0
+    for (let i = 0; i < usable.length; i++) {
+      acc += usable[i]
+      const target = i === usable.length - 1 ? nTread : Math.round(acc / totUse * nTread)
+      perSeg.push(target - placed); placed = target
+    } }
+  const steps = []
+  let k = 0
+  for (let i = 0; i < usable.length; i++) {
+    const sA = bounds[i] + (i > 0 ? BRD_SFT_W / 2 : 0)
+    const g = perSeg[i] > 0 ? usable[i] / perSeg[i] : 0
+    for (let j = 0; j < perSeg[i]; j++) {
+      const c = at(sA + (j + 0.5) * g); k++
+      steps.push({ k, kind: 'tread', cx: c.x, cz: c.z, dir: c.dir, going: g, yTop: y1 - rise * k })
+    }
+    if (i + 2 < bounds.length) {                 // 이 구간 끝에 모서리 참
+      const c = at(bounds[i + 1]); k++
+      steps.push({ k, kind: 'landing', cx: c.x, cz: c.z, dir: c.dir, going: BRD_SFT_W, yTop: y1 - rise * k })
+    }
+  }
+  //  ★★★147-f ③ 하단 출구(현도 판정 2차 ③: "샤프트 하단 출구가 없다 — 하강로가 동쪽으로 뻗으려면
+  //   틀 벽을 뚫어야 한다"). ★위치·폭은 **하강로가 실제로 지나는 자리**에서 파생한다(손 수치 0):
+  //   틀 바깥면 x1을 지나는 하강로 중심선의 z를 풀고, 거기에 하강로 반폭 DESC_HW를 더한다.
+  //   높이 = `BRD_CLEAR`(관 내부고 7.00) 승계 — 같은 여정의 같은 통행 높이.
+  let zCross = 0
+  {
+    const D = descentSpec()
+    for (let i = 1; i < D.samples.length; i++) {
+      const a = D.samples[i - 1], b = D.samples[i]
+      if ((a.x - x1) * (b.x - x1) < 0) { const u = (x1 - a.x) / (b.x - a.x); zCross = a.z + u * (b.z - a.z); break }
+    }
+  }
+  const doorHz = Math.min(inZ, DESC_HW + Math.abs(zCross))
+  const door = BRD_SFT_DOOR_ON
+    ? { hz: doorHz, y0, y1: y0 + BRD_CLEAR, zCross, clamped: DESC_HW + Math.abs(zCross) > inZ }
+    : null
   return { on: BRD_SFT_ON, x0, x1, hw, t, y0, y1, inX0, inX1, inZ, drop, n, rise, going,
+           nLand, nTread, cornerS, perSeg, usable,
            loop, turns: BRD_SFT_TURNS, w: BRD_SFT_W, slab: ROOM_STAIR_SLAB,
-           mx0, mx1, mz, s0, sEnd: s0 + BRD_SFT_TURNS * loop, at, steps }
+           mx0, mx1, mz, s0, sEnd: s0 + BRD_SFT_TURNS * loop, at, steps, door }
+}
+
+//  ══ ⑧-b ★★★147-f ② 드럼 빗천장 노치 — 관·샤프트가 지나는 만큼만 천장을 비운다 ══
+//   ★정본은 여기 하나다 — `Corridor.jsx`(천장 빌더)도 `check_*`도 이 함수를 읽는다(사본 금지 · ★144 규칙).
+//   ★네 변이 전부 **부재 살 속**에서 끝난다(규율 5 — 두께 0 면의 잘린 변은 반드시 덮는다):
+//     서 = 샤프트 서벽 살 속 · 동 = 지붕판 살 속 · 남북 = 측벽/샤프트 벽 살 속.
+//   ⚠따라서 노치 폭은 '관 외폭'이 아니라 **내부 유효폭 + 물림**이다(외폭으로 뚫으면 변이 노출된다).
+//   ⛔⛔**Claude 자기 적발(2026.08.19 ★147-f)** — 노치를 x 구간으로 잡으려다 실측이 막았다:
+//    **실제 천장은 `ceilY` 평면이 아니다.** `INTAKE_FORM='gat'`이므로 천장은 림(바깥 10각형, 그 변만
+//    y=ceilY)에서 크라운(y192.38)까지 올라가는 **각뿔대**다. 방위 180°에서 실측:
+//      x120 → y124.85 · x124 → 129.50 · x130.5 → 137.06 · x145 → 154.15   (ceilY 모델은 각각 122·123.9·127·134)
+//    → ★147-a/-e가 "동단 = 빗천장 컷"·"머리 공간 음수"라 적은 것은 **평면 모델의 산물**이다.
+//      현도가 본 증상(관이 지붕을 뚫고 나옴 · 밀봉 안 됨)은 사실이지만 원인은 달랐다:
+//      관은 x**120.5~129.8**에서 진짜 천장을 관통하고, 그 동쪽은 이미 드럼 **안**이다.
+//      -a의 절단면(ceilY 면)은 천장이 아닌 **허공에 뜬 평면**이라 관 끝이 드럼 안에서 열려 있었다.
+//   ★그래서 노치는 x가 아니라 **관 단면**으로 정의한다 — 자르는 면이 전부 축평행 전역 평면이라
+//    천장 기하가 무엇이든(각뿔대든 평면이든) 교차 구간이 **저절로** 나온다. 손 x값 0.
+export function ceilNotchSpec() {
+  const on = BRD_ON && BRD_EAST === 'portal'
+  const S = shaftSpec()
+  const lap = BRD_CEIL_LAP
+  return {
+    on,
+    hz:  BRD_HW - lap,            // 4.525   — 잘린 변이 측벽(3.90~5.15) 살 속에서 끝난다
+    yLo: BRD_DECK_BOT + lap,      // 126.125 — 데크판(125.50~127.00) 살 속
+    yHi: BRD_ROOF_TOP - lap,      // 134.625 — 지붕판(134.00~135.25) 살 속
+    //  ⑤ 처마 몫 — ★147-f ⑤(현도 "드럼 천장↔아케이드 겹침이 밖에서 종잇장처럼 보인다").
+    //   실측: 갓 바깥 10각형이 방위 180°에서 벽보다 **4.32 바깥**(x115.68)까지 나오고 y119.94~122로 처져
+    //   **아케이드 대역(y115.30~125.50) 한복판을 두께 0 면이 가른다**. 관 밑도 사정이 같다.
+    //   → 관/아케이드가 덮는 z 대역에서는 **데크 밑까지 통째로** 비운다. 서쪽 경계는 두지 않는다
+    //     (천장 자체가 x115.68에서 끝나므로 새 잘린 변이 안 생긴다). 남는 잘린 변 = 아케이드 벽 살 속.
+    //   ⚠이건 '덮개'가 아니라 **교차 자체의 제거**다 — 규율 5의 판을 대기 전에 먼저 볼 것이었다.
+    well: BRD_SFT_ON ? { x1: S.inX1 + lap, yTop: BRD_DECK_BOT + lap } : null,
+    lap,
+  }
 }
 
 //  직육면체 틀 — 벽 넷(위는 데크 구멍으로 열리고, 아래는 월대 상면으로 열린다)
 export function buildShaftFrame() {
   if (!BRD_ON || !BRD_SFT_ON) return null
   const S = shaftSpec()
+  const D = S.door
   return quadGeo((q) => {
     box(q, S.x0, S.inX0, S.y0, S.y1, -S.hw, S.hw)                 // 서벽
-    box(q, S.inX1, S.x1, S.y0, S.y1, -S.hw, S.hw)                 // 동벽
+    if (!D) box(q, S.inX1, S.x1, S.y0, S.y1, -S.hw, S.hw)         // 동벽(통짜 — 구 체제)
+    else {                                                        // ★147-f ③ 동벽 = 문설주 둘 + 인방
+      box(q, S.inX1, S.x1, S.y0, S.y1, -S.hw, -D.hz)              //   남 문설주
+      box(q, S.inX1, S.x1, S.y0, S.y1, D.hz, S.hw)                //   북 문설주
+      box(q, S.inX1, S.x1, D.y1, S.y1, -D.hz, D.hz)               //   인방 위
+    }
     box(q, S.inX0, S.inX1, S.y0, S.y1, -S.hw, -S.inZ)             // 남벽
     box(q, S.inX0, S.inX1, S.y0, S.y1, S.inZ, S.hw)               // 북벽
   })
@@ -552,13 +682,13 @@ export function buildShaftFrame() {
 
 export function buildShaftSpiral() {
   if (!BRD_ON || !BRD_SFT_ON) return null
-  const S = shaftSpec(), half = S.w / 2, g = S.going / 2
+  const S = shaftSpec(), half = S.w / 2
   return quadGeo((q) => {
     for (const st of S.steps) {
-      const alongX = st.dir === 'x+' || st.dir === 'x-'
-      box(q, alongX ? st.cx - g : st.cx - half, alongX ? st.cx + g : st.cx + half,
-          st.yTop - S.slab, st.yTop,
-          alongX ? st.cz - half : st.cz - g, alongX ? st.cz + half : st.cz + g)
+      //  ★참은 정사각(w×w) · 디딤은 자기 구간의 going × w. 둘 다 중심선 위에 놓인다.
+      const gx = st.kind === 'landing' ? half : (st.dir === 'x+' || st.dir === 'x-' ? st.going / 2 : half)
+      const gz = st.kind === 'landing' ? half : (st.dir === 'x+' || st.dir === 'x-' ? half : st.going / 2)
+      box(q, st.cx - gx, st.cx + gx, st.yTop - S.slab, st.yTop, st.cz - gz, st.cz + gz)
     }
   })
 }

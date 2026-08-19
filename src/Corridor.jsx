@@ -7,7 +7,7 @@ import { useMemo } from 'react'
 import * as THREE from 'three'
 import { Brush, Evaluator, SUBTRACTION, ADDITION } from 'three-bvh-csg'
 import {
-  COR_WALL_SEG, DOOR_HALF, COR_CX, COR_R, SHELL_RIB_R, MERIDIANS, H, ribCenter, ceilY, domeClipY,
+  COR_WALL_SEG, DOOR_HALF, COR_WEST_DOOR, COR_CX, COR_R, SHELL_RIB_R, MERIDIANS, H, ribCenter, ceilY, domeClipY,
   neckBottomY, SKIRT_X0, SKIRT_X1,
   WIN_HALF, WIN_SILL_Y, WIN_TOP_Y,
   RAD_JX, RAD_JDOOR_HW, RAD_DOOR_H,
@@ -36,6 +36,8 @@ import {
 import { buildHallStairs, hallDoors, friezeWinBarZ, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal, descentSpec, woldaeSpec, drumPierAzimuths, descentPortSpec, portPrismTris, outwardTris, buildIncaPanel, mastSpec, buildMast, buildNexusPier, buildNexusHaunch, buildWestButtress} from './corridorStairsGeometry'
 import { pierBodyTris } from './drumCupGeometry'   // ★92-b 피어 몸(계단 밑동 포함) — 정본 하나
 import { ribHoleSolid } from './ribGeometry'   // ★64-2 리브를 따라가는 관통 구멍(watertight 로프트)
+import { ceilNotchSpec } from './bridgeDeckGeometry.js'   // ★147-f ② 접속 통로가 빗천장을 관통하는 노치(정본 하나)
+import { buildGatEave, gatCutSpec } from './gatEaveGeometry.js'  // ★147-g 갓 서쪽 처마(v1 살=소등 · v2 절단+벽상향=현행)
 
 
 import {
@@ -1029,14 +1031,19 @@ export function Corridor() {
       pos.push(ax,ay,az, bx,by,bz, cx,cy,cz, dx,dy,dz)
       idx.push(n, n+1, n+2, n, n+2, n+3)
     }
+    //  ★★★147-g v2(현도 ⓑ): 다리 대역(세그 43~52 = 161.25°~198.75°)에서 벽 top을
+    //   ceilY(림 선)가 아니라 **갓 패싯 평면**까지 올린다. 갓은 같은 세그 평면으로 잘리므로(ceilGeo)
+    //   벽 새 top = 갓 절단선(공유 에지 — 틈 0의 새 근거). 상향량 = 구 쐐기 주머니(경계 0.005 → 꼭짓점 2.97).
+    const gcut = gatCutSpec()
+    const inCut = (i) => gcut.on && (i >= gcut.segA && i < COR_WALL_SEG - gcut.segA)
     for (let i = 0; i < COR_WALL_SEG; i++) {
       const t0 = (i / COR_WALL_SEG) * Math.PI * 2
       const t1 = ((i + 1) / COR_WALL_SEG) * Math.PI * 2
       const tm = (t0 + t1) / 2
       const xa = COR_CX + COR_R * Math.cos(t0), za = COR_R * Math.sin(t0)
       const xb = COR_CX + COR_R * Math.cos(t1), zb = COR_R * Math.sin(t1)
-      const ya = ceilY(xa), yb = ceilY(xb)
-      if (Math.abs(tm - Math.PI) <= DOOR_HALF) {                    // 방쪽 문(박스 접속): BOX_TOP 아래만 트고
+      const ya = inCut(i) ? gcut.surf(xa, za) : ceilY(xa), yb = inCut(i) ? gcut.surf(xb, zb) : ceilY(xb)
+      if (Math.abs(tm - Math.PI) <= DOOR_HALF && COR_WEST_DOOR === 'open') {   // 방쪽 문(박스 접속): BOX_TOP 아래만 트고
         //  ★㊵-5e 하부 봉인(2026.07.20 현도): 구 설계는 박스 측벽이 지면까지 내려와 트임 아래를 밖에서
         //  막았으나, ㊵-4 목 밑선(neckBottomY) 전환으로 y 0~박스 밑 띠가 열림 → 벽 쪽에서 복원.
         //  트임 = [COR_Y0, BOX_TOP]만(박스 단면). 상한 COR_Y0 = 박스 바닥판(하면 100.7) 두께 안 물림.
@@ -1062,6 +1069,8 @@ export function Corridor() {
   }, [])
 
   // 빗면 천장 덮개: INTAKE_ON이면 중앙 개구 뚫린 고리(annulus), 아니면 부채꼴(닫힘)
+  const gatEaveGeo = useMemo(() => buildGatEave(), [])
+
   const ceilGeo = useMemo(() => {
     const N = COR_WALL_SEG
     const g = new THREE.BufferGeometry()
@@ -1108,6 +1117,60 @@ export function Corridor() {
         }
         return o
       }
+      //  ★★★147-f ②(2026.08.19): 접속 통로가 천장을 **관통**한다 → 그만큼 노치를 비운다.
+      //   ⚠제거가 아니라 **여집합 조각 셋**으로 나눈다: {x≤x0} ∪ {x≥x1} ∪ ({x0≤x≤x1} ∩ {z≥hz}).
+      //    자르는 면이 전부 **전역 평면**이라 이웃 삼각형도 같은 점에서 갈린다 = T-접합 0(★147-b 전례).
+      //   ⚠절반(z≥0)만 만들고 거울 복사하므로 남쪽 변은 따로 자르지 않는다(대칭이 구조적으로 보장).
+      const notch = ceilNotchSpec()
+      const clipHalfP = (poly, s) => {                        // s(P) ≥ 0 인 쪽만 남긴다
+        const o = []
+        for (let i = 0; i < poly.length; i++) {
+          const A2 = poly[i], B2 = poly[(i+1) % poly.length], sa = s(A2), sb = s(B2)
+          if (sa >= 0) o.push(A2)
+          if ((sa >= 0) !== (sb >= 0)) { const t = sa / (sa - sb)
+            o.push([A2[0] + (B2[0]-A2[0])*t, A2[1] + (B2[1]-A2[1])*t, A2[2] + (B2[2]-A2[2])*t]) }
+        }
+        return o
+      }
+      //  ★영역 = ∩{g ≥ 0}. 그 **여집합**은 조각들의 합 — g를 차례로 뒤집으며 잘라 모은다.
+      const cutRegion = (polys, gs) => {
+        const out = []
+        for (const poly of polys) {
+          let rest = poly
+          for (const g of gs) {
+            const outside = clipHalfP(rest, P => -g(P))
+            if (outside.length >= 3) out.push(outside)
+            rest = clipHalfP(rest, g)
+            if (rest.length < 3) { rest = null; break }
+          }
+          //  rest(=영역 안)는 버린다 = 그만큼이 노치다
+        }
+        return out
+      }
+      //  ★★★147-g v2: 다리 대역에서 **벽-밖 돌출을 잘라낸다**(현도 ⓑ — v1 살 반려).
+      //   제거 영역(세그별) = {az ≥ 세그 시작} ∩ {az ≤ 세그 끝} ∩ {세그 현 밖}. 셋 다 선형 부호함수라
+      //   cutRegion 그대로 쓴다. 잘린 변 = 세그 수직 평면 ∩ 패싯 평면 = **벽 새 top과 같은 직선**(공유 에지).
+      //   ⚠절반 메시(z≥0)라 세그 43~47만 — 거울이 나머지. 벽 상향(wallGeo)과 **같은 gatCutSpec**을 읽는다(★144 규칙).
+      const gcut = gatCutSpec()
+      const cutSegs = []
+      if (gcut.on) for (let i = gcut.segA; i < gcut.segB; i++)
+        cutSegs.push([gcut.azGE(i * gcut.segW), (P) => -gcut.azGE((i + 1) * gcut.segW)(P), gcut.segOut(i)])
+      const gatCutPieces = (polys) => {
+        if (!cutSegs.length) return polys
+        let ps = polys
+        for (const gs of cutSegs) ps = cutRegion(ps, gs)
+        return ps
+      }
+      const notchPieces = (poly) => {
+        if (!notch.on) return gatCutPieces([poly])
+        //  ① 관 단면: |z| ≤ hz(절반 메시라 z ≤ hz) · yLo ≤ y ≤ yHi
+        let ps = cutRegion([poly], [P => notch.hz - P[2], P => P[1] - notch.yLo, P => notch.yHi - P[1]])
+        //  ② 샤프트 우물: 데크 밑에서 우물 속으로 들어온 몫
+        //  ② 데크 밑 몫: 샤프트 우물 + 처마(아케이드를 가르는 두께 0 면). 서쪽 경계 없음 — 천장이 스스로 끝난다.
+        if (notch.well) ps = cutRegion(ps, [P => notch.hz - P[2],
+                                            P => notch.well.x1 - P[0], P => notch.well.yTop - P[1]])
+        return gatCutPieces(ps)
+      }
       const NU = 24, NV = 12, half = []
       for (let f = 0; f < F/2; f++) {                         // 절반(방위 0~180°)만 생성
         const t0 = (f/F)*Math.PI*2, t1 = ((f+1)/F)*Math.PI*2
@@ -1125,7 +1188,8 @@ export function Corridor() {
           for (let poly of [[A, B, D], [A, D, E]]) {
             if (fine) for (const k of [0, 1, 2]) { poly = clipRib(poly, k); if (poly.length < 3) break }
             if (poly.length < 3) continue
-            for (let j = 1; j + 1 < poly.length; j++) half.push([poly[0], poly[j], poly[j+1]])
+            for (const piece of notchPieces(poly))
+              for (let j = 1; j + 1 < piece.length; j++) half.push([piece[0], piece[j], piece[j+1]])
           }
         }
       }
@@ -1259,6 +1323,14 @@ export function Corridor() {
       <mesh geometry={ceilGeo}>
         <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
       </mesh>
+
+      {/* ★★★147-g 갓 서쪽 처마 살 — 두께 0 처마의 끝면 + 벽 top↔갓 쐐기 주머니 메움.
+          현도 확정 ⓑ(서쪽 대역만). GAT_EAVE_ON=false 한 줄이면 구 상태 복귀(보존계). */}
+      {gatEaveGeo && (
+        <mesh name="갓 서쪽 처마 살" geometry={gatEaveGeo} castShadow receiveShadow>
+          <meshStandardMaterial color={wallMat} roughness={0.9} />
+        </mesh>
+      )}
 
       {/* === 박스 연결부(방 ↔ 원기둥): 측벽(돔 표면까지 클립) + 천장, 양끝 트임 ===
            ⛔★134(현도): 관 소등 — 새 구조물(★133 복합체의 연장선)이 들어올 자리를 **열어둔다**.

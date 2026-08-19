@@ -35,12 +35,13 @@ import { linkSpec } from './linkPassageGeometry.js'
 import { orientOutward, archY } from './link4Geometry.js'   // ★138 안팎 자가 교정 · 곡률 노브(1p3와 같은 규칙)
 import { spireSpec, wellWallR } from './spireGeometry.js'
 import { upperPlatformSpec } from './upperPlatformGeometry.js'
+import { spandrelTop } from './bridgeDeckGeometry.js'   // ★147-j ② 아케이드 바닥판 밑면(⚠순환 — 함수 안에서만 호출)
 import {
   SPT_Y, ROOM_R, LIFT_Y, ROOM_CEIL_Y, BOX_X0,
   BRG_ON, BRG_LAND_D, BRG_LAND_T, BRG_STEP, BRG_COL_W, BRG_COL_D,
   BRG_SINK, BRG_SEAT, BRG_EMB_TOP, BRG_ARCH_UPB, BRG_SEG, BRG_WALK_MAX, BRG_PORTAL_L,
   BRG_LAND_FLUSH, BRG_COL_FIT, BRG_COL_EMB, BRG_COL_N, BRG_ARC_EMB, BRG_ARC_WF, BRG_ARC_K,
-  BRG_MODE, BRG_KEEP,
+  BRG_MODE, BRG_KEEP, BRG_COL_Z, BRG_COL_TOP, BRD_PIER_HW,
 } from './constants.js'
 
 //  방 돔 표면(회전체 — 수평 반경 r의 함수). 전부 상수 파생(H = ROOM_CEIL_Y − LIFT_Y).
@@ -80,7 +81,10 @@ export function bridgeSpec(o = {}) {
   //  ★★★138 기둥 발자국 = **참 발자국과 동일**(x 참 깊이 · z 관 외곽 폭). 1p3(★137-e)에서 유도한 규칙 그대로.
   //   그래야 스팬드럴·브래킷이 기둥 밖으로 돌출하지 않고(종잇장 소멸), 되물린 아치 발이 기둥 안에 든다.
   const colFit = o.colFit ?? BRG_COL_FIT
-  const colW = o.colW ?? (colFit ? landD : BRG_COL_W), colD = o.colD ?? (colFit ? wOut : BRG_COL_D)
+  //  ★★★147-j ①(현도 7차): z 폭만 접속 기둥(8.00 = 2·BRD_PIER_HW) 승계. x는 불변 — 큰 아치 발이 물려 있다.
+  const colW = o.colW ?? (colFit ? landD : BRG_COL_W)
+  const colZ = o.colZ ?? BRG_COL_Z
+  const colD = o.colD ?? (colZ === 'pier' ? 2 * BRD_PIER_HW : (colFit ? wOut : BRG_COL_D))
   const xCol = r0 + landD / 2
   const yLine = x => yTerr - (x - xWall) / run * rise          // 아래층 걷는 선(공칭)
   const soffit = x => (x <= xL0 ? yLine(x) - ft : yLandU)      // 밑면(관→참 — xL0에서 연속: yLand−ft = yLandU)
@@ -96,7 +100,7 @@ export function bridgeSpec(o = {}) {
   return {
     on: BRG_ON, r0, yLand, yTerr, gap, hw, h, wt, ft, ftU, wOut, rw, xWall, emb,
     run, rise, steps, riser, tread, walkDeg,
-    landD, landT, colFit, arcHw: wOut / 2 * (o.arcWf ?? BRG_ARC_WF), arcWf: o.arcWf ?? BRG_ARC_WF, arcEmb, xL0, xL1, yLandU, xCol, colW, colD,
+    landD, landT, colFit, colZ, arcHw: wOut / 2 * (o.arcWf ?? BRG_ARC_WF), arcWf: o.arcWf ?? BRG_ARC_WF, arcEmb, xL0, xL1, yLandU, xCol, colW, colD,
     arch: { xJ, yJ, xB, yB, yCt, xB2 },
     yLine, soffit,
   }
@@ -148,6 +152,14 @@ function buildTube(B, yTop0, ftHere) {
   return { mass, solid: [wallL, wallR, roof, capIn, capOut] }
 }
 
+//  ★147-j ② 기둥 머리 정본 — 빌더도 검사도 이것만 읽는다(사본 금지 · ★144 규칙).
+//   ⚠`spandrelTop`은 bridgeDeckGeometry에 있고 그쪽이 이 모듈을 import한다(순환) — 그래서 **함수 안에서만** 부른다.
+//    `bridgeSpec()`에서 부르면 spandrelTop → arcadeFloorT → bridgeArchSpec → bridgeSpec 무한 재귀가 된다(그 자리 금지).
+export function bridgeColTop(B = bridgeSpec()) {
+  if (BRG_COL_TOP !== 'arcade') return B.colFit ? B.yLandU : B.yLandU + BRG_EMB_TOP
+  return spandrelTop()
+}
+
 // ── 조립 — 반환 { walk:[{id,geo}], solid:[{id,geo}] } · BRG_ON=false → null ──
 export function buildBridgeComplex(B = bridgeSpec()) {
   if (!B.on) return null
@@ -170,7 +182,9 @@ export function buildBridgeComplex(B = bridgeSpec()) {
     //   ⚠머리: 기둥 옆면이 참 옆면과 같은 평면이 되므로 매몰(EMB_TOP) 대신 **참 밑면에 정확히 맞댄다**(★137-d 근거).
     const x0 = B.xCol - B.colW / 2, x1 = B.xCol + B.colW / 2
     const z0 = -B.colD / 2, z1 = B.colD / 2
-    const topY = B.colFit ? B.yLandU : B.yLandU + BRG_EMB_TOP
+    //  ★★★147-j ②(현도 7차): 'arcade'면 머리를 **아케이드 바닥판 밑면**까지 올린다(구 111.00 → 114.71).
+    //   ⚠참(111.00~112.50)이 살 속에 묻힌다 — ★147 ⓑ에서 계단 관이 철거돼 그리로 가는 동선이 없다(보행 영향 0).
+    const topY = bridgeColTop(B)
     const n = BRG_COL_N
     const X = i => x0 + (x1 - x0) * i / n, Z = j => z0 + (z1 - z0) * j / n
     const yb = (x, z) => bridgeDomeY(Math.hypot(x, z)) - BRG_COL_EMB

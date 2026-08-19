@@ -3328,7 +3328,9 @@ console.log('\n── ★133 1p4 복합체(2층 관·참·기둥·아치 — ★
         maxZ = Math.max(maxZ, Math.abs(geo.boundingBox.min.z), geo.boundingBox.max.z)
       }
       ok(maxX < C.BOX_X0 - 1, `동단 x ${maxX.toFixed(2)} < 진출 박스 ${C.BOX_X0} − 1(침범 0 — 그 사이 = 미정 구간)`)
-      ok(maxZ <= B.wOut / 2 + 1e-6, `z 전폭 ±${maxZ.toFixed(2)} ≤ 관 외곽 반폭(방위 0° 축에 정렬 — 1e-6: Float32 극한)`)
+      //  ★★★147-j ①: 기둥 z폭이 접속 기둥(8.00) 승계로 넓어졌다 — 상한은 이제 **둘 중 큰 쪽**이다(체제 파생).
+      const zCap = Math.max(B.wOut / 2, B.colD / 2)
+      ok(maxZ <= zCap + 1e-6, `z 전폭 ±${maxZ.toFixed(2)} ≤ max(관 외곽 반폭 ${(B.wOut / 2).toFixed(2)}, 기둥 반폭 ${(B.colD / 2).toFixed(2)}) — 1e-6: Float32 극한`)
       //  ★★★147 ⓑ: 체제별 부재 수. 'stub'은 BRG_KEEP 배열이 정본이다(수를 박지 않는다 — 배열을 고치면 따라온다).
       if (C.BRG_MODE === 'stub') {
         const ids = [...P.walk, ...P.solid].map(q => q.id)
@@ -4077,7 +4079,8 @@ console.log('\n── ★133 1p4 복합체(2층 관·참·기둥·아치 — ★
 // ══════════════ ★★★138 ★133 복합체 기둥 부분 — 1p3 처리 이식 ══════════════
 {
   console.log('\n— ★138. ★133 기둥/아치에 1p3 규칙 이식 —')
-  const { bridgeSpec: bs8, bridgeDomeY: dy8, buildBridgeComplex: bb8 } = await import('./bridgeComplexGeometry.js')
+  const BC8 = await import('./bridgeComplexGeometry.js')
+  const { bridgeSpec: bs8, bridgeDomeY: dy8, buildBridgeComplex: bb8 } = BC8
   const C8 = await import('./constants.js')
   //  ⚠전역 스위치와 무관하게 시험한다 — ⛔소등 체제(BRG_ON=false)에서 검사가 null을 붙잡고 죽었고,
   //   COL_FIT=false에서는 fit 전제 단언이 깨졌다. **여섯 번째 같은 계열** → 시험용 spec을 명시로 켠다.
@@ -4085,8 +4088,13 @@ console.log('\n── ★133 1p4 복합체(2층 관·참·기둥·아치 — ★
   //  ⚠BRG_ON=false면 buildBridgeComplex가 null을 준다 → 켠 spec으로 직접 짓는다(소등 체제에서도 검사는 살아 있어야 한다)
   const P8 = bb8({ ...B8, on: true }) ?? bb8(B8)
   //  ① 기둥 발자국 = 참 발자국
-  ok(Math.abs(B8.colW - B8.landD) < 1e-9 && Math.abs(B8.colD - B8.wOut) < 1e-9,
-    `기둥 발자국 ${B8.colW.toFixed(2)}(x=참 깊이) × ${B8.colD.toFixed(2)}(z=관 외곽 폭) = **참 발자국과 동일**(1p3 ★137-e 규칙)`)
+  //  ★★★147-j ①(현도 7차): x는 참 깊이 항등 그대로, z는 **접속 기둥 두께 승계**로 갈라졌다.
+  ok(Math.abs(B8.colW - B8.landD) < 1e-9, `기둥 x폭 ${B8.colW.toFixed(2)} = 참 깊이 항등(아치 발이 이 면에 물린다 — 불변)`)
+  if (B8.colZ === 'pier') {
+    ok(Math.abs(B8.colD - 2 * C8.BRD_PIER_HW) < 1e-9,
+      `기둥 z폭 ${B8.colD.toFixed(2)} = 접속 기둥 z폭 ${(2 * C8.BRD_PIER_HW).toFixed(2)} **항등**(현도 "나머지 기둥의 두께만큼")`)
+    ok(B8.colD > B8.wOut + 1e-9, `— 관 외곽 폭 ${B8.wOut.toFixed(2)}보다 ${(B8.colD - B8.wOut).toFixed(2)} 두껍다(의도된 이탈)`)
+  } else ok(Math.abs(B8.colD - B8.wOut) < 1e-9, `기둥 z폭 = 관 외곽 폭(구 'fit' 체제)`)
   ok(B8.arcHw * 2 <= B8.colD + 1e-9 && B8.arcHw * 2 <= B8.colW + 1e-9,
     `아치 폭 ${(2 * B8.arcHw).toFixed(2)} ≤ 기둥 단면 → z 돌출 0(종잇장 소멸 — 옛 3.0 기둥에서는 1.2씩 튀어나왔다)`)
   //  ② 아치 발 되물림 — 기둥 면과 공면이 아니다
@@ -4098,7 +4106,8 @@ console.log('\n── ★133 1p4 복합체(2층 관·참·기둥·아치 — ★
   //  ③ 돔 추종 격자 발
   {
     const g = P8.solid.find(q => q.id === 'column').geo, ap = g.getAttribute('position')
-    const topY = B8.yLandU
+    //  ⚠★147-j ②: 머리 높이는 **정본 함수**에서 받는다(구판은 `B8.yLandU` 사본이라 체제 변경에 안 따라왔다 · ★144 규칙)
+    const topY = BC8.bridgeColTop(B8)
     let onDome = 0, stray = 0
     for (let i = 0; i < ap.count; i++) {
       const x = ap.getX(i), y = ap.getY(i), z = ap.getZ(i)
@@ -4111,7 +4120,14 @@ console.log('\n── ★133 1p4 복합체(2층 관·참·기둥·아치 — ★
     //  ⛔옛 상수 반경 방식이면 넓어진 발자국에서 실제로 떠오른다는 것을 실증
     const zFar = B8.colD / 2, rNear = Math.hypot(B8.xCol - B8.colW / 2, 0), rFar = Math.hypot(B8.xCol + B8.colW / 2, zFar)
     ok(dy8(rNear) - dy8(rFar) > 1, `⛔옛 방식 실증: 발자국이 참만큼 넓어지면 모서리 간 돔 낙차가 ${(dy8(rNear) - dy8(rFar)).toFixed(2)} — 상수 반경으로는 못 덮는다`)
-    ok(Math.abs(topY - B8.yLandU) < 1e-9, `기둥 머리 ${topY.toFixed(2)} = 참 밑면(옆면이 참과 같은 평면이라 매몰 대신 맞댄다 — ★137-d 근거)`)
+    //  ★★★147-j ②(현도 7차 "기둥이 아케이드 바닥까지 닿게"): 머리 기준이 참 밑면 → **아케이드 바닥판 밑면**으로 갈렸다.
+    if (C8.BRG_COL_TOP === 'arcade') {
+      const { spandrelTop: sp8 } = await import('./bridgeDeckGeometry.js')
+      ok(Math.abs(topY - sp8()) < 1e-9,
+        `기둥 머리 ${topY.toFixed(2)} = 아케이드 바닥판 밑면 **항등** — 구 참 밑면 ${B8.yLandU}에서 ${(topY - B8.yLandU).toFixed(2)} 올라 간극이 닫힌다`)
+      ok(topY > B8.yLand + 1e-9,
+        `— 참(${B8.yLandU}~${B8.yLand})이 살 속에 묻힌다: 계단 관 철거(BRG_KEEP)로 그리로 가는 동선이 이미 없다`)
+    } else ok(Math.abs(topY - B8.yLandU) < 1e-9, `기둥 머리 ${topY.toFixed(2)} = 참 밑면(구 'land' 체제 — ★137-d 근거)`)
   }
   //  ④ 곡률 노브 — K=1이면 옛 곡선과 동일
   {
@@ -4128,7 +4144,7 @@ console.log('\n── ★133 1p4 복합체(2층 관·참·기둥·아치 — ★
   }
   //  보존계 — 옛 3.0 기둥이면 돌출이 되살아나는 것이 **정상**이다
   {
-    const Bo = bs8({ colFit: false })
+    const Bo = bs8({ colFit: false, colZ: 'fit' })   // ★147-j: z 체제도 함께 되돌려야 옛 기둥이 재현된다
     ok(Bo.colW < Bo.landD && Bo.colD < Bo.wOut,
       `보존계 BRG_COL_FIT=false: 옛 기둥 ${Bo.colW.toFixed(1)}×${Bo.colD.toFixed(1)} < 참 발자국 ${Bo.landD.toFixed(2)}×${Bo.wOut.toFixed(2)} → 아치가 기둥 밖으로 되살아난다`)
     ok(bb8({ ...Bo, on: true }) !== null, `— 그 체제에서도 복합체가 지어진다(BRG_ON과 무관하게 시험)`)
