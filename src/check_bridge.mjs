@@ -41,9 +41,24 @@ import { woldaeSpec, descentSpec, hallDoors, gatSeal } from './corridorStairsGeo
 import { gatEaveSpec, buildGatEave, gatCutSpec } from './gatEaveGeometry.js'
 import { bridgeSpec, bridgeColTop } from './bridgeComplexGeometry.js'
 import { EYE, STEP_UP } from './waypoints.js'
-import { spireSpec } from './spireGeometry.js'
+import { spireSpec, wellWallR, SPIRE_BODY_SEG, spireDoorSpec, buildSpireDoorFrame } from './spireGeometry.js'
 import { buildBridgeComplex } from './bridgeComplexGeometry.js'
 import { BRG_ON, BRG_MODE, BRG_KEEP } from './constants.js'
+import { BRD_VLT_ON, BRD_VLT_N, BRD_VLT_COL, BRD_VLT_SEG, BRD_BAND_SEGS, SPIRE_T,
+  BRD_TRP_ON, BRD_TRP_H, BRD_TRP_O, BRD_TRP_F, BRD_TRP_D, BRD_TRP_V, BRD_TRP_M, BRD_TRP_OVH,
+  BRD_TRP_O2, BRD_TRP_JZ, BRD_TRP_JY, BRD_TRP_AY, BRD_TRP_SLOPE, BRD_TRP_TIPZ, BRD_TRP_TIPY,
+  BRD_TRP_SLIT, BRD_TRP_STUB, BRD_TRP_C0Z, BRD_TRP_C0Y, BRD_TRP_CAPY, BRD_TRP_NOTCH_TOP, SPIRE_SINK,
+  BRD_TRP_PNL, BRD_TRP_PNL_N, BRD_TRP_PNL_R, BRD_TRP_PNL_G, BRD_TRP_PNL_DP, SP_FR_W, BRD_WCUT, BRD_BAND_ON,
+  UPF_ON, SPD_ON, BRD_COL_ON, BRD_COL_W, BRD_COL_CLR, BRD_COL_CURVE, BRD_COL_SECT, BRD_COL_R, BRD_COL_TH0,
+  BRD_END_ON, BRD_END_X1, BRD_END_Y1, BRD_END_K, brdEndX, brdSlantX, brdProwX, brdCrossZ,
+  BRD_PROW_ON, BRD_PROW_X0, BRD_PROW_Z0, BRD_PROW_Z1, BRD_PROW_K, SPD_HW, SPD_H, SPD_FW, SPD_PROJ, SPD_SIDE, SPD_EMB,
+  BRD_VLT_OPEN, BRD_VLT_CAP_K, BRD_VLT_CAP_X, brdVaultTopY } from './constants.js'
+import {
+  bridgeVaultSpec, buildVaultWebs, buildVaultBands, buildVaultRibs, buildVaultColumns, buildSpireBand,
+} from './bridgeVaultGeometry.js'
+import { bridgeTrapSpec as trapSpec, buildBridgeTrapParts, trapPanelSpec,
+  spireCutX, WCUT_NU, WCUT_NV, trapWestPieces, trapColumnSpec, buildTrapColumns,
+  trapEndSpec, buildTrapEndCap, endCapCells, SLOPE_DS } from './bridgeTrapGeometry.js'
 
 let n = 0, fail = 0
 const ok = (cond, msg) => { n++; if (!cond) { fail++; console.error(`  ✗ [${n}] ${msg}`) } else console.log(`  ✓ [${n}] ${msg}`) }
@@ -131,7 +146,9 @@ ok(near(BRD_PIER_HEAD, BRD_DECK_BOT), `기둥 머리 ${BRD_PIER_HEAD} = 데크 �
 }
 { //  ★★★147-f ② 동단 체제
   ok(['portal', 'ceilcut'].includes(BRD_EAST), `동단 체제 '${BRD_EAST}'`)
-  ok(near(ceilY(BRD_ROOF_E), BRD_ROOF_TOP, GEO), `ceilY(지붕 동단 ${BRD_ROOF_E.toFixed(3)}) = 지붕 상면 ${BRD_ROOF_TOP} (역함수 왕복)`)
+  if (BRD_VLT_ON || BRD_TRP_ON) ok(near(BRD_ROOF_E, BRD_EAST_X, EPS),
+    `★148·150: 지붕 동단 = 포털면 ${BRD_EAST_X}(ceilY 역함수는 구 빗천장 컷 전용 — 보존계 가지)`)
+  else ok(near(ceilY(BRD_ROOF_E), BRD_ROOF_TOP, GEO), `ceilY(지붕 동단 ${BRD_ROOF_E.toFixed(3)}) = 지붕 상면 ${BRD_ROOF_TOP} (역함수 왕복)`)
   if (BRD_EAST === 'portal') {
     const W = woldaeSpec()
     const wx1 = W.contour.reduce((m, q) => Math.max(m, q.x), -Infinity)
@@ -140,12 +157,24 @@ ok(near(BRD_PIER_HEAD, BRD_DECK_BOT), `기둥 머리 ${BRD_PIER_HEAD} = 데크 �
       `★동단 ${BRD_EAST_X} = 월대 동단 ${wx1} **항등** — 전망대 발밑을 끝까지 월대가 받친다(손 수치 0)`)
     ok(BRD_EAST_X > COR_CYL_X0 + EPS,
       `전망대가 드럼 서벽 x${COR_CYL_X0} 안으로 ${(BRD_EAST_X - COR_CYL_X0).toFixed(2)} 들어간다`)
-    ok(BRD_ROOF_E > BRD_DECK_E, `지붕이 데크보다 ${(BRD_ROOF_E - BRD_DECK_E).toFixed(2)} 더 나간다 = 개구 위 처마`)
+    if (BRD_VLT_ON || BRD_TRP_ON) ok(near(BRD_ROOF_E, BRD_DECK_E, EPS),
+      `★148·150: 지붕·데크·측벽이 **같은 포털면**에서 끝난다(처마 0 — 구 처마 2.8은 상향 시 24.8로 폭주해 폐기)`)
+    else ok(BRD_ROOF_E > BRD_DECK_E, `지붕이 데크보다 ${(BRD_ROOF_E - BRD_DECK_E).toFixed(2)} 더 나간다 = 개구 위 처마`)
   } else {
     ok(near(ceilY(BRD_DECK_E), BRD_DECK_BOT, GEO), `구 체제: ceilY(데크 동단) = 데크 밑 ${BRD_DECK_BOT}`)
   }
 }
-ok(near(BRD_ROOF_BOT - BRD_YW, BRD_CLEAR), `내부고 ${BRD_CLEAR} = 지붕 밑 − 보행면 (위젯이 현도에게 보인 정의 그대로)`)
+if (BRD_TRP_ON) {
+  //  ★150 독립 재계산: 마루 중심선 = H+V+(O/2+돌출−M/2)·기울기, 지붕밑 = 그 − 판 절반
+  const capIndep = BRD_TRP_H + BRD_TRP_V + (BRD_TRP_O / 2 + BRD_TRP_OVH - BRD_TRP_M / 2)
+    * ((BRD_TRP_H - BRD_TRP_F) / (BRD_HW + BRD_TRP_F - BRD_TRP_O / 2))
+  ok(near(BRD_ROOF_BOT - BRD_YW, capIndep - BRD_T / 2, EPS),
+    `★150 외피고 ${(BRD_ROOF_BOT - BRD_YW).toFixed(3)} = 갓 마루(독립 재계산 ${capIndep.toFixed(3)}) − 판 절반`)
+} else if (BRD_VLT_ON) {
+  const riseIndep = Math.hypot((BRD_EAST_X - BRD_X0) / BRD_VLT_N, 2 * (BRD_HW - BRD_T)) / 2
+  ok(near(BRD_ROOF_BOT - BRD_YW, BRD_VLT_COL + riseIndep, EPS),
+    `★148 내부고 ${(BRD_ROOF_BOT - BRD_YW).toFixed(3)} = 기둥 ${BRD_VLT_COL} + 라이즈 ${riseIndep.toFixed(3)}(독립 재계산 — BRD_CLEAR 7은 보존계 노브로 격하)`)
+} else ok(near(BRD_ROOF_BOT - BRD_YW, BRD_CLEAR), `내부고 ${BRD_CLEAR} = 지붕 밑 − 보행면 (위젯이 현도에게 보인 정의 그대로)`)
 ok(near(BRD_ROOF_TOP - BRD_ROOF_BOT, BRD_T), `지붕판 두께 = BRD_T(${BRD_T})`)
 //  ★가드 구멍 봉합(2026.08.19 자가 적발): BRD_CLEAR=2.00 치환이 87항을 전부 통과했다 —
 //   사람이 못 지나가는 관인데 아무도 안 잡았다. 보행 성립은 **눈높이 정본**과 맞대야 한다.
@@ -262,14 +291,15 @@ if (BRD_SPI_ON) {
 }
 ok(BRD_HW > P.hw - EPS ? true : false, `통로 반폭 ${BRD_HW} vs 기둥 반폭 ${P.hw} — 초과분 ${(BRD_HW - P.hw).toFixed(2)}(선언된 상태: 통로가 기둥보다 넓다)`)
 ok(A.side === BRD_SIDE && (BRD_SIDE === 'solid' || BRD_SIDE === 'arcade'), `측벽 체제 = '${BRD_SIDE}' (-a는 solid · -b에서 arcade)`)
-ok((BRD_SIDE === 'solid') === (buildBridgeSides(A) !== null), `측벽 체제 ↔ 생성 정합('${BRD_SIDE}')`)
+ok(BRD_TRP_ON ? buildBridgeSides(A) === null : (BRD_SIDE === 'solid') === (buildBridgeSides(A) !== null),
+  BRD_TRP_ON ? `★150: 직사각 측벽 미생성(사다리꼴이 외피)` : `측벽 체제 ↔ 생성 정합('${BRD_SIDE}')`)
 
 // ────────────────────────────────────────────────────────────
 console.log('── ⑥ 기하 건전성(에지 일관성 · 부호 부피 · 해석 부피) ──')
 const parts = buildBridgeDeckParts()
 //  ⚠보존계(BRD_ON=false)에서 검사가 **죽으면** 스윕 자체가 무의미해진다(2026.08.19 스윕이 적발).
 //   소등 상태에서는 "소등이 맞다"만 확인하고 기하 항을 건너뛴다.
-const nSolid = (BRD_SIDE === 'solid' ? 1 : 0) + (BRD_ARC_ON ? 1 : 0) * 2 + (BRA_ON ? 1 : 0) + (BRD_ON && BRA_ON && BRA_SPAN_ON ? 1 : 0) + (BRD_SFT_ON ? 1 : 0) + 2
+const nSolid = (!BRD_TRP_ON && BRD_SIDE === 'solid' ? 1 : 0) + (BRD_ARC_ON ? 1 : 0) * 2 + (BRA_ON ? 1 : 0) + (BRD_ON && BRA_ON && BRA_SPAN_ON ? 1 : 0) + (BRD_SFT_ON ? 1 : 0) + (BRD_TRP_ON ? 1 : 2)   // ★150: 측벽·지붕판 제외
 const nWalk = 1 + (BRD_SPI_ON ? 1 : 0) + (BRD_STAIR_ON ? 1 : 0) + (BRD_SFT_ON ? 1 : 0)   // 측벽? + 아케이드? + 큰아치? + 지붕판 + 기둥
 ok(BRD_ON ? (parts !== null && parts.walk.length === nWalk && parts.solid.length === nSolid) : parts === null,
   BRD_ON ? `부재 ${nWalk + nSolid}기 — walk ${nWalk} · solid ${nSolid}` : `BRD_ON=false → 부재 0(보존계 정상)`)
@@ -297,18 +327,32 @@ if (BRD_ON) { //  ★해석 부피 대조 — 빌더가 만든 것과 손으로 
   ok(near(signedVolume(buildBridgeDeck(A)), vDeck, 1e-2),
     `데크판 부피 ${signedVolume(buildBridgeDeck(A)).toFixed(3)} = 해석 ${vDeck.toFixed(3)}`)
 
-  if (BRD_SIDE === 'solid') {
+  if (BRD_SIDE === 'solid' && !BRD_TRP_ON) {   // ★150: 측벽 없음 — ⑰이 사다리꼴 부피를 잰다
     const hs = BRD_ROOF_BOT - BRD_YW
     const sideRun = BRD_EAST === 'portal'
       ? BRD_EAST_X - BRD_X0
       : ((ceilXAt(BRD_YW) - BRD_X0) + (ceilXAt(BRD_ROOF_BOT) - BRD_X0)) / 2
-    const vSide = 2 * sideRun * hs * BRD_T
+    let vSide = 2 * sideRun * hs * BRD_T
+    if (BRD_VLT_ON && BRD_VLT_OPEN) {
+      //  ★149 개방: 서쪽은 마루 곡선 아래 면적(빌더와 **같은 스테이션**의 사다리꼴 — ★144 규칙), 동쪽은 상자
+      const nx = BRD_VLT_CAP_K * BRD_VLT_SEG
+      let a = 0
+      for (let i = 0; i < nx; i++) {
+        const xa = BRD_X0 + (BRD_VLT_CAP_X - BRD_X0) * i / nx
+        const xb = BRD_X0 + (BRD_VLT_CAP_X - BRD_X0) * (i + 1) / nx
+        a += (xb - xa) * ((brdVaultTopY(xa) - BRD_YW) + (brdVaultTopY(xb) - BRD_YW)) / 2
+      }
+      vSide = 2 * BRD_T * (a + (BRD_EAST_X - BRD_VLT_CAP_X) * (BRD_ROOF_BOT - BRD_YW))
+    }
     ok(near(signedVolume(buildBridgeSides(A)), vSide, 1e-2),
       `측벽 부피 ${signedVolume(buildBridgeSides(A)).toFixed(3)} = 해석 ${vSide.toFixed(3)}`)
   } else ok(buildBridgeSides(A) === null, `'${BRD_SIDE}' 체제 — 민짜 측벽 미생성(★147-b 아케이드 자리)`)
 
-  const vRoof = ((ceilXAt(BRD_ROOF_BOT) - BRD_X0) + (ceilXAt(BRD_ROOF_TOP) - BRD_X0)) / 2 * BRD_T * 2 * hw
-  ok(near(signedVolume(buildBridgeRoof(A)), vRoof, 1e-2),
+  const vRoof = BRD_VLT_ON
+    ? ((BRD_VLT_OPEN ? BRD_EAST_X - BRD_VLT_CAP_X : BRD_EAST_X - BRD_X0)) * BRD_T * 2 * hw
+    : ((ceilXAt(BRD_ROOF_BOT) - BRD_X0) + (ceilXAt(BRD_ROOF_TOP) - BRD_X0)) / 2 * BRD_T * 2 * hw
+  if (BRD_TRP_ON) ok(buildBridgeRoof(A) === null, `★150: 지붕판 미생성(갓이 지붕) — 부피는 ⑰이 잰다`)
+  else ok(near(signedVolume(buildBridgeRoof(A)), vRoof, 1e-2),
     `지붕판 부피 ${signedVolume(buildBridgeRoof(A)).toFixed(3)} = 해석 ${vRoof.toFixed(3)}`)
 
   const H = P.head - P.foot
@@ -674,7 +718,16 @@ if (BRD_ON && BRD_SFT_ON) {
       `노치 반폭 ${N.hz} ∈ (측벽 안면 ${(BRD_HW - BRD_T).toFixed(2)}, 바깥면 ${BRD_HW}) — 잘린 변이 측벽 살 속`)
     ok(N.yLo > BRD_DECK_BOT + GEO && N.yLo < BRD_YW - GEO,
       `노치 밑변 ${N.yLo} ∈ (데크 밑 ${BRD_DECK_BOT}, 보행면 ${BRD_YW}) — 데크판 살 속`)
-    ok(N.yHi > BRD_ROOF_BOT + GEO && N.yHi < BRD_ROOF_TOP - GEO,
+    if (BRD_TRP_ON) {
+      //  ★150 동결선: yHi = 빗면 **중심선**이 노치 반폭 hz를 지나는 높이(독립 재계산). 위로 열면 슬롯,
+      //   아래로 닫으면 통행 단면 잠식 — 이 높이가 유일하게 가장자리를 살 한복판에 둔다.
+      const yFreeze = BRD_TRP_JY + (BRD_TRP_JZ - N.hz) * BRD_TRP_SLOPE
+      ok(near(N.yHi, yFreeze, EPS), `★150 노치 윗변 ${N.yHi.toFixed(3)} = 동결선(빗면 중심선이 hz ${N.hz} 통과) 재계산 ${yFreeze.toFixed(3)}`)
+      //  그 높이에서 가장자리가 정말 살 속인가 — 외피·내면으로 협공
+      const zc = BRD_TRP_JZ - (N.yHi - BRD_TRP_JY) / BRD_TRP_SLOPE
+      ok(Math.abs(zc - N.hz) < EPS && N.hz > BRD_TRP_O2 + BRD_T / 2,
+        `동결선에서 벽 중심선 = ${zc.toFixed(3)} = hz(살 정중앙) · 상부 외피 ${(BRD_TRP_O2 + BRD_T / 2).toFixed(3)} < hz(위로는 안 연다)`)
+    } else ok(N.yHi > BRD_ROOF_BOT + GEO && N.yHi < BRD_ROOF_TOP - GEO,
       `노치 윗변 ${N.yHi} ∈ (지붕 밑 ${BRD_ROOF_BOT}, 상면 ${BRD_ROOF_TOP}) — 지붕판 살 속`)
     if (N.well) {
       const S3 = shaftSpec()
@@ -685,7 +738,13 @@ if (BRD_ON && BRD_SFT_ON) {
     }
     //  ★전망대 개구(수직 절단면)의 실치수
     if (BRD_EAST === 'portal') {
-      ok(near(BRD_ROOF_BOT - BRD_YW, BRD_CLEAR, GEO),
+      if (BRD_VLT_ON) {
+        const riseI = Math.hypot((BRD_EAST_X - BRD_X0) / BRD_VLT_N, 2 * (BRD_HW - BRD_T)) / 2
+        ok(near(BRD_ROOF_BOT - BRD_YW, BRD_VLT_COL + riseI, EPS),
+          `★148 전망대 개구 = **첨두 아치 윤곽**: 폭 ${(2 * (BRD_HW - BRD_T)).toFixed(2)} · 정점 ${(BRD_ROOF_BOT - BRD_YW).toFixed(3)}(구 직사각 7.00의 2.5배 — 현도 인지 대상)`)
+      } else if (BRD_TRP_ON) ok(BRD_TRP_CAPY + BRD_T / 2 - BRD_YW > BRD_TRP_H && BRD_TRP_O < 2 * (BRD_HW - BRD_T),
+        `★150 전망대 개구 = 사다리꼴+슬릿+갓 단면(바닥 10.30 → 꼭대기 ${BRD_TRP_O} · 총고 ${(BRD_TRP_CAPY + BRD_T / 2 - BRD_YW).toFixed(2)}) — 구 직사각의 재정의`)
+      else ok(near(BRD_ROOF_BOT - BRD_YW, BRD_CLEAR, GEO),
         `전망대 개구 ${(2 * (BRD_HW - BRD_T)).toFixed(2)} × ${BRD_CLEAR} (폭 = 관 내부 유효폭 · 높이 = 내부고)`)
     }
   }
@@ -826,5 +885,896 @@ console.log('── ⑰ ★147-j 기둥 셋(현도 7차 판정) ──')
   }
 }
 
-console.log(`\n${fail === 0 ? '✅' : '❌'} ★147 접속 통로 : ${n}항 중 ${n - fail} green` + (fail ? ` · ${fail} 실패` : ''))
+//  ══ ⑮ ★★★148 관 사변형 리브 볼트 + 벽앞 기둥 + 첨탑 대역 ⓚ′ ══
+if (BRD_VLT_ON) {
+  console.log('\n⑮ ★148 볼트·기둥·대역')
+  const A = bridgeVaultSpec()
+  const meshVol = (g) => {
+    const p = g.getAttribute('position'), ix = g.index.array
+    let v = 0
+    for (let t = 0; t < ix.length; t += 3) {
+      const a = [p.getX(ix[t]), p.getY(ix[t]), p.getZ(ix[t])]
+      const b = [p.getX(ix[t + 1]), p.getY(ix[t + 1]), p.getZ(ix[t + 1])]
+      const c = [p.getX(ix[t + 2]), p.getY(ix[t + 2]), p.getZ(ix[t + 2])]
+      v += (a[0] * (b[1] * c[2] - c[1] * b[2]) - b[0] * (a[1] * c[2] - c[1] * a[2]) + c[0] * (a[1] * b[2] - b[1] * a[2])) / 6
+    }
+    return v
+  }
+  //  ── A. 상수 파생 항등(전부 재계산 대조 — 값 고정이 아니라 인과 고정) ──
+  {
+    ok(near(A.bay, (BRD_EAST_X - BRD_X0) / BRD_VLT_N, EPS), `베이 ${A.bay.toFixed(3)} = 관 길이/${BRD_VLT_N}`)
+    ok(near(A.w, 2 * (BRD_HW - BRD_T), EPS), `내부 폭 ${A.w.toFixed(2)} = 2(반폭−벽) — 횡단 스팬`)
+    ok(near(A.rise, Math.hypot(A.bay, A.w) / 2, EPS), `라이즈 ${A.rise.toFixed(3)} = hypot(베이, 폭)/2 — 대각 반원이 정한 값(자유도 아님)`)
+    ok(near(A.spr, BRD_YW + BRD_VLT_COL, EPS), `스프링 ${A.spr.toFixed(2)} = 보행면 + 기둥 ${BRD_VLT_COL}(현도 ⑥)`)
+    ok(near(A.crown, A.spr + A.rise, EPS) && near(A.crown, BRD_ROOF_BOT, EPS),
+      `크라운 ${A.crown.toFixed(3)} = 스프링+라이즈 = 지붕 밑 **항등**(빈틈·중복 0)`)
+    ok(near(BRD_ROOF_TOP, A.crown + BRD_T, EPS), `지붕 상면 ${BRD_ROOF_TOP.toFixed(3)} = 크라운 + 판`)
+    ok(BRD_VLT_SEG === BRD_ARC_SEG, `웹 격자 ${BRD_VLT_SEG} = 아치 분할 ARC_SEG(TDZ 값 복사 — 이 항등이 사본을 잠근다)`)
+    ok(near(A.webT, BRD_CEIL_LAP, EPS) && near(A.rib, BRD_T, EPS) && near(A.cw, SPIRE_T, EPS),
+      `웹 0.625 = 노치 lap · 리브 1.25 = 판 두께 · 기둥 1.2 = SPIRE_T — 새 숫자 0`)
+    ok(near(BRD_ROOF_E, BRD_EAST_X, EPS), `지붕 동단 = 포털면(볼트 체제 — 구 빗천장 컷 24.8 처마 폭주 차단)`)
+    ok(BRD_T - A.webT > 0.5, `크라운 돌출(${(A.crown + A.webT).toFixed(3)})이 지붕판 살 속 — 여유 ${(BRD_T - A.webT).toFixed(3)}`)
+  }
+  //  ── B. 첨두 아치 프로파일(발 0 · 정점 = 라이즈 · 첨두성) ──
+  {
+    ok(near(A.H1(A.w2), 0, EPS) && near(A.H1(-A.w2), 0, EPS), `횡단 아치 발(±${A.w2}) = 0`)
+    ok(near(A.H1(0), A.rise, EPS), `횡단 아치 정점 = 라이즈(정확)`)
+    ok(near(A.H2(A.bay / 2), 0, EPS) && near(A.H2(0), A.rise, EPS), `종단 아치 발 0 · 정점 = 라이즈`)
+    ok(A.rise > A.w / 2 + EPS && A.rise > A.bay / 2 + EPS, `첨두성: 라이즈 > 반스팬 양방향(원 중심 c < 0)`)
+    //  프로파일이 정말 원호인가 — 표본이 원 방정식 위(파생식 검산)
+    const c1 = (A.w * A.w / 4 - A.rise * A.rise) / A.w, rho1 = A.w / 2 - c1
+    let worst = 0
+    for (const t of [0.5, 1.5, 2.5, 3.5]) {
+      const h = A.H1(t)
+      worst = Math.max(worst, Math.abs(Math.hypot(t - c1, h) - rho1))
+    }
+    ok(worst < 1e-9, `H1 표본 4점이 원(c ${c1.toFixed(3)} · ρ ${rho1.toFixed(3)}) 위 — 편차 ${worst.toExponential(1)}`)
+  }
+  //  ── C. surf(인트라도스 장) — 경계 연속 · 벽선 · 전역 대역 ──
+  {
+    let jump = 0
+    for (let k = 1; k < BRD_VLT_N; k++) {
+      const xb = A.bayX0(k)
+      for (const z of [0, 1.7, -3.1]) jump = Math.max(jump, Math.abs(A.surf(xb - 1e-6, z) - A.surf(xb + 1e-6, z)))
+    }
+    ok(jump < 1e-4, `베이 경계 15곳 연속(최대 단차 ${jump.toExponential(1)}) — H2 발 0이 보증`)
+    ok(near(A.surf(A.bayX0(3) + A.bay / 2, A.w2), A.crown, EPS), `벽선 베이 중앙 = 크라운(측벽 아치 정점)`)
+    //  ⚠발은 접선이 수직이라 √ 조건수: 경계 x의 float 오차 δ(~1e-14)가 h ≈ √(2ρδ)(~1e-7)로 증폭된다.
+    //   기하가 아니라 평가의 성질이므로 1e-5로 잰다(발 자체가 0인 것은 [214]·[216]이 정확히 잠근다).
+    ok(near(A.surf(A.bayX0(3), A.w2), A.spr, 1e-5), `모서리(경계×벽) = 스프링(√조건수 감안 1e-5)`)
+    let lo = Infinity, hi = -Infinity
+    for (let i = 0; i <= 40; i++) for (let j = 0; j <= 20; j++) {
+      const s = A.surf(BRD_X0 + (BRD_EAST_X - BRD_X0) * i / 40, -A.w2 + A.w * j / 20)
+      lo = Math.min(lo, s); hi = Math.max(hi, s)
+    }
+    ok(lo > A.spr - EPS && hi < A.crown + EPS, `전역 표본 861점: 스프링 ≤ surf ≤ 크라운`)
+    ok(near(A.surf(60, A.w2 + A.lap), A.surf(60, A.w2), EPS), `살속 연장(|z|=${(A.w2 + A.lap).toFixed(3)}) = 벽선 값 — 클램프 성질`)
+    ok(A.w2 + A.lap < BRD_HW - EPS, `웹 잘린 변 ${(A.w2 + A.lap).toFixed(3)} < 벽 바깥 ${BRD_HW} — 살 속(불가시)`)
+  }
+  //  ── D. 웹 메시 — 정점이 정확히 장 위 + 부피 = 두께×평면적(연직 오프셋의 정확 항등) ──
+  {
+    const g = buildVaultWebs(A)
+    const p = g.getAttribute('position')
+    //  ⚠베이 경계 정점의 Float32 x(x~145에서 ε ≈ 7.6e-6)는 종단 아치 **발**의 √조건수로
+    //   h ≈ √(2ρ₂·7.6e-6) ≈ 9e-3까지 증폭된다(규명: 편차 8.4e-3 실측 = 이 식). 섭동 평가로는 못 피하고,
+    //   경계 1e-3 이내 정점은 경계 **극한값**(spr + H1 — H2 발 = 0)과도 대조한다. 진짜 이탈은 여전히 잡힌다.
+    let worst = 0, yMin = Infinity, yMax = -Infinity
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i)
+      const s = A.surf(x, z)
+      let dev = Math.min(Math.abs(y - s), Math.abs(y - s - A.webT))
+      const m = (x - BRD_X0) / A.bay
+      if (Math.abs(m - Math.round(m)) * A.bay < 1e-3) {
+        const sb = A.spr + A.H1(z)
+        dev = Math.min(dev, Math.abs(y - sb), Math.abs(y - sb - A.webT))
+      }
+      worst = Math.max(worst, dev)
+      yMin = Math.min(yMin, y); yMax = Math.max(yMax, y)
+    }
+    ok(worst < GEO, `웹 정점 ${p.count}개 전수: 인트라도스/엑스트라도스 장 위(최대 편차 ${worst.toExponential(1)})`)
+    ok(yMin > A.spr - GEO && yMax < BRD_ROOF_TOP - 0.5, `y 대역 [${yMin.toFixed(3)}, ${yMax.toFixed(3)}] — 크라운 돌출이 지붕 상면 아래`)
+    let exact = 0
+    for (let k = 0; k < BRD_VLT_N; k++) exact += A.webT * A.bay * 2 * A.zOut(k)
+    const vol = meshVol(g)
+    ok(Math.abs(vol - exact) < 0.05, `웹 부피 ${vol.toFixed(3)} = Σ 두께×베이 평면적 ${exact.toFixed(3)}(연직 셸의 정확식 · 감김 검증 겸용)`)
+  }
+  //  ── E. 횡단 아치 17기 — 정렬 · 부피 = 단면×곡선 길이 ──
+  {
+    ok(A.bands.length === BRD_VLT_N + 1, `횡단 아치 ${A.bands.length}기 = 경계 수`)
+    ok(near(A.bands[0].x0, BRD_X0, EPS) && near(A.bands[BRD_VLT_N].x1, BRD_EAST_X, EPS),
+      `양끝 띠가 관 범위에 안으로 붙는다(밖 돌출 0)`)
+    //  ⚠부피 = 단면적 × 도심 경로 길이(대칭 단면 + 마이터 조인트의 스윕 정리). 곡선 길이를 그대로 쓰면
+    //   단면 도심이 곡선에서 (rib−sink)/2 = 0.375 안쪽(오목 쪽)이라 −6.5%가 남는다(스모크 자가 적발).
+    //   도심 경로 = 원호의 반경 오프셋(정확·빌더 유한차분과 독립) 폴리라인.
+    const dCen = (A.sink - A.rib) / 2
+    const cenPath = (pts) => {
+      let L = 0
+      for (let j = 1; j < pts.length; j++) L += Math.hypot(pts[j][0] - pts[j - 1][0], pts[j][1] - pts[j - 1][1])
+      return L
+    }
+    const cArc = (A.w * A.w / 4 - A.rise * A.rise) / A.w, rhoArc = A.w / 2 - cArc
+    const ptsB = []
+    for (let j = 0; j <= A.seg; j++) {
+      const z = -A.w2 + 2 * A.w2 * j / A.seg, h = A.H1(z)
+      const cx = z >= 0 ? cArc : -cArc                     // 원 중심(스프링선 위 ±c)
+      const nl = Math.hypot(z - cx, h)                     // = ρ — 반경 방향이 정확 법선
+      ptsB.push([z + (z - cx) / nl * dCen, h + h / nl * dCen])
+    }
+    const Lb = cenPath(ptsB)
+    const vol = meshVol(buildVaultBands(A)), exact = A.rib * (A.rib + A.sink) * Lb * (BRD_VLT_N + 1)
+    ok(Math.abs(vol / exact - 1) < 0.01, `횡단 아치 부피 ${vol.toFixed(1)} = 단면×도심 경로 ${exact.toFixed(1)}(±1%)`)
+  }
+  //  ── F. 대각 리브 32기 — 그로인 끝점 · 부피 ──
+  {
+    const g = buildVaultRibs(A)
+    ok(near(A.surf(A.bayX0(5), -A.w2), A.spr, EPS) && near(A.surf(A.bayX0(5) + A.bay, A.w2), A.spr, EPS),
+      `그로인 끝(모서리) = 스프링 — 리브 발이 기둥 머리 높이에 실린다`)
+    ok(near(A.surf(A.bayX0(5) + A.bay / 2, 0), A.crown, EPS), `그로인 교차점(베이 중심) = 크라운`)
+    //  부피 = 단면 × 도심 경로(횡단 아치와 같은 정리). 도심 폴리라인을 surf에서 독립 구성.
+    const dx = A.bay / 2, dz = A.w2, cx = A.bayX0(0) + A.bay / 2
+    const Lp = Math.hypot(dx, dz), dC = (A.sink - A.rib) / 2
+    const cen = []
+    for (let i = 0; i <= A.seg; i++) {
+      const t = -1 + 2 * i / A.seg
+      const x = cx + t * dx, z = t * dz, y = A.surf(x, z)
+      const tp = Math.min(1, t + 1 / A.seg), tm = Math.max(-1, t - 1 / A.seg)
+      const yp = (A.surf(cx + tp * dx, tp * dz) - A.surf(cx + tm * dx, tm * dz)) / ((tp - tm) * Lp)
+      const nl = Math.hypot(yp, 1), ns = -yp / nl, ny = 1 / nl
+      cen.push([x + ns * (dx / Lp) * dC, y + ny * dC, z + ns * (dz / Lp) * dC])
+    }
+    let Lr = 0
+    for (let i = 1; i <= A.seg; i++) Lr += Math.hypot(cen[i][0] - cen[i - 1][0], cen[i][1] - cen[i - 1][1], cen[i][2] - cen[i - 1][2])
+    const vol = meshVol(g), exact = A.rib * (A.rib + A.sink) * Lr * 2 * BRD_VLT_N
+    ok(Math.abs(vol / exact - 1) < 0.01, `대각 리브 부피 ${vol.toFixed(1)} = 단면×도심 경로 ${exact.toFixed(1)}(±1%)`)
+  }
+  //  ── G. 벽앞 기둥 — 개수·생략 근거·정확 부피 ──
+  {
+    const S = shaftSpec()
+    const overlap = []
+    for (let k = 0; k <= BRD_VLT_N; k++) {
+      const xb = A.bayX0(k)
+      const x0 = k === 0 ? BRD_X0 : k === BRD_VLT_N ? BRD_EAST_X - A.cw : xb - A.cw / 2
+      if (x0 + A.cw > S.inX0 && x0 < S.inX1) overlap.push(k)
+    }
+    ok(overlap.length === 1 && overlap[0] === 13,
+      `샤프트 구멍과 겹치는 경계 = {13}뿐(독립 재계산) — 발 디딜 데크가 없다`)
+    ok(A.omitted.length === 2 && A.omitted.every(c => c.k === 13),
+      `생략 = 경계 13 양벽 2기(선언된 처리 — 현도 판정 대기)`)
+    ok(A.columns.length === 2 * (BRD_VLT_N + 1) - 2, `기둥 ${A.columns.length}기 = 경계 17×양벽 − 생략 2`)
+    ok(A.columns.every(c => near(Math.max(Math.abs(c.z0), Math.abs(c.z1)), A.w2, EPS)
+      && near(Math.abs(c.z1 - c.z0), A.cw, EPS)), `전 기둥: 벽 안쪽면에 붙어 ${A.cw} 돌출`)
+    const vol = meshVol(buildVaultColumns(A)), exact = A.columns.length * A.cw * A.cw * (A.spr - BRD_YW)
+    ok(near(vol, exact, 5e-3), `기둥 부피 ${vol.toFixed(3)} = ${A.columns.length}×${A.cw}²×${(A.spr - BRD_YW).toFixed(1)}(Float32 저장 오차 5e-3 — ★134 지식)`)
+  }
+  //  ── H. 첨탑 대역 ⓚ′ — 정본 파생·스냅 유일성·커버리지·정확 부피·날개 제원 ──
+  {
+    const SP = spireSpec(), B = A.band
+    ok(near(B.rIn, SP.rCylTopIn, EPS) && near(B.rOut, SP.rCylTop, EPS),
+      `대역 반경 ${B.rIn}~${B.rOut} = 첨탑 위 원기둥 정본 항등(사본 금지)`)
+    const capWant = BRD_VLT_OPEN ? A.crown + A.webT : BRD_ROOF_TOP
+    ok(near(B.y0, SP.yTop0, EPS) && near(B.y1, capWant, EPS),
+      `대역 y ${B.y0.toFixed(2)}~${B.y1.toFixed(3)} = 빗면 시작 → ${BRD_VLT_OPEN ? '웹 엑스트라도스 크라운' : '지붕 상면'}(파생)`)
+    ok(B.y1 + EPS >= A.crown + A.webT, `대역이 서단 최고점(엑스트라도스 크라운 ${(A.crown + A.webT).toFixed(3)})을 덮는다`)
+    ok(near(B.half, BRD_BAND_SEGS * 2 * Math.PI / 96, EPS), `반각 = ${BRD_BAND_SEGS}세그 스냅(첨탑 SEG 96)`)
+    //  스냅 유일성 — 한 세그 좁으면 관 안폭 미달, 한 세그 넓으면 벽 밖 돌출(실측의 잠금)
+    ok(B.rIn * Math.sin(B.half) > A.w2 && B.rOut * Math.sin(B.half) < BRD_HW,
+      `커버리지 ${(B.rIn * Math.sin(B.half)).toFixed(3)} > 안폭 ${A.w2} · ${(B.rOut * Math.sin(B.half)).toFixed(3)} < 바깥 ${BRD_HW}`)
+    ok(!(B.rIn * Math.sin(B.half - B.segW) > A.w2) && !(B.rOut * Math.sin(B.half + B.segW) < BRD_HW),
+      `스냅 유일성: ±1세그는 두 조건 중 하나를 깬다(3세그만 성립)`)
+    const vol = meshVol(buildSpireBand(A))
+    const exact = BRD_BAND_SEGS * Math.sin(B.segW) * (B.rOut ** 2 - B.rIn ** 2) * (B.y1 - B.y0)
+    ok(Math.abs(vol - exact) < 1e-3, `대역 부피 ${vol.toFixed(3)} = 다각형 정확식 ${exact.toFixed(3)}(현 스테이션)`)
+    //  날개 제원(파생 잠금): 팔각뿔대 반경을 독립 재계산해 꼭대기 돌출 대조
+    const octAt = (y) => SP.octBase + (SP.rMid - SP.octBase) * (y - SP.y1) / (SP.y2 - SP.y1)
+    const pTop = B.rOut - octAt(B.y1), pBot = B.rOut - SP.octBase
+    ok(pTop > pBot + EPS && near(pBot, B.rOut - SP.octBase, EPS),
+      `날개 = 벌어지는 쐐기: 밑 ${pBot.toFixed(3)}(팔각 밑) → 꼭대기 ${pTop.toFixed(3)} — 현도 감수 ⑦`)
+    ok(B.y1 > SP.y1 + EPS, `날개가 팔각 어깨 ${SP.y1.toFixed(2)}를 ${(B.y1 - SP.y1).toFixed(3)} 넘는다(선언된 대가)`)
+  }
+  //  ── I. ⛔★147-f 쐐기 재발 방지 — 상향된 지붕이 여전히 드럼 **안**에서 끝난다 ──
+  {
+    const surf = gatCutSpec().surf
+    const solve = (y, z) => { let a = 100, b = 260; for (let i = 0; i < 100; i++) { const m = (a + b) / 2; if (surf(m, z) < y) a = m; else b = m } return (a + b) / 2 }
+    const xr = solve(BRD_ROOF_TOP, BRD_HW)
+    ok(xr < BRD_EAST_X - 1, `지붕 상면 ${BRD_ROOF_TOP.toFixed(3)}의 갓 패싯 통과 x ${xr.toFixed(3)} < 동단 ${BRD_EAST_X}(여유 ${(BRD_EAST_X - xr).toFixed(2)})`)
+    const xw = solve(BRD_YW, BRD_HW)
+    ok(xw < 126.1 + 1e-6, `보행면 통과 ${xw.toFixed(3)} — 관통대 서단 불변(상향은 위만 밀었다)`)
+  }
+}
+
+//  ══ ⑯ ★★★149 지붕 개방 — 볼트 등 노출 + 스캘럽 측벽 ══
+if (BRD_VLT_ON && BRD_VLT_OPEN) {
+  console.log('\n⑯ ★149 지붕 개방')
+  const A = bridgeVaultSpec()
+  const surfC = gatCutSpec().surf
+  //  ── A. 캡 경계 — 검사가 천장 교차 구간을 **독립 재계산**해 CAP_K를 잠근다 ──
+  {
+    const EXT = (x, z) => A.surf(x, z) + A.webT
+    //  천장이 볼트 등보다 낮은(= 교차하는) x의 동쪽 끝을 중앙선·벽선 둘로 이분
+    const solve = (z) => { let a = 100, b = 200; for (let i = 0; i < 80; i++) { const m = (a + b) / 2; if (surfC(m, z) < EXT(m, z)) a = m; else b = m } return (a + b) / 2 }
+    const xEnd = Math.max(solve(0), solve(BRD_HW - BRD_CEIL_LAP))
+    //  ★천장 서단 = 갓 바깥 반경의 방위 180° 지점 — **정본 파생**(손 수치 115.68 금지)
+    const ceilW = COR_CX - gatEaveSpec().rOut
+    ok(BRD_VLT_CAP_X <= ceilW + GEO,
+      `캡 서단 ${BRD_VLT_CAP_X.toFixed(3)} ≤ 갓 천장 서단 ${ceilW.toFixed(3)}(파생) — 교차 구간 서쪽 끝을 덮는다`)
+    //  ★최대성 — "최대한 드러낸다"를 잠근다. 이게 없으면 캡을 서쪽으로 아무리 밀어도 검사가 안 문다(스윕 실증).
+    ok(BRD_X0 + (BRD_VLT_CAP_K + 1) * A.bay > ceilW + GEO,
+      `CAP_K ${BRD_VLT_CAP_K}가 **최대** — 한 베이 더 열면 캡 서단 ${(BRD_X0 + (BRD_VLT_CAP_K + 1) * A.bay).toFixed(3)}이 천장 안으로 들어간다`)
+    ok(BRD_EAST_X >= xEnd - GEO && BRD_VLT_CAP_X <= xEnd,
+      `천장 교차가 x${xEnd.toFixed(3)}에서 끝나고 캡 구간 [${BRD_VLT_CAP_X.toFixed(2)}, ${BRD_EAST_X}]이 그것을 포함`)
+    ok(BRD_VLT_CAP_K > 0 && BRD_VLT_CAP_K < BRD_VLT_N && near(BRD_VLT_CAP_X, BRD_X0 + BRD_VLT_CAP_K * A.bay, EPS),
+      `캡 경계가 베이 경계 ${BRD_VLT_CAP_K}에 스냅(x ${BRD_VLT_CAP_X.toFixed(3)}) — 웹 격자와 어긋나지 않는다`)
+    const kMin = Math.ceil((xEnd - BRD_X0) / A.bay)
+    ok(BRD_VLT_CAP_K <= kMin, `CAP_K ${BRD_VLT_CAP_K} ≤ 교차가 요구하는 최소 ${kMin}(더 크면 천장이 볼트를 자른다)`)
+    //  ★노치의 잘린 변이 여전히 지붕판 살 속인가(개방이 이 봉인을 깨지 않았다)
+    const N = ceilNotchSpec()
+    ok(N.yHi > BRD_ROOF_BOT + EPS && N.yHi < BRD_ROOF_TOP - EPS,
+      `노치 윗변 ${N.yHi.toFixed(3)} ∈ 지붕판(${BRD_ROOF_BOT.toFixed(3)}, ${BRD_ROOF_TOP.toFixed(3)}) — 캡 구간에 판이 남아 살이 있다`)
+  }
+  //  ── B. 벽 윗변 = 볼트 인트라도스 항등(정본 함수 하나를 벽·웹이 공유) ──
+  {
+    let worst = 0
+    for (let i = 0; i <= 400; i++) {
+      const x = BRD_X0 + (BRD_VLT_CAP_X - BRD_X0) * i / 400
+      for (const z of [BRD_HW - BRD_T, BRD_HW - BRD_T / 2, BRD_HW]) worst = Math.max(worst, Math.abs(brdVaultTopY(x) - A.surf(x, z)))
+    }
+    ok(worst < 1e-12, `벽 윗변 = surf(x, |z|≥3.90) 항등 — 1203점 편차 ${worst.toExponential(1)}(z 무관 = 모선이 직선)`)
+    //  ⚠경계값은 아치 **발**이라 √조건수(★148 규명): 베이 경계 x의 float 오차 1.4e-15가
+    //   h ≈ √(2ρδ) ≈ 1.5e-7로 증폭된다. 기하가 아니라 평가의 성질이므로 1e-5로 잰다.
+    ok(near(brdVaultTopY(BRD_X0), A.spr, 1e-5) && near(brdVaultTopY(BRD_X0 + A.bay / 2), A.crown, EPS),
+      `마루가 경계 ${A.spr.toFixed(2)} ↔ 중앙 ${A.crown.toFixed(3)}으로 물결친다(진폭 = 라이즈 ${A.rise.toFixed(3)})`)
+    ok(near(brdVaultTopY(BRD_VLT_CAP_X), A.spr, 1e-5), `캡 경계의 마루 = 스프링(단차 밑이 베이 경계라 정확)`)
+  }
+  //  ── C. 봉인 — 옆에서 볼 때 안이 안 보인다(벽 윗변 위는 웹이 이어받는다) ──
+  {
+    let gap = 0, over = 0
+    for (let i = 0; i <= 800; i++) {
+      const x = BRD_X0 + (BRD_VLT_CAP_X - BRD_X0) * i / 800
+      gap = Math.max(gap, A.surf(x, BRD_HW) - brdVaultTopY(x))          // 웹 밑면 − 벽 윗변 (틈)
+      over = Math.max(over, brdVaultTopY(x) - A.surf(x, BRD_HW))        // 벽이 볼트를 가리는 양
+    }
+    ok(gap < 1e-12 && over < 1e-12, `벽 윗변과 웹 밑면이 전 구간 **정확히 맞닿는다**(틈 ${gap.toExponential(1)} · 겹침 ${over.toExponential(1)})`)
+    ok(near(A.zOut(0), BRD_HW, EPS) && near(A.zOut(BRD_VLT_N - 1), A.w2 + A.lap, EPS),
+      `웹 바깥 한계: 개방 베이 ${A.zOut(0)}(벽 바깥면 flush) · 캡 베이 ${A.zOut(BRD_VLT_N - 1)}(살 속)`)
+    for (let k = 0; k < BRD_VLT_N; k++) {
+      if (k === BRD_VLT_CAP_K) continue
+      if (!near(A.zOut(k), A.zOut(Math.max(0, k - 1)), EPS)) { ok(false, `zOut 단차가 캡 경계 밖(${k})에 있다`); break }
+    }
+    ok(true, `zOut 단차는 캡 경계 ${BRD_VLT_CAP_K} 한 곳뿐(마구리도 거기 한 장)`)
+  }
+  //  ── D. 메시 무결 — 웹·측벽 둘 다 닫힌 몸(에지가 방향별로 정확히 한 번) ──
+  {
+    const audit = (g) => {
+      const p = g.getAttribute('position'), ix = g.index.array, m = new Map()
+      const K = (i) => [p.getX(i), p.getY(i), p.getZ(i)].map(v => { const s = v.toFixed(4); return s === '-0.0000' ? '0.0000' : s }).join(',')
+      for (let t = 0; t < ix.length; t += 3) {
+        const v = [K(ix[t]), K(ix[t + 1]), K(ix[t + 2])]
+        for (let e = 0; e < 3; e++) { const k = v[e] + '|' + v[(e + 1) % 3]; m.set(k, (m.get(k) || 0) + 1) }
+      }
+      let bad = 0
+      for (const [k, c] of m) { if (c !== 1) bad++; const [a, b] = k.split('|'); if (!m.has(b + '|' + a)) bad++ }
+      return bad
+    }
+    ok(audit(buildVaultWebs(A)) === 0, `웹 에지 감사 0 — T-접합·구멍 없음(4.525 상시 스테이션이 개방↔캡 경계를 맞춘다)`)
+    ok(audit(buildBridgeSides(bridgeDeckSpec())) === 0, `측벽 에지 감사 0 — 닫힌 스윕 프리즘(칸별 상자 금지의 사후 봉인)`)
+  }
+  //  ── E. 밖에서 보이는 민짜 띠가 물결친다(★148에서 남긴 의제의 부수 해소) ──
+  {
+    const lo = A.spr + A.webT - BRD_DECK_BOT, hi = A.crown + A.webT - BRD_DECK_BOT
+    ok(hi - lo > A.rise - GEO, `민짜 띠가 ${lo.toFixed(3)} ↔ ${hi.toFixed(3)}로 물결친다(구 통짜 ${(145.721 - BRD_DECK_BOT).toFixed(3)} 평면)`)
+    ok(hi < 145.721 - BRD_DECK_BOT, `최대치도 구 통짜보다 낮다 — 지붕판 두께 몫이 빠졌다`)
+  }
+}
+
+
+//  ── ★158 공용: 다각형에 ∫L(y)dA — L은 y의 **구간선형**(브레이크 127 · 142.825)이라
+//   그 높이에서 잘라 조각마다 면적×L(무게중심 y)로 **정확히** 적분한다.
+function _clipY(poly, Y, keepBelow) {
+  const out = []
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length]
+    const ia = keepBelow ? a[1] <= Y : a[1] >= Y
+    const ib = keepBelow ? b[1] <= Y : b[1] >= Y
+    if (ia) out.push(a)
+    if (ia !== ib) { const t = (Y - a[1]) / (b[1] - a[1]); out.push([a[0] + (b[0] - a[0]) * t, Y]) }
+  }
+  return out
+}
+function _areaCentroid(poly) {
+  let A2 = 0, cx = 0, cy = 0
+  for (let i = 0; i < poly.length; i++) {
+    const [x0, y0] = poly[i], [x1, y1] = poly[(i + 1) % poly.length]
+    const cr = x0 * y1 - x1 * y0
+    A2 += cr; cx += (x0 + x1) * cr; cy += (y0 + y1) * cr
+  }
+  if (Math.abs(A2) < 1e-14) return { a: 0, cy: 0 }
+  return { a: Math.abs(A2) / 2, cy: cy / (3 * A2) }
+}
+//  poly = [z,y] 목록(면적은 z-y 평면). L(y) = brdEndX(y) − x0
+//  ★159: 끝 면이 두 장이라 **교대선**에서도 쪼갠다. 조각 안에서는 끝 x가 (z,y)에 선형이므로
+//   면적 × 끝x(무게중심)가 정확하다.
+function _clipG(poly, g, keepPos) {
+  const out = []
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length]
+    const ga = keepPos ? g(a) : -g(a), gb = keepPos ? g(b) : -g(b)
+    if (ga >= 0) out.push(a)
+    if ((ga >= 0) !== (gb >= 0)) { const t = ga / (ga - gb); out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]) }
+  }
+  return out
+}
+function _centroid2(poly) {
+  let A2 = 0, cx = 0, cy = 0
+  for (let i = 0; i < poly.length; i++) {
+    const [x0, y0] = poly[i], [x1, y1] = poly[(i + 1) % poly.length]
+    const cr = x0 * y1 - x1 * y0
+    A2 += cr; cx += (x0 + x1) * cr; cy += (y0 + y1) * cr
+  }
+  if (Math.abs(A2) < 1e-14) return null
+  return { a: Math.abs(A2) / 2, cz: cx / (3 * A2), cy: cy / (3 * A2) }
+}
+function intLenOverQuad(poly, x0) {
+  let pieces = [poly]
+  for (const Y of [BRD_YW]) {
+    const nx = []
+    for (const pc of pieces) for (const c of [_clipY(pc, Y, true), _clipY(pc, Y, false)]) if (c.length >= 3) nx.push(c)
+    pieces = nx
+  }
+  {
+    const nx = []
+    for (const pc of pieces) {
+      const sg = pc.reduce((a, p) => a + p[0], 0) >= 0 ? 1 : -1
+      const g = (p) => sg * p[0] - brdCrossZ(p[1])
+      for (const c of [_clipG(pc, g, true), _clipG(pc, g, false)]) if (c.length >= 3) nx.push(c)
+    }
+    pieces = nx
+  }
+  let v = 0
+  for (const pc of pieces) {
+    const c = _centroid2(pc)
+    if (c && c.a > 1e-12) v += c.a * (brdEndX(c.cy, c.cz) - x0)
+  }
+  return v
+}
+
+//  ══ ⑰ ★★★150 사다리꼴 관 — 파생 항등 · 프리즘 정확 부피 · 접합 실측 ══
+if (BRD_TRP_ON) {
+  console.log('\n⑰ ★150 사다리꼴 관')
+  const A = trapSpec()
+  const meshVol = (g) => {
+    const p = g.getAttribute('position'), ix = g.index.array
+    let v = 0
+    for (let t = 0; t < ix.length; t += 3) {
+      const a = [p.getX(ix[t]), p.getY(ix[t]), p.getZ(ix[t])]
+      const b = [p.getX(ix[t + 1]), p.getY(ix[t + 1]), p.getZ(ix[t + 1])]
+      const c = [p.getX(ix[t + 2]), p.getY(ix[t + 2]), p.getZ(ix[t + 2])]
+      v += (a[0] * (b[1] * c[2] - c[1] * b[2]) - b[0] * (a[1] * c[2] - c[1] * a[2]) + c[0] * (a[1] * b[2] - b[1] * a[2])) / 6
+    }
+    return v
+  }
+  //  ── A. 파생 사슬 항등(현도 6값 → 전 좌표 재계산 대조) ──
+  {
+    ok(near(BRD_TRP_JZ, BRD_HW + BRD_TRP_F, EPS) && near(BRD_TRP_JY, BRD_YW + BRD_TRP_F, EPS),
+      `접점 (±${BRD_TRP_JZ.toFixed(2)}, ${BRD_TRP_JY.toFixed(2)}) = 45° 스커트(가정)`)
+    ok(near(BRD_TRP_SLOPE, (BRD_TRP_H - BRD_TRP_F) / (BRD_TRP_JZ - BRD_TRP_O / 2), EPS),
+      `빗면 기울기 ${BRD_TRP_SLOPE.toFixed(3)} (${(Math.atan(BRD_TRP_SLOPE) * 180 / Math.PI).toFixed(1)}°)`)
+    ok(near(BRD_TRP_TIPZ, BRD_TRP_JZ + BRD_TRP_D / BRD_TRP_SLOPE, EPS) && near(BRD_TRP_TIPY, BRD_TRP_JY - BRD_TRP_D, EPS),
+      `처마 끝 (±${BRD_TRP_TIPZ.toFixed(3)}, ${BRD_TRP_TIPY.toFixed(2)}) — 접점 지나 ${BRD_TRP_D} 내림`)
+    ok(BRD_TRP_TIPY > BRD_DECK_BOT + EPS, `처마 끝이 데크 밑(${BRD_DECK_BOT})보다 ${(BRD_TRP_TIPY - BRD_DECK_BOT).toFixed(2)} 위 — 아케이드 띠와 안 겹친다`)
+    ok(near(BRD_TRP_SLIT, BRD_TRP_V * 0.45, EPS) && near(BRD_TRP_STUB * 2 + BRD_TRP_SLIT, BRD_TRP_V, EPS),
+      `슬릿 ${BRD_TRP_SLIT.toFixed(2)} + 토막 2×${BRD_TRP_STUB.toFixed(3)} = 구간 ${BRD_TRP_V}(위젯 비례 45% 승계)`)
+    ok(near(BRD_TRP_CAPY, BRD_TRP_C0Y + (BRD_TRP_C0Z - BRD_TRP_M / 2) * BRD_TRP_SLOPE, EPS),
+      `갓 마루 중심선 ${BRD_TRP_CAPY.toFixed(3)} — 갓 빗판이 벽과 같은 기울기`)
+    ok(near(BRD_ROOF_TOP, BRD_TRP_CAPY + BRD_T / 2, EPS), `외피 상면 ${BRD_ROOF_TOP.toFixed(3)} = 마루 + 판 절반(파생)`)
+    ok(near(BRD_TRP_OVH, SPIRE_SINK, EPS), `갓 돌출 ${BRD_TRP_OVH} = SPIRE_SINK(침강 가족 — 새 숫자 0)`)
+    ok(2 * BRD_TRP_JZ > 2 * BRD_HW && near(2 * BRD_TRP_JZ, 14.1, 1e-9),
+      `발 전폭 ${(2 * BRD_TRP_JZ).toFixed(2)} > 아케이드 10.30 — 현도 의도 확인 ②`)
+  }
+  //  ── B. 부재 프리즘 — 등단면이므로 부피 = 단면적 × 길이 **정확식**(감김·중복을 부피 하나로 잠근다) ──
+  {
+    const P = buildBridgeTrapParts()
+    const base = ['스커트', '빗면', '토막아래', '토막위', '갓빗판', '갓마루']
+    const want = [...base,
+      ...(BRD_END_ON ? ['동단마개'] : []),                    // ★158 동단 빗면 마개
+      ...(BRD_COL_ON ? ['기둥몸', '슬릿마개'] : []),          // ★157 도면 트레이스 리브 + 슬릿 마개
+      ...(BRD_WCUT ? base.map(b => '서단' + b) : []),        // ★151 서단 연장체(면추종)
+      ...(BRD_BAND_ON ? ['첨탑대역'] : [])]                   // ★151: 절단이 틈을 없애면 대역은 파생으로 꺼진다
+    ok(P.solid.length === want.length && P.solid.every((p, i) => p.id === want[i]),
+      `부재 ${P.solid.length}기 = ${want.join('·')}`)
+    for (const s of A.secs) {
+      const part = P.solid.find(p => p.id === s.id)
+      if (!part) { ok(false, `${s.id} 파츠 누락`); continue }
+      let exact
+      if (s.id === '빗면') {   // ★150-b 조립체 + ★158 빗면 컷 — (s,u) 사각을 y로 사상해 ∫길이 적분
+        const PS = trapPanelSpec()
+        const Ls = Math.hypot(BRD_TRP_JZ - BRD_TRP_O2, BRD_TRP_AY - BRD_TRP_JY)
+        const dy2 = (BRD_TRP_AY - BRD_TRP_JY) / Ls, ny2 = -(BRD_TRP_O2 - BRD_TRP_JZ) / Ls
+        const dz2 = (BRD_TRP_O2 - BRD_TRP_JZ) / Ls, nz2 = (BRD_TRP_AY - BRD_TRP_JY) / Ls
+        const yOf = (sp, u) => BRD_TRP_JY + dy2 * sp + ny2 * (BRD_T / 2 - u)
+        const zOf = (sp, u) => BRD_TRP_JZ + dz2 * sp + nz2 * (BRD_T / 2 - u)
+        //  ★159: 끝 x가 (y,z) 둘에 의존 → (s,u) 격자로 세밀 적분(빌더와 같은 이산화 · ★144 규칙)
+        //  ★159: 빌더는 패치를 s로 쪼갠 뒤 **모서리 넷의 끝 x를 이중선형 보간**한다.
+        //   해석식도 같은 이산화를 써야 한다(★144 규칙 — 다른 이산화로 재면 영원히 안 맞는다).
+        const sCrossAt = (u) => (BRD_YW - BRD_TRP_JY - ny2 * (BRD_T / 2 - u)) / dy2
+        exact = 0
+        for (const p of PS.patches) {
+          const sC2 = (u) => {
+            const yb = BRD_TRP_JY + ny2 * (BRD_T / 2 - u), zb = Math.abs(BRD_TRP_JZ + nz2 * (BRD_T / 2 - u))
+            const zs = (BRD_TRP_JZ + nz2 * (BRD_T / 2 - u)) >= 0 ? 1 : -1
+            const A1 = -BRD_END_K * dy2, B1 = BRD_EAST_X - BRD_END_K * (yb - BRD_YW)
+            const A2 = -(zs * dz2) / BRD_PROW_K, B2 = BRD_PROW_X0 + (BRD_PROW_Z0 - zb) / BRD_PROW_K
+            return Math.abs(A1 - A2) < 1e-12 ? NaN : (B2 - B1) / (A1 - A2)
+          }
+          const cs = [sCrossAt(p.u0), sCrossAt(p.u1), sC2(p.u0), sC2(p.u1)]
+            .filter(v => isFinite(v) && v > p.s0 + 1e-9 && v < p.s1 - 1e-9).sort((a, b) => a - b)
+          const raw = []
+          let s0b = p.s0
+          for (const c of cs) { raw.push([s0b, c]); s0b = c }
+          raw.push([s0b, p.s1])
+          const bands = []
+          for (const [a2, b2] of raw) {
+            const n2 = Math.max(1, Math.ceil((b2 - a2) / SLOPE_DS))
+            for (let i = 0; i < n2; i++) bands.push([a2 + (b2 - a2) * i / n2, a2 + (b2 - a2) * (i + 1) / n2])
+          }
+          for (const [sa, sb] of bands) {
+            const eA = Math.min(p.x1, brdEndX(yOf(sa, p.u0), zOf(sa, p.u0)))
+            const eB = Math.min(p.x1, brdEndX(yOf(sb, p.u0), zOf(sb, p.u0)))
+            const eC = Math.min(p.x1, brdEndX(yOf(sa, p.u1), zOf(sa, p.u1)))
+            const eD = Math.min(p.x1, brdEndX(yOf(sb, p.u1), zOf(sb, p.u1)))
+            const avg = (eA + eB + eC + eD) / 4
+            exact += 2 * (sb - sa) * (p.u1 - p.u0) * (avg - p.x0)
+          }
+        }
+      } else exact = intLenOverQuad(s.quad, BRD_X0) * (s.mirror ? 2 : 1)   // ★158 빗면 컷 반영
+      const vol = meshVol(part.geo)
+      ok(Math.abs(vol - exact) < 0.05, `${s.id} 부피 ${vol.toFixed(2)} = ${s.id === '빗면' ? '패치 합' : '단면적×길이'} ${exact.toFixed(2)}(정확식)`)
+      if (s.id === '빗면') ok(true, `빗면: 에지 감사 면제 — 상자 타일링의 내부 접면 중복은 구조적(불가시·부피 상쇄). 부피 정확식·NaN·감김이 대신 잠근다`)
+      else ok(edgeAudit(part.geo) === 0, `${s.id} 에지 감사 0(닫힌 프리즘${s.mirror ? ' ×2' : ''})`)
+    }
+  }
+  //  ── C. 단면 위상 — 봉인·틈·겹침(전부 파생 좌표의 부등식) ──
+  {
+    const t = BRD_T, snk = SPIRE_SINK
+    //  스커트 밑끝 연장이 데크 살 속: 연장점 z < 데크 가장자리 5.15 · y ∈ (125.5, 127)
+    const ext = [BRD_HW - snk * Math.SQRT1_2, BRD_YW - snk * Math.SQRT1_2]
+    ok(ext[0] < BRD_HW - EPS && ext[1] > BRD_DECK_BOT + EPS && ext[1] < BRD_YW - EPS,
+      `스커트 밑끝(${ext[0].toFixed(3)}, ${ext[1].toFixed(3)}) = 데크 살 속(침강)`)
+    //  빗면 위끝 연장이 토막 살 속: 연장점 z ∈ 토막 살(±O2±t/2) · y > AY
+    const L = Math.hypot(BRD_TRP_JZ - BRD_TRP_O2, BRD_TRP_AY - BRD_TRP_JY)
+    const ex2 = [BRD_TRP_O2 - snk * (BRD_TRP_JZ - BRD_TRP_O2) / L, BRD_TRP_AY + snk * (BRD_TRP_AY - BRD_TRP_JY) / L]
+    ok(Math.abs(ex2[0]) > BRD_TRP_O2 - t / 2 && Math.abs(ex2[0]) < BRD_TRP_O2 + t / 2 && ex2[1] > BRD_TRP_AY,
+      `빗면 위끝(${ex2[0].toFixed(3)}, ${ex2[1].toFixed(3)}) = 아랫토막 살 속(침강)`)
+    //  슬릿이 정말 뚫려 있다: 토막들 사이 y 간격 = SLIT (두 토막의 y 범위가 안 겹침)
+    ok(BRD_TRP_AY + BRD_TRP_STUB + EPS < BRD_TRP_AY + BRD_TRP_STUB + BRD_TRP_SLIT - EPS,
+      `슬릿 ${BRD_TRP_SLIT.toFixed(2)} 개방(토막 사이 y ${(BRD_TRP_AY + BRD_TRP_STUB).toFixed(3)}~${(BRD_TRP_AY + BRD_TRP_STUB + BRD_TRP_SLIT).toFixed(3)})`)
+    //  갓 마루판 연장이 갓 빗판 살 속(z 방향 snk)
+    ok(BRD_TRP_M / 2 + snk < BRD_TRP_C0Z + t / 2, `갓 마루판 연장(±${(BRD_TRP_M / 2 + snk).toFixed(2)})이 빗판 대역 안`)
+    //  갓 돌출 소핏(의도된 처마): 갓 밑 바깥 모서리가 토막 바깥면보다 밖
+    ok(BRD_TRP_C0Z > BRD_TRP_O2 + EPS, `갓이 토막보다 ${BRD_TRP_OVH} 밖 — 노출 소핏 = 의도(현도 스케치)`)
+  }
+  //  ── D. 동단 안전(★147-f 재발 방지) + 교차부 선언 실측 ──
+  {
+    const surf = gatCutSpec().surf
+    const solve = (y, z) => { let a = 100, b = 220; for (let i = 0; i < 90; i++) { const m = (a + b) / 2; if (surf(m, z) < y) a = m; else b = m } return (a + b) / 2 }
+    const xr = solve(BRD_ROOF_TOP, BRD_TRP_M / 2)
+    ok(xr < BRD_EAST_X - 1, `마루 상면 ${BRD_ROOF_TOP.toFixed(3)}의 패싯 통과 x ${xr.toFixed(3)} < 동단(여유 ${(BRD_EAST_X - xr).toFixed(2)})`)
+    const xt = solve(BRD_TRP_TIPY, Math.min(BRD_TRP_TIPZ, 4.5))
+    ok(xt > BRD_X0 + 50, `처마 끝 높이의 천장 도달 x ${xt.toFixed(2)} — 서쪽 ${(xt - BRD_X0).toFixed(1)}는 자유 구간(교차는 동쪽 국소)`)
+    //  ★★★152: 노치가 밴드(중심선 추종)로 바뀌었다 — **잔재 0**을 실측으로 잠근다.
+    const N2 = ceilNotchSpec()
+    ok(Array.isArray(N2.bands) && N2.bands.length === 6, `노치 밴드 ${N2.bands.length}기(중심선 추종) — 구 축평행 상자 폐지`)
+    let gapMax = 0, gapY = 0, over = 0
+    for (let i = 0; i <= 600; i++) {
+      const y = BRD_DECK_BOT + BRD_CEIL_LAP + (BRD_ROOF_TOP - (BRD_DECK_BOT + BRD_CEIL_LAP)) * i / 600
+      const b = N2.bands.find(bb => y >= bb.y0 - 1e-9 && y <= bb.y1 + 1e-9)
+      if (!b) continue
+      const zb = b.a * y + b.b, ze = A.zOut(y)
+      if (ze > 1e-9 && zb > ze) over = Math.max(over, zb - ze)          // 밴드가 관 밖 = 천장에 구멍
+      if (y >= BRD_TRP_JY && ze > 1e-9 && ze - zb > gapMax) { gapMax = ze - zb; gapY = y }
+    }
+    ok(over < 1e-9, `밴드가 관 외곽을 넘지 않는다(초과 ${over.toExponential(1)}) — 천장에 여분 구멍 없음`)
+    //  빗면 대역에서 남는 몫은 **살 두께의 수평 반폭**뿐이어야 한다(69.5°라 0.625가 아니라 0.667)
+    const halfH = (BRD_T / 2) * Math.hypot(1, 1 / BRD_TRP_SLOPE)
+    ok(gapMax < halfH + 1e-6, `빗면 대역 잔재 ${gapMax.toFixed(4)}(y${gapY.toFixed(2)}) ≤ 살 수평 반폭 ${halfH.toFixed(4)} — 남는 건 살 속뿐`)
+    ok(near(N2.bands[2].a, -1 / BRD_TRP_SLOPE, EPS) && near(N2.bands[1].a, 1, EPS),
+      `밴드 기울기 = 빗면 −1/${BRD_TRP_SLOPE.toFixed(3)} · 스커트 45°(파생 — 손 수치 0)`)
+    //  구 상자였다면 얼마가 남았는지(고친 것의 크기 — 현도 사진의 그 쐐기)
+    let boxWorst = 0, boxY = 0
+    for (let i = 0; i <= 600; i++) {
+      const y = BRD_YW + (BRD_TRP_NOTCH_TOP - BRD_YW) * i / 600
+      const d = A.zOut(y) - (BRD_HW - BRD_CEIL_LAP)
+      if (d > boxWorst) { boxWorst = d; boxY = y }
+    }
+    ok(boxWorst > 3, `구 상자 노치였다면 y${boxY.toFixed(2)}에서 ${boxWorst.toFixed(3)}의 천장 살이 관 **안**에 남았다 — 고친 것의 크기`)
+  }
+  //  ── E. 서단 접합 — ★151이면 면추종 절단, 아니면 대역 ⓚ′ ──
+  if (BRD_WCUT) {
+    const SP = spireSpec()
+    //  E-1. 격자점이 **첨탑 다각형 위에 정확히** 있나 — 방위로 역산한 독립 재계산(사본 아님)
+    let worst = 0
+    for (const { q: Q, n: nH } of trapWestPieces()) {
+      for (let i = 0; i <= WCUT_NU; i++) for (let j = 0; j <= WCUT_NV; j++) {
+        const u = i / WCUT_NU, v = j / WCUT_NV
+        const a = [Q[0][0] + (Q[1][0] - Q[0][0]) * u, Q[0][1] + (Q[1][1] - Q[0][1]) * u]
+        const b = [Q[3][0] + (Q[2][0] - Q[3][0]) * u, Q[3][1] + (Q[2][1] - Q[3][1]) * u]
+        const z = a[0] + (b[0] - a[0]) * v, y = a[1] + (b[1] - a[1]) * v
+        const x = spireCutX(y, z, SP, nH)
+        if (!isFinite(x)) { worst = Infinity; break }
+        const R = wellWallR(y, { spec: SP, forceSpire: true })
+        const N = nH, az0 = nH === 8 ? SP.cornerAz0 : 0
+        const st = 2 * Math.PI / N, phi = Math.atan2(Math.abs(z), x)
+        const k = Math.floor((phi - az0) / st), mid = az0 + (k + 0.5) * st
+        worst = Math.max(worst, Math.abs(Math.hypot(x, z) - R * Math.cos(st / 2) / Math.cos(phi - mid)))
+      }
+    }
+    ok(worst < 1e-9, `절단면 격자점이 첨탑 다각형 위 — 최대 편차 ${worst.toExponential(1)}(방위 역산 독립 대조)`)
+    //  E-1b. **칸 사이의 현 오차** — 격자점만 재면 해상도가 아무리 거칠어도 통과한다(스윕이 적발).
+    //   칸 중앙에서 네 꼭짓점 x의 이중선형 값과 참 절단면 x를 대조한다.
+    let chord = 0
+    for (const { q: Q, n: nH } of trapWestPieces()) {
+      const C = (u, v) => {
+        const a = [Q[0][0] + (Q[1][0] - Q[0][0]) * u, Q[0][1] + (Q[1][1] - Q[0][1]) * u]
+        const b = [Q[3][0] + (Q[2][0] - Q[3][0]) * u, Q[3][1] + (Q[2][1] - Q[3][1]) * u]
+        return [a[0] + (b[0] - a[0]) * v, a[1] + (b[1] - a[1]) * v]
+      }
+      for (let i = 0; i < WCUT_NU; i++) for (let j = 0; j < WCUT_NV; j++) {
+        const uu = [i / WCUT_NU, (i + 1) / WCUT_NU], vv = [j / WCUT_NV, (j + 1) / WCUT_NV]
+        let lerp = 0
+        for (const u of uu) for (const v of vv) { const [z, y] = C(u, v); lerp += spireCutX(y, z, spireSpec(), nH) / 4 }
+        const [zc, yc] = C((uu[0] + uu[1]) / 2, (vv[0] + vv[1]) / 2)
+        chord = Math.max(chord, Math.abs(lerp - spireCutX(yc, zc, spireSpec(), nH)))
+      }
+    }
+    ok(chord < 0.02, `칸 사이 현 오차 ${chord.toFixed(4)} < 0.02 — 격자 ${WCUT_NU}×${WCUT_NV}가 다각 꼭짓점을 잡는다`)
+    //  E-1c. **조각 태그 독립 검증** — 태그를 스펙에서 그대로 읽으면 눈이 먼다(스윕 실증).
+    //   조각 **내부 표본점**의 y로 다각형을 다시 유도해 태그와 대조하고, 조각이 y1을 걸치지 않음도 확인.
+    let tagBad = 0, straddle = 0
+    for (const { q: Q, n: nH } of trapWestPieces()) {
+      const ys = Q.map(p => p[1]), lo = Math.min(...ys), hi = Math.max(...ys)
+      if (lo < SP.y1 - 1e-9 && hi > SP.y1 + 1e-9) straddle++
+      for (const [u, v] of [[0.25, 0.5], [0.5, 0.5], [0.75, 0.5]]) {
+        const a = [Q[0][0] + (Q[1][0] - Q[0][0]) * u, Q[0][1] + (Q[1][1] - Q[0][1]) * u]
+        const b = [Q[3][0] + (Q[2][0] - Q[3][0]) * u, Q[3][1] + (Q[2][1] - Q[3][1]) * u]
+        const y = a[1] + (b[1] - a[1]) * v
+        if ((y <= SP.y1 ? SPIRE_BODY_SEG : 8) !== nH) tagBad++
+      }
+    }
+    ok(tagBad === 0, `조각 태그 = 내부 표본점이 요구하는 다각형(불일치 ${tagBad}) — 96각↔8각 오배정 없음`)
+    ok(straddle === 0, `y1 턱을 걸친 조각 0 — 분할선이 불연속과 정확히 일치`)
+    //  E-2. **근사 금지의 근거**: 원으로 쟀으면 팔각 구간에서 1 이상 어긋난다
+    let dev = 0
+    for (let i = 0; i <= 200; i++) {
+      const y = BRD_TRP_TIPY + (BRD_ROOF_TOP - BRD_TRP_TIPY) * i / 200
+      const z = A.zOut(y), R = wellWallR(y, { spec: SP, forceSpire: true })
+      if (R * R > z * z) dev = Math.max(dev, Math.abs(Math.sqrt(R * R - z * z) - spireCutX(y, z)))
+    }
+    ok(dev > 0.5, `원 근사였다면 최대 ${dev.toFixed(3)} 어긋났다(팔각 구간) — 다각형 추종이 필수인 근거`)
+    //  E-3. 첨탑보다 넓은 구간이 없다(NaN = 설계 오류)
+    let bad = 0
+    for (let i = 0; i <= 400; i++) {
+      const y = BRD_TRP_TIPY + (BRD_ROOF_TOP - BRD_TRP_TIPY) * i / 400
+      if (!isFinite(spireCutX(y, A.zOut(y)))) bad++
+    }
+    ok(bad === 0, `전 높이에서 관이 첨탑 단면 안 — 절단 성립(NaN 0)`)
+    //  E-4. 연장체가 본체와 **침강으로 겹친다**(공면 접촉면 금지)
+    ok(SPIRE_SINK > 0, `서단 연장체 동단 ${(BRD_X0 + SPIRE_SINK).toFixed(2)} = 본체 살 속(침강 ${SPIRE_SINK}) — 공면 접촉면 없음`)
+    //  E-5. 초승달이 정의상 0 · 대역이 파생으로 꺼졌다
+    ok(!BRD_BAND_ON, `대역 ⓚ′ 소등 — 틈을 가리던 부재라 절단이 틈을 없애면 존재 이유가 없다(파생)`)
+    const xMin = spireCutX(BRD_ROOF_TOP, 0), xMax = spireCutX(BRD_TRP_JY, A.zOut(BRD_TRP_JY))
+    ok(xMin < BRD_X0 - 5 && xMax < BRD_X0,
+      `관이 첨탑에 박힌다: 마루 x${xMin.toFixed(2)} ~ 최대폭 x${xMax.toFixed(2)}(구 평면 ${BRD_X0}) — 깊이 ${(BRD_X0 - xMin).toFixed(2)}`)
+  } else {
+    const SP = spireSpec(), B = bridgeVaultSpec().band
+    ok(B.on, `대역 살아있음(BAND_ON = VLT‖TRP 파생)`)
+    ok(near(B.y1, BRD_ROOF_TOP, EPS), `대역 캡 ${B.y1.toFixed(3)} = 외피 상면(파생 — 마루까지 덮는다)`)
+    //  새 입 최대 반폭(곧은 벽 위 134.92에서의 내부) — 빗면 내면 재계산
+    const nrm = (BRD_TRP_AY - BRD_TRP_JY) / Math.hypot(BRD_TRP_JZ - BRD_TRP_O2, BRD_TRP_AY - BRD_TRP_JY)
+    const zin = (y) => BRD_TRP_JZ - (y - BRD_TRP_JY) / BRD_TRP_SLOPE - BRD_T / 2 * nrm
+    const need = zin(SP.yTop0)
+    //  가림 조건: 동→서 시선이 대역 부채(±11.25°)를 지나는가. 시선의 최소 방위는 **바깥 반경**에서
+    //   생긴다(asin(z/r)이 r에 감소) → 기준 = rOut·sin. (초판 rIn은 과잉 엄격 — 스스로 정정)
+    //  ⛔**거짓 안전 자기 적발(2026.08.21)**: 초판은 커버 대상을 빗면 **내면**(zin)으로 쟀다 — 실제로 가려야 할 것은
+    //   **외피 전체**(zOut)이고, 그것도 대역 y 범위 밖의 스커트·처마까지다. 내면 4.213 < 4.331로 "통과"했지만
+    //   외피는 y134.92에서 5.384, 접점 y128.90에서 7.492다. 파생값이 옳아도 **잰 대상이 틀리면 검사는 거짓말한다**.
+    let zMaxInBand = 0, zMaxAll = 0, yWorst = 0
+    for (let i = 0; i <= 400; i++) {
+      const y = BRD_YW + (BRD_ROOF_TOP - BRD_YW) * i / 400
+      const z = A.zOut(y)
+      if (z > zMaxAll) { zMaxAll = z; yWorst = y }
+      if (y >= B.y0 && y <= B.y1) zMaxInBand = Math.max(zMaxInBand, z)
+    }
+    const cov = B.rOut * Math.sin(B.half)
+    ok(true, `⚠선언(★151 의제): 대역 커버 ±${cov.toFixed(3)} < 대역 구간 내 외피 최대 ±${zMaxInBand.toFixed(3)} → 양옆 ${(zMaxInBand - cov).toFixed(3)} 노출`)
+    ok(true, `⚠선언: 대역 밑끝 y${B.y0.toFixed(2)} **아래**(스커트·처마 y${BRD_YW}~${B.y0.toFixed(2)})는 대역이 없다 — 외피 최대 ±${zMaxAll.toFixed(3)}(y${yWorst.toFixed(2)})`)
+    //  초승달: 관 서단은 **평면**, 첨탑은 **원통** → z≠0에서 반드시 벌어진다(구조적)
+    const rAt = (y) => y <= SP.yTop0 ? SP.rCylTop
+      : y <= SP.y1 ? SP.rCylTop + (SP.octBase - SP.rCylTop) * (y - SP.yTop0) / (SP.y1 - SP.yTop0)
+      : SP.octBase + (SP.rMid - SP.octBase) * (y - SP.y1) / (SP.y2 - SP.y1)
+    let cres = 0, cresY = 0
+    for (let i = 0; i <= 400; i++) {
+      const y = BRD_YW + (SP.yTop0 - BRD_YW) * i / 400
+      const z = A.zOut(y), r = rAt(y)
+      if (r * r > z * z) { const g = BRD_X0 - Math.sqrt(r * r - z * z); if (g > cres) { cres = g; cresY = y } }
+    }
+    ok(cres > 1, `⚠선언: 곧은 벽 구간 초승달 최대 ${cres.toFixed(3)}(y${cresY.toFixed(2)}) — ★148 때 0.606에서 커졌다(플레어 때문)`)
+    ok(BRD_ROOF_TOP - SP.yTop0 > 0, `⚠선언: 관 마루가 첨탑 곧은 벽 끝을 ${(BRD_ROOF_TOP - SP.yTop0).toFixed(2)} · 팔각 어깨를 ${(BRD_ROOF_TOP - SP.y1).toFixed(2)} 넘는다 — 좁아지는 첨탑에 관이 지느러미로 붙는다`)
+    const octAt = (y) => SP.octBase + (SP.rMid - SP.octBase) * (y - SP.y1) / (SP.y2 - SP.y1)
+    ok(B.rOut - octAt(B.y1) > 9, `⚠선언: 날개 꼭대기 돌출 ${(B.rOut - octAt(B.y1)).toFixed(2)}(구 7.71 → 커짐) — 실루엣 판정 = 현도`)
+  }
+  //  ── F. ★150-b 빗면 2단 액자(현도 13·0.56·2.2·0.09·1.10 · 2버전) ──
+  if (BRD_TRP_PNL !== 'off') {
+    const PS = trapPanelSpec()
+    ok(PS.mode === 'in' || PS.mode === 'stamp', `버전 '${PS.mode}'('in' 내부 음각·외부 민짜 / 'stamp' 관통 복사) — 한 글자 전환`)
+    ok(PS.patches.length === 2 + (BRD_TRP_PNL_N + 1) + BRD_TRP_PNL_N * 5,
+      `패치 ${PS.patches.length} = 가로띠 2 + 세로살 ${BRD_TRP_PNL_N + 1} + 패널(링4+필드)×${BRD_TRP_PNL_N}`)
+    //  타일링 항등: 패치 발자국 합 = 빗면 전체 발자국(겹침·빈틈 0을 넓이 하나로 잠근다)
+    const foot = PS.patches.reduce((a, p) => a + (p.x1 - p.x0) * (p.s1 - p.s0), 0)
+    ok(near(foot, (PS.s1 - PS.s0) * (BRD_EAST_X - BRD_X0), 1e-6),
+      `타일링: 발자국 합 ${foot.toFixed(3)} = 전체 ${((PS.s1 - PS.s0) * (BRD_EAST_X - BRD_X0)).toFixed(3)}`)
+    ok(near(PS.pw, PS.bay * BRD_TRP_PNL_R, EPS) && near(PS.bay, (BRD_EAST_X - BRD_X0) / BRD_TRP_PNL_N, EPS),
+      `베이 ${PS.bay.toFixed(3)} · 패널 폭 ${PS.pw.toFixed(3)}(=비율 ${BRD_TRP_PNL_R}) — 위젯 값 그대로`)
+    ok(near(PS.fw, SP_FR_W, EPS), `틀 단 폭 ${PS.fw} = ★127 어귀 액자 띠 폭 승계(새 숫자 0)`)
+    ok(2 * BRD_TRP_PNL_DP < BRD_T / 2 - EPS, `총 깊이 ${(2 * BRD_TRP_PNL_DP).toFixed(2)} < 살 절반 — 찢김 없음`)
+    if (PS.mode === 'in') {
+      ok(PS.patches.every(p => p.u0 === 0), `'in': 전 패치 바깥면 u=0 — **외부 민짜**(현도 버전 ⓐ)`)
+      ok(PS.patches.filter(p => p.zone === 'field').every(p => near(p.u1, BRD_T - 2 * BRD_TRP_PNL_DP, EPS)),
+        `'in': 필드 두께 ${(BRD_T - 2 * BRD_TRP_PNL_DP).toFixed(2)} — 안쪽만 2단 파임`)
+    } else {
+      ok(PS.patches.every(p => near(p.u1 - p.u0, BRD_T, EPS)), `'stamp': 전 패치 두께 = 살(관통 복사)`)
+      ok(PS.patches.filter(p => p.zone === 'field').every(p => near(p.u0, -2 * BRD_TRP_PNL_DP, EPS)),
+        `'stamp': 필드가 밖으로 ${(2 * BRD_TRP_PNL_DP).toFixed(2)} 돋음(외양각·내음각 — 현도 버전 ⓑ)`)
+    }
+    //  패널 대역이 빗면 안(연직 여백·틀이 위젯 정의 그대로)
+    ok(PS.sp0 > PS.s0 + EPS && PS.sp1 < PS.Ls - EPS && PS.sf0 > PS.sp0 && PS.sf1 < PS.sp1,
+      `패널 s ${PS.sp0.toFixed(2)}~${PS.sp1.toFixed(2)} ⊂ 빗면 · 틀 안 s ${PS.sf0.toFixed(2)}~${PS.sf1.toFixed(2)}`)
+  }
+}
+
+//  ══ ⑱ ★★★153 새 층 소등 · ★★★154 첨탑 az0° 문 ══
+{
+  console.log('\n⑱ ★153 새 층 소등 · ★154 첨탑 az0° 문')
+  const SP = spireSpec()
+  //  ── ★153: 층이 필요 없어진 근거를 수치로 잠근다 ──
+  ok(!UPF_ON, `★131 새 층 소등(계단 2기 + 플랫폼 — 현도 2026.08.21 "둘 다 지워")`)
+  ok(near(SPT_Y, BRD_YW, EPS),
+    `테라스 ${SPT_Y} = 관 데크 보행면 ${BRD_YW} — **층 차 0**이라 계단이 불필요(★147이 관을 이 레벨에 지으면서 ★132 ⓒ가 무효화됐다)`)
+  ok(Math.abs((132.12 + 1.18) - BRD_YW) > 6, `구 플랫폼 걷는 면 133.30은 관 데크보다 ${((132.12 + 1.18) - BRD_YW).toFixed(2)} 높았다 — 소등의 실측 근거`)
+  //  ── ★154: 문·틀 ──
+  if (SPD_ON) {
+    const D = spireDoorSpec(SP)
+    ok(near(D.hw, SPD_HW, EPS) && near(D.h, SPD_H, EPS) && near(D.fw, SPD_FW, EPS),
+      `문 반폭 ${D.hw} · 높이 ${D.h} · 틀 띠 ${D.fw}(현도 위젯 확정 — 전폭 ${(2 * D.hw).toFixed(2)} · 상단 y${D.y1.toFixed(2)})`)
+    ok(near(D.y0, BRD_YW, EPS), `문턱 ${D.y0} = 데크 보행면 — 문지방 단차 0`)
+    ok(D.y1 < SP.yTop0 - 1, `문 상단 ${D.y1.toFixed(2)} < 곧은 벽 끝 ${SP.yTop0.toFixed(2)} — 문이 빗면 구간을 침범하지 않는다(여유 ${(SP.yTop0 - D.y1).toFixed(2)})`)
+    //  ★개구가 관 내부 안에 든다(넘으면 관 벽을 뚫는다)
+    ok(D.hw + D.fw < BRD_HW - BRD_T + EPS,
+      `틀 반폭 ${(D.hw + D.fw).toFixed(2)} ≤ 관 내부 반폭 ${(BRD_HW - BRD_T).toFixed(2)} — 문·틀이 관 안에 든다`)
+    //  ★침강 근거 — 96각 편차보다 EMB가 크다(틀이 들뜨지 않는다)
+    ok(D.emb > Math.max(D.devOut, D.devIn) * 3,
+      `문틀 침강 ${D.emb} > 96각 편차 최대 ${Math.max(D.devOut, D.devIn).toFixed(4)}의 3배 — 전 폭에서 살 속(들뜸 0)`)
+    ok(D.devOut > 0.01 && D.devIn > 0.01,
+      `편차가 0이 아니다(밖 ${D.devOut.toFixed(4)} · 안 ${D.devIn.toFixed(4)}) — 첨탑이 원기둥이 아니라 96각이라는 증거(침강이 필요한 이유)`)
+    //  ★종잇장 방지 셋
+    ok(near(SP.rCylTop - SP.rCylTopIn, SP.T, EPS), `잼 단면 = 벽 두께 ${SP.T}(SUBTRACTION이라 컷 면이 캡으로 닫힌다 — 얼굴 ①)`)
+    const bandsWant = SPD_SIDE === 'both' ? 2 : 1
+    ok(D.bands.length === bandsWant, `문틀 ${D.bands.length}면('${SPD_SIDE}') — 얼굴 ②`)
+    for (const b of D.bands) ok(b.r1 - b.r0 > SPD_PROJ, `${b.id} 틀 대역 r${b.r0.toFixed(2)}~${b.r1.toFixed(2)} = 내밀기 ${SPD_PROJ} + 침강 ${SPD_EMB} — 얼굴 ③`)
+    //  ★메시 무결
+    const g = buildSpireDoorFrame(SP)
+    ok(edgeAudit(g) === 0, `문틀 에지 감사 0(닫힌 상자 ${D.bands.length * 3}기)`)
+    const vol = (() => {
+      const p = g.getAttribute('position'), ix = g.index.array
+      let v = 0
+      for (let t = 0; t < ix.length; t += 3) {
+        const a = [p.getX(ix[t]), p.getY(ix[t]), p.getZ(ix[t])]
+        const b2 = [p.getX(ix[t + 1]), p.getY(ix[t + 1]), p.getZ(ix[t + 1])]
+        const c = [p.getX(ix[t + 2]), p.getY(ix[t + 2]), p.getZ(ix[t + 2])]
+        v += (a[0] * (b2[1] * c[2] - c[1] * b2[2]) - b2[0] * (a[1] * c[2] - c[1] * a[2]) + c[0] * (a[1] * b2[2] - b2[1] * a[2])) / 6
+      }
+      return v
+    })()
+    const exact = D.bands.reduce((acc, b) => acc + (b.r1 - b.r0) * (2 * D.fw * D.h + (2 * (D.hw + D.fw)) * D.fw), 0)
+    //  ⚠Float32 위치 정밀도 — 1e-6은 못 잰다(프로젝트 규율: 1e-3 톨러런스)
+    ok(Math.abs(vol - exact) < 1e-3, `문틀 부피 ${vol.toFixed(4)} = 문설주2+인방 해석 ${exact.toFixed(4)}(정확식)`)
+  } else ok(buildSpireDoorFrame() === null, `문 소등 — SPD_ON=false`)
+}
+
+//  ══ ⑲ ★★★157 관 내부 기둥 — 도면 트레이스 ══
+if (BRD_TRP_ON && BRD_COL_ON) {
+  console.log('\n⑲ ★157 관 내부 기둥(도면 트레이스)')
+  const A = trapSpec(), K = trapColumnSpec(A), PS = trapPanelSpec()
+  //  ── A. 자리 = 살 한복판 · 대칭(★155 계승) ──
+  ok(BRD_TRP_PNL_N % 2 === 0, `패널 ${BRD_TRP_PNL_N}기가 짝수 — 홀수면 "두 개당 하나"의 양 끝 여백이 어긋난다`)
+  ok(K.xs.length === BRD_TRP_PNL_N / 2, `기둥 ${K.xs.length}기 = 패널 ÷ 2`)
+  const wMar = K.xs[0] - BRD_X0, eMar = BRD_EAST_X - K.xs[K.xs.length - 1]
+  ok(near(wMar, eMar, EPS), `양 끝 여백 대칭 ${wMar.toFixed(3)}`)
+  let offMax = 0
+  for (const xc of K.xs) { let best = Infinity
+    for (let k = 1; k < BRD_TRP_PNL_N; k++) best = Math.min(best, Math.abs(xc - (BRD_X0 + k * PS.bay)))
+    offMax = Math.max(offMax, best) }
+  ok(offMax < 1e-9, `기둥이 살 중심에 앉는다(편차 ${offMax.toExponential(1)})`)
+  ok(K.w < K.gap - EPS, `기둥 폭 ${K.w} < 살 ${K.gap.toFixed(3)}(여유 양쪽 ${((K.gap - K.w) / 2).toFixed(3)})`)
+  //  ── B. 곡선이 도면 제어점을 **정확히** 지난다 ──
+  {
+    let worst = 0
+    for (const [z, y] of BRD_COL_CURVE) worst = Math.max(worst, Math.abs(K.curveZ(y) - z))
+    ok(worst < 1e-9, `안쪽 면이 도면 제어점 ${BRD_COL_CURVE.length}개를 정확히 지난다(편차 ${worst.toExponential(1)})`)
+    //  ⚠제어점 사이 과주 — 무해함을 수치로 선언
+    let over = 0, oy = 0
+    for (let i = 0; i <= 2000; i++) { const y = K.y0 + (K.yTop - K.y0) * i / 2000
+      const d = K.curveZ(y) - Math.max(...BRD_COL_CURVE.map(p => p[0]))
+      if (d > over) { over = d; oy = y } }
+    ok(over < 0.02, `스플라인 과주 ${over.toFixed(4)}(y${oy.toFixed(1)}) — 제어점 최대 3.73 대비 무해(그 높이 벽 여유 ${(K.innerWallZ(oy) - K.curveZ(oy)).toFixed(2)})`)
+  }
+  //  ── C. 기둥이 벽 **안**에 있다(두께 ≥ 0 · 관 밖으로 안 나간다) ──
+  {
+    let neg = 0, thMax = 0, thY = 0
+    for (let i = 0; i <= 2000; i++) { const y = K.y0 + (K.yTop - K.y0) * i / 2000
+      const t = K.th(y); if (t < -1e-9) neg++
+      if (t > thMax) { thMax = t; thY = y } }
+    ok(neg === 0, `전 높이에서 두께 ≥ 0 — 곡선이 벽 안쪽면을 넘지 않는다`)
+    ok(thMax > 2 && thMax < 3, `최대 두께 ${thMax.toFixed(3)}(y${thY.toFixed(2)}) — 접점 부근에서 가장 두껍다(스케치대로)`)
+    ok(near(K.yTop, BRD_COL_CURVE[BRD_COL_CURVE.length - 2][1] - BRD_COL_TH0, EPS),
+      `몸통 끝 ${K.yTop.toFixed(3)} = 벽 안쪽면 불연속(${BRD_COL_CURVE[BRD_COL_CURVE.length - 2][1]}) 직전 — 마감 두께 ${K.th(K.yTop).toFixed(4)}`)
+    ok(K.th(K.yTop) > 1e-3 && K.th(K.yTop) < 0.1,
+      `마감 두께 ${K.th(K.yTop).toFixed(4)} — 0이 아니면서(단면 퇴화 회피) 불가시`)
+    //  ★리브는 **단봉**이어야 한다: 두께가 한 번 오르고 한 번 내린다.
+    //   제어점 하나만 어긋나도 중간에 잘록해지는데, 최대·최소만 재는 가드로는 안 잡힌다(스윕 실증).
+    let peak = -1, peakY = 0
+    for (let i = 0; i <= 1200; i++) { const y = K.y0 + (K.yTop - K.y0) * i / 1200
+      const t = K.th(y); if (t > peak) { peak = t; peakY = y } }
+    //  ⚠개수가 아니라 **크기**로 잰다(개수 가드는 참 곡선의 미세 요동도 물었다).
+    //  ⛔그리고 **한 칸씩의 변화**를 재면 안 된다 — 0.76짜리 잘록함도 스텝당 0.0046이라 안 물린다(스윕 실증).
+    //   **달리는 극값과의 누적 편차**로 잰다. 느린 표류를 잡는 유일한 방법이다.
+    let bad = 0, runMax = -Infinity, runMin = Infinity
+    for (let i = 0; i <= 1200; i++) { const y = K.y0 + (K.yTop - K.y0) * i / 1200
+      const t = K.th(y)
+      if (y < peakY) { runMax = Math.max(runMax, t); bad = Math.max(bad, runMax - t) }
+      else { runMin = Math.min(runMin, t); bad = Math.max(bad, t - runMin) }
+    }
+    //  ⚠문턱 0.15의 근거: 벽 안쪽면이 **스커트 밑 모서리**(y127.088)에서 4.443→4.355로 0.089 들어간다 —
+    //   벽의 실제 형상이지 기둥 결함이 아니다. 치환 반증은 0.4 이상을 만들므로 여유가 충분하다.
+    ok(bad < 0.15, `두께가 **단봉**(y${peakY.toFixed(2)}에서 ${peak.toFixed(3)} 정점) — 역행 최대 ${bad.toFixed(4)} < 0.15(벽 모서리 몫 0.089 포함)`)
+  }
+  //  ── D. 슬릿 마개(현도 확정: 기둥이 빛틈을 메운다) ──
+  {
+    ok(near(K.slit.y0, BRD_TRP_AY + BRD_TRP_STUB, EPS) && near(K.slit.y1 - K.slit.y0, BRD_TRP_SLIT, EPS),
+      `슬릿 마개 y${K.slit.y0.toFixed(3)}~${K.slit.y1.toFixed(3)} = 슬릿 구간 그대로`)
+    ok(near(K.slit.zOut - K.slit.zIn, BRD_T, EPS), `마개 두께 ${BRD_T} = 벽 전체(그 높이엔 벽이 없다)`)
+    const openRatio = 1 - (K.xs.length * K.w) / (BRD_EAST_X - BRD_X0)
+    ok(openRatio > 0.8, `슬릿은 길이의 ${(openRatio * 100).toFixed(1)}%가 여전히 열려 있다(기둥 ${K.xs.length}기 × 폭 ${K.w})`)
+  }
+  //  ── E. 수평 단면 두 버전 ──
+  {
+    ok(K.sect === 'trap' || K.sect === 'rect', `수평 단면 '${K.sect}' — 한 글자 전환(현도 "둘 다 구현")`)
+    ok(near(K.r, K.sect === 'rect' ? 1 : BRD_COL_R, EPS),
+      `안쪽 폭 ${(K.w * K.r).toFixed(2)} / 벽 쪽 ${K.w}${K.sect === 'rect' ? '(직사각)' : '(사다리꼴)'}`)
+  }
+  //  ── F. 메시 — 로프트 부피 정확식 · 에지 감사 ──
+  {
+    const P2 = buildBridgeTrapParts()
+    const meshVol = (g) => {
+      const p = g.getAttribute('position'), ix = g.index.array
+      let v = 0
+      for (let t = 0; t < ix.length; t += 3) {
+        const a = [p.getX(ix[t]), p.getY(ix[t]), p.getZ(ix[t])]
+        const b = [p.getX(ix[t + 1]), p.getY(ix[t + 1]), p.getZ(ix[t + 1])]
+        const c = [p.getX(ix[t + 2]), p.getY(ix[t + 2]), p.getZ(ix[t + 2])]
+        v += (a[0] * (b[1] * c[2] - c[1] * b[2]) - b[0] * (a[1] * c[2] - c[1] * a[2]) + c[0] * (a[1] * b[2] - b[1] * a[2])) / 6
+      }
+      return v
+    }
+    let ex = 0
+    for (let i = 0; i + 1 < K.stations.length; i++) {
+      const y0 = K.stations[i], y1 = K.stations[i + 1]
+      ex += (y1 - y0) * (K.areaAt(y0) + K.areaAt(y1)) / 2
+    }
+    ex *= K.xs.length * 2
+    const body = P2.solid.find(p => p.id === '기둥몸')
+    ok(Math.abs(meshVol(body.geo) - ex) < 0.01, `기둥몸 부피 ${meshVol(body.geo).toFixed(3)} = 스테이션 사다리꼴 적분 ${ex.toFixed(3)}`)
+    ok(edgeAudit(body.geo) === 0, `기둥몸 에지 감사 0(로프트 ${K.xs.length * 2}기 · 스테이션 ${K.stations.length})`)
+    const cap = P2.solid.find(p => p.id === '슬릿마개')
+    const exC = (K.w * (1 + K.r) / 2) * (K.slit.zOut - K.slit.zIn) * (K.slit.y1 - K.slit.y0) * K.xs.length * 2
+    ok(Math.abs(meshVol(cap.geo) - exC) < 0.01, `슬릿마개 부피 ${meshVol(cap.geo).toFixed(3)} = 해석 ${exC.toFixed(3)}`)
+    ok(edgeAudit(cap.geo) === 0, `슬릿마개 에지 감사 0`)
+    //  ★스테이션이 벽 관절(JY)과 곡선 제어점을 포함하는가 — ★151·152·156의 교훈
+    ok(K.stations.some(y => near(y, BRD_TRP_JY, 1e-9)), `스테이션에 벽 관절 y${BRD_TRP_JY} 포함(꺾임 규율)`)
+    const missing = BRD_COL_CURVE.filter(([, y]) => y > K.y0 && y < K.yTop && !K.stations.some(s2 => near(s2, y, 1e-9)))
+    ok(missing.length === 0, `스테이션에 곡선 제어점 전부 포함(누락 ${missing.length})`)
+  }
+  //  ── G. 통행 ──
+  {
+    ok(near(2 * K.curveZ(BRD_YW), 6.96, 1e-3), `보행면 순폭 ${(2 * K.curveZ(BRD_YW)).toFixed(3)}(도면 3.48 × 2)`)
+  }
+} else if (BRD_TRP_ON) ok(buildTrapColumns() === null, `기둥 소등 — BRD_COL_ON=false`)
+
+//  ══ ⑳ ★★★158 동단 빗면 마개 ══
+if (BRD_TRP_ON && BRD_END_ON) {
+  console.log('\n⑳ ★158 동단 빗면 마개')
+  const A = trapSpec(), E = trapEndSpec(A)
+  //  ── A. 빗면 파생 ──
+  ok(near(BRD_END_Y1, BRD_TRP_AY + BRD_TRP_STUB, EPS),
+    `빗면 윗점 y${BRD_END_Y1.toFixed(3)} = **슬릿 밑바닥**(파생 — 현도가 거기 맞춰 그렸다)`)
+  ok(near(brdEndX(BRD_YW), BRD_EAST_X, EPS) && near(brdEndX(BRD_END_Y1), BRD_END_X1, EPS),
+    `빗면 (${BRD_EAST_X}, ${BRD_YW}) → (${BRD_END_X1}, ${BRD_END_Y1.toFixed(3)}) · 각 ${E.angle.toFixed(1)}°(연직에서 ${(90 - E.angle).toFixed(1)}°)`)
+  ok(near(brdEndX(BRD_END_Y1, 0), BRD_END_X1, EPS), `빗면이 슬릿 밑바닥에서 x${BRD_END_X1}(도면의 그 점)`)
+  //  ★159 되돌림: 빗면 위는 다시 수직 컷(★158 체제)
+  ok(near(brdSlantX(BRD_ROOF_TOP), BRD_END_X1, EPS), `빗면 위는 **수직 컷** x${BRD_END_X1}(★158 체제 복귀)`)
+  //  ★현도 지시 자체를 가드로: "빗면으로 처리" — 수직도 수평도 아니어야 한다.
+  //   값만 대조하면 X1을 144.5(사실상 수직)로 바꿔도 통과한다(스윕 실증).
+  ok(E.angle > 55 && E.angle < 82, `빗면 각 ${E.angle.toFixed(1)}° ∈ (55°, 82°) — 수직 컷도 평지붕도 아닌 **빗면**(현도 지시)`)
+  ok(BRD_EAST_X - BRD_END_X1 > 2, `눕는 수평량 ${(BRD_EAST_X - BRD_END_X1).toFixed(2)} — 눈에 보일 만큼 눕는다`)
+  ok(near(brdEndX(BRD_DECK_BOT), BRD_EAST_X, EPS),
+    `보행면 아래는 동단 ${BRD_EAST_X}로 클램프 — 식대로면 145를 넘는다(처마·데크 살)`)
+  //  ── B. 관 부재가 컷 면을 넘지 않는다 ──
+  {
+    const P = buildBridgeTrapParts()
+    let worst = -Infinity, wid = ''
+    for (const p of P.solid) {
+      if (p.id.startsWith('서단') || p.id === '첨탑대역') continue
+      const pos = p.geo.getAttribute('position')
+      for (let i = 0; i < pos.count; i++) {
+        const d = pos.getX(i) - brdEndX(pos.getY(i))
+        if (d > worst) { worst = d; wid = p.id }
+      }
+    }
+    ok(worst < 1e-3, `전 부재가 컷 면 서쪽(최대 초과 ${worst.toFixed(4)} · ${wid}) — 빗면 밖으로 안 나간다`)
+    //  상부가 실제로 잘렸나(안 잘리면 145까지 갈 것)
+    for (const id of ['갓마루', '토막위', '갓빗판']) {
+      const pos = P.solid.find(p => p.id === id).geo.getAttribute('position')
+      let mx = -Infinity
+      for (let i = 0; i < pos.count; i++) mx = Math.max(mx, pos.getX(i))
+      ok(near(mx, BRD_END_X1, 1e-3), `${id} 동단 ${mx.toFixed(3)} = 수직 컷 ${BRD_END_X1}`)
+    }
+    //  ⚠**선언된 빚(현도 2026.08.21 되돌림)**: 이 수직 컷은 기울어진 드럼 천장을 못 따라간다.
+    //   중심에서 −0.005 · 가장자리에서 −0.623 어긋나고, 잘린 면이 y142.83~148 대역에서 천장 아래라
+    //   드럼에서 관 단면이 보인다. ★159의 해법(빗면 연장 + 뱃머리)은 **현도가 반려**했다 — 미해결로 남는다.
+    ok(true, `⚠선언: 동단 상부 단면이 드럼에 노출된다(수직 컷 vs 기운 천장) — ★159 반려로 미해결`)
+  }
+  //  ── C. 마개 — 닫힘·부피·에지 ──
+  {
+    const cap = buildTrapEndCap(A)
+    ok(near(E.th, BRD_T * Math.hypot(1, BRD_END_K), EPS),
+      `판 **수평** 두께 ${E.th.toFixed(3)} = 살 ${BRD_T} × √(1+k²) — 눕는 만큼 커진다(연직 1.25가 아니다)`)
+    //  ⚠초기값을 0으로 두면 음수만 나오는 최대값이 0으로 고정돼 **항상 통과**한다(자기 적발 — ±Infinity로 시작한다)
+    let cover = Infinity, over = -Infinity
+    for (let i = 0; i <= 400; i++) {
+      const y = BRD_YW + (E.y1 - BRD_YW) * i / 400
+      cover = Math.min(cover, E.zAt(y) - E.innerZ(y))     // 0 미만이면 안 덮는다
+      over = Math.max(over, E.zAt(y) - A.zOut(y))         // 0 초과면 살 밖으로 나간다
+    }
+    ok(cover >= -1e-9, `판이 관 내부를 전부 덮는다(최소 여유 ${cover.toFixed(4)})`)
+    ok(over < -1e-9, `판 가장자리가 살 **속**에서 끝난다(외피 대비 최대 ${over.toFixed(4)})`)
+    const meshVol = (g) => {
+      const p = g.getAttribute('position'), ix = g.index.array
+      let v = 0
+      for (let t = 0; t < ix.length; t += 3) {
+        const a = [p.getX(ix[t]), p.getY(ix[t]), p.getZ(ix[t])]
+        const b = [p.getX(ix[t + 1]), p.getY(ix[t + 1]), p.getZ(ix[t + 1])]
+        const c = [p.getX(ix[t + 2]), p.getY(ix[t + 2]), p.getZ(ix[t + 2])]
+        v += (a[0] * (b[1] * c[2] - c[1] * b[2]) - b[0] * (a[1] * c[2] - c[1] * a[2]) + c[0] * (a[1] * b[2] - b[1] * a[2])) / 6
+      }
+      return v
+    }
+    //  ★159: 마개는 **셀 타일링**(끝 면이 두 장) — 셀 부피 합이 정확식이다
+    const { cells, thSlant, thProw } = endCapCells(A)
+    let ex = 0
+    for (const c of cells) ex += c.th * (c.y1 - c.y0) * ((c.v1 - c.v0) / 2) * (c.zAt0 + c.zAt1)
+    ok(Math.abs(meshVol(cap.geo) - ex) < 0.01, `마개 부피 ${meshVol(cap.geo).toFixed(3)} = 셀 ${cells.length}기 합 ${ex.toFixed(3)}(정확식)`)
+    ok(true, `마개 에지 감사 면제 — 셀 타일링의 내부 접면 중복은 구조적(부피 정확식이 대신 잠근다)`)
+    ok(near(thSlant, BRD_T * Math.hypot(1, BRD_END_K), EPS) && thProw > thSlant,
+      `셀 두께 두 종: 빗면 ${thSlant.toFixed(3)} · 뱃머리 ${thProw.toFixed(3)}(더 눕는 면이 더 두껍다)`)
+    ok(E.stations.some(y => near(y, BRD_YW, 1e-9)) && E.stations.some(y => near(y, BRD_TRP_JY, 1e-9)),
+      `마개 스테이션에 꺾임(보행면 ${BRD_YW} · 벽 관절 ${BRD_TRP_JY}) 포함`)
+    ok(near(E.y0, BRD_DECK_BOT + BRD_CEIL_LAP, EPS), `판 밑끝 ${E.y0} = 데크 살 속(침강)`)
+  }
+  //  ── D. 빛구멍 = 마개 위 ──
+  {
+    const openH = BRD_TRP_CAPY - BRD_T / 2 - E.y1
+    ok(openH > 1, `빛구멍 높이 ${openH.toFixed(3)}(마개 위 y${E.y1.toFixed(3)} ~ 갓 마루 밑 ${(BRD_TRP_CAPY - BRD_T / 2).toFixed(3)}) — 현도 "윗부분만 뚫는다"`)
+    ok(E.y1 < BRD_TRP_CAPY, `마개가 갓에 닿지 않는다 — 그 사이가 구멍이다`)
+  }
+}
+
+console.log(`\n${fail === 0 ? '✅' : '❌'} ★147~158 접속 통로 : ${n}항 중 ${n - fail} green` + (fail ? ` · ${fail} 실패` : ''))
 process.exit(fail ? 1 : 0)

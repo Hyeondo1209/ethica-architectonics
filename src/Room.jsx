@@ -29,12 +29,14 @@ import { pitSpec, slotSpec, buildPitWalls, buildPitRim, buildPitFloor, buildHole
 import { buildSpiralMass, buildSpiralColumns, buildSpiralBeams, buildRootCrosses } from './axiomSpiralGeometry'   // ★107 나선 매스 + 지지(순수 기하 — 사본 금지)
 import { buildAxiomVaults } from './axiomVaultGeometry'   // ★111 공리 볼트(문) — 총안 창 + 감실
 import { buildWallBase } from './wallBaseGeometry'
-import { buildSpire } from './spireGeometry.js'   // ★127 빛우물 첨탑(순수 기하 + CSG — 사본 금지·wellWallR 단일 정본)
+import { buildSpire, buildSpireDoorFrame } from './spireGeometry.js'   // ★127 빛우물 첨탑(순수 기하 + CSG — 사본 금지·wellWallR 단일 정본) · ★★★154 az0° 문틀
 import { buildSpireTerrace } from './spireTerraceGeometry.js'   // ★128 첨탑 테라스(고리 판 — 좌표는 전부 spireSpec 파생)
 import { buildUpperPlatform } from './upperPlatformGeometry.js' // ★131 새 층 플랫폼 + 좌우 계단 2기(테라스 위 — 드럼행 문의 자리)
 import { buildSpireStairParts, terraceHoleOf } from './spireStairGeometry.js' // ★★★★144-b 내벽 나선(허브→테라스) + 그 도착 구멍
 import { buildBridgeComplex } from './bridgeComplexGeometry.js' // ★133 1p4 방위 0° 복합체(2층 계단 관 + 참 + 기둥 + 아치)
 import { buildBridgeDeckParts } from './bridgeDeckGeometry.js'  // ★★★147 접속 통로(테라스 → ★54 월대) — 관·기둥·직각나선·직선 계단
+import { buildBridgeVaultParts } from './bridgeVaultGeometry.js' // ★★★148 관 사변형 리브 볼트 + 벽앞 기둥 + 첨탑 대역 ⓚ′(보존계)
+import { buildBridgeTrapParts } from './bridgeTrapGeometry.js'   // ★★★150 사다리꼴 관(현도 스케치) — ★148 대체
 import { buildLink4 } from './link4Geometry.js'
 import { buildLink3, link3Mounts } from './link3Geometry.js'
 import { buildLink2, link2Mounts } from './link2Geometry.js'                    // ★143 1p2 통로의 기둥 + 아치 ①                   // ★137 1p3형 셸 → 테라스 통로(두 오르막 + 띄운 참) · ★141 다중 마운트                   // ★136 1p4 셸 나선 참 → ★133 참 수평 접속 관
@@ -164,6 +166,12 @@ export function DefAxiomRoom({ stairKind }) {
   //  ★★★147 접속 통로 — 첨탑 테라스(SPT)와 회랑 옥상(DRG)에 동시에 매인다.
   //   ⚠BRD_ON 한 줄이 보존계. ★133과의 점유 충돌은 check_bridge가 선언된 빚으로 들고 있다.
   const bridgeDeckParts = useMemo(() => (SPIRE_ON && SPT_ON && BRD_ON ? buildBridgeDeckParts() : null), [])
+  //  ★★★148 볼트 — 관이 있어야 그 속이 있다(BRD_ON 종속). BRD_VLT_ON 한 줄이 보존계.
+  const bridgeVaultParts = useMemo(() => (SPIRE_ON && SPT_ON && BRD_ON ? buildBridgeVaultParts() : null), [])
+  //  ★★★150 사다리꼴 관 — BRD_TRP_ON 한 줄이 보존계(끄면 ★148 볼트 또는 구 평지붕)
+  const bridgeTrapParts = useMemo(() => (SPIRE_ON && SPT_ON && BRD_ON ? buildBridgeTrapParts() : null), [])
+  //  ★★★154 첨탑 az0° 문틀 — 개구는 buildSpire의 CSG가 뚫고, 이 메시는 그 둘레 띠다
+  const spireDoorGeo = useMemo(() => (SPIRE_ON ? buildSpireDoorFrame() : null), [])
   //  ★136 — ★133 참이 도착지이므로 BRG_ON에 종속(복합체가 없으면 갈 곳이 없다)
   const link4Parts = useMemo(() => (SPIRE_ON && SPT_ON && BRG_ON && LK4_ON ? buildLink4() : null), [])
   //  ★137 — ★133 복합체와 무관(다른 셸·다른 방위)이라 BRG_ON에 매지 않는다
@@ -491,6 +499,24 @@ export function DefAxiomRoom({ stairKind }) {
       ))}
       {bridgeDeckParts && bridgeDeckParts.solid.map(({ id, geo }) => (
         <mesh key={'brds-' + id} name={'1p12접속통로/' + id} geometry={geo} userData={{ walkable: false }}>
+          <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
+        </mesh>
+      ))}
+      {/* ★★★148 관 사변형 리브 볼트 + 벽앞 기둥 + 첨탑 대역 ⓚ′ — 재질 = ★130 통로 가족 solid 톤 */}
+      {bridgeVaultParts && bridgeVaultParts.solid.map(({ id, geo }) => (
+        <mesh key={'brdv-' + id} name={'1p12접속통로/' + id} geometry={geo} userData={{ walkable: false }}>
+          <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
+        </mesh>
+      ))}
+      {/* ★★★154 첨탑 az0° 문틀 — 첨탑 살 가족(우물 톤) */}
+      {spireDoorGeo && (
+        <mesh name="첨탑/az0문틀" geometry={spireDoorGeo} userData={{ walkable: false }}>
+          <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
+        </mesh>
+      )}
+      {/* ★★★150 사다리꼴 관 — 같은 재질 가족 */}
+      {bridgeTrapParts && bridgeTrapParts.solid.map(({ id, geo }) => (
+        <mesh key={'brdt-' + id} name={'1p12접속통로/' + id} geometry={geo} userData={{ walkable: false }}>
           <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
         </mesh>
       ))}

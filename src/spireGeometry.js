@@ -40,6 +40,7 @@ import {
   SPIRE_FIN_HOLE_R, SPIRE_FIN_CAP_T, SPIRE_MOLD_ON, SPIRE_M1_OCT, SPIRE_M1_OV, SPIRE_M1_H, SPIRE_M3_OV, SPIRE_M3_H,
   SPW_ON, SPW_D, SPW_Y0, SPW_H, SPW_J1, SPW_TOP_F, SPW_TOP_MOLD,
   LNK_ON, LNK_DOOR_ON, LNK_ASSIGN, LNK_DOOR_H, LNK_DOOR_HW, LNK_DOOR_MARG, SPT_R, SPT_Y,
+  SPD_ON, SPD_HW, SPD_H, SPD_FW, SPD_PROJ, SPD_SIDE, SPD_EMB, SPD_MARG, SPD_Y0, SPD_Y1,
   SPIRE_PORTAL_ON, SP_FR_SPAN, SP_FR_W, SP_FR_SPRING, SP_FR_APEX, SP_FR_POINT,
   SP_FR_PROJ_TOP, SP_FR_PROJ_FOOT, SP_FR_PROJ_P, SP_FR_TILT, SP_FR_EMB, SP_FR_CLR,
   SP_FR_MESH, SP_FR_MESH_GAP, SP_FR_MESH_PROJ, SP_FR_MESH_TIP, SP_FR_MESH_TIP_P,
@@ -294,7 +295,8 @@ function toGeo(pos) {
   return orientOutward(g)
 }
 
-const SEG = 96                                       // 원형 구간 분할(구 원뿔대와 동급)
+export const SPIRE_BODY_SEG = 96                     // 원형 구간 분할(구 원뿔대와 동급) — ★151이 절단면에서 같은 값을 읽는다(사본 금지)
+const SEG = SPIRE_BODY_SEG
 
 // ── ① 원기둥 + L-턱(한 회전체 — 규율 ⑤: 턱이 J1 슬릿의 바닥을 깐다) ──
 function buildCylSolid(S) {
@@ -435,6 +437,16 @@ function cutSolids() {
       cutters.push(g2)
     })
   }
+  //  ★★★154 az0° 문: 테라스 레벨을 뚫는다(★147-d 구안 각폭 26.8° 대체 — 현도 "작은 개구").
+  //   ⚠자르개 z는 개구 반폭 **그대로**(여유 없음 — 개구 폭이 곧 확정값 3.30이라야 한다).
+  //    여유 MARG는 **반경 방향에만** 준다(벽 안팎으로 넘겨 공면 z-fighting을 피한다).
+  //   ⚠밑변은 y127 정확히 — 그 아래 벽이 남아 **문턱**이 된다(테라스·데크와 같은 면).
+  if (SPD_ON) {
+    const SD = spireSpec()                                        // ⚠cutSolids는 스펙을 안 받는다 — 정본을 직접 부른다
+    const gD = new THREE.BoxGeometry(SD.T + 4 * SPD_MARG, SPD_H, SPD_HW * 2)
+    gD.translate(SD.rCylTopIn + SD.T / 2, SPD_Y0 + SPD_H / 2, 0)
+    cutters.push(gD)
+  }
   const dome = new THREE.SphereGeometry(1, 64, 40)
   dome.scale(ROOM_R, ROOM_HEIGHT, ROOM_R)
   dome.translate(ROOM_CX, ROOM_FLOOR_Y, 0)
@@ -473,4 +485,52 @@ export function buildSpire(opts = {}) {
   g.setIndex(Array.from({ length: pos.length / 3 }, (_, i) => i))
   g.computeVertexNormals()                           // 감김은 성분별 orientOutward가 CSG 전에 확정 — 여기선 법선만
   return g
+}
+
+
+//  ══ ★★★154 문틀 — 개구를 두르는 띠(양면). 종잇장 방지의 얼굴 셋째 ══
+//   구성 = 문설주 둘(y127~상단) + 인방 하나(상단~상단+띠폭). **문턱은 두지 않는다**(걸림 방지).
+//   반경 대역: 바깥 틀 [rOut−EMB, rOut+PROJ] · 안쪽 틀 [rIn−PROJ, rIn+EMB].
+//   ⚠EMB(0.5)가 96각 편차(0.06)를 훨씬 덮으므로 평평한 상자로 지어도 전 폭에서 살 속에 앉는다.
+export function spireDoorSpec(S = spireSpec()) {
+  const bands = []
+  if (SPD_SIDE === 'out' || SPD_SIDE === 'both') bands.push({ id: '밖', r0: S.rCylTop - SPD_EMB, r1: S.rCylTop + SPD_PROJ })
+  if (SPD_SIDE === 'in' || SPD_SIDE === 'both') bands.push({ id: '안', r0: S.rCylTopIn - SPD_PROJ, r1: S.rCylTopIn + SPD_EMB })
+  //  다각형 편차 — 틀이 뜨지 않는 근거(검사가 EMB와 대조한다)
+  const seg = 2 * Math.PI / SPIRE_BODY_SEG
+  const devAt = (r) => {
+    let d = 0
+    for (let i = 0; i <= 40; i++) {
+      const z = SPD_HW * i / 40, phi = Math.asin(Math.min(1, z / r))
+      const k = Math.floor(phi / seg), a0 = k * seg, a1 = a0 + seg
+      const t = (z - r * Math.sin(a0)) / (r * Math.sin(a1) - r * Math.sin(a0) || 1)
+      d = Math.max(d, r - (r * Math.cos(a0) + t * (r * Math.cos(a1) - r * Math.cos(a0))))
+    }
+    return d
+  }
+  return { on: SPD_ON, hw: SPD_HW, h: SPD_H, fw: SPD_FW, y0: SPD_Y0, y1: SPD_Y1,
+           bands, devOut: devAt(S.rCylTop), devIn: devAt(S.rCylTopIn), emb: SPD_EMB }
+}
+
+export function buildSpireDoorFrame(S = spireSpec()) {
+  if (!SPD_ON) return null
+  const D = spireDoorSpec(S)
+  const pos = [], idx = []
+  const q = (a, b, c, d) => { const n = pos.length / 3; for (const p of [a, b, c, d]) pos.push(...p); idx.push(n, n + 1, n + 2, n, n + 2, n + 3) }
+  const box = (x0, x1, y0, y1, z0, z1) => {
+    const P = [[x0,y0,z0],[x1,y0,z0],[x1,y1,z0],[x0,y1,z0],[x0,y0,z1],[x1,y0,z1],[x1,y1,z1],[x0,y1,z1]]
+    q(P[0],P[3],P[2],P[1]); q(P[4],P[5],P[6],P[7])
+    q(P[0],P[1],P[5],P[4]); q(P[3],P[7],P[6],P[2])
+    q(P[0],P[4],P[7],P[3]); q(P[1],P[2],P[6],P[5])
+  }
+  for (const b of D.bands) {
+    box(b.r0, b.r1, D.y0, D.y1, D.hw, D.hw + D.fw)                 // 문설주 +z
+    box(b.r0, b.r1, D.y0, D.y1, -(D.hw + D.fw), -D.hw)             // 문설주 −z
+    box(b.r0, b.r1, D.y1, D.y1 + D.fw, -(D.hw + D.fw), D.hw + D.fw) // 인방
+  }
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  g.setIndex(idx)
+  g.computeVertexNormals()
+  return orientOutward(g)
 }

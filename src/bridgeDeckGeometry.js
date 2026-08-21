@@ -30,7 +30,8 @@ import {
   BRD_ARC_SPRW, BRD_ARC_SPRE, BRD_ARC_SEG, BRD_ARC_MASS,
   //  ★147-c 큰 아치(노브만 — 파생은 bridgeArchSpec이 계산한다)
   BRA_ON, BRA_H, BRA_T, BRA_HW, BRA_WT, BRA_SEG, BRA_SPAN_ON, BRA_MASS, BRD_ARC_FLR,
-  BRD_SPI_ON, BRD_STAIR_ON,
+  BRD_SPI_ON, BRD_STAIR_ON, BRD_VLT_ON,
+  BRD_VLT_OPEN, BRD_VLT_CAP_X, BRD_VLT_CAP_K, BRD_VLT_SEG, brdVaultTopY, BRD_TRP_ON, BRD_TRP_NOTCH_TOP, BRD_TRP_NOTCH_BANDS,
   BRD_SFT_ON, BRD_SFT_W, BRD_SFT_TURNS, COR_CYL_X0, ROOM_STAIR_RISE, ROOM_STAIR_SLAB,
   BRD_EAST, BRD_EAST_X, BRD_CEIL_LAP, BRD_SFT_DOOR_ON, DESC_HW,
 } from './constants.js'
@@ -216,23 +217,65 @@ export function buildBridgeDeck(A = bridgeDeckSpec()) {
 
 //  측벽 — ★147-a는 민짜('solid'). -b에서 아케이드로 교체(BRD_SIDE 한 줄).
 export function buildBridgeSides(A = bridgeDeckSpec()) {
+  if (BRD_TRP_ON) return null          // ★150: 사다리꼴 빌더가 외피 담당 — 직사각 측벽 미생성
   if (A.side !== 'solid') return null
   const { hw, t, x0, yWalk, yRoofBot } = A
   const xEb = ceilXAt(yWalk), xEt = ceilXAt(yRoofBot)
   //  ★'portal'이면 측벽도 데크와 **같은 x**에서 수직으로 끊긴다 → 개구 = 데크 끝 × 내부고 7.00의 직사각.
   //   ⚠구 'ceilcut'은 측벽이 빗천장을 따라 130.50~145.20으로 비스듬히 잘렸다(쐐기의 정체).
+  //  ★★★149: 개방 체제면 **서쪽 구간 벽 윗변이 볼트 인트라도스를 따라간다**(brdVaultTopY 정본).
+  //   x 스테이션 = 베이당 BRD_VLT_SEG — 웹 격자와 같은 분할이라 두 면의 모서리가 정확히 만난다.
+  //   ⛔**칸별 상자 금지**(2026.08.20 자가 적발): 칸을 이어 붙이면 맞닿은 내부면이 중복돼
+  //    `orientOutward`가 없는 부피를 지어낸다(해석 5021 vs 메시 531593 — 부피 대조가 잡았다.
+  //    ★147-a 퇴화 상자 87.66과 같은 계열). → **닫힌 스윕 프리즘 하나**로 짓는다.
   return quadGeo((q) => {
     for (const [za, zb] of [[-hw, -hw + t], [hw - t, hw]]) {
-      if (BRD_EAST === 'portal') box(q, x0, BRD_EAST_X, yWalk, yRoofBot, za, zb)
+      if (BRD_VLT_ON && BRD_VLT_OPEN) {
+        const nx = BRD_VLT_CAP_K * BRD_VLT_SEG
+        const xs = [], ys = []
+        for (let i = 0; i <= nx; i++) {
+          const x = x0 + (BRD_VLT_CAP_X - x0) * i / nx
+          xs.push(x); ys.push(brdVaultTopY(x))
+        }
+        const yS = ys[nx]                      // 단차 밑 = 캡 경계의 마루(= 스프링, 경계이므로)
+        //  ⓐ 개방 구간: 칸마다 볼벽(za·zb) + 밑면 + 윗면
+        for (let i = 0; i < nx; i++) {
+          const xa = xs[i], xb2 = xs[i + 1], ya = ys[i], yb2 = ys[i + 1]
+          q([xa, yWalk, za], [xa, ya, za], [xb2, yb2, za], [xb2, yWalk, za])           // 볼벽 za
+          q([xa, yWalk, zb], [xb2, yWalk, zb], [xb2, yb2, zb], [xa, ya, zb])           // 볼벽 zb
+          q([xa, yWalk, za], [xb2, yWalk, za], [xb2, yWalk, zb], [xa, yWalk, zb])      // 밑면
+          q([xa, ya, za], [xb2, yb2, za], [xb2, yb2, zb], [xa, ya, zb])                // 윗면(마루 추종)
+        }
+        //  ⓑ 캡 구간 = 상자 **하나**. 쪼개는 것은 볼벽·동단뿐 — 안 쪼개면 단차 양쪽 세로 변이 1:2로
+        //    어긋나 T-접합이 난다(에지 12건). ⚠단 yS에 **가로면을 두면 안 된다**: 내부면이 중복돼
+        //    없는 부피를 지어낸다(실측 12126 vs 해석 5014 — 같은 세션에서 두 번째로 밟은 함정).
+        const xC = BRD_VLT_CAP_X, xE = BRD_EAST_X
+        for (const [yl, yh] of [[yWalk, yS], [yS, yRoofBot]]) {
+          q([xC, yl, za], [xC, yh, za], [xE, yh, za], [xE, yl, za])                    // 볼벽 za
+          q([xC, yl, zb], [xE, yl, zb], [xE, yh, zb], [xC, yh, zb])                    // 볼벽 zb
+          q([xE, yl, zb], [xE, yh, zb], [xE, yh, za], [xE, yl, za])                    // 동 마구리
+        }
+        q([xC, yWalk, za], [xE, yWalk, za], [xE, yWalk, zb], [xC, yWalk, zb])          // 밑면(통짜)
+        q([xC, yRoofBot, za], [xC, yRoofBot, zb], [xE, yRoofBot, zb], [xE, yRoofBot, za])  // 윗면(통짜)
+        //  ⓒ 마구리 둘: 서단 · 단차 수직면
+        q([x0, yWalk, za], [x0, ys[0], za], [x0, ys[0], zb], [x0, yWalk, zb])
+        q([xC, yS, za], [xC, yRoofBot, za], [xC, yRoofBot, zb], [xC, yS, zb])
+      } else if (BRD_EAST === 'portal') box(q, x0, BRD_EAST_X, yWalk, yRoofBot, za, zb)
       else boxSlantE(q, x0, yWalk, yRoofBot, za, zb, xEb, xEt)
     }
   })
 }
 
 export function buildBridgeRoof(A = bridgeDeckSpec()) {
+  if (BRD_TRP_ON) return null          // ★150: 갓이 지붕 — 판 미생성
   const { hw, x0, yRoofBot, yRoofTop } = A
+  //  ★★★148: 볼트 체제의 동단 = 포털면 수직 컷(데크·측벽과 동일). 구 빗천장 컷(ceilXAt)은
+  //   상향 후 처마가 2.8 → 24.8로 폭주하고, 근거였던 ceilY 모델은 ★147-f에서 폐기됐다.
+  //   BRD_VLT_ON=false면 구 빗천장 컷 그대로(보존계).
   return quadGeo((q) => {
-    boxSlantE(q, x0, yRoofBot, yRoofTop, -hw, hw, ceilXAt(yRoofBot), ceilXAt(yRoofTop))
+    if (BRD_VLT_ON && BRD_VLT_OPEN) box(q, BRD_VLT_CAP_X, BRD_EAST_X, yRoofBot, yRoofTop, -hw, hw)
+    else if (BRD_VLT_ON) box(q, x0, BRD_EAST_X, yRoofBot, yRoofTop, -hw, hw)
+    else boxSlantE(q, x0, yRoofBot, yRoofTop, -hw, hw, ceilXAt(yRoofBot), ceilXAt(yRoofTop))
   })
 }
 
@@ -650,7 +693,12 @@ export function ceilNotchSpec() {
     on,
     hz:  BRD_HW - lap,            // 4.525   — 잘린 변이 측벽(3.90~5.15) 살 속에서 끝난다
     yLo: BRD_DECK_BOT + lap,      // 126.125 — 데크판(125.50~127.00) 살 속
-    yHi: BRD_ROOF_TOP - lap,      // 134.625 — 지붕판(134.00~135.25) 살 속
+    //  ★150: yHi = 동결선(벽 중심선이 hz를 지나는 높이 135.651 — constants ★150 절). ROOF_TOP−lap을 쓰면
+    //   좁아진 상부(±2.8)보다 노치가 넓어져 드럼에서 슬롯이 보인다(실측 2026.08.20). 다른 체제는 구식 그대로.
+    yHi: BRD_TRP_ON ? BRD_TRP_NOTCH_TOP : BRD_ROOF_TOP - lap,
+    //  ★★★152: 사다리꼴 체제면 **밴드**가 상자를 대체한다(단면 중심선 추종 — constants ★152 절).
+    //   구 상자는 y127에서 3.903의 천장 살을 관 안에 남겼다(현도 사진의 그 쐐기).
+    bands: BRD_TRP_ON ? BRD_TRP_NOTCH_BANDS : null,
     //  ⑤ 처마 몫 — ★147-f ⑤(현도 "드럼 천장↔아케이드 겹침이 밖에서 종잇장처럼 보인다").
     //   실측: 갓 바깥 10각형이 방위 180°에서 벽보다 **4.32 바깥**(x115.68)까지 나오고 y119.94~122로 처져
     //   **아케이드 대역(y115.30~125.50) 한복판을 두께 0 면이 가른다**. 관 밑도 사정이 같다.
@@ -720,7 +768,7 @@ export function buildBridgeDeckParts() {
       ...(spandrels ? [{ id: '스팬드럴', geo: spandrels }] : []),
       ...(arcFloor ? [{ id: '아케이드바닥판', geo: arcFloor }] : []),
       ...(sftF ? [{ id: '월대샤프트', geo: sftF }] : []),
-      { id: '지붕판', geo: buildBridgeRoof(A) },
+      ...((r => r ? [{ id: '지붕판', geo: r }] : [])(buildBridgeRoof(A))),   // ★150: TRP면 null(갓이 지붕)
       { id: '기둥', geo: buildBridgePier(A) },
     ],
   }

@@ -1163,8 +1163,16 @@ export function Corridor() {
       }
       const notchPieces = (poly) => {
         if (!notch.on) return gatCutPieces([poly])
-        //  ① 관 단면: |z| ≤ hz(절반 메시라 z ≤ hz) · yLo ≤ y ≤ yHi
-        let ps = cutRegion([poly], [P => notch.hz - P[2], P => P[1] - notch.yLo, P => notch.yHi - P[1]])
+        //  ① 관 단면 — ★★★152: 밴드가 있으면 **중심선 추종**(볼록 밴드 여럿을 차례로 뺀다).
+        //   각 밴드 = {y≥y0} ∩ {y≤y1} ∩ {z ≤ a·y+b} — 셋 다 선형이라 cutRegion 그대로.
+        //   ⚠구 상자({|z|≤hz} ∩ {yLo≤y≤yHi})는 사다리꼴을 못 따라가 y127에서 3.903의 살을 남겼다.
+        let ps = [poly]
+        if (notch.bands) {
+          for (const b of notch.bands)
+            ps = cutRegion(ps, [P => P[1] - b.y0, P => b.y1 - P[1], P => (b.a * P[1] + b.b) - P[2]])
+        } else {
+          ps = cutRegion(ps, [P => notch.hz - P[2], P => P[1] - notch.yLo, P => notch.yHi - P[1]])
+        }
         //  ② 샤프트 우물: 데크 밑에서 우물 속으로 들어온 몫
         //  ② 데크 밑 몫: 샤프트 우물 + 처마(아케이드를 가르는 두께 0 면). 서쪽 경계 없음 — 천장이 스스로 끝난다.
         if (notch.well) ps = cutRegion(ps, [P => notch.hz - P[2],
