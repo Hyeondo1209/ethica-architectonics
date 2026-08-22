@@ -33,6 +33,7 @@ import {
   BRD_SPI_ON, BRD_STAIR_ON, BRD_VLT_ON,
   BRD_VLT_OPEN, BRD_VLT_CAP_X, BRD_VLT_CAP_K, BRD_VLT_SEG, brdVaultTopY, BRD_TRP_ON, BRD_TRP_NOTCH_TOP, BRD_TRP_NOTCH_BANDS,
   BRD_SFT_ON, BRD_SFT_W, BRD_SFT_TURNS, COR_CYL_X0, ROOM_STAIR_RISE, ROOM_STAIR_SLAB,
+  BRD_SFT_HAND, BRD_SFT_LAND_ON, BRD_SFT_LAND_Z,
   BRD_EAST, BRD_EAST_X, BRD_CEIL_LAP, BRD_SFT_DOOR_ON, DESC_HW,
 } from './constants.js'
 import { bridgeSpec } from './bridgeComplexGeometry.js'
@@ -585,17 +586,20 @@ export function shaftSpec() {
   const mx0 = inX0 + BRD_SFT_W / 2, mx1 = inX1 - BRD_SFT_W / 2, mz = inZ - BRD_SFT_W / 2
   const loop = 2 * ((mx1 - mx0) + 2 * mz)
   const going = BRD_SFT_TURNS * loop / n
-  //  s → (x, z): 서변(−z→+z) → 북변 → 동변 → 남변. s0 = 서변 중앙(전망대가 서쪽에서 온다).
+  //  s → (x, z): 서변 → 북/남변 → 동변 → 남/북변. s0 = 서변 중앙(전망대가 서쪽에서 온다).
+  //  ★★★160: `mir`는 z를 통째로 뒤집는 **거울**이다. 경로 길이·모서리 s·단 배분은 거울에 불변이므로
+  //   73단·2.5바퀴·답면·하단 도착 x가 전부 그대로다(바뀌는 것은 도는 손 방향과 z 부호뿐).
+  const mir = BRD_SFT_HAND === 'ccw' ? -1 : 1
   const at = (s) => {
     const LX = mx1 - mx0, LZ = 2 * mz, L = loop
     let u = ((s % L) + L) % L
-    if (u < LZ) return { x: mx0, z: -mz + u, dir: 'z+' }
+    if (u < LZ) return { x: mx0, z: mir * (-mz + u), dir: mir > 0 ? 'z+' : 'z-' }
     u -= LZ
-    if (u < LX) return { x: mx0 + u, z: mz, dir: 'x+' }
+    if (u < LX) return { x: mx0 + u, z: mir * mz, dir: 'x+' }
     u -= LX
-    if (u < LZ) return { x: mx1, z: mz - u, dir: 'z-' }
+    if (u < LZ) return { x: mx1, z: mir * (mz - u), dir: mir > 0 ? 'z-' : 'z+' }
     u -= LZ
-    return { x: mx1 - u, z: -mz, dir: 'x-' }
+    return { x: mx1 - u, z: mir * -mz, dir: 'x-' }
   }
   const s0 = mz          // 서변 중앙
   //  ★★★147-f ①(2026.08.19 현도: "직각나선 코너에 정사각형 참 — 방향 전환이 부자연스럽다"):
@@ -664,10 +668,52 @@ export function shaftSpec() {
   const door = BRD_SFT_DOOR_ON
     ? { hz: doorHz, y0, y1: y0 + BRD_CLEAR, zCross, clamped: DESC_HW + Math.abs(zCross) > inZ }
     : null
+  //  ★★★160 ㄴ자 참 판 — 전부 파생(새 숫자 0):
+  //   폭 = 답면 폭 · 두께 = 디딤판 두께 · 상면 = 전망대 보행면. 이 판은 곧 아주 큰 디딤판 한 장이다.
+  //   ★poly는 (x, |z|)로 **CCW 고정**해 두고 방출할 때만 부호를 곱한다 — 그래야 LAND_Z를 뒤집어도
+  //    삼각화가 퇴화하지 않는다(감김은 orientOutward가 보증).
+  //   세로 획 = 초입(z 0) → 변(|z| = inZ) · 가로 획 = 그 변을 타고 동단 데크(x = inX1)까지.
+  const lw = BRD_SFT_W
+  const land = BRD_SFT_LAND_ON ? {
+    on: true, w: lw, zSign: BRD_SFT_LAND_Z,
+    yTop: y1, slab: ROOM_STAIR_SLAB, yBot: y1 - ROOM_STAIR_SLAB,
+    x0: inX0, x1: inX1, xLeg: inX0 + lw,     // 세로 획 동단
+    zNear: 0, zFar: inZ, zLeg: inZ - lw,     // 가로 획 남단(|z| 기준)
+    poly: [[inX0, 0], [inX0 + lw, 0], [inX0 + lw, inZ - lw],
+           [inX1, inZ - lw], [inX1, inZ], [inX0, inZ]],
+    area: lw * inZ + (inX1 - inX0 - lw) * lw,
+  } : null
   return { on: BRD_SFT_ON, x0, x1, hw, t, y0, y1, inX0, inX1, inZ, drop, n, rise, going,
-           nLand, nTread, cornerS, perSeg, usable,
+           nLand, nTread, cornerS, perSeg, usable, hand: BRD_SFT_HAND, mir,
            loop, turns: BRD_SFT_TURNS, w: BRD_SFT_W, slab: ROOM_STAIR_SLAB,
-           mx0, mx1, mz, s0, sEnd: s0 + BRD_SFT_TURNS * loop, at, steps, door }
+           mx0, mx1, mz, s0, sEnd: s0 + BRD_SFT_TURNS * loop, at, steps, door, land }
+}
+
+//  ── ★★★160 ㄴ자 판 발자국(빌더·검사 공용 — 사본 금지, ★144 규칙) ──
+//   한 단의 (x0,x1,z0,z1) 발자국. 나선 빌더가 쓰는 것과 **같은 산술**이다.
+export function shaftStepFoot(S, st) {
+  const aX = st.dir === 'x+' || st.dir === 'x-', h = S.w / 2
+  const g = st.kind === 'landing' ? S.w / 2 : st.going / 2
+  return aX ? [st.cx - g, st.cx + g, st.cz - h, st.cz + h]
+            : [st.cx - h, st.cx + h, st.cz - g, st.cz + g]
+}
+//  판 발자국(부호 적용 후)과 겹치는 단들 중 **가장 높은 상면**. 없으면 −Infinity.
+//   ⛔이것이 ★160의 핵심 가드다 — 구 감김이면 126.648이 나와 판 밑면 126.65와 0.002로 붙는다.
+export function shaftLandTopUnder(S) {
+  const L = S.land
+  if (!L) return -Infinity
+  const rects = [
+    [L.x0, L.xLeg, 0, L.zFar],          // 세로 획
+    [L.x0, L.x1, L.zLeg, L.zFar],       // 가로 획
+  ].map(([a, b, c, d]) => L.zSign > 0 ? [a, b, c, d] : [a, b, -d, -c])
+  let top = -Infinity
+  for (const st of S.steps) {
+    const [x0, x1, z0, z1] = shaftStepFoot(S, st)
+    for (const [a, b, c, d] of rects)
+      if (x0 < b - 1e-9 && x1 > a + 1e-9 && z0 < d - 1e-9 && z1 > c + 1e-9)
+        top = Math.max(top, st.yTop)
+  }
+  return top
 }
 
 //  ══ ⑧-b ★★★147-f ② 드럼 빗천장 노치 — 관·샤프트가 지나는 만큼만 천장을 비운다 ══
@@ -741,6 +787,31 @@ export function buildShaftSpiral() {
   })
 }
 
+//  ══ ⑧-c ★★★160 ㄴ자 참 판 — 초입의 참 + 동단으로 건너가는 다리 ══
+//   ⛔**상자 둘을 겹쳐 붙이지 않는다**(★149·★158 자책 계열): 맞닿은 내부면이 중복되면
+//    `orientOutward`가 없는 부피를 지어낸다. → **닫힌 ㄴ 프리즘 하나**로 짓는다
+//    (윗면·밑면 = 삼각화된 ㄴ · 옆면 = 여섯 변의 쿼드. 스팬드럴과 같은 어법).
+export function buildShaftLanding() {
+  if (!BRD_ON || !BRD_SFT_ON) return null
+  const S = shaftSpec(), L = S.land
+  if (!L) return null
+  const sg = L.zSign
+  return quadGeo((q, tri) => {
+    const P = L.poly
+    const v2 = P.map(p => new THREE.Vector2(p[0], p[1]))
+    const faces = THREE.ShapeUtils.triangulateShape(v2, [])
+    for (const [i, j, k] of faces) {
+      tri([P[i][0], L.yTop, sg * P[i][1]], [P[j][0], L.yTop, sg * P[j][1]], [P[k][0], L.yTop, sg * P[k][1]])
+      tri([P[k][0], L.yBot, sg * P[k][1]], [P[j][0], L.yBot, sg * P[j][1]], [P[i][0], L.yBot, sg * P[i][1]])
+    }
+    for (let i = 0; i < P.length; i++) {
+      const a = P[i], b = P[(i + 1) % P.length]
+      q([a[0], L.yBot, sg * a[1]], [b[0], L.yBot, sg * b[1]],
+        [b[0], L.yTop, sg * b[1]], [a[0], L.yTop, sg * a[1]])
+    }
+  })
+}
+
 //  ══ ⑥ 묶음 ══
 export function buildBridgeDeckParts() {
   if (!BRD_ON) return null
@@ -751,7 +822,7 @@ export function buildBridgeDeckParts() {
   const spandrels = buildBridgeSpandrels()
   const arcFloor = buildArcadeFloor()
   const spi = buildBridgeSpiral(A), stair = buildBridgeStair(A)
-  const sftF = buildShaftFrame(), sftS = buildShaftSpiral()
+  const sftF = buildShaftFrame(), sftS = buildShaftSpiral(), sftL = buildShaftLanding()
   return {
     spec: A,
     //  walk = 밟는 면(데크판 윗면 · 디딤판) · solid = 그 외
@@ -760,6 +831,7 @@ export function buildBridgeDeckParts() {
       ...(spi ? [{ id: '직각나선', geo: spi }] : []),
       ...(stair ? [{ id: '직선계단', geo: stair }] : []),
       ...(sftS ? [{ id: '월대나선', geo: sftS }] : []),
+      ...(sftL ? [{ id: '샤프트참판', geo: sftL }] : []),
     ],
     solid: [
       ...(sides ? [{ id: '측벽', geo: sides }] : []),

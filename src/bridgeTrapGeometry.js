@@ -18,9 +18,35 @@ import {
   BRD_X0, BRD_EAST_X, BRD_HW, BRD_T, BRD_YW, SPIRE_SINK, BRD_BAND_ON, BRD_WCUT,
   BRD_END_ON, BRD_END_X1, BRD_END_Y1, BRD_END_K, brdEndX, BRD_CEIL_LAP, BRD_DECK_BOT,
   BRD_PROW_ON, BRD_PROW_X0, BRD_PROW_Z0, BRD_PROW_Z1, BRD_PROW_K, brdSlantX, brdProwX, brdCrossZ,
+  BRD_CAP_CUT_ON, BRD_CAP_LAP, BRD_CAP_WALL, BRD_PORTAL_ON, SP_FR_W, BRD_SLIT_LINK,
 } from './constants.js'
 import { bridgeVaultSpec, buildSpireBand } from './bridgeVaultGeometry.js'
 import { spireSpec, wellWallR, SPIRE_BODY_SEG } from './spireGeometry.js'
+import { gatPlane } from './gatEaveGeometry.js'   // ★★★161 관 갓의 절단면 = 드럼 갓 평면(정본 하나)
+
+//  ══ ★★★161 관 갓 = 드럼 천장 면 절단 (2026.08.21 현도 ⓐ) ══
+//   ★평면이므로 계수를 **표본 셋**으로 뽑는다(근사가 아니라 정확 — 1차식의 유한차분은 오차 0).
+//   ★컷 = 천장보다 `BRD_CEIL_LAP` **위**. 아래로 내려오지 않고(현도 요구), 천장 살과 공면도 아니다.
+//  ★★★162 ⓑ: 벽(토막)도 같은 천장 면으로 자른다 — 갓만 자르면 벽이 캔틸레버로 튀어나온다(현도 실물 판정).
+const CAP_SECS = new Set(BRD_CAP_WALL ? ['갓빗판', '갓마루', '토막위', '토막아래'] : ['갓빗판', '갓마루'])
+let _capCoef = null
+function capCoef() {
+  if (_capCoef) return _capCoef
+  const P = gatPlane()
+  const c = P(0, 0), a = P(1, 0) - c, b = P(0, 1) - c
+  _capCoef = { a, b, c }
+  return _capCoef
+}
+//  높이 y · 폭 |z| 에서 **드럼 천장이 서는 x** (천장 평면을 x에 대해 푼 것)
+export function drumCeilX(y, z) { const { a, b, c } = capCoef(); return (y - c - b * Math.abs(z)) / a }
+//  관 갓의 동쪽 끝 x — 천장보다 lap 위에서 끊는다
+//  ★★★162 ②: 유격 = `BRD_CAP_LAP`. **0이면 관이 천장 면에서 정확히 끝난다**(현도 "유격 0").
+export function brdCapCutX(y, z) { return drumCeilX(y - BRD_CAP_LAP, z) }
+//  ★부재별 동단 함수 — 빌더도 검사도 이것만 읽는다(★144 규칙 · 사본 금지)
+export function trapSecEndX(secId) {
+  return (BRD_CAP_CUT_ON && CAP_SECS.has(secId)) ? brdCapCutX : brdEndX
+}
+export function trapCapSecIds() { return [...CAP_SECS] }
 
 function quadGeo(build) {
   const pos = [], idx = []
@@ -507,6 +533,16 @@ function clipPolyG(poly, g, keepPos) {
 //   교대선은 |z| = brdCrossZ(y) — y에 선형인 **기울어진** 직선이라 수평 클립으로는 못 자른다.
 function splitAtKinks(poly) {
   let pieces = [poly]
+  //  ⛔**꺾임 규율 일곱 번째(★161)**: 갓 컷은 `|z|`에 의존하므로 **z=0에서 꺾인다**.
+  //   `갓마루`는 z −2.05~+2.05를 한 장으로 덮어 그 꺾임을 품는다 — 안 쪼개면 메시가 현으로 가로질러
+  //   부피가 2.02 어긋난다(실측). 검사의 정확식도 같은 자리에서 쪼갠다(★144 규칙).
+  if (BRD_CAP_CUT_ON) {
+    const nx = []
+    for (const pc of pieces)
+      for (const c of [clipPolyG(pc, p => p[0], true), clipPolyG(pc, p => p[0], false)])
+        if (c.length >= 3 && polyArea(c) > 1e-9) nx.push(c)
+    pieces = nx
+  }
   for (const Y of [BRD_YW]) {                       // ★159: 수직 컷 폐지로 142.825 꺾임은 사라졌다
     const nx = []
     for (const pc of pieces)
@@ -618,6 +654,140 @@ export function buildTrapEndCap(A = bridgeTrapSpec()) {
   return { id: '동단마개', geo }
 }
 
+//  ══ ★★★165 빛구멍 문틀 — 문설주 둘 + 상인방 (문지방 = ★158 마개 윗면) ══
+export function portalSpec(E = trapEndSpec()) {
+  const d = BRD_T                                   // x 깊이
+  const xc = BRD_END_X1 - E.th / 2                  // 마개 윗면 중심 139.648
+  const x0 = xc - d / 2, x1 = xc + d / 2            // 139.023 ~ 140.273 ⊂ 마개 윗면(138.996~140.300)
+  const zOut = BRD_TRP_O2                           // 문설주 바깥면 = 마개 꼭대기 반폭 2.15(항등)
+  const zIn = zOut - SP_FR_W                        // 1.05
+  const yFoot = E.y1                                // 142.825 — 마개 윗면 맞대기(★157 전례)
+  const { a, b, c } = capCoef()                     // 드럼 갓 평면(정본 하나)
+  const ceilY = (x, z) => c + a * x + b * Math.abs(z)
+  //  ⛔침강 물림을 그대로 두면 동쪽 윗귀가 마루 상면(148.566)을 0.46 뚫는다(실측 149.03).
+  //   → 마루판 **중심**(BRD_TRP_CAPY 147.941)으로 클램프 — 살 한복판에 묻힌다(파생 · 손 수치 0).
+  //   두 면(천장+SINK · 수평 CAPY) 다 평면이라 교선은 **직선** — 꺾임 규율대로 그 선에서 쪼갠다.
+  const lintTop = (x, z) => Math.min(ceilY(x, z) + SPIRE_SINK, BRD_TRP_CAPY)
+  const lintBot = (x, z) => ceilY(x, z) - SP_FR_W         // 보이는 띠 1.10
+  //  문설주 머리 = 발밑 상인방 아랫면의 최저 코너 + SPIRE_SINK 물림
+  let head = Infinity
+  for (const x of [x0, x1]) for (const z of [zIn, zOut]) head = Math.min(head, lintBot(x, z))
+  head += SPIRE_SINK
+  return { on: BRD_PORTAL_ON && BRD_END_ON && BRD_TRP_ON,
+           d, xc, x0, x1, zOut, zIn, yFoot, head, ceilY, lintTop, lintBot,
+           postH: head - yFoot,
+           lintVol: (SP_FR_W + SPIRE_SINK) * (2 * zOut) * d,      // 오프셋 띠 = 넓이 불변 정확식
+           postVol: SP_FR_W * d * (head - yFoot) }
+}
+//  ══ ★★★166 ⓑ 슬릿 잇기 — 슬릿마개 동단 ↔ 문설주 서면 (현도 ⓐ: 슬릿 폭 그대로) ══
+//   ⚠단차 0.625가 이음매에 남는다(슬릿 1.525~2.775 vs 문설주 1.050~2.150) — 현도가 수치를 보고 선택.
+export function slitLinkSpec(C0 = trapColumnSpec(), S = portalSpec()) {
+  const x0 = C0.xs[C0.xs.length - 1] + C0.w / 2   // 슬릿마개 동단 = 마지막 기둥 중심 + 폭 절반(항등)
+  //  ★★★167: 문틀이 소등되면 잇기는 **동단 x145까지** 간다 — 현도 "정면부만 창문"(옆면 구멍 0).
+  //  ⚠상한은 **관 상부가 실제로 끝나는 x**를 따른다 — 체제 조합이 어긋나면 보존계 스윕이 문다.
+  const x1 = BRD_PORTAL_ON ? S.x0 : brdEndX(C0.slit.y0 + 1e-6)
+  return { on: BRD_SLIT_LINK && BRD_COL_ON,
+           x0, x1, y0: C0.slit.y0, y1: C0.slit.y1, zIn: C0.slit.zIn, zOut: C0.slit.zOut,
+           len: x1 - x0,
+           vol: (x1 - x0) * (C0.slit.y1 - C0.slit.y0) * (C0.slit.zOut - C0.slit.zIn) * 2 }
+}
+export function buildSlitLink(L = slitLinkSpec()) {
+  if (!L.on || L.len <= 1e-9) return []
+  const out = []
+  for (const sgn of [1, -1]) {
+    const za = sgn > 0 ? L.zIn : -L.zOut, zb = sgn > 0 ? L.zOut : -L.zIn
+    const V = [[L.x0,L.y0,za],[L.x1,L.y0,za],[L.x1,L.y0,zb],[L.x0,L.y0,zb],
+               [L.x0,L.y1,za],[L.x1,L.y1,za],[L.x1,L.y1,zb],[L.x0,L.y1,zb]]
+    const F = [[0,1,2,3],[7,6,5,4],[0,4,5,1],[1,5,6,2],[2,6,7,3],[3,7,4,0]]
+    const ctr = [0,0,0]; for (const v of V) for (let k=0;k<3;k++) ctr[k]+=v[k]/8
+    const tris = []
+    for (const f of F) for (let j=1;j+1<f.length;j++) {
+      let [pA,pB,pC] = [V[f[0]],V[f[j]],V[f[j+1]]]
+      const e1=[pB[0]-pA[0],pB[1]-pA[1],pB[2]-pA[2]], e2=[pC[0]-pA[0],pC[1]-pA[1],pC[2]-pA[2]]
+      const nr=[e1[1]*e2[2]-e1[2]*e2[1], e1[2]*e2[0]-e1[0]*e2[2], e1[0]*e2[1]-e1[1]*e2[0]]
+      const fc=[(pA[0]+pB[0]+pC[0])/3-ctr[0], (pA[1]+pB[1]+pC[1])/3-ctr[1], (pA[2]+pB[2]+pC[2])/3-ctr[2]]
+      if (nr[0]*fc[0]+nr[1]*fc[1]+nr[2]*fc[2] < 0) [pB,pC] = [pC,pB]
+      tris.push(pA,pB,pC)
+    }
+    const pos = new Float32Array(tris.length*3); tris.forEach((v,i)=>pos.set(v,i*3))
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.BufferAttribute(pos,3)); g.computeVertexNormals()
+    out.push({ id: sgn > 0 ? '슬릿잇기북' : '슬릿잇기남', geo: g })
+  }
+  return out
+}
+
+export function buildTrapPortal(S = portalSpec()) {
+  if (!S.on) return []
+  const parts = []
+  const solid = (id, V, F) => {
+    const ctr = [0, 0, 0]
+    for (const v of V) for (let k = 0; k < 3; k++) ctr[k] += v[k] / V.length
+    const tris = []
+    for (const f of F) for (let j = 1; j + 1 < f.length; j++) {
+      let [pA, pB, pC] = [V[f[0]], V[f[j]], V[f[j + 1]]]
+      const e1 = [pB[0]-pA[0], pB[1]-pA[1], pB[2]-pA[2]], e2 = [pC[0]-pA[0], pC[1]-pA[1], pC[2]-pA[2]]
+      const nr = [e1[1]*e2[2]-e1[2]*e2[1], e1[2]*e2[0]-e1[0]*e2[2], e1[0]*e2[1]-e1[1]*e2[0]]
+      const fc = [(pA[0]+pB[0]+pC[0])/3-ctr[0], (pA[1]+pB[1]+pC[1])/3-ctr[1], (pA[2]+pB[2]+pC[2])/3-ctr[2]]
+      if (nr[0]*fc[0]+nr[1]*fc[1]+nr[2]*fc[2] < 0) [pB, pC] = [pC, pB]
+      tris.push(pA, pB, pC)
+    }
+    const pos = new Float32Array(tris.length * 3)
+    tris.forEach((v, i) => pos.set(v, i * 3))
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+    g.computeVertexNormals()
+    parts.push({ id, geo: g })
+  }
+  const BOXF = [[0,1,2,3],[7,6,5,4],[0,4,5,1],[1,5,6,2],[2,6,7,3],[3,7,4,0]]
+  for (const sgn of [1, -1]) {                       // 문설주 좌우(거울)
+    const za = sgn > 0 ? S.zIn : -S.zOut, zb = sgn > 0 ? S.zOut : -S.zIn
+    const V = [[S.x0,S.yFoot,za],[S.x1,S.yFoot,za],[S.x1,S.yFoot,zb],[S.x0,S.yFoot,zb],
+               [S.x0,S.head,za],[S.x1,S.head,za],[S.x1,S.head,zb],[S.x0,S.head,zb]]
+    solid(sgn > 0 ? '문설주북' : '문설주남', V, BOXF)
+  }
+  {                                                  // 상인방 — 용마루 꺾임을 z=0 정점으로 품는 닫힌 프리즘
+    //  ★클램프 경계 xcl(z) = 「천장+SINK = CAPY」인 x — z에 선형(평면∩평면 = 직선 · 꺾임 규율)
+    const CF = capCoef()
+    const xcl = (z) => (BRD_TRP_CAPY - SPIRE_SINK - CF.c - CF.b * Math.abs(z)) / CF.a
+    const zPairs = [[-S.zOut, 0], [0, S.zOut]]       // 용마루 꺾임(z=0) 분할
+    let li = 0
+    for (const [za, zb] of zPairs) {
+      const xa = Math.min(xcl(za), xcl(zb)), xb = Math.max(xcl(za), xcl(zb))
+      const xs = [S.x0]
+      if (xa > S.x0 + 1e-9 && xa < S.x1 - 1e-9) xs.push(xa)
+      if (xb > S.x0 + 1e-9 && xb < S.x1 - 1e-9 && xb - xa > 1e-9) xs.push(xb)
+      xs.push(S.x1)
+      for (let i = 0; i + 1 < xs.length; i++) {
+        const [xA, xB] = [xs[i], xs[i + 1]]
+        const diag = xB - xA > 1e-9 && Math.abs(xA - xa) < 1e-9 && Math.abs(xB - xb) < 1e-9 && xb - xa > 1e-9
+        if (!diag) {
+          //  경계 밖 구간 — 윗면이 단일 평면(클램프 한쪽만) → 닫힌 상자 프리즘
+          const V = []
+          for (const x of [xA, xB]) for (const z of [za, zb])
+            V.push([x, S.lintBot(x, z), z], [x, S.lintTop(x, z), z])
+          solid(`상인방${++li}`, V, [[0,1,3,2],[4,6,7,5],[0,2,6,4],[1,5,7,3],[0,4,5,1],[2,3,7,6]])
+          continue
+        }
+        //  ★경계가 대각으로 지나는 구간 — 꺾임 직선을 **변으로 갖는 삼각 프리즘 둘**.
+        //   삼각형 안에서는 min()의 승자가 하나뿐이라 정점별 min 값이 자동으로 한 평면이다.
+        const K1 = [xcl(za), za], K2 = [xcl(zb), zb]              // 꺾임 대각선의 두 끝(모서리)
+        const corners = [[xA, za], [xB, za], [xB, zb], [xA, zb]]
+        const onK = (P2) => (Math.abs(P2[0] - K1[0]) < 1e-9 && Math.abs(P2[1] - K1[1]) < 1e-9) ||
+                            (Math.abs(P2[0] - K2[0]) < 1e-9 && Math.abs(P2[1] - K2[1]) < 1e-9)
+        const others = corners.filter(P2 => !onK(P2))              // 대각선 밖 두 꼭짓점
+        for (const O of others) {
+          const V = []
+          for (const [x, z] of [K1, K2, O]) V.push([x, S.lintBot(x, z), z], [x, S.lintTop(x, z), z])
+          //  V: [K1b,K1t, K2b,K2t, Ob,Ot] — 밑삼각·윗삼각·옆쿼드 셋
+          solid(`상인방${++li}`, V, [[0,2,4],[1,5,3],[0,1,3,2],[2,3,5,4],[4,5,1,0]])
+        }
+      }
+    }
+  }
+  return parts
+}
+
 export function buildBridgeTrapParts() {
   if (!BRD_TRP_ON) return null
   const A = bridgeTrapSpec()
@@ -632,11 +802,12 @@ export function buildBridgeTrapParts() {
     if (s.id === '빗면') { solid.push({ id: '빗면', geo: buildTrapSlope() }); continue }   // ★150-b 조립체
     //  ⚠**quadGeoRaw + 조각별 감김 자기 보증**: 꺾임 분할이 조각 사이에 맞닿은 내부면을 만들고,
     //   `orientOutward`는 그것을 용접해 방향을 뒤집는다(팬텀 66832 실측 — ★149·★150-b에 이은 세 번째).
+    const endX = trapSecEndX(s.id)          // ★★★161: 갓 부재만 드럼 천장 면으로 끊는다
     const geo = quadGeoRaw((q, tri) => {
       const put = (Q0) => {
         for (const Q of splitAtKinks(Q0)) {
           const n = Q.length
-          const xe = Q.map(([z, y]) => brdEndX(y, z))
+          const xe = Q.map(([z, y]) => endX(y, z))
           const P = (i, x) => [x, Q[i][1], Q[i][0]]
           //  조각 중심(감김 판정 기준)
           const ctr = [0, 0, 0]
@@ -687,5 +858,7 @@ export function buildBridgeTrapParts() {
     const band = buildSpireBand(bridgeVaultSpec())
     if (band) solid.push({ id: '첨탑대역', geo: band })
   }
+  solid.push(...buildTrapPortal())                 // ★★★165 빛구멍 문틀
+  solid.push(...buildSlitLink())                   // ★★★166 슬릿 잇기
   return { spec: bridgeTrapSpec(), solid }
 }

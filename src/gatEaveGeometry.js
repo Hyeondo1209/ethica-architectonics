@@ -43,7 +43,9 @@ import { gatSeal } from './corridorStairsGeometry.js'
 import { ceilNotchSpec } from './bridgeDeckGeometry.js'
 
 //  ── 갓 표면 = 패싯의 바깥 삼각형 (o0, o1, i1) 평면. 렌즈는 전부 이 삼각형 안이다 ──
-function gatPlane() {
+//   ★★★161: `bridgeTrapGeometry`가 **관 갓의 절단면**으로 이 평면을 읽는다(정본 하나 — ★144 규칙).
+//    ⚠임포트 방향: bridgeTrap → gatEave → bridgeDeck → constants. 역방향 금지(순환).
+export function gatPlane() {
   const seat = GAT_SEAT === 'pier' ? PIER_TOP_OVER : 0
   const seal = gatSeal()
   const F = GAT_FACETS, rOut = COR_R / Math.cos(Math.PI / F)
