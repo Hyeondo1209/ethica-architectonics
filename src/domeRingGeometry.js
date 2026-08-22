@@ -403,6 +403,15 @@ export function jointPlateGrid(A = domeRingSpec(), J = jointSpec(A)) {
   return rows
 }
 
+//  ★★169-b 폭 방향 분할(2026.08.22): 초판 직조는 폭이 ±phi **두 점**이라 안쪽면이 원주 현이 되어
+//   볼록 돔 안으로 최대 0.41 파고들었다(EMB 0.25와 합쳐 ★169 안면을 0.315 관통 — 검사 실측).
+//   ★145 띠의 '단면은 표면을 따라간다' 정정과 같은 계열 — 같은 의도 곡면의 정확한 근사(조형 불변).
+//   분할 수 = DRG_SEG(전둘레 96) 밀도 승계(파생 · 손 수치 0). 빌더·부피식이 이 함수 하나를 공유한다.
+export function jointPlateWidthSegs(rows) {
+  const phiMax = Math.max(...rows.map(r => r.phi))
+  return Math.max(2, Math.ceil((2 * phiMax) / (2 * Math.PI / DRG_SEG)))
+}
+
 
 //  판 솔리드 — 6면(바깥·안·좌우 빗변 벽·상단·하단 캡)을 격자에서 직조. 좌우 대칭.
 export function buildJointPlate(A = domeRingSpec(), J = jointSpec(A)) {
@@ -414,17 +423,25 @@ export function buildJointPlate(A = domeRingSpec(), J = jointSpec(A)) {
     return [r * Math.cos(da), domeY(s) + ny * v, r * Math.sin(da)]
   }
   const OUT = DRG_JP_T, IN = -DRG_EMB
+  const NW = jointPlateWidthSegs(rows)                   // ★169-b 폭 방향 분할(원주 현 침하 봉합)
+  const F = (w) => -1 + 2 * w / NW                       // phi 배율 [−1, +1]
   return quadGeo((q) => {
     for (let i = 0; i < rows.length - 1; i++) {
       const a = rows[i], b = rows[i + 1]
-      q(P(a.s, -a.phi, OUT), P(a.s, a.phi, OUT), P(b.s, b.phi, OUT), P(b.s, -b.phi, OUT))   // 바깥면
-      q(P(a.s, -a.phi, IN), P(b.s, -b.phi, IN), P(b.s, b.phi, IN), P(a.s, a.phi, IN))       // 안면(표면 속)
+      for (let w = 0; w < NW; w++) {                     // 바깥면·안면 — 폭 등분(감김은 초판 −phi→+phi 방향 그대로)
+        const f0 = F(w), f1 = F(w + 1)
+        q(P(a.s, a.phi * f0, OUT), P(a.s, a.phi * f1, OUT), P(b.s, b.phi * f1, OUT), P(b.s, b.phi * f0, OUT))
+        q(P(a.s, a.phi * f0, IN), P(b.s, b.phi * f0, IN), P(b.s, b.phi * f1, IN), P(a.s, a.phi * f1, IN))
+      }
       q(P(a.s, -a.phi, IN), P(a.s, -a.phi, OUT), P(b.s, -b.phi, OUT), P(b.s, -b.phi, IN))   // 옆 벽 −
       q(P(a.s, a.phi, IN), P(b.s, b.phi, IN), P(b.s, b.phi, OUT), P(a.s, a.phi, OUT))       // 옆 벽 +
     }
     const t = rows[0], u = rows[rows.length - 1]
-    q(P(t.s, -t.phi, IN), P(t.s, t.phi, IN), P(t.s, t.phi, OUT), P(t.s, -t.phi, OUT))        // 상단 캡
-    q(P(u.s, -u.phi, IN), P(u.s, -u.phi, OUT), P(u.s, u.phi, OUT), P(u.s, u.phi, IN))        // 하단 캡
+    for (let w = 0; w < NW; w++) {                       // 캡 — 같은 등분(에지 정합 = watertight)
+      const f0 = F(w), f1 = F(w + 1)
+      q(P(t.s, t.phi * f0, IN), P(t.s, t.phi * f1, IN), P(t.s, t.phi * f1, OUT), P(t.s, t.phi * f0, OUT))
+      q(P(u.s, u.phi * f0, IN), P(u.s, u.phi * f0, OUT), P(u.s, u.phi * f1, OUT), P(u.s, u.phi * f1, IN))
+    }
   })
 }
 
@@ -440,16 +457,24 @@ export function jointPlateVolume(A = domeRingSpec(), J = jointSpec(A)) {
   const tri = (a, b, c) => { vol += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6 }
   const quad = (a, b, c, d) => { tri(a, b, c); tri(a, c, d) }
   const OUT = DRG_JP_T, IN = -DRG_EMB
+  const NW = jointPlateWidthSegs(rows)                   // ★169-b — 빌더와 같은 분할(★144 규율)
+  const F = (w) => -1 + 2 * w / NW
   for (let i = 0; i < rows.length - 1; i++) {
     const a = rows[i], b = rows[i + 1]
-    quad(P(a.s, -a.phi, OUT), P(a.s, a.phi, OUT), P(b.s, b.phi, OUT), P(b.s, -b.phi, OUT))
-    quad(P(a.s, -a.phi, IN), P(b.s, -b.phi, IN), P(b.s, b.phi, IN), P(a.s, a.phi, IN))
+    for (let w = 0; w < NW; w++) {
+      const f0 = F(w), f1 = F(w + 1)
+      quad(P(a.s, a.phi * f0, OUT), P(a.s, a.phi * f1, OUT), P(b.s, b.phi * f1, OUT), P(b.s, b.phi * f0, OUT))
+      quad(P(a.s, a.phi * f0, IN), P(b.s, b.phi * f0, IN), P(b.s, b.phi * f1, IN), P(a.s, a.phi * f1, IN))
+    }
     quad(P(a.s, -a.phi, IN), P(a.s, -a.phi, OUT), P(b.s, -b.phi, OUT), P(b.s, -b.phi, IN))
     quad(P(a.s, a.phi, IN), P(b.s, b.phi, IN), P(b.s, b.phi, OUT), P(a.s, a.phi, OUT))
   }
   const t = rows[0], u = rows[rows.length - 1]
-  quad(P(t.s, -t.phi, IN), P(t.s, t.phi, IN), P(t.s, t.phi, OUT), P(t.s, -t.phi, OUT))
-  quad(P(u.s, -u.phi, IN), P(u.s, -u.phi, OUT), P(u.s, u.phi, OUT), P(u.s, u.phi, IN))
+  for (let w = 0; w < NW; w++) {
+    const f0 = F(w), f1 = F(w + 1)
+    quad(P(t.s, t.phi * f0, IN), P(t.s, t.phi * f1, IN), P(t.s, t.phi * f1, OUT), P(t.s, t.phi * f0, OUT))
+    quad(P(u.s, u.phi * f0, IN), P(u.s, u.phi * f0, OUT), P(u.s, u.phi * f1, OUT), P(u.s, u.phi * f1, IN))
+  }
   return Math.abs(vol)
 }
 

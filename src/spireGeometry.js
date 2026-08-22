@@ -47,6 +47,7 @@ import {
   ROOM_LAND_R, ROOM_WELL_RT, ROOM_CEIL_Y, ROOM_CYL_TOP,
   ROOM_R, ROOM_HEIGHT, ROOM_FLOOR_Y, ROOM_CX,
   RAD_ANG0, RAD_T_IN, RAD_TOP, RAD_DOOR_HW, COR_Y0,
+  SP_FR_FOOT_SINK,   // ★171 발 침하(= ROOM_SHELL_GAP 파생)
 } from './constants.js'
 
 const COS_O = Math.cos(Math.PI / 8)                 // 팔각 내접/외접 비 0.9239
@@ -166,7 +167,16 @@ export function portalSpec({ rCyl = ROOM_LAND_R } = {}) {
   const spanO = SP_FR_SPAN, spanI = spanO - SP_FR_W
   //  발 = 돔 곡면 아래 매몰(닫힌 식 — 가장 먼 모서리 기준)
   const sFar = rCyl + PROJ_TOP
-  const foot = domeYat(Math.hypot(rCyl + SP_FR_PROJ_FOOT, spanO)) - 0.3
+  //  ★★★171(2026.08.22 현도 ⓑ): 하강량이 손 수치 0.3이었다 → `SP_FR_FOOT_SINK`(= ROOM_SHELL_GAP) 파생.
+  //   ⚠이 스칼라는 **윤곽 파라미터화의 기준선**일 뿐이다 — 실제 밑면은 아래 `footYAt`이 정한다.
+  const foot = domeYat(Math.hypot(rCyl + SP_FR_PROJ_FOOT, spanO)) - SP_FR_FOOT_SINK
+  //  ★★★171 밑면 = **돔 곡면 추종**. 구판은 foot 한 값짜리 **수평 한 장**이라, 가장 먼 모서리에 맞춘 밑면이
+  //   안쪽(r 작은 쪽 = 돔이 솟는 쪽)으로 갈수록 안면 아래 허공에 떠 방 안에서 다리 두 토막이 보였다
+  //   (실측 침입 0.422 · 하강량을 0으로 해도 0.128 잔존 — 값이 아니라 **형태**의 문제였다).
+  //   ⇒ (r, z)마다 제 높이를 갖는다. ★133 기둥 발과 같은 어법(표면 추종 밑면).
+  const footYAt = (r, z) => domeYat(Math.hypot(r, z)) - SP_FR_FOOT_SINK
+  //  ★다리 구간 선형 재매핑 — 밑면만 올리고 스프링에서 원래 곡선과 정확히 만난다(단조 · 퇴화 없음).
+  //   ⛔clamp 방식은 기각: 인접 두 점이 같은 y로 뭉쳐 면적 0 삼각형이 난다(실측 i=0,1 충돌).
   //  ★내밀기 = 높이의 함수(측면 도면): 꼭대기 최대 → 발치값으로 오목하게 수렴(0 아님)
   const projAt = (y) => {
     const t = Math.min(1, Math.max(0, (y - foot) / (apexY - foot)))
@@ -229,6 +239,12 @@ export function portalSpec({ rCyl = ROOM_LAND_R } = {}) {
   }
   const springY = SP_FR_SPRING + lift, apexY = SP_FR_APEX + lift
   const tiltAt = tiltAtFor(springY, apexY)
+  //  ★171 재매핑: 다리 구간(y ≤ springY)만 [footYAt, springY]로 늘린다. 아치 구간은 불변.
+  const legRemap = (y, r, z) => {
+    if (y >= springY) return y
+    const fy = footYAt(r, z)
+    return fy + (y - foot) * (springY - fy) / Math.max(1e-6, springY - foot)
+  }
   //  ★액자 윤곽(정면 z-y): 곧은 다리 → 스프링부터 뾰족 아치. u∈[0,1] : 발치 → 꼭대기(왼쪽 절반)
   const outline = (u, inner) => {
     const span = inner ? spanI : spanO
@@ -240,7 +256,7 @@ export function portalSpec({ rCyl = ROOM_LAND_R } = {}) {
     return [(1 - v) ** 2 * (-span) + 2 * (1 - v) * v * cz,
             (1 - v) ** 2 * springY + 2 * (1 - v) * v * cy + v * v * apex]
   }
-  return { on: true, spanO, spanI, foot, roofTopAt, domeYat, projAt, tiltAt, outline,
+  return { on: true, spanO, spanI, foot, footYAt, legRemap, projFoot: SP_FR_PROJ_FOOT, roofTopAt, domeYat, projAt, tiltAt, outline,
            apex: apexY, spring: springY, lift, tiltTop: tiltAt(apexY), gapAt: (y) => gapAt(y, springY, apexY), w: SP_FR_W, mesh: MESH, roofK: ROOF_K, emb: SP_FR_EMB, clr: MESH ? SP_FR_MESH_GAP : SP_FR_CLR,
            rCyl, sFar, massHW: A.massHW, hubLinTop: RAD_TOP + 0.6, projTop: PROJ_TOP }
 }
@@ -372,7 +388,9 @@ function buildMoldings(S) {
 }
 
 // ── ★127-e 포털 4기(어귀 45°+90°k — 로컬 박스·쐐기를 방위 회전 배치) ──
-function buildPortals(S, opts = {}) {
+//  ⚠★171: **export**한다 — 검사·프로브가 포털만 따로 재려면 부재 단위 접근이 필요하다
+//   (buildSpire 합본에서는 첨탑 벽 정점이 섞여 낙차 판정이 흐려진다 — 실측 0.444 → 0.091로 희석됐다).
+export function buildPortals(S, opts = {}) {
   const P = S.portal
   if (!P.on || opts.noFrame) return []   // noFrame = 검사용 차분 빌드(액자 부피 실측)
   const pos = []
@@ -397,10 +415,16 @@ function buildPortals(S, opts = {}) {
     for (let i = NU - 1; i >= 0; i--) outs.push([-outs[i][0], outs[i][1]])
     for (let i = 0; i <= NU; i++) inns.push(P.outline(i / NU, true))
     for (let i = NU - 1; i >= 0; i--) inns.push([-inns[i][0], inns[i][1]])
-    const O = outs.map(q => { const [z, y] = q, d = P.projAt(y), t = P.tiltAt(y)
-      return { b: R(a, [P.rCyl - P.emb, y, z]), f: R(a, [P.rCyl + d, y - t, z]) } })
-    const I = inns.map(q => { const [z, y] = q, d = P.projAt(y), t = P.tiltAt(y)
-      return { b: R(a, [P.rCyl - P.emb, y, z]), f: R(a, [P.rCyl + d, y - t, z]) } })
+    //  ★★★171 밑면 곡면 추종 — 뒤(벽 속)·앞(처마) 각자의 반경에서 제 높이를 받는다.
+    //   ⚠front의 기준 반경은 **발치 내밀기**(projFoot)로 고정한다 — projAt(y)를 쓰면 y↔r이 서로를 부르는 순환이 된다.
+    const rB = P.rCyl - P.emb, rFfoot = P.rCyl + P.projFoot
+    const mk = (q) => { const [z, y0] = q
+      const yb = P.legRemap(y0, rB, z)
+      const yf = P.legRemap(y0, rFfoot, z)
+      const d = P.projAt(yf), t = P.tiltAt(yf)
+      return { b: R(a, [rB, yb, z]), f: R(a, [P.rCyl + d, yf - t, z]) } }
+    const O = outs.map(mk)
+    const I = inns.map(mk)
     const Q = (p1, p2, p3, p4) => { tri(p1, p2, p3); tri(p1, p3, p4) }
     for (let i = 0; i < O.length - 1; i++) {
       Q(O[i].f, O[i + 1].f, I[i + 1].f, I[i].f)          // 앞면(액자 얼굴 — 처마 윗면 포함)

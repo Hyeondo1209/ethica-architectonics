@@ -2303,8 +2303,24 @@ console.log('\n── ★127 빛우물 첨탑(2026.08.14 현도 스케치 — �
       ok(worstC >= P.clr - 1e-3, `관 지붕 틈 전수 최소 ${worstC.toFixed(3)} ≥ 요구 ${P.clr} @y${wY.toFixed(2)}(스프링 리프트 ${P.lift.toFixed(2)}가 여기서 파생 — 고정점 반복)`)
       //  ⑤ 개구가 문을 삼킨다 & 발이 돔 속에 매몰
       ok(P.spanI > RAD_DOOR_HW + 0.15, `안 반스팬 ${P.spanI} > 문 반폭 ${RAD_DOOR_HW} + 0.15(액자 개구가 문을 삼킴)`)
-      ok(P.foot < P.domeYat(Math.hypot(P.rCyl + P.projAt(P.foot), P.spanO)) - 0.2,
-        `발이 돔 셸 아래 매몰(${P.foot.toFixed(2)} < ${P.domeYat(Math.hypot(P.rCyl + P.projAt(P.foot), P.spanO)).toFixed(2)})`)
+      const { SP_FR_FOOT_SINK, ROOM_SHELL_GAP } = await import('./constants.js')   // ★171
+      //  ★★★171 체제 전환: 구 검사는 **수평 한 장** 밑면 전제로 "여유 0.2 아래"를 요구했다.
+      //   곡면 추종으로 바뀐 뒤엔 (r,z)마다 제 높이를 갖고 잠김 깊이는 SP_FR_FOOT_SINK 하나가 정한다.
+      //   ⇒ 하한만 여기서 본다(바깥에서 발이 뜨지 않을 것 = 다각형 함몰만큼은 잠길 것).
+      //   상한(안면을 뚫지 말 것)은 ★171절의 법선 환산 항이 담당한다 — 두 항이 SINK를 위아래로 가둔다.
+      ok(SP_FR_FOOT_SINK >= ROOM_SHELL_GAP - 1e-12,
+        `발 잠김 하한: SINK ${SP_FR_FOOT_SINK.toFixed(4)} ≥ 다각형 함몰 ${ROOM_SHELL_GAP.toFixed(4)} — 덜 잠기면 바깥에서 밑면이 뜬다`)
+      //  ★곡면 추종 자체 — 전 발자국에서 밑면이 표면 아래다(수평 한 장이면 안쪽에서 위로 뜬다)
+      {
+        let worstF = -Infinity
+        for (let i = 0; i <= 8; i++) for (let j = 0; j <= 8; j++) {
+          const r = (P.rCyl - P.emb) + ((P.rCyl + P.projFoot) - (P.rCyl - P.emb)) * i / 8
+          const z = P.spanI + (P.spanO - P.spanI) * j / 8
+          const over = P.footYAt(r, z) - P.domeYat(Math.hypot(r, z))
+          if (over > worstF) worstF = over
+        }
+        ok(worstF < -1e-9, `발 전수 표면 아래: 최악 ${worstF.toFixed(4)} < 0 (양수면 그 자리에서 밑면이 돔 위로 뜬다)`)
+      }
       ok(P.apex < S.y1 - S.ledgeH - 1, `액자 꼭대기 ${P.apex.toFixed(1)} < J1 몰딩권 하단 — 파사드 안에서 종결`)
       ok((2 * P.spanO) / (2 * S.rCyl) > 0.19, `파사드 점유 폭 ${(2 * P.spanO / 36 * 100).toFixed(0)}%`)
     }
@@ -4810,26 +4826,49 @@ console.log('\n── ★133 1p4 복합체(2층 관·참·기둥·아치 — ★
       {
         const BC = await import('./bridgeComplexGeometry.js')
         const BP = C4.BRG_ON ? BC.buildBridgeComplex() : null
+        const BS4 = BC.bridgeSpec()                          // ★170 융합 검사용 스펙(사본 금지 — 같은 함수)
         //  리브의 (r, y) 발자국 — 첫 구간은 첨탑 벽 슬래브, 그 밖은 돔 위 두께 T의 띠
         const inRib = (r, y) => r >= A.rIn && r <= A.sB
           && y >= AG.domeY(r) - C4.DRG_EMB
           && y <= (r <= A.rOut ? A.yTop : AG.domeY(r) + C4.DRG_T)
-        let clash = 0
-        for (const grp of ['walk', 'solid']) for (const { geo } of (BP?.[grp] ?? [])) {
-          const a = geo.getAttribute('position').array
-          for (let i = 0; i < a.length; i += 3) {
-            const x = a[i], y = a[i + 1], z = a[i + 2], r = Math.hypot(x, z)
-            if (r < 1e-6) continue
-            const az = Math.atan2(z, x), hw = Math.asin(Math.min(1, C4.DRG_HW / r))
-            for (const k of A.ks) {
-              let d = az - k * Math.PI / 2
-              d = Math.atan2(Math.sin(d), Math.cos(d))
-              if (Math.abs(d) <= hw && inRib(r, y)) { clash++; break }
+        //  ★★★170 체제 전환(2026.08.22 현도 ⓐ): 0° 방위는 **리브와 기둥이 융합한다**고 선언한다.
+        //   ⚠구 검사("리브 방위에 복합체 살 0")는 ★145에서 DRG_KS에 0이 추가된 순간 깨졌어야 했으나,
+        //    복합체 **정점만** 스캔하는 맹점 때문에 거짓 통과하고 있었다(기둥 옆면은 발·머리 두 레벨뿐 —
+        //    중간 대역에 정점이 없다). ★170에서 발이 0.463 올라가며 대역에 들어와서야 물렸다.
+        //   ⇒ 겹침 유무를 묻는 대신 **융합이 깔끔한가**를 묻는다. 세 조건 전부 반증 가능하다.
+        {
+          const x0c = BS4.xCol - BS4.colW / 2, x1c = BS4.xCol + BS4.colW / 2, hzc = BS4.colD / 2
+          //  ⓐ 관통 완주 — 리브가 기둥을 **완전히 가로지른다**. 리브 끝이 기둥 살 속에서 멈추면
+          //   기둥 면에 리브 마구리가 박혀 이음선이 선다(부분 침투 금지).
+          ok(A.rIn < x0c && A.sB > x1c,
+            `융합 ⓐ 관통 완주: 리브 r ${A.rIn.toFixed(2)}~${A.sB.toFixed(2)}가 기둥 x ${x0c.toFixed(2)}~${x1c.toFixed(2)}를 감싼다 — 마구리가 기둥 속에 안 남는다`)
+          //  ⓑ 폭 삼킴 — 기둥 z반폭이 리브 접선 반폭보다 커야 기둥이 리브를 옆에서 완전히 덮는다.
+          //   작아지면 리브가 기둥 옆구리로 새어 나와 얇은 날이 선다.
+          ok(hzc > C4.DRG_HW,
+            `융합 ⓑ 폭 삼킴: 기둥 z반폭 ${hzc.toFixed(2)} > 리브 반폭 ${C4.DRG_HW} (여유 ${(hzc - C4.DRG_HW).toFixed(2)})`)
+          //  ⓒ 머리 아래 — 리브 윗면이 기둥 머리를 넘으면 리브가 아케이드 바닥판 위로 튀어나온다.
+          const yRibTop = Math.max(...[x0c, BS4.xCol, x1c].map(x => BC.bridgeDomeY(x) + C4.DRG_T))
+          ok(yRibTop < BC.bridgeColTop(BS4),
+            `융합 ⓒ 머리 아래: 기둥 구간 리브 윗면 ${yRibTop.toFixed(2)} < 기둥 머리 ${BC.bridgeColTop(BS4).toFixed(2)}`)
+          //  ⓓ 다른 방위 청정 — 복합체는 0°에만 있다. 다른 리브 방위로 번지면 그건 융합 선언 밖이다.
+          let strayK = 0, stray = 0
+          for (const grp of ['walk', 'solid']) for (const { geo } of (BP?.[grp] ?? [])) {
+            const a = geo.getAttribute('position').array
+            for (let i = 0; i < a.length; i += 3) {
+              const x = a[i], y = a[i + 1], z = a[i + 2], r = Math.hypot(x, z)
+              if (r < 1e-6) continue
+              const az = Math.atan2(z, x), hw = Math.asin(Math.min(1, C4.DRG_HW / r))
+              for (const k of A.ks) {
+                if (k === 0) continue                       // ★170 융합 선언 방위 — 위 ⓐ~ⓒ가 담당
+                let d = az - k * Math.PI / 2
+                d = Math.atan2(Math.sin(d), Math.cos(d))
+                if (Math.abs(d) <= hw && inRib(r, y)) { stray++; strayK = k; break }
+              }
             }
           }
+          ok(stray === 0,
+            `융합 ⓓ 다른 방위 청정: 0°가 아닌 리브 방위의 복합체 살 ${stray}점${stray ? ' (k=' + strayK + ')' : ''} — 융합은 0°에서만`)
         }
-        ok(clash === 0,
-          `리브가 서는 방위에 ★133 복합체 살이 ${clash}점 — 0°는 복합체(r22~50 · y82~138)가 점유한다`)
       }
       ok(parts.mounts.every(m => Math.abs(m.rotY + m.k * Math.PI / 2) < 1e-12),
         '마운트 회전 = −90°·k(꽃잎·LNK 가족과 같은 규약) — 기하는 한 벌')
@@ -4936,6 +4975,252 @@ console.log('\n── ★133 1p4 복합체(2층 관·참·기둥·아치 — ★
     ok(/buildSpireStairParts/.test(roomSrc4) && /stairParts\.map/.test(roomSrc4), '배선: Room.jsx가 나선 부재를 마운트한다')
     ok(/userData=\{\{ walkable: true \}\}/.test(roomSrc4) && /userData=\{\{ walkable: false \}\}/.test(roomSrc4),
       '배선: walkable 리터럴 두 갈래(본체=밟는 면 / 난간=아님) — 축약형은 센서스가 못 읽는다')
+  }
+}
+
+// ══ ★★★169 방 껍질 솔리드 (2026.08.22 현도 ⓒ — 종잇장 두 장 → 법선 오프셋 껍질) ══
+//  목적 검사 = **관통 봉인 실측**: 이 검사가 없으면 "삽입되는 찌꺼기" 결함이 소리 없이 재발한다.
+//  이상적 구면 근사가 아니라 **실제 렌더 메시**에 광선을 쏴 잰다(★169 세션의 프로브를 승격).
+{
+  console.log('\n══ ★169 방 껍질 솔리드 ══')
+  const C9 = await import('./constants.js')
+  const roomSrc9 = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+  //  ── 배선(체제 무관 — 스위치 분기·보존계 존재를 항상 확인) ──
+  ok(/ROOM_SHELL_SOLID \?/.test(roomSrc9) && /buildRoomShell/.test(roomSrc9),
+    '배선: Room.jsx가 ROOM_SHELL_SOLID 분기로 솔리드 껍질을 마운트한다')
+  ok(/sphereGeometry args=\{\[1, 48, 28, 0, Math\.PI \* 2, ROOM_OCULUS/.test(roomSrc9),
+    '배선: 구 종잇장(윗반 sphereGeometry)이 보존계 분기에 살아 있다 — false 한 줄 복귀')
+  if (!C9.ROOM_SHELL_SOLID) {
+    ok(true, '⏸ ROOM_SHELL_SOLID=false — 구 종잇장 체제. 솔리드 기하 검사는 잠(켜는 순간 아래가 깨어난다)')
+  } else {
+    const { roomShellSpec: shSpec, buildRoomShell: shBuild } = await import('./roomShellGeometry.js')
+    const { openEdgeCount: shOpenE } = await import('./orientGeo.js')
+    const S9 = shSpec()
+    //  ── 파생 항등(손 수치 침입 감시 — 값 단언이 아니라 관계식) ──
+    ok(Math.abs(C9.ROOM_SHELL_GAP - C9.ROOM_R * (1 - Math.cos(Math.PI / C9.ROOM_SHELL_SEG_U))) < 1e-12,
+      `파생: GAP = R(1−cos(π/segU)) — 함몰 그 자체 (${C9.ROOM_SHELL_GAP.toFixed(4)})`)
+    ok(Math.abs(C9.ROOM_SHELL_T_OUT - (C9.ROOM_SHELL_GAP + C9.ROOM_FLOOR_LIFT)) < 1e-12 &&
+       Math.abs(C9.ROOM_SHELL_T_IN - (C9.ARM13_EMBED + C9.ROOM_FLOOR_LIFT)) < 1e-12,
+      `파생: T_OUT = 함몰+LIFT(${C9.ROOM_SHELL_T_OUT.toFixed(3)}) · T_IN = EMBED+LIFT(${C9.ROOM_SHELL_T_IN.toFixed(3)}) — 새 숫자 0`)
+    ok(C9.ROOM_SHELL_T_OUT + C9.ROOM_SHELL_T_IN < C9.ROOM_HEIGHT ** 2 / C9.ROOM_R,
+      `자기교차 상한: T합 ${(C9.ROOM_SHELL_T_OUT + C9.ROOM_SHELL_T_IN).toFixed(3)} < 최소 곡률반경 ${(C9.ROOM_HEIGHT ** 2 / C9.ROOM_R).toFixed(1)}`)
+    //  ── 오큘러스 기능 절대치: 안면 구멍 수평 반경 = ROOM_OCULUS_R (spec 이분법과 **독립인 정방향 평가**) ──
+    {
+      const nr = Math.sin(S9.phiIn) / C9.ROOM_R, ny = Math.cos(S9.phiIn) / C9.ROOM_HEIGHT
+      const rIn = C9.ROOM_R * Math.sin(S9.phiIn) - C9.ROOM_SHELL_T_IN * (nr / Math.hypot(nr, ny))
+      ok(Math.abs(rIn - C9.ROOM_OCULUS_R) < 1e-6,
+        `오큘러스: 안면 구멍 수평 반경 ${rIn.toFixed(4)} = 기능 절대치 ${C9.ROOM_OCULUS_R}(나선 고리 14 · 빛우물 17.3 통과)`)
+      ok(S9.rimIn.y < C9.ROOM_FLOOR_Y + C9.ROOM_HEIGHT,
+        `림 높이 정합: 안 림 y ${S9.rimIn.y.toFixed(3)} < 돔 정점 ${C9.ROOM_FLOOR_Y + C9.ROOM_HEIGHT}`)
+    }
+    //  ── 메시 무결: watertight · 감김(부호 부피) · 해석 대조 · 극점 닫힘 ──
+    const g9 = shBuild()
+    ok(shOpenE(g9) === 0, `watertight: 열린 에지 0 (삼각형 ${g9.index.count / 3})`)
+    {
+      const p = g9.attributes.position, ix = g9.index
+      let V = 0, yMin = Infinity, yMax = -Infinity
+      for (let t = 0; t < ix.count; t += 3) {
+        const A = [p.getX(ix.getX(t)), p.getY(ix.getX(t)), p.getZ(ix.getX(t))]
+        const B = [p.getX(ix.getX(t + 1)), p.getY(ix.getX(t + 1)), p.getZ(ix.getX(t + 1))]
+        const Cc = [p.getX(ix.getX(t + 2)), p.getY(ix.getX(t + 2)), p.getZ(ix.getX(t + 2))]
+        V += (A[0] * (B[1] * Cc[2] - B[2] * Cc[1]) - A[1] * (B[0] * Cc[2] - B[2] * Cc[0]) + A[2] * (B[0] * Cc[1] - B[1] * Cc[0])) / 6
+      }
+      for (let i = 0; i < p.count; i++) { const y = p.getY(i); if (y < yMin) yMin = y; if (y > yMax) yMax = y }
+      const q = 1.6075, a = C9.ROOM_R, c = C9.ROOM_HEIGHT
+      const Sarea = 4 * Math.PI * Math.pow((Math.pow(a * a, q) + 2 * Math.pow(a * c, q)) / 3, 1 / q)
+      const Vref = Sarea * (C9.ROOM_SHELL_T_OUT + C9.ROOM_SHELL_T_IN)
+      ok(V > 0 && V > Vref * 0.90 && V < Vref * 1.02,
+        `감김·부피: 부호 부피 ${V.toFixed(0)} ∈ [해석 근사 ${Vref.toFixed(0)}의 90~102%] — 다각형·오큘러스 결손만큼만 작다`)
+      //  ⚠Float32: 메시 position은 단정밀도라 스펙(double)과 ~1e-5 어긋난다 — 톨러런스 1e-3(규율·재발 방지)
+      ok(Math.abs(yMin - S9.yPoleOut) < 1e-3 && Math.abs(yMax - Math.max(S9.rimOut.y, S9.yPoleIn)) < 1e-3,
+        `극점·림 닫힘: 메시 y [${yMin.toFixed(3)}, ${yMax.toFixed(3)}] = 스펙 [밖 극 ${S9.yPoleOut.toFixed(3)}, max(바깥 림, 안 극)]`)
+    }
+    //  ── ⛔관통 봉인 실측(핵심 — 실제 메시 광선. 이상적 구면 근사 아님) ──
+    {
+      const CY9 = C9.ROOM_FLOOR_Y
+      const tris9 = []
+      { const p = g9.attributes.position, ix = g9.index
+        for (let t = 0; t < ix.count; t += 3)
+          tris9.push([ix.getX(t), ix.getX(t + 1), ix.getX(t + 2)].map(k => [p.getX(k), p.getY(k), p.getZ(k)])) }
+      const NB = 48, NBU = 64, bk = new Map()
+      const key9 = (u, v) => u * 1000 + v
+      const par9 = (x, y, z) => {
+        const th = ((Math.atan2(z, x) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)
+        const u = Math.atan2(Math.hypot(x, z) / C9.ROOM_R, (y - CY9) / C9.ROOM_HEIGHT)
+        return [Math.floor(th / (2 * Math.PI) * NB), Math.floor(u / Math.PI * NBU)]
+      }
+      tris9.forEach((V, t) => { const cs = new Set()
+        for (const [x, y, z] of V) { const [u, v] = par9(x, y, z); cs.add(key9(u, v)) }
+        for (const k of cs) { let arr = bk.get(k); if (!arr) { arr = []; bk.set(k, arr) } arr.push(t) } })
+      const hit9 = (d, cand) => { const o = [0, CY9, 0], out = []
+        for (const t of cand) { const [A, B, Cc] = tris9[t]
+          const e1 = [B[0] - A[0], B[1] - A[1], B[2] - A[2]], e2 = [Cc[0] - A[0], Cc[1] - A[1], Cc[2] - A[2]]
+          const h = [d[1] * e2[2] - d[2] * e2[1], d[2] * e2[0] - d[0] * e2[2], d[0] * e2[1] - d[1] * e2[0]]
+          const det = e1[0] * h[0] + e1[1] * h[1] + e1[2] * h[2]; if (Math.abs(det) < 1e-12) continue
+          const f = 1 / det, sv = [o[0] - A[0], o[1] - A[1], o[2] - A[2]]
+          const u = f * (sv[0] * h[0] + sv[1] * h[1] + sv[2] * h[2]); if (u < -1e-9 || u > 1 + 1e-9) continue
+          const qv = [sv[1] * e1[2] - sv[2] * e1[1], sv[2] * e1[0] - sv[0] * e1[2], sv[0] * e1[1] - sv[1] * e1[0]]
+          const v = f * (d[0] * qv[0] + d[1] * qv[1] + d[2] * qv[2]); if (v < -1e-9 || u + v > 1 + 1e-9) continue
+          const tt = f * (e2[0] * qv[0] + e2[1] * qv[1] + e2[2] * qv[2]); if (tt > 1e-6) out.push(tt) }
+        return out }
+      const range9 = (x, y, z) => {
+        const dx = x, dy = y - CY9, dz = z, L = Math.hypot(dx, dy, dz); if (L < 1e-6) return null
+        const d = [dx / L, dy / L, dz / L]; const [ci, cj] = par9(x, y, z); const cand = new Set()
+        for (let a2 = -2; a2 <= 2; a2++) for (let b2 = -2; b2 <= 2; b2++) {
+          const arr = bk.get(key9(((ci + a2) % NB + NB) % NB, cj + b2)); if (arr) for (const t of arr) cand.add(t) }
+        let hs = hit9(d, cand); if (hs.length === 0) hs = hit9(d, [...tris9.keys()])
+        if (hs.length === 0) return null
+        return { L, near: Math.min(...hs), far: Math.max(...hs) } }
+      const tid9 = (x, y, z) => Math.hypot(Math.hypot(x, z) / C9.ROOM_R, (y - CY9) / C9.ROOM_HEIGHT)
+      //  ★169-b: 샘플 = 정점 + **삼각형 무게중심 + 에지 중점** — 곧게 압출·직조된 면이 볼록 곡면 안으로
+      //   현(chord)처럼 파고드는 자리는 정점 사이다. 정점만 스캔한 초판이 ★146-b 판 침입 0.315를 놓쳤다(자책).
+      const samples9 = (geo, place) => {
+        const p = geo.attributes.position, ig = geo.index
+        const pts = []
+        for (let i = 0; i < p.count; i++) pts.push([p.getX(i), p.getY(i), p.getZ(i)])
+        const out = [...pts]
+        const push3 = (A, B) => out.push([(A[0]+B[0])/2, (A[1]+B[1])/2, (A[2]+B[2])/2])
+        if (ig) for (let t = 0; t < ig.count; t += 3) {
+          const A = pts[ig.getX(t)], B = pts[ig.getX(t+1)], Cc = pts[ig.getX(t+2)]
+          out.push([(A[0]+B[0]+Cc[0])/3, (A[1]+B[1]+Cc[1])/3, (A[2]+B[2]+Cc[2])/3])
+          push3(A, B); push3(B, Cc); push3(A, Cc)
+        } else for (let t = 0; t < p.count; t += 3) {
+          const A = pts[t], B = pts[t+1], Cc = pts[t+2]
+          out.push([(A[0]+B[0]+Cc[0])/3, (A[1]+B[1]+Cc[1])/3, (A[2]+B[2]+Cc[2])/3])
+          push3(A, B); push3(B, Cc); push3(A, Cc)
+        }
+        return place ? out.map(([x, y, z]) => place(x, y, z)) : out
+      }
+      const scanO = (geo, place) => { let bad = 0, worst = -Infinity
+        for (const [x, y, z] of samples9(geo, place)) {
+          if (tid9(x, y, z) > 1.12) continue
+          const r = range9(x, y, z); if (!r) continue
+          const gp = r.L - r.far; if (gp > 1e-4) bad++; if (gp > worst) worst = gp }
+        return { bad, worst } }
+      const scanI = (geo, place) => { let bad = 0, worst = -Infinity
+        for (const [x, y, z] of samples9(geo, place)) {
+          if (tid9(x, y, z) > 1.05) continue
+          const r = range9(x, y, z); if (!r) continue
+          const dp = r.near - r.L; if (dp > 1e-4) bad++; if (dp > worst) worst = dp }
+        return { bad, worst } }
+      const WB9 = await import('./wallBaseGeometry.js')
+      const AS9 = await import('./axiomSpiralGeometry.js')
+      const AR9 = await import('./armGeometry.js')
+      const DG9 = await import('./discGeometry.js')
+      const rB = scanO(WB9.buildWallBase())
+      ok(rB.bad === 0, `⛔봉인(밖): ★114 벽 밑동 — 바깥면 밖 정점 ${rB.bad} (최심 여유 ${(-rB.worst).toFixed(3)})`)
+      const rM = scanO(AS9.buildSpiralBeams())
+      ok(rM.bad === 0, `⛔봉인(밖): ★107 나선 보 — 바깥면 밖 정점 ${rM.bad} (최심 여유 ${(-rM.worst).toFixed(3)})`)
+      const rX = scanO(AS9.buildRootCrosses())
+      ok(rX.bad === 0, `⛔봉인(밖): ★107 뿌리 십자 — 바깥면 밖 정점 ${rX.bad} (최심 여유 ${(-rX.worst).toFixed(3)})`)
+      const arm9 = AR9.buildArm13()
+      let armBad = 0, armWorst = -Infinity
+      for (const k of C9.ARM13_KS) {
+        const ang = C9.RAD_ANG0 + k * Math.PI / 2, cs = Math.cos(-ang), sn = Math.sin(-ang)
+        const px = C9.RAD_R * Math.cos(ang), pz = C9.RAD_R * Math.sin(ang)
+        const r = scanI(arm9, (x, y, z) => [x * cs + z * sn + px, y, -x * sn + z * cs + pz])
+        armBad += r.bad; if (r.worst > armWorst) armWorst = r.worst
+      }
+      ok(armBad === 0, `⛔봉인(안): ★126 지지 팔 ${C9.ARM13_KS.length}기 — 안면 안 정점 ${armBad} (물림은 살 속 · 최심 여유 ${(-armWorst).toFixed(3)})`)
+      const rD = scanI(DG9.buildDisc())
+      ok(rD.bad === 0, `봉인(안): ★118 착지 디스크 — 안면 침입 ${rD.bad} (림 접합은 살·구멍 위 공간에서만)`)
+      //  ★★170: ★133 복합체 — **두 번째 누락**이었다(-b에서 ★145 가족을 넣고도 이 가족은 빠뜨렸다).
+      //   돔에 접지하는 부재는 전부 여기서 잰다. 새 접지 부재가 생기면 이 목록에 더한다.
+      {
+        const BC9 = await import('./bridgeComplexGeometry.js')
+        const bc = BC9.buildBridgeComplex()
+        let bcBad = 0, bcW = -Infinity
+        if (bc) for (const arr of Object.values(bc))
+          for (const it of (Array.isArray(arr) ? arr : [arr])) {
+            const geo = it && it.geo ? it.geo : it
+            if (!geo || !geo.attributes) continue
+            const r = scanI(geo); bcBad += r.bad; if (r.worst > bcW) bcW = r.worst
+          }
+        ok(bcBad === 0,
+          `⛔봉인(안): ★133 복합체(기둥·아치·참) — 안면 안 샘플 ${bcBad} (최심 ${bcBad ? '침입 ' + bcW.toFixed(3) : '여유 ' + (-bcW).toFixed(3)})`)
+        //  ★170 물림의 **법선 환산** — 수직 EMB는 곡면 기울기만큼 줄어든다. 이 항등이 없으면
+        //   "수직으로 0.6 물렸으니 안전"이라는 구 오판이 되살아난다(현도 신고의 근본 원인).
+        {
+          const S9b = BC9.bridgeSpec()
+          const xIn = S9b.xCol - S9b.colW / 2                 // 법선이 가장 누운 자리 = 발 안쪽 끝
+          const yMid = BC9.bridgeDomeY(xIn)
+          const nr = xIn / (C9.ROOM_R ** 2), ny = (yMid - C9.ROOM_FLOOR_Y) / (C9.ROOM_HEIGHT ** 2)
+          const nyU = ny / Math.hypot(nr, ny)
+          ok(C9.BRG_COL_EMB * nyU < C9.ROOM_SHELL_T_IN,
+            `★170 법선 환산: 수직 물림 ${C9.BRG_COL_EMB.toFixed(3)} × n_y ${nyU.toFixed(3)} = ${(C9.BRG_COL_EMB * nyU).toFixed(3)} < 안쪽 살 ${C9.ROOM_SHELL_T_IN.toFixed(3)}`)
+          ok(Math.abs(C9.BRG_COL_EMB - C9.ROOM_SHELL_GAP) < 1e-12,
+            `★170 파생: BRG_COL_EMB = ROOM_SHELL_GAP(다각형 함몰) ${C9.BRG_COL_EMB.toFixed(4)} — 손 수치 0`)
+        }
+      }
+      //  ★★★171 첨탑 포털(★127-e) 발 = 돔 곡면 추종. ★170과 **다른 실패 유형**이었다:
+      //   값이 아니라 **형태**(수평 한 장)가 원인이라 하강량을 0으로 해도 0.128이 남았다.
+      {
+        const SG9 = await import('./spireGeometry.js')
+        const P9 = SG9.portalSpec()
+        if (!P9.on) ok(true, '⏸ SPIRE_PORTAL_ON=false — ★171 검사 잠')
+        else {
+          ok(Math.abs(C9.SP_FR_FOOT_SINK - C9.ROOM_SHELL_GAP) < 1e-12,
+            `★171 파생: SP_FR_FOOT_SINK = ROOM_SHELL_GAP ${C9.SP_FR_FOOT_SINK.toFixed(4)} — 구 손 수치 0.3 소멸`)
+          //  ⓐ 곡면 추종 — 발 대역 양 끝의 밑면 높이가 **달라야** 한다(수평 한 장이면 낙차 0).
+          const rB = P9.rCyl - P9.emb, rF = P9.rCyl + P9.projFoot
+          const dropSpan = P9.footYAt(rB, P9.spanI) - P9.footYAt(rF, P9.spanO)
+          ok(dropSpan > 0.2,
+            `★171 곡면 추종: 발 대역 밑면 낙차 ${dropSpan.toFixed(3)} > 0.2 — 수평 한 장이면 0이 된다`)
+          //  ⓑ 법선 환산(★170과 같은 함정) — 수직 침하를 법선으로 줄여 안쪽 살과 견준다.
+          const rFar = Math.hypot(rF, P9.spanO), yFar = P9.domeYat(rFar)
+          const nr = rFar / (C9.ROOM_R ** 2), ny = (yFar - C9.ROOM_FLOOR_Y) / (C9.ROOM_HEIGHT ** 2)
+          const nyU = ny / Math.hypot(nr, ny)
+          ok(C9.SP_FR_FOOT_SINK * nyU < C9.ROOM_SHELL_T_IN,
+            `★171 법선 환산: ${C9.SP_FR_FOOT_SINK.toFixed(3)} × n_y ${nyU.toFixed(3)} = ${(C9.SP_FR_FOOT_SINK * nyU).toFixed(3)} < 안쪽 살 ${C9.ROOM_SHELL_T_IN.toFixed(3)}`)
+          //  ⓒ ⛔거짓 안전 차단 — spec이 맞아도 **빌더가 그걸 쓰지 않으면** 소용없다.
+          //   실제 buildSpire 기하의 발 대역 최저·최고 y가 spec 낙차를 재현하는지 대조한다.
+          {
+            //  ⚠buildSpire 합본은 첨탑 벽 정점이 섞여 낙차가 희석된다(실측 0.444 → 0.091) — **포털만** 부른다.
+            const gP9 = SG9.buildPortals(SG9.spireSpec())[0]
+            const ps9 = gP9.attributes.position
+            let lo = Infinity, hi = -Infinity, cnt = 0
+            const yCut = P9.footYAt(P9.rCyl - P9.emb, P9.spanI) + 0.05   // 밑면 링만(그 위 다리는 제외)
+            for (let i = 0; i < ps9.count; i++) {
+              const y = ps9.getY(i)
+              if (y > yCut) continue
+              cnt++
+              if (y < lo) lo = y; if (y > hi) hi = y
+            }
+            //  ⛔낙차만 보는 항은 **거짓 통과**한다(반증② 실측: legRemap을 항등화해도 다리 정점이 섞여
+            //   낙차 0.444가 그대로 나왔다). ⇒ spec 값과 **정확히** 대조하는 한 항으로 통합한다.
+            const hiSpec = P9.footYAt(P9.rCyl - P9.emb, P9.spanI)   // 안·좁은 쪽 = 가장 높은 밑면
+            const loSpec = P9.footYAt(rF, P9.spanO)                 // 밖·넓은 쪽 = 가장 낮은 밑면
+            ok(cnt > 0 && Math.abs(hi - hiSpec) < 1e-3 && Math.abs(lo - loSpec) < 1e-3 && (hiSpec - loSpec) > 0.2,
+              `★171 빌더 반영: 포털 밑면 정점 ${cnt}개 · 최고 ${cnt ? hi.toFixed(3) : 'n/a'}=spec ${hiSpec.toFixed(3)} · 최저 ${cnt ? lo.toFixed(3) : 'n/a'}=spec ${loSpec.toFixed(3)} (낙차 ${(hiSpec - loSpec).toFixed(3)}) — 빌더가 곡면 추종을 실제로 쓴다`)
+          }
+        }
+      }
+      //  ★169-b: ★145 가족 — 초판 검사 대상에서 통째로 빠져 있었다(자책). 전 파츠 안면 봉인.
+      {
+        const DR9 = await import('./domeRingGeometry.js')
+        const R9 = DR9.buildDomeRingParts()
+        if (!R9) ok(true, '⏸ DRG_ON=false — ★145 가족 소등(봉인 검사 잠)')
+        else {
+          let ribBad = 0, ribW = -Infinity, jpBad = 0, jpW = -Infinity, jcBad = 0, jcW = -Infinity
+          for (const { rotY } of R9.mounts) {
+            const cs = Math.cos(rotY), sn = Math.sin(rotY)
+            const pl = (x, y, z) => [x * cs + z * sn, y, -x * sn + z * cs]
+            const a = scanI(R9.rib, pl); ribBad += a.bad; if (a.worst > ribW) ribW = a.worst
+            if (R9.joint) {
+              const b = scanI(R9.joint.plate, pl); jpBad += b.bad; if (b.worst > jpW) jpW = b.worst
+              const c = scanI(R9.joint.col, pl); jcBad += c.bad; if (c.worst > jcW) jcW = c.worst
+            }
+            if (R9.col) { const c = scanI(R9.col, pl); jcBad += c.bad; if (c.worst > jcW) jcW = c.worst }
+          }
+          const rBand = scanI(R9.band)
+          ok(ribBad === 0, `⛔봉인(안): ★145 돔리브 ${R9.mounts.length}기 — 안면 안 샘플 ${ribBad} (최심 여유 ${(-ribW).toFixed(3)})`)
+          ok(rBand.bad === 0, `⛔봉인(안): ★145 돔띠 — 안면 안 샘플 ${rBand.bad} (최심 여유 ${(-rBand.worst).toFixed(3)})`)
+          if (R9.joint) ok(jpBad === 0,
+            `⛔봉인(안): ★146-b 접합판 ${R9.mounts.length}기 — 안면 안 샘플 ${jpBad} (최심 ${jpBad ? '침입 ' + jpW.toFixed(3) : '여유 ' + (-jpW).toFixed(3)})`)
+          ok(jcBad === 0, `봉인(안): ★145/146 기둥 — 안면 안 샘플 ${jcBad}`)
+        }
+      }
+    }
   }
 }
 

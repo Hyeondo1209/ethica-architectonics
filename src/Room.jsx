@@ -23,6 +23,7 @@ import {
   RRIB_ON,
   EAVE_ON,
   WBASE_ON,
+  ROOM_SHELL_SOLID,
 } from './constants'
 import { pitSpec, slotSpec, buildPitWalls, buildPitRim, buildPitFloor, buildHoledSlab,
   buildNiches, buildNicheStairs, buildPitSlot, buildSlotStairs, buildPitEaves } from './defPitGeometry'   // ★101 각뿔대 · ★102 감실(순수 기하 — 사본 금지)
@@ -46,6 +47,7 @@ const LK3_PROP = [4, 1, 2, 3]
 import { buildDomeRingParts } from './domeRingGeometry.js'   // ★★★145 돔 리브·띠·기둥·고리 통로(2026.08.18 현도 스케치 블록아웃)
 import { SPIRE_ON, SPT_ON, UPF_ON, BRG_ON, LK4_ON, LK3_ON, BRD_ON } from './constants.js'
 import { buildRoomRibs } from './roomRibGeometry'   // ★116 방 돔 살 여덟(순수 기하 — 사본 금지)   // ★114 벽 밑동 팔각 각뿔대(순수 기하 — 사본 금지)
+import { buildRoomShell } from './roomShellGeometry'   // ★★★169 방 껍질 솔리드(순수 기하 — 사본 금지)
 
 // ════════ 지하 정의·공리 방 ════════
 export function DefAxiomRoom({ stairKind }) {
@@ -268,6 +270,7 @@ export function DefAxiomRoom({ stairKind }) {
   const axVaultGeo = useMemo(() => (SPIRAL_BODY === 'mass' ? buildAxiomVaults() : null), [])
   //  ★114 벽 밑동 — 셸 안쪽 − 팔각 각뿔대. 윗면 없음(셸이 잘라 아치 여덟을 만든다). 위상 두 체제.
   const wallBaseGeo = useMemo(() => (WBASE_ON ? buildWallBase() : null), [])
+  const shellGeo = useMemo(() => (ROOM_SHELL_SOLID ? buildRoomShell() : null), [])   // ★169
   //  ★115 뿌리 십자 마구리 — 아래 헌치를 세 방향으로 인용. 보와 상호 관입(불리언 없음).
   const rootCrossGeo = useMemo(() => ((SPIRAL_BODY === 'mass' && ROOT_CROSS_ON) ? buildRootCrosses() : null), [])
   //  ★116 방 돔 살 — 팔각 단 모서리 여덟에서 오큘러스까지. §2-C 예외(현도 승인 근거 ⓐbcd).
@@ -294,6 +297,14 @@ export function DefAxiomRoom({ stairKind }) {
 
   return (
     <group position={[ROOM_CX, 0, 0]}>
+      {/* ★★★169 방 껍질 솔리드(2026.08.22 현도 ⓒ) — 종잇장 두 장을 법선 오프셋 껍질 하나로.
+          두께 = 봉합(T_OUT 0.187 · T_IN 0.300 — 전부 오차 파생, constants ★169 주석이 정본).
+          닫힌 솔리드라 DoubleSide 불필요. ⛔ROOM_SHELL_SOLID=false = 아래 구 종잇장 복귀(보존계) */}
+      {ROOM_SHELL_SOLID ? (
+        <mesh geometry={shellGeo} userData={{ walkable: false }}>   {/* 벽 — 밟는 면 아님 */}
+          <meshStandardMaterial color={P.shell} roughness={0.95} fog={RFOG} />   {/* ★113 ROOM_DIM 노브 */}
+        </mesh>
+      ) : (<>
       {/* 지상 돔 껍질(불투명) + 작은 오큘러스(박스 폭 안 → 박스+디스크가 리브 시야 차단) */}
       <mesh position={[0, ROOM_FLOOR_Y, 0]} scale={[ROOM_R, ROOM_HEIGHT, ROOM_R]}>
         <sphereGeometry args={[1, 48, 28, 0, Math.PI * 2, ROOM_OCULUS, Math.PI / 2 - ROOM_OCULUS]} />
@@ -305,6 +316,7 @@ export function DefAxiomRoom({ stairKind }) {
         <sphereGeometry args={[1, 48, 28, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2]} />
         <meshStandardMaterial color={P.shell} roughness={0.95} side={THREE.DoubleSide} fog={RFOG} />
       </mesh>
+      </>)}
       {/* ★114 벽 밑동 팔각 각뿔대(2026.08.05) — 셸과 바닥이 만나는 곳을 여덟 기운 평면으로 받는다.
           윗면은 만들지 않는다: 셸이 잘라 가며 생기는 교선이 위로 볼록한 **아치 여덟**이 된다.
           ⚠밟는 면 아님. ⚠새 색 없음 — 셸과 같은 석재(★113 원칙). 면이 수직에 가까워 셸보다 밝게 읽힌다. */}
