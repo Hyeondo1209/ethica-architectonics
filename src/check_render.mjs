@@ -12,7 +12,7 @@
 //  ⚠한계(정직하게): 자식 컴포넌트(<SlopedParapet/> 같은 것)는 기술자만 만들어지므로 **따로 부른다**(아래 목록).
 //   훅 의존성·상태 전이·GPU 동작은 이 검사의 범위 밖이다.
 import { execSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as CUP from './drumCupGeometry.js'
@@ -320,6 +320,47 @@ console.log(JSON.stringify({ called, bad, noted, keys, grounded }))
     const inst = ALLGROUND.filter((g) => g.el === 'instancedMesh' && !RIB_COMPS.has(g.comp))
     if (inst.length) console.log(`  ⓘ instancedMesh ${inst.length}개는 행렬 미적용이라 판정 불가(원점 기하) — ${[...new Set(inst.map((g) => g.comp))].join(', ')}`)
   }
+}
+
+console.log('\n— G. 래스터라이저 깊이 보간 (★도구 빚 ⑥ 수리 2026.08.22 · 되돌아가면 여기가 문다) —')
+{
+  //  ⛔왜 검사하는가 — 두 자가 렌더러(`render_views.mjs` 정본 · `_probe_exterior.mjs`)가 **깊이를 화면공간에서
+  //   아핀 보간**하고 있었다. 화면공간에서 선형인 양은 깊이가 아니라 1/깊이다. 아핀 보간은 AM–HM 부등식에 의해
+  //   **항상 실제보다 멀게** 찍으므로, 크고 비스듬한 삼각형(지붕판)이 작고 조밀한 삼각형(볼트 웹)에게
+  //   깊이 시험을 져서 ★148 "볼트 노출"·★169-b "청록 96px" 거짓 판정이 났다. 둘 다 실물은 결백했다.
+  //  ⚠이 검사는 **수식 불변식**(아래 ②③④)과 **소스 형태**(①)를 같이 본다. 수식만 보면 파일이 되돌아가도 안 물고,
+  //   소스만 보면 수식을 잘못 고쳐도 안 문다.
+  const readSrc = (p) => { try { return readFileSync(p, 'utf8') } catch { return null } }
+  const AFFINE_RE = /const\s+z\s*=\s*(w0|l0)\s*\*\s*P\[0\]/
+  //  ⚠형태 두 가지를 다 받는다: `1 / (w0/P[0][2] + …)`(정본) 와 `const iw = l0/P[0].w + …; 1/iw`(프로브).
+  //   공통 지문 = **무게중심을 꼭짓점 깊이로 나눈다**. 아핀은 곱하므로 이 지문이 없다.
+  const HARMONIC_RE = /(w0|l0)\s*\/\s*P\[0\]/
+  for (const [path, label] of [['src/render_views.mjs', '정본 자가 렌더러'], ['src/_probe_exterior.mjs', '외부 프로브']]) {
+    const src = readSrc(path)
+    if (src === null) { ok(false, `${label} ${path} 읽기 실패`); continue }
+    ok(!AFFINE_RE.test(src) && HARMONIC_RE.test(src),
+      `① ${label}(${path}) 깊이 = 원근보정(조화) 보간 — 아핀 형태 부재` +
+      (AFFINE_RE.test(src) ? ' ✗아핀 복귀 감지' : HARMONIC_RE.test(src) ? '' : ' ✗조화 형태 없음'))
+  }
+  //  ② 무차별 영역이 실재한다 — 이 항이 없으면 ③④가 '아무 값이나 달라서' 통과할 수 있다.
+  const aff = (l, d) => l[0] * d[0] + l[1] * d[1] + l[2] * d[2]
+  const har = (l, d) => 1 / (l[0] / d[0] + l[1] / d[1] + l[2] / d[2])
+  ok(Math.abs(aff([0.11, 0.31, 0.58], [77.3, 77.3, 77.3]) - har([0.11, 0.31, 0.58], [77.3, 77.3, 77.3])) < 1e-9,
+    '② 깊이 균일 삼각형에서 아핀 = 조화 (두 수식이 무차별한 영역 실재 — ③④가 공허하지 않다는 근거)')
+  //  ③ 부호가 한 방향으로 고정 — 아핀은 결코 가깝게 찍지 않는다.
+  let seed = 12345, violations = 0
+  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648
+  for (let i = 0; i < 20000; i++) {
+    let a = rnd(), b = rnd(), c = rnd(); const t = a + b + c; a /= t; b /= t; c /= t
+    const d = [1 + rnd() * 400, 1 + rnd() * 400, 1 + rnd() * 400]
+    if (aff([a, b, c], d) < har([a, b, c], d) - 1e-9) violations++
+  }
+  ok(violations === 0, `③ 아핀 ≥ 조화 위반 ${violations}/20,000 — 오차 부호 고정(항상 멀게 찍는다)`)
+  //  ④ ★148 재현: 깊이비가 큰 삼각형에서 아핀은 **순서를 뒤집고** 조화는 안 뒤집는다.
+  const l = [0.05, 0.05, 0.90], roof = [20, 20, 300]
+  const roofTrue = har(l, roof), web = [roofTrue + 0.5, roofTrue + 0.5, roofTrue + 0.5]
+  ok(aff(l, roof) > aff(l, web) && har(l, roof) < har(l, web),
+    `④ ★148 재현: 아핀은 앞 삼각형(${roofTrue.toFixed(1)})을 ${aff(l, roof).toFixed(0)}로 밀어 뒤집고, 조화는 순서 보존`)
 }
 
 //  자식 컴포넌트(모듈 밖으로 export되지 않는 것)는 위 루프가 못 부른다.

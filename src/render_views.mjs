@@ -383,7 +383,12 @@ function render(eye, yaw, pitch, W, H, name, quiet = false, extra = []) {
         const w1 = ((P[2][0] - x) * (P[0][1] - y) - (P[0][0] - x) * (P[2][1] - y)) / area
         const w2 = 1 - w0 - w1
         if (w0 < 0 || w1 < 0 || w2 < 0) continue
-        const z = w0 * P[0][2] + w1 * P[1][2] + w2 * P[2][2]
+        //  ⛔★도구 빚 ⑥ 수리(2026.08.22): 여기 P[k][2]는 **뷰공간 깊이**(−p[2] > 0)인데
+        //   구판은 그것을 화면공간 무게중심으로 아핀 보간했다 — `_probe_exterior`와 **같은 병**이다.
+        //   ⚠★148 기록의 "render_views는 정상"은 **근평면 클리핑**에 관한 문장이었다(그건 실제로 정상).
+        //    z 보간 결함은 두 파일에 다 있었다 — 2026.08.22 재점검에서 적발.
+        //   화면공간 선형량은 1/깊이이므로 조화 보간이 정확하다. 위 클리핑이 깊이 ≥ NEAR > 0을 보장.
+        const z = 1 / (w0 / P[0][2] + w1 / P[1][2] + w2 / P[2][2])
         const idx = y * W + x
         if (z < zbuf[idx]) { zbuf[idx] = z
           img[idx * 4] = col[0]; img[idx * 4 + 1] = col[1]; img[idx * 4 + 2] = col[2] }
