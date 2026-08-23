@@ -363,6 +363,76 @@ console.log('\n— G. 래스터라이저 깊이 보간 (★도구 빚 ⑥ 수리
     `④ ★148 재현: 아핀은 앞 삼각형(${roofTrue.toFixed(1)})을 ${aff(l, roof).toFixed(0)}로 밀어 뒤집고, 조화는 순서 보존`)
 }
 
+//  ═══ P절: ★172 조명·팔레트·렌더러 정본화 가드 (2026.08.23) ═══
+//  ⛔왜 검사하는가 — 광원·색·렌더러 설정이 파일마다 손 리터럴로 흩어져 있었다(광원 정본 노브 0 ·
+//   팔레트 세 체제 병립). ★172가 constants.js ⑴~⑹ 정본 섹션으로 승격했다(승격 시점 값 그대로 = 무변화,
+//   94항 전수 대조로 확인). 이 절은 **미래의 표류**를 문다: 장면 파일에 색·세기 리터럴이 다시 스며들거나,
+//   기록된 동일성(★113 "새 색을 만들지 않았다" 등)이 정본에서 끊기면 붉어진다.
+//  ⚠검사하는 것은 관계·구조다 — 노브의 **값 자체는 자유**다(현도가 조명 세션에서 돌리는 것이 목적).
+{
+  const SCENE_FILES = ['src/Room.jsx', 'src/Dome.jsx', 'src/Corridor.jsx', 'src/Radial.jsx',
+    'src/RadialEvents.jsx', 'src/Lens.jsx', 'src/Steles.jsx']   // App은 UI 오버레이 색이 합법 → 지문 검사(P3)로 대신
+  //  주석 제거기: /*…*/ 블록(JSX {/*…*/} 포함) + 행 끝 //(URL의 :// 는 보존)
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').map((l) => {
+      const i = l.indexOf('//')
+      return (i >= 0 && !/https?:$/.test(l.slice(0, i))) ? l.slice(0, i) : l
+    }).join('\n')
+  //  P0 도구 자체 검증 — 코드의 헥스는 잡고 주석의 헥스는 지우는가(스캐너가 공허하지 않다는 근거)
+  const probe = strip("const a = '#abc123' // 주석 #def456\n/* 블록 #789abc */ const b = 1")
+  const probeHits = probe.match(/#[0-9a-fA-F]{6}/g) || []
+  ok(probeHits.length === 1 && probeHits[0] === '#abc123',
+    `P0 스캐너 자체 검증: 합성 소스에서 코드 헥스 1건만 검출(실측 ${probeHits.length}건)`)
+  const srcs = SCENE_FILES.map((f) => { try { return readFileSync(f, 'utf8') } catch { return null } })
+  ok(SCENE_FILES.length === 7 && srcs.every((s) => s !== null && s.length > 1000),
+    'P0b 장면 파일 7종 전부 실재·비어있지 않음 (공허 방지)')
+  SCENE_FILES.forEach((f, i) => {
+    if (srcs[i] === null) { ok(false, `P1 ${f} 읽기 실패`); ok(false, `P2 ${f} 읽기 실패`); return }
+    const code = strip(srcs[i])
+    const hex = code.match(/#[0-9a-fA-F]{6}/g) || []
+    ok(hex.length === 0, `P1 ${f}: 장면 색 리터럴 0건 — 색의 정본 = constants ★172` +
+      (hex.length ? ` (발견 ${hex.length}건: ${hex.slice(0, 3).join(' ')})` : ''))
+    const inten = code.match(/intensity=\{\s*[0-9.]/g) || []
+    ok(inten.length === 0, `P2 ${f}: 광원 세기 리터럴 0건 — 세기의 정본 = constants ★172` +
+      (inten.length ? ` (발견 ${inten.length}건)` : ''))
+  })
+  //  P3 App 지문 — 렌더러·전역 광원이 정본 노브를 배선하는가 (되돌아가면 문다)
+  const app = strip(readFileSync('src/App.jsx', 'utf8'))
+  ok(/shadows=\{RND_SHADOWS\}/.test(app) && /TONEMAP\[RND_TONEMAP\]/.test(app)
+    && /toneMappingExposure:\s*RND_EXPOSURE/.test(app) && /linear=\{RND_LINEAR\}/.test(app),
+    'P3 App <Canvas>: 렌더러 노브 4종(그림자·톤맵·노출·색공간) 배선')
+  ok(/hemisphereLight args=\{\[LGT_HEMI_SKY, LGT_HEMI_GND, LGT_HEMI_I\]\}/.test(app)
+    && /ambientLight intensity=\{LGT_AMB_I\}/.test(app)
+    && /intensity=\{LGT_DIR_I\} color=\{LGT_DIR_COL\}/.test(app)
+    && /args=\{\[LGT_FOG_COL, LGT_FOG_NEAR \* SCALE, LGT_FOG_FAR \* SCALE\]\}/.test(app)
+    && /args=\{\[LGT_BG\]\}/.test(app),
+    'P3b App dome 뷰: 배경·fog·반구·앰비언트·방향광 전부 노브 배선')
+  //  P4~P6 기록된 동일성 항등 — 값이 아니라 **관계**를 잠근다(값은 현도의 튜닝 자유)
+  //  ⚠값 항등만으로는 부족하다(이 절 작성 중 반증 ③에서 자기 적발): 참조를 **같은 값의 리터럴**로 바꿔치면
+  //   문자열 비교가 계속 참이라, PAL을 돌리는 순간까지 관계 단절이 침묵한다. → 소스 형태 지문을 같이 문다
+  //   (같은 파일 아핀 z 가드의 원칙: "수식만 보면 파일이 되돌아가도 안 물고, 소스만 보면 잘못 고쳐도 안 문다").
+  const cSrc = strip(readFileSync('src/constants.js', 'utf8'))
+  const litBlk = (cSrc.match(/ROOM_PAL_LIT = Object\.freeze\(\{[\s\S]*?\}\)/) || [''])[0]
+  ok(K94g.ROOM_PAL_LIT.shell === K94g.PAL_WALL && K94g.ROOM_PAL_LIT.floor === K94g.PAL_FLOOR
+    && K94g.ROOM_PAL_LIT.nicheStep === K94g.PAL_TREAD && K94g.ROOM_PAL_LIT.nicheWall === K94g.PAL_RECESS
+    && /shell: PAL_WALL/.test(litBlk) && /floor: PAL_FLOOR/.test(litBlk)
+    && /nicheStep: PAL_TREAD/.test(litBlk) && /nicheWall: PAL_RECESS/.test(litBlk)
+    && !/#[0-9a-fA-F]{6}/.test(litBlk),
+    'P4 ★113 밝은 팔레트 = 사석 가족 **참조**(값 항등 + 소스 형태 — 블록에 리터럴 0건)')
+  ok(K94g.TEMPLE_COLOR === K94g.PAL_WALL && K94g.CELLA_COLOR === K94g.PAL_WALL && K94g.INCA_COLOR === K94g.PAL_WALL
+    && K94g.ALTAR_COLOR === K94g.PAL_FLOOR && K94g.TIER_COLOR === K94g.PAL_FLOOR
+    && K94g.PIER_COLOR === K94g.PAL_RECESS && K94g.INTAKE_COLOR === K94g.PAL_RECESS
+    && /TEMPLE_COLOR = PAL_WALL/.test(cSrc) && /CELLA_COLOR   = PAL_WALL/.test(cSrc)
+    && /INCA_COLOR   = PAL_WALL/.test(cSrc) && /ALTAR_COLOR    = PAL_FLOOR/.test(cSrc)
+    && /TIER_COLOR     = PAL_FLOOR/.test(cSrc) && /PIER_COLOR   = PAL_RECESS/.test(cSrc)
+    && /INTAKE_COLOR   = PAL_RECESS/.test(cSrc),
+    'P5 요소 색 노브 7종(프리즈·셀라·잉카·제단·단·기둥·관) = 가족 **참조**(값 항등 + 소스 형태)')
+  ok(K94g.LGT_FOG_COL === K94g.LGT_BG, 'P6 fog 색 = 배경 파생(대기에 녹는 안개)')
+  ok(['aces', 'none', 'linear', 'reinhard', 'cineon', 'agx', 'neutral'].includes(K94g.RND_TONEMAP)
+    && K94g.RND_EXPOSURE > 0 && typeof K94g.RND_SHADOWS === 'boolean' && typeof K94g.RND_LINEAR === 'boolean',
+    `P7 렌더러 노브 도메인 (톤맵 '${K94g.RND_TONEMAP}' · 노출 ${K94g.RND_EXPOSURE})`)
+}
+
 //  자식 컴포넌트(모듈 밖으로 export되지 않는 것)는 위 루프가 못 부른다.
 //  → 부모가 그 기술자를 만들었는지만 확인하고, 실제 호출이 필요한 것은 export해서 이 목록에 올린다.
 console.log('  ⓘ 한계: export 안 된 내부 컴포넌트는 기술자 생성까지만 검증된다(호출 필요 시 export할 것)')

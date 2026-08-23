@@ -7,6 +7,7 @@ import { NODE_BY_ID } from './ethica1'
 import {
   PLAT_X, PLAT_Y, COR_THICK,
   MONO_W, MONO_H, MONO_THICK, MONO_TAPER, MONO_TEXT_MARGIN, MONO_TEXT_H, MONO_TEXT_CY,
+  STELE_INK_TAG, STELE_INK_BODY, STELE_STONE_COL, STELE_CAP_COL, STELE_P7_COL,   // ★172
 } from './constants'
 
 // ── 정리 비석(stele): 석재 슬랩(늘 보임) + 앞면 각인 텍스트(거리별 페이드) ──
@@ -34,7 +35,7 @@ export function makeSteleTexture(tag, text, aspectWH) {
   ctx.textAlign = 'center'
   ctx.shadowColor = 'rgba(0,0,0,0.32)'; ctx.shadowBlur = 6; ctx.shadowOffsetY = 2   // 살짝 새김 느낌
   // 머리표(정리 번호)
-  ctx.fillStyle = '#ece0c6'; ctx.font = `700 ${Math.round(cw * 0.11)}px ${LABEL_FONT}`
+  ctx.fillStyle = STELE_INK_TAG; ctx.font = `700 ${Math.round(cw * 0.11)}px ${LABEL_FONT}`
   ctx.fillText(tag, cw / 2, ch * 0.15)
   // 구분선(짧은 중앙선)
   ctx.shadowBlur = 0; ctx.shadowOffsetY = 0
@@ -42,7 +43,7 @@ export function makeSteleTexture(tag, text, aspectWH) {
   ctx.beginPath(); ctx.moveTo(cw * 0.28, ch * 0.20); ctx.lineTo(cw * 0.72, ch * 0.20); ctx.stroke()
   // 본문(단어 줄바꿈 → 구분선 아래 영역에 세로 중앙정렬)
   ctx.shadowColor = 'rgba(0,0,0,0.32)'; ctx.shadowBlur = 6; ctx.shadowOffsetY = 2
-  ctx.fillStyle = '#f4ecd9'
+  ctx.fillStyle = STELE_INK_BODY
   const bodyPx = Math.round(cw * 0.10)
   ctx.font = `600 ${bodyPx}px ${LABEL_FONT}`
   const maxW = cw * 0.82, lineH = bodyPx * 1.42
@@ -89,12 +90,12 @@ export function PropStele({ id, x = PLAT_X, z = 0, faceY = PLAT_Y + COR_THICK / 
       {/* 받침(plinth) — 늘 보임 */}
       <mesh position={[x, baseCY, z]}>
         <boxGeometry args={[STELE_THICK + STELE_BASE_OVER * 2, STELE_BASE_H, STELE_W + STELE_BASE_OVER * 2]} />
-        <meshStandardMaterial color="#5b5344" roughness={0.96} />
+        <meshStandardMaterial color={STELE_STONE_COL} roughness={0.96} />
       </mesh>
       {/* 비석 슬랩 — 늘 보임 */}
       <mesh position={[x, slabCY, z]}>
         <boxGeometry args={[STELE_THICK, STELE_H, STELE_W]} />
-        <meshStandardMaterial color="#6a6152" roughness={0.9} />
+        <meshStandardMaterial color={STELE_CAP_COL} roughness={0.9} />
       </mesh>
       {/* 앞면 각인 텍스트(−x 향함) — 비석은 늘 보이고, 이 글자만 거리별로 선명해짐 */}
       <mesh ref={panelRef} position={[panelX, slabCY, z]} rotation-y={-Math.PI / 2}>
@@ -137,7 +138,7 @@ export function GivenMonolith({ id, x, z, baseY = 0, yRot = 0, s = 1, near = 5, 
     <group position={[x, baseY, z]} rotation-y={yRot}>
       {/* 몸돌 — 받침 없이 지반/플랫폼에서 직접 솟음(주어짐) */}
       <mesh geometry={MONO_GEO} position={[0, H / 2, 0]} scale={[TH / Math.SQRT2, H, W / Math.SQRT2]}>
-        <meshStandardMaterial color="#57503f" roughness={0.97} />
+        <meshStandardMaterial color={STELE_P7_COL} roughness={0.97} />
       </mesh>
       {/* 정면 각인(밑동 면보다 0.05 앞) — 테이퍼로 위쪽 면이 물러나므로 패널은 수직 고정, 폭은 실루엣 안 */}
       <mesh ref={panelRef} position={[-TH / 2 - 0.05, H * MONO_TEXT_CY, 0]} rotation-y={-Math.PI / 2}>

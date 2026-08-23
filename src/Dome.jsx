@@ -44,6 +44,12 @@ import {
   MIR_ON, MIR_PADS,          // ★87 돔 거울 확장 — 지면 폐기·임시 판(★92로 비움 = 보존계)
   CUP_ON,                    // ★92 드럼 하판 = 반구 + 감싸는 기둥 · ★93 고리판
   TR_LINK_ON,   // ★90 참 → 갓 리드 연결 계단
+  PAL_RIB, PAL_PLATE, PAL_FLOOR, PAL_RECESS, PAL_WALL,           // ★172 팔레트 정본
+  KNEE_LAND_COL, KNEE_RAIL_COL, DOME_GND_COL, DOME_POLE_COL, TERR_COL,
+  APEX_LGT_COL, APEX_LGT_I, APEX_GLOW_COL,
+  LAMP_ROD_TOP_COL, LAMP_ROD_BOT_COL, LAMP_LGT_JOINT_COL, LAMP_LGT_JOINT_I,
+  LAMP_LGT_MOUTH_COL, LAMP_LGT_MOUTH_I, LAMP_SHADE_COL, LAMP_SHADE_EMIS, LAMP_SHADE_EMIS_I,
+  LAMP_GLOW_MOUTH_COL, LAMP_POOL_CORE_COL, LAMP_POOL_CORE_OP, LAMP_POOL_HALO_COL, LAMP_POOL_HALO_OP,
 } from './constants'
 import { hallDoors, ribCutSpec } from './corridorStairsGeometry'
 import { buildRibShell, makeRibCurve, RIB_TUB_SEG, buildViceWedge, viceSplitIndex, newelSpec, buildSill, buildFloorCollar, buildFloorLanding, freeNewelSpec, freeSplitRange, buildOpenRim, isOpenRib , ribHoleSolid } from './ribGeometry'
@@ -62,7 +68,7 @@ export function Ground() {
   return (
     <mesh rotation-x={-Math.PI / 2} userData={{ walkable: true }}>
       <planeGeometry args={[4000, 4000]} />
-      <meshStandardMaterial color="#6f5e44" roughness={1} />
+      <meshStandardMaterial color={DOME_GND_COL} roughness={1} />
     </mesh>
   )
 }
@@ -78,7 +84,7 @@ export function MirrorPads() {
       {MIR_PADS.map((p) => (
         <mesh key={p.id} position={[p.cx, -p.t / 2, p.cz]} userData={{ walkable: true }}>
           <cylinderGeometry args={[p.r, p.r, p.t, 96]} />
-          <meshStandardMaterial color="#6f5e44" roughness={1} />
+          <meshStandardMaterial color={DOME_GND_COL} roughness={1} />
         </mesh>
       ))}
     </>
@@ -116,7 +122,7 @@ export function DrumCup() {
 // φ=0(+x) 평면에 정의; 나머지는 y축 회전 인스턴스로 복제.
 //  ★65(2026.07.25): 정의를 ribGeometry로 이관 — 무릎길 몸이 관 내벽에 맞물리려면 클립 솔리드가
 //   리브와 **같은 곡선 객체**를 써야 한다. 사본 두 벌은 언젠가 어긋난다(§1 LOCKED의 실질).
-const RIB_MAT = { color: '#bb8a4e', roughness: 0.7, metalness: 0 }   // 두 컴포넌트 공유(재질 동일 LOCKED)
+const RIB_MAT = { color: PAL_RIB, roughness: 0.7, metalness: 0 }   // 두 컴포넌트 공유(재질 동일 LOCKED)
 
 // ── ★56 리브 절단(1p7) 공용 — 탐험 리브(#0)와 홀 문 리브 4기가 같은 수법을 쓴다(형태 동일 LOCKED 유지) ──
 //  ①끊기 = 수평 슬래브 브러시 HOLLOW_SUBTRACTION. 관은 두께 0 셸이라 '겹치는 면만 제거'가 맞는 연산이다.
@@ -217,15 +223,15 @@ const ribTintOBC = (RIB_TINT_AMT > 0 || RIB_TINT_EMIS > 0) ? (shader) => {
         totalEmissiveRadiance += uEthTintCol * ethG * uEthTintEms;`))
 } : undefined
 // 디딤판·판(부양 요소) / 통로 외피 — Corridor 어휘 공유
-const TREAD_MAT = { color: '#d6ab68', roughness: 0.8 }
-const SHELL_MAT = { color: '#c2a062', roughness: 0.9 }
-const FLOOR_MAT = { color: '#a98f5e', roughness: 0.95 }
+const TREAD_MAT = { color: PAL_PLATE, roughness: 0.8 }
+const SHELL_MAT = { color: PAL_FLOOR, roughness: 0.9 }
+const FLOOR_MAT = { color: PAL_RECESS, roughness: 0.95 }
 //  ★65 무릎길 몸 — ㊿ 하강로 보(#b89a6a)와 같은 돌. 판(#d6ab68)보다 어두워 두께 위계가 눈에 읽힌다(§2-D ③)
-const KNEE_BODY_MAT = { color: '#b89a6a', roughness: 0.92 }
+const KNEE_BODY_MAT = { color: PAL_WALL, roughness: 0.92 }
 //  ★66 참 — 디딤(밝음)과 몸(어두움) 사이 톤. '멈춰 서는 바닥'이 디딤과 다른 것임을 균질광에서도 읽히게 한다
-const KNEE_LAND_MAT = { color: '#c8a578', roughness: 0.9 }
+const KNEE_LAND_MAT = { color: KNEE_LAND_COL, roughness: 0.9 }
 //  ★68-3 난간 — 몸보다 한 톤 어둡게. 바닥 가장자리를 감싸는 선으로 읽혀야 한다
-const KNEE_RAIL_MAT = { color: '#a8895c', roughness: 0.95 }
+const KNEE_RAIL_MAT = { color: KNEE_RAIL_COL, roughness: 0.95 }
 
 // ── 셸: 경선 리브 67개 (= 단일 속성 실체, 전부 균일) — 문 뚫린 다섯(#0·#±1·#±2)은 별도 컴포넌트 담당 ──
 //  ★㊳(2026.07.14): 인스턴스는 회전 복제라 개별 CSG 불가 → 문 리브 4기(#±1·#±2)를 HallDoorRibs로 분리
@@ -380,10 +386,10 @@ export function HallDoorRibs() {
 export function Apex() {
   return (
     <group position={[0, H, 0]}>
-      <pointLight color="#ffe3b0" intensity={2.2} distance={0} decay={0} />
+      <pointLight color={APEX_LGT_COL} intensity={APEX_LGT_I} distance={0} decay={0} />
       <mesh>
         <sphereGeometry args={[5 * SCALE, 28, 28]} />
-        <meshBasicMaterial color="#fff1d4" />
+        <meshBasicMaterial color={APEX_GLOW_COL} />
       </mesh>
     </group>
   )
@@ -520,7 +526,7 @@ export function RibStair() {
       {RIB_POLE_ON && (
         <mesh position={[R_BASE, Y_POLE_CUT / 2, 0]}>
           <cylinderGeometry args={[POLE_R, POLE_R, Y_POLE_CUT, 12]} />
-          <meshStandardMaterial color="#8f6c3e" roughness={0.85} />
+          <meshStandardMaterial color={DOME_POLE_COL} roughness={0.85} />
         </mesh>
       )}
     </>
@@ -1093,8 +1099,8 @@ function LampRod({ y0, y1 }) {
     const g = new THREE.CylinderGeometry(LAMP_TUBE_R, LAMP_TUBE_R, y1 - y0, 12, 24)
     const pos = g.attributes.position
     const colors = new Float32Array(pos.count * 3)
-    const cTop = new THREE.Color('#ffedc4')   // 진입고(리브 쪽) — 밝음
-    const cBot = new THREE.Color('#c08a48')   // 목(아래끝) — 어두움
+    const cTop = new THREE.Color(LAMP_ROD_TOP_COL)   // 진입고(리브 쪽) — 밝음
+    const cBot = new THREE.Color(LAMP_ROD_BOT_COL)   // 목(아래끝) — 어두움
     const mid = (y0 + y1) / 2, c = new THREE.Color()
     for (let i = 0; i < pos.count; i++) {
       const wy = pos.getY(i) + mid                                   // 월드 y
@@ -1135,28 +1141,28 @@ export function CloisterLamps() {
             {/* ★접합부 점광(2026.07.11): 관이 리브 밑면에 꽂히는 자리를 밝힘 — 리브 밑면·상부 벽에
                 후광이 생겨 광원이 '리브'로 읽히게(현행 하향 점광만으로는 봉 끝이 광원으로 오독).
                 강도·거리 = 튜닝 노브 */}
-            <pointLight position={[0, LAMP_ENTRY_Y - 1.2, 0]} color="#ffc27a" intensity={22} distance={15} decay={2} />
+            <pointLight position={[0, LAMP_ENTRY_Y - 1.2, 0]} color={LAMP_LGT_JOINT_COL} intensity={LAMP_LGT_JOINT_I} distance={15} decay={2} />
             {/* 갓: 뒤집힌 깔때기(위 좁음 → 아래 벌어짐), 열린 원뿔대 */}
             <mesh position={[0, (mouthY + neckY) / 2, 0]}>
               <cylinderGeometry args={[LAMP_TUBE_R, LAMP_MOUTH_R, LAMP_FUNNEL_H, 24, 1, true]} />
-              <meshStandardMaterial color="#caa161" roughness={0.6} emissive="#ffb45c" emissiveIntensity={0.55} side={THREE.DoubleSide} />
+              <meshStandardMaterial color={LAMP_SHADE_COL} roughness={0.6} emissive={LAMP_SHADE_EMIS} emissiveIntensity={LAMP_SHADE_EMIS_I} side={THREE.DoubleSide} />
             </mesh>
             {/* 갓 입 발광면 — 광원으로 읽히는 면 */}
             <mesh position={[0, mouthY + 0.02, 0]} rotation-x={-Math.PI / 2}>
               <circleGeometry args={[LAMP_MOUTH_R * 0.82, 24]} />
-              <meshBasicMaterial color="#fff1d4" side={THREE.DoubleSide} />
+              <meshBasicMaterial color={LAMP_GLOW_MOUTH_COL} side={THREE.DoubleSide} />
             </mesh>
             {/* 바닥 웅덩이(코어+헤일로) — 바닥 링(floor−0.02) 위 0.015 부양(z파이팅 회피 전례) */}
             <mesh position={[0, floor - 0.005, 0]} rotation-x={-Math.PI / 2}>
               <circleGeometry args={[LAMP_POOL_R * 0.55, 32]} />
-              <meshBasicMaterial color="#ffdc9a" transparent opacity={0.5} />
+              <meshBasicMaterial color={LAMP_POOL_CORE_COL} transparent opacity={LAMP_POOL_CORE_OP} />
             </mesh>
             <mesh position={[0, floor - 0.004, 0]} rotation-x={-Math.PI / 2}>
               <circleGeometry args={[LAMP_POOL_R, 32]} />
-              <meshBasicMaterial color="#ffce7d" transparent opacity={0.22} />
+              <meshBasicMaterial color={LAMP_POOL_HALO_COL} transparent opacity={LAMP_POOL_HALO_OP} />
             </mesh>
             {/* 하향 점광 — 무그림자(성능). 강도·거리 = 로컬 튜닝 노브 */}
-            <pointLight position={[0, mouthY - 0.25, 0]} color="#ffce8a" intensity={14} distance={11} decay={2} />
+            <pointLight position={[0, mouthY - 0.25, 0]} color={LAMP_LGT_MOUTH_COL} intensity={LAMP_LGT_MOUTH_I} distance={11} decay={2} />
           </group>
         </group>
         )
@@ -1176,11 +1182,11 @@ export function Terrace() {
   return (
     <>
       <mesh geometry={geo} userData={{ walkable: true }}>
-        <meshStandardMaterial color="#caa161" roughness={0.85} />
+        <meshStandardMaterial color={TERR_COL} roughness={0.85} />
       </mesh>
       {link && (
         <mesh geometry={link} userData={{ walkable: true }}>
-          <meshStandardMaterial color="#caa161" roughness={0.85} />
+          <meshStandardMaterial color={TERR_COL} roughness={0.85} />
         </mesh>
       )}
     </>
@@ -1407,20 +1413,20 @@ export function LampRoom() {
         {/* 중앙 등불 — 회랑 등불과 **같은 어법**(관 + 깔때기 갓 + 웅덩이). 다른 건 관이 훨씬 길다는 것뿐 */}
         <group>
           <LampRod y0={RM10_CENTER_Y + LAMP_MOUTH_Y1 + LAMP_FUNNEL_H} y1={LAMP_TOP_Y} />
-          <pointLight position={[0, LAMP_ENTRY_Y - 1.2, 0]} color="#ffc27a" intensity={22} distance={15} decay={2} />
+          <pointLight position={[0, LAMP_ENTRY_Y - 1.2, 0]} color={LAMP_LGT_JOINT_COL} intensity={LAMP_LGT_JOINT_I} distance={15} decay={2} />
           <mesh position={[0, RM10_CENTER_Y + LAMP_MOUTH_Y1 + LAMP_FUNNEL_H / 2, 0]}>
             <cylinderGeometry args={[LAMP_TUBE_R, LAMP_MOUTH_R, LAMP_FUNNEL_H, 24, 1, true]} />
-            <meshStandardMaterial color="#caa161" roughness={0.6} emissive="#ffb45c" emissiveIntensity={0.55} side={THREE.DoubleSide} />
+            <meshStandardMaterial color={LAMP_SHADE_COL} roughness={0.6} emissive={LAMP_SHADE_EMIS} emissiveIntensity={LAMP_SHADE_EMIS_I} side={THREE.DoubleSide} />
           </mesh>
           <mesh position={[0, RM10_CENTER_Y + LAMP_MOUTH_Y1 + 0.02, 0]} rotation-x={-Math.PI / 2}>
             <circleGeometry args={[LAMP_MOUTH_R * 0.82, 24]} />
-            <meshBasicMaterial color="#fff1d4" side={THREE.DoubleSide} />
+            <meshBasicMaterial color={LAMP_GLOW_MOUTH_COL} side={THREE.DoubleSide} />
           </mesh>
           <mesh position={[0, RM10_CENTER_Y - 0.005, 0]} rotation-x={-Math.PI / 2}>
             <circleGeometry args={[LAMP_POOL_R, 32]} />
-            <meshBasicMaterial color="#ffce7d" transparent opacity={0.22} />
+            <meshBasicMaterial color={LAMP_POOL_HALO_COL} transparent opacity={LAMP_POOL_HALO_OP} />
           </mesh>
-          <pointLight position={[0, RM10_CENTER_Y + LAMP_MOUTH_Y1 - 0.25, 0]} color="#ffce8a" intensity={14} distance={11} decay={2} />
+          <pointLight position={[0, RM10_CENTER_Y + LAMP_MOUTH_Y1 - 0.25, 0]} color={LAMP_LGT_MOUTH_COL} intensity={LAMP_LGT_MOUTH_I} distance={11} decay={2} />
         </group>
       </group>
       {/* 천장(월드 좌표로 만든 CSG 결과 — 그룹 밖에서 그대로 놓는다) */}

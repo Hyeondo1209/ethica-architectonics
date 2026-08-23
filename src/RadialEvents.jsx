@@ -12,13 +12,14 @@ import {
   RAD_R, RAD_ANG0, P_ROOM, P_FLOOR_TOP,
   P1_ON, P2_ON, P3_ON, P4_ON, P2_SHEAR_AZ, P3_AZ,
   P_ST_X, P_ST_NEAR, P_ST_FAR, P_STELE_ON,
+  PAL_WALL, PAL_SHELL, PAL_FLOOR,   // ★172 팔레트 정본
 } from './constants.js'
 import { buildP1Swells, buildP2Shear, buildP3Pulls, buildP4A, p1HeightAt } from './radialEventsGeometry.js'
 import { PropStele } from './Steles.jsx'
 
-const MAT_FLOOR = { color: '#c2a062', roughness: 0.9 }   // = Radial.jsx MAT_FLOOR
-const MAT_SHELL = { color: '#c3ae7f', roughness: 0.9 }   // = Radial.jsx MAT_SHELL
-const MAT_WALL  = { color: '#b89a6a', roughness: 0.9 }   // = Radial.jsx MAT_WALL
+const MAT_FLOOR = { color: PAL_FLOOR, roughness: 0.9 }   // = Radial.jsx MAT_FLOOR
+const MAT_SHELL = { color: PAL_SHELL, roughness: 0.9 }   // = Radial.jsx MAT_SHELL
+const MAT_WALL  = { color: PAL_WALL, roughness: 0.9 }   // = Radial.jsx MAT_WALL
 
 function PetalFrame({ k, children }) {                   // Radial.jsx 꽃잎 배치와 동일 변환
   const ang = RAD_ANG0 + k * Math.PI / 2

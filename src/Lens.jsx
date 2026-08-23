@@ -9,6 +9,7 @@ import { buildLensGeometry } from './lensGeometry.js'
 import {
   LENS_Y, LENS_FOG, LENS_COL, LENS_EMIS_C, LENS_EMIS,
   LENS_MODE, LENS_TRANSMIT, LENS_IOR, LENS_ROUGH_G, LENS_THICK, LENS_OPACITY,
+  APEX_LGT_COL, APEX_LGT_I,   // ★172 정점 점광 정본(Dome Apex와 공유 — 계승 동일 기록)
 } from './constants.js'
 
 export function ApexLens() {
@@ -16,7 +17,7 @@ export function ApexLens() {
   return (
     <group position={[0, LENS_Y, 0]}>
       {/* 구 Apex의 점광 계승(색·강도 동일) — 위치만 렌즈 높이로. 전역 톤 재조정 = Phase 3 */}
-      <pointLight color="#ffe3b0" intensity={2.2} distance={0} decay={0} />
+      <pointLight color={APEX_LGT_COL} intensity={APEX_LGT_I} distance={0} decay={0} />
       <mesh geometry={geo}>
         {LENS_MODE === 'glass' ? (
           <meshPhysicalMaterial

@@ -1,7 +1,10 @@
 import { Canvas } from '@react-three/fiber'
+import * as THREE from 'three'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import GraphScaffold from './GraphScaffold'
-import { SCALE, RIB_XFER_ON, RIB_DEST_PHI, TERRACE_ON, SURVEY_START } from './constants'
+import { SCALE, RIB_XFER_ON, RIB_DEST_PHI, TERRACE_ON, SURVEY_START,
+  LGT_BG, LGT_FOG_COL, LGT_FOG_NEAR, LGT_FOG_FAR, LGT_HEMI_SKY, LGT_HEMI_GND, LGT_HEMI_I,
+  LGT_AMB_I, LGT_DIR_COL, LGT_DIR_I, RND_TONEMAP, RND_EXPOSURE, RND_SHADOWS, RND_LINEAR } from './constants'
 import { FirstPersonControls } from './FirstPersonControls'
 import { WAYPOINTS, WP_GROUPS, SPAWN_ID, DEV_TELEPORT, wpIndexOf } from './waypoints'
 import { Ground, MirrorPads, DrumCup, DomeRibs, ExplorationRib, HallDoorRibs, RibStair, KneeWalk, RibJunction, Lookout, RevealPassage, CloisterLamps, Terrace, LampRoom, FriezeCrossing } from './Dome'
@@ -19,6 +22,13 @@ import { SurveyRig, SurveyLights, SURVEY_ORDER } from './Survey'   // ★108 조
 //            · Room(정의·공리 방) · Corridor(통로) · Steles(비석·선돌 담체)
 //            · GraphScaffold/ethica1(데이터 그래프 — 기존 그대로)
 // ============================================================
+
+// ★172 톤 매핑 문자열 → three 상수 (정본 노브 RND_TONEMAP의 해석기)
+const TONEMAP = {
+  aces: THREE.ACESFilmicToneMapping, none: THREE.NoToneMapping, linear: THREE.LinearToneMapping,
+  reinhard: THREE.ReinhardToneMapping, cineon: THREE.CineonToneMapping,
+  agx: THREE.AgXToneMapping, neutral: THREE.NeutralToneMapping,
+}
 
 export default function App() {
   const [view, setView] = useState('dome')
@@ -55,18 +65,20 @@ export default function App() {
 
   return (
     <>
-      <Canvas camera={{ fov: 70, near: 0.1, far: 3000, position: [0, 1.6, 0] }}>
+      <Canvas shadows={RND_SHADOWS} linear={RND_LINEAR} flat={RND_TONEMAP === 'none'}
+        gl={{ toneMapping: TONEMAP[RND_TONEMAP], toneMappingExposure: RND_EXPOSURE }}   /* ★172 현행 = R3F 기본값 핀 고정(ACES·sRGB·무그림자·노출 1) */
+        camera={{ fov: 70, near: 0.1, far: 3000, position: [0, 1.6, 0] }}>
         {view === 'dome' && (
           <>
             {/* ★108: 검토 모드에서는 실제 대기·조명을 물린다. SurveyRig가 fog·background·overrideMaterial을
                 쥐었다 놓으므로 여기 값들은 정본 그대로 남는다(끄면 원상 복귀). */}
             {survey === 'off' && <>
-              <color attach="background" args={['#e7d6ad']} />
-              <fog attach="fog" args={['#e7d6ad', 30 * SCALE, 150 * SCALE]} />
+              <color attach="background" args={[LGT_BG]} />
+              <fog attach="fog" args={[LGT_FOG_COL, LGT_FOG_NEAR * SCALE, LGT_FOG_FAR * SCALE]} />
 
-              <hemisphereLight args={['#ffeccb', '#2e2618', 0.85]} />
-              <ambientLight intensity={0.25} />
-              <directionalLight position={[30 * SCALE, 120 * SCALE, 20 * SCALE]} intensity={0.3} color="#ffe6bf" />
+              <hemisphereLight args={[LGT_HEMI_SKY, LGT_HEMI_GND, LGT_HEMI_I]} />
+              <ambientLight intensity={LGT_AMB_I} />
+              <directionalLight position={[30 * SCALE, 120 * SCALE, 20 * SCALE]} intensity={LGT_DIR_I} color={LGT_DIR_COL} />
             </>}
             <SurveyRig mode={survey} />
             <SurveyLights mode={survey} />

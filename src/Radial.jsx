@@ -30,11 +30,12 @@ import {
   RAD_CYL_DOOR_ON, RAD_CYL_DOOR_RING_ONLY, RAD_CYL_DOOR_M, CYL_TAN_DOOR_M,
   ARM13_ON, ARM13_KS, ARM13_BR_ON, ARM13_BR_K,
   RAD_CYL_COLLAR_ON, RAD_CYL_COLLAR_T,
+  PAL_WALL, PAL_SHELL, PAL_FLOOR,   // ★172 팔레트 정본
 } from './constants'
 
-const MAT_WALL  = '#b89a6a'   // 터널·고리(통로 외피와 같은 가족)
-const MAT_SHELL = '#c3ae7f'   // 꽃잎 셸(살짝 밝게 — 매싱 구분용, 재질은 Phase 3에서)
-const MAT_FLOOR = '#c2a062'   // 바닥(길 연속)
+const MAT_WALL  = PAL_WALL    // 터널·고리(통로 외피와 같은 가족)
+const MAT_SHELL = PAL_SHELL   // 꽃잎 셸(살짝 밝게 — 매싱 구분용, 재질은 Phase 3에서)
+const MAT_FLOOR = PAL_FLOOR   // 바닥(길 연속)
 const CUT_BOT = COR_Y0                            // ★문 컷 바닥 49.0(2026.07.11 ②c) — 바닥판(48.68~49.28) 안 = 판 밑 노출 슬리버 0. 문턱도 없음(판 윗면이 문지방)
 const DTOP  = COR_Y0 + COR_THICK / 2 + RAD_DOOR_H // 문 상단 53.3(터널 천장 54 아래 헤더 0.7) — ⚠아래 문틀 상수(JAMB_H 등)가 참조: 선언 순서 유지
 // ★문틀 마감(2026.07.11, 현도 지정): 곡면 셸×직선 통로 접합부는 어떻게 깎아도 어중간 → 직사각 문틀이 이음선을 통째로 삼킨다.

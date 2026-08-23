@@ -152,6 +152,107 @@ export const SURVEY_ROUGH     = 0.95      // 점토 거칠기(정반사 0 = 형�
 export const SURVEY_BG_CLAY   = '#b9bcc2' // 점토 배경(셸 밖 — 실루엣이 배경에 안 묻히게 중간 명도)
 export const SURVEY_BG_NORMAL = '#1b1c20' // 법선 배경(법선 컬러가 채도 높아 배경은 어둡게)
 
+//  ═══════════════════════════════════════════════════════════════════════════════
+//  ══ ★172 P2 조명·팔레트·렌더러 정본 (2026.08.23 — 무변화 정본화 리팩터) ══════════
+//  ═══════════════════════════════════════════════════════════════════════════════
+//  ★목적: 파일마다 흩어진 손 리터럴(광원·색·렌더러 설정)을 여기 한 자리의 노브로 승격.
+//   **이 섹션의 값 전부 = 승격 시점의 현행값 그대로**(렌더 무변화 — check_render P절이 잠근다).
+//   빛의 성격·색의 그림은 현도 몫 — 이 섹션은 그 결정이 앉을 의자일 뿐이다.
+//  ★공유 규칙: 여러 자리가 한 노브를 나누는 것은 **코드 주석·DESIGN에 동일성이 기록된 가족뿐**
+//   (예: Room ★113 "새 색을 만들지 않았다" · Dome "Corridor 어휘 공유" · Lens "구 Apex 점광 계승").
+//   기록 없는 같은-값은 노브를 갈라 뒀다(우연 일치를 미리 통합하는 것도 미학 결정이다 — 현도 몫).
+//  ★범위 제외(의도적): App UI 오버레이·CoordHud(HUD) · GraphScaffold(별자리 모드 전체) ·
+//   Survey(자체 주석이 "P2 조명 개편 아님"을 못박음) · 광원의 position/distance/decay/angle(기하·감쇠
+//   특성 — 인라인 유지, 필요 시 그때 승격).
+
+//  ── ⑴ 전역 광원·대기 (App.jsx dome 뷰) ──────────────────────────────────────────
+export const LGT_BG        = '#e7d6ad' // 배경(하늘 없는 대기)
+export const LGT_FOG_COL   = LGT_BG    // fog = 배경에 녹는 색(파생 — 현행 코드가 같은 리터럴 2회)
+export const LGT_FOG_NEAR  = 30        // ×SCALE는 App에서(현행 식 유지)
+export const LGT_FOG_FAR   = 150
+export const LGT_HEMI_SKY  = '#ffeccb'
+export const LGT_HEMI_GND  = '#2e2618'
+export const LGT_HEMI_I    = 0.85
+export const LGT_AMB_I     = 0.25
+export const LGT_DIR_COL   = '#ffe6bf'
+export const LGT_DIR_I     = 0.3
+
+//  ── ⑵ 렌더러 (App.jsx <Canvas>) — 현행 = R3F v9 기본값을 명시 핀 고정(설치본 소스 실측) ──
+export const RND_TONEMAP  = 'aces'  // 'aces'|'none'|'linear'|'reinhard'|'cineon'|'agx'|'neutral' (매핑은 App)
+export const RND_EXPOSURE = 1.0     // toneMappingExposure
+export const RND_SHADOWS  = false   // true면 PCFSoft(R3F 기본)
+export const RND_LINEAR   = false   // false = sRGB 출력(현행)
+
+//  ── ⑶ 공유 사석 가족 (기록된 동일성: Corridor 원산 · Radial MAT_* · RadialEvents "=Radial" ·
+//        Room ★113 밝은 팔레트 · Dome "Corridor 어휘 공유"·무릎길 "같은 돌") ──────────
+export const PAL_WALL   = '#b89a6a' // 벽·몸·보 (드럼·프리즈·셀라·잉카 기본이 이 값을 참조)
+export const PAL_FLOOR  = '#c2a062' // 걷는 면 (잉카 판·제단이 참조)
+export const PAL_TREAD  = '#cdb074' // 디딤
+export const PAL_RECESS = '#a98f5e' // 움푹한 면 (기둥·관이 참조)
+export const PAL_SHELL  = '#c3ae7f' // 꽃잎 셸(매싱 구분 — Radial 원산)
+export const PAL_PLATE  = '#d6ab68' // 판(부양 요소 — Dome 디딤판 원산)
+export const PAL_RIB    = '#bb8a4e' // 경선 리브 (LOCKED: 두 컴포넌트 재질 동일)
+
+//  ── ⑷ 방(Room) 팔레트·광원 ─────────────────────────────────────────────────────
+//  ★113 두 체제: LIT(밝음·현행) = 사석 가족 참조("새 색을 만들지 않았다") / DIM(암실·보존계) = 고유값
+export const ROOM_PAL_LIT = Object.freeze({
+  shell: PAL_WALL,  floor: PAL_FLOOR, pitWall: PAL_WALL,  pitRim: PAL_FLOOR, pitFloor: PAL_FLOOR,
+  nicheWall: PAL_RECESS, nicheFloor: PAL_FLOOR, nicheStep: PAL_TREAD,
+  slotWall: PAL_RECESS,  slotFloor: PAL_FLOOR,  slotStep: PAL_TREAD })
+export const ROOM_PAL_DIM = Object.freeze({
+  shell: '#221b10', floor: '#241d12', pitWall: '#2b2216', pitRim: '#2b2216', pitFloor: '#332918',
+  nicheWall: '#3a2f1c', nicheFloor: '#3f331e', nicheStep: '#463823',
+  slotWall: '#3a2f1c', slotFloor: '#463823', slotStep: '#4d3e27' })
+export const RM_LGT_CORE_COL = '#ffe2b0' // 방 중앙 점광(v2.2 거의 소등 — 어둠은 여기서 나온다)
+export const RM_LGT_CORE_I   = 0.12
+export const RM_LGT_SPOT_COL = '#ffe8bd' // 판테온 스포트 색(세기 = 기존 SPOT_I 노브)
+export const RM_LGT_DAIS_COL = '#ffdf9e' // 기단 점광
+export const RM_LGT_DAIS_I   = 1.4
+export const RM_LGT_WELL_COL = '#fff1d2' // 빛우물 상단 점광
+export const RM_LGT_WELL_I   = 2.4
+export const RM_SHAFT_COL    = '#ffdf9e' // 빛 샤프트(가짜 볼륨) 색 — 기단 점광과 같은 값이나 기록 없음 → 분리
+export const RM_SHAFT_OP     = 0.30      // 샤프트 세기(uOpacity — 원주석이 노브라 명명)
+export const RM_AXSP_MASS_COL  = '#d6ab68' // ★107 공리 나선 매스(판과 같은 값 — 기록 없음 → 분리)
+export const RM_AXSP_SLAB_COL  = '#b8905a' // 나선 지지 슬래브
+export const RM_AXSP_SUP_COL   = '#c09a63' // 나선 지지 기둥
+export const RM_AXSP_VAULT_COL = '#cfa261' // ★111 공리 볼트(문)
+export const RM_PLATE_COL      = '#d6ab68' // 구세계 낱장·AX 플랫폼 판(방 안 '판' 어법)
+export const RM_SPIRE_COL      = '#97784e' // 빛 우물 원뿔대(첨탑)·테라스 고리
+export const RM_DAIS_DARK_COL  = '#322817' // 기단 암실화(v2.2 — 성역: 바닥보다 한 단 위)
+export const RM_MARK_COL       = '#6b5942' // 팔각 각인선(v2.2 반전: 암실에선 각인이 밝은 쪽)
+
+//  ── ⑸ 돔(Dome)·등불·정점 ───────────────────────────────────────────────────────
+export const DOME_GND_COL   = '#6f5e44' // 접지(폐기 지면 Ground 보존계 + 거울 패드 — 같은 접지 어휘)
+export const KNEE_LAND_COL  = '#c8a578' // ★66 참 — 디딤(밝음)과 몸(어두움) 사이 톤
+export const KNEE_RAIL_COL  = '#a8895c' // ★68-3 난간 — 몸보다 한 톤 어둡게
+export const DOME_POLE_COL  = '#8f6c3e' // ★58 폴(보존계 RIB_POLE_ON)
+export const TERR_COL       = '#caa161' // 테라스 판(등불 갓과 같은 값 — 기록 없음 → 분리)
+export const APEX_LGT_COL   = '#ffe3b0' // 정점 점광 — Dome Apex + Lens("구 Apex 점광 계승 · 색·강도 동일")
+export const APEX_LGT_I     = 2.2
+export const APEX_GLOW_COL  = '#fff1d4' // 정점 발광구
+export const LAMP_LGT_JOINT_COL = '#ffc27a' // 등불 접합부 점광(관이 리브 밑면에 꽂히는 자리)
+export const LAMP_LGT_JOINT_I   = 22
+export const LAMP_LGT_MOUTH_COL = '#ffce8a' // 등불 갓 입 하향 점광
+export const LAMP_LGT_MOUTH_I   = 14
+export const LAMP_SHADE_COL     = '#caa161' // 갓(뒤집힌 깔때기)
+export const LAMP_SHADE_EMIS    = '#ffb45c' // 갓 발광색
+export const LAMP_SHADE_EMIS_I  = 0.55
+export const LAMP_GLOW_MOUTH_COL = '#fff1d4' // 갓 입 발광면(정점 발광구와 같은 값 — 기록 없음 → 분리)
+export const LAMP_POOL_CORE_COL = '#ffdc9a' // 바닥 웅덩이 코어
+export const LAMP_POOL_CORE_OP  = 0.5
+export const LAMP_POOL_HALO_COL = '#ffce7d' // 바닥 웅덩이 헤일로
+export const LAMP_POOL_HALO_OP  = 0.22
+export const LAMP_ROD_TOP_COL   = '#ffedc4' // 봉 그라데이션: 진입고(리브 쪽) — 밝음
+export const LAMP_ROD_BOT_COL   = '#c08a48' // 봉 그라데이션: 목(아래끝) — 어두움
+
+//  ── ⑹ 담체(Steles — 전 계열 소등 중 · 권역 ⑬) ──────────────────────────────────
+export const STELE_INK_TAG  = '#ece0c6' // 각자(刻字) 머리표 잉크
+export const STELE_INK_BODY = '#f4ecd9' // 각자 본문 잉크
+export const STELE_STONE_COL = '#5b5344' // 선돌 몸
+export const STELE_CAP_COL   = '#6a6152' // 선돌 갓
+export const STELE_P7_COL    = '#57503f' // 1p7 비석
+//  ═══════════════════════════ ★172 정본 섹션 끝 ═══════════════════════════════════
+
 //  ══ ★★★111 공리 볼트(문) — 현도 스케치 2026.08.04 ══════════════════════════════
 //   공리 = 길가의 물건이 아니라 **걷는 사람이 통과하는 문**. 받침(보·기둥) 위에 볼트가 서고
 //   나선이 그 아치를 관통한다. 실내 어법 = **총안(embrasure)**: 두꺼운 벽 + 작은 개구 + 안쪽 사면 —
@@ -1847,7 +1948,7 @@ export const TEMPLE_X1   = 298   // ★55-2(2026.07.24): 295 → 298 = 셀라 �
 //   홀에서 보이는 변화 = 아치 터널이 3 길어지는 것뿐(앞면 TEMPLE_X0 불변 = 신전 얼굴 무변경).              // 뒷면 — 리브 관 단면(x≤294) 포함 여유 1
 export const TEMPLE_HZ   = 62               // z반길이 — 창 전폭(±57.3) + 리브 #±2 관 여유
 export const TEMPLE_CLR  = 0.4              // 관통 구멍 반경 여유
-export const TEMPLE_COLOR = '#b89a6a'       // ★60(2026.07.24) 프리즈 석재 톤 — 구 TempleBeam 하드코딩을 상수로.
+export const TEMPLE_COLOR = PAL_WALL   // (=#b89a6a)       // ★60(2026.07.24) 프리즈 석재 톤 — 구 TempleBeam 하드코딩을 상수로.
 //  ⚠프리즈 방 바닥이 곧 이 부재의 살이므로, 방 안에 놓이는 바닥 부재(★60 문지방)가 같은 값을 읽어야
 //   '바닥이 손을 내민 것'으로 읽힌다. 두 곳에 따로 적힌 색은 반드시 어긋난다(㊾ 계승 규칙의 색 판).
 
@@ -2575,7 +2676,7 @@ export const CELLA_BACK_ON = true                 // 개구 배경 봉인(동벽
 //  ⚠하한은 아치 최고점(TEMPLE_Y0+TEMPLE_OPEN) — 그 아래로 내려가면 개구 뒤가 뚫린다(㊻). R4가 잡는다.
 export const CELLA_BACK_Y1 = FRIEZE_ROOM_ON ? FR_FLOOR_Y : TEMPLE_Y0 + TEMPLE_OPEN + 6   // 동벽 상단 = 개구 최고점(TEMPLE_Y0+OPEN) + 여유 6(개구 높이 자동 추종)
                                                   // 슬랩 서단(파생 ≈256.1) — 바이트가 안쪽을 절제하므로 여유 −2
-export const CELLA_COLOR   = '#b89a6a'            // ★톤 노브 — 기본 = 드럼·프리즈와 동일(한 몸통·이음선 소거). 어둡게(예 #a9905f)면 감실감 — P2 조명 때 재판정 후보
+export const CELLA_COLOR   = PAL_WALL          // (=#b89a6a)            // ★톤 노브 — 기본 = 드럼·프리즈와 동일(한 몸통·이음선 소거). 어둡게(예 #a9905f)면 감실감 — P2 조명 때 재판정 후보
 // ── ★㊸ 셀라 배경 깊이(2026.07.21 현도 — 리드백 ③: 리브 너머 배경에 사건) ──
 //  왜: 창(±43°)으로 보이는 셀라 안쪽이 텅 빈 평벽 = 공간이 밋밋(현도 로컬 소견). 동벽(x=300)
 //  안쪽면에 감산 브러시로 '깊이'를 파 리브 기둥 사이로 배경 사건이 보이게 한다. 셸·구멍·프리즈
@@ -2623,7 +2724,7 @@ export const ALTAR_STEP2_X  = 276                 // 상단(좁은) 계단 서�
 export const ALTAR_STEP1_H  = 4                   // 하단 계단 높이(y 0~4)
 export const ALTAR_STEP2_H  = 4                   // 상단 계단 높이(y 4~8) — 총 8 < 넥서스 38.2
 export const ALTAR_UNI_XW   = 208                 // unified 시 서쪽 끝(넥서스 214.6 살짝 서쪽 = 구조물 전체 받침)
-export const ALTAR_COLOR    = '#c2a062'           // 톤 노브(계단 어휘 공유 — 잉카 판 색)
+export const ALTAR_COLOR    = PAL_FLOOR        // (=#c2a062)           // 톤 노브(계단 어휘 공유 — 잉카 판 색)
 // ── ★㊹ 바닥 동심 기단(2026.07.21 현도 — 공간 완성도 갈래 ②: 넥서스 중심 낮은 원형 단으로 바닥에 결) ──
 //  드럼 바닥(반경 84)을 여러 겹 낮은 동심 원형 단으로 → 다섯 날이 '기단 위에 선' 인상. 잉카 기단 어법.
 //  두 스위치(현도 "둘 다 구현"): 중심 = 'drum'(204, 공간 정렬) / 'nexus'(214.6, 구조물 정렬).
@@ -2639,7 +2740,7 @@ export const TIER_PROFILE   = 'peak'              // 'peak'(중앙 높음) / 'ri
 export const TIER_N         = 7                   // 겹 수(노브 — 현도 "3개보다 많이", 촘촘히)
 export const TIER_RMAX      = 46                  // 최외곽 반경(노브 — 드럼 절반 ~46, 벽 84 안 넉넉)
 export const TIER_RISE      = 0.7                 // 단당 높이(노브 — peak: 안쪽부터 누적, 총 = N×RISE)
-export const TIER_COLOR     = '#c2a062'           // 톤 노브(잉카 판·제단 어휘 공유)
+export const TIER_COLOR     = PAL_FLOOR        // (=#c2a062)           // 톤 노브(잉카 판·제단 어휘 공유)
 
 // ── ★ 큰 홀 곡면 벽 — 기어형 피어(전략 4, 2026.07.21 결정 → 현도 "그나마 4번" → 07.22 "반지름으로 돌출 = 기어") ──
 //  드럼 측벽·뒷벽(창 ±43°·박스 문 회피)에 수직 슬래브가 벽을 '가로질러' 안팎으로 돌출:
@@ -2654,7 +2755,7 @@ export const PIER_DEPTH   = 9      // ★안쪽(홀 방향) 돌출 깊이 — �
 export const PIER_OUT     = 10     // ★바깥쪽(드럼 밖) 돌출 깊이 — 기어 톱니. 0이면 바깥 없음. ⚠크면 창 근처 리브에 닿을 수 있음
 export const PIER_Y0      = 0      // 밑동 = 지면(벽 기립선). 전고 톱니(대안: 판 레벨로 올림)
 export const PIER_TOP_OVER = 4     // 상단을 천장 위로 살짝 넘겨 내부 무틈(우뚝 솟는 기둥 아님 = 지붕 높이 톱니). 조감 P2
-export const PIER_COLOR   = '#a98f5e'  // 톤 — 제단·소구 셸과 동일 계열(한 어휘, P2 재판정)
+export const PIER_COLOR   = PAL_RECESS  // (=#a98f5e)  // 톤 — 제단·소구 셸과 동일 계열(한 어휘, P2 재판정)
 //  ★★★92-b 피어 밑동 계단(2026.07.31 현도) — "피어 아랫부분을 좀 깎아서 계단을 만들자.
 //   단수는 적게, 단이 두껍고 큼직하게." ⚠**부재를 더하는 게 아니라 피어를 깎는다** — 부피가 줄어든다.
 //   왜: 피어 밑면 266 중 하판 기둥이 받는 것이 71뿐이라 73%가 허공에서 툭 끊겨 있었다.
@@ -2742,7 +2843,7 @@ export const INTAKE_SETBACK = 3.2       // 켜당 후퇴(위로 좁아짐 — �
 export const INTAKE_WALL_T  = 3.4       // 켜 벽 두께(굵게 = ㉯ 준수, 얇은 살 금지)
 export const INTAKE_FUNNEL_DROP = 34    // 깔때기 홀 낙하 깊이(나팔 입 y = 천장−이만큼. 잉카 정상 77 위 여유)
 export const INTAKE_FUNNEL_RB   = 24    // 나팔 입(아래) 반경 — 크게 벌어짐
-export const INTAKE_COLOR   = '#a98f5e' // 톤(기어·제단 동계)
+export const INTAKE_COLOR   = PAL_RECESS // (=#a98f5e) // 톤(기어·제단 동계)
 export const INTAKE_GLOW    = '#ffe9b8' // 임시 발광면(캡 밑 — P2 진짜 빛으로 승격)
 
 // ── 슬릿형 노브('slit'|'slits'|'arc'|'ring') ──
@@ -3015,7 +3116,7 @@ export const INCA_GAP     = 5      // ★팁 ↔ 리브 면 간극("대략 5" �
 export const INCA_TIP_T   = 0.15   // 팁 최소 두께 — 0이면 퇴화 폴리곤. 밑곡선은 두께 프로파일로 구성돼
                                    //  전 구간 (디딤 − 밑곡선) ≥ 이 값이 수학적으로 보장된다(빌더 주석)
 export const INCA_EMBED   = 0.6    // 날 뿌리(서면)가 넥서스 발자국 안으로 파고드는 깊이(이음 슬리버 방지)
-export const INCA_COLOR   = '#b89a6a'                            // 톤 노브(기본 = 드럼 석재)
+export const INCA_COLOR   = PAL_WALL                            // 톤 노브(기본 = 드럼 석재)
 // ── 길 ──
 // ★플랫폼 위치 노브(㊲) — f = 홀 안 위치(0=홀 진입 120 · 1=리브 밑동 288). 안전범위·경사표는 구 주석(로그) 참조.
 export const PLAT_F = 0.4                           // ★위치 노브 — 0.4 → x187.2

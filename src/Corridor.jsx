@@ -32,6 +32,7 @@ import {
   INTAKE_FUNNEL_DROP, INTAKE_FUNNEL_RB, INTAKE_COLOR, INTAKE_GLOW,
   GAT_SEAT, GAT_CX, GAT_CROWN_R, GAT_CONE_H, GAT_CROWN_H, GAT_SLIT, GAT_FACETS, GAT_POSTS, GAT_POST_R, GAT_LID_T,
   PLAT_DROP, DESC_X0, DESC_X1,
+  PAL_WALL, PAL_FLOOR, PAL_TREAD, PAL_RECESS,   // ★172 팔레트 정본
 } from './constants'
 import { buildHallStairs, hallDoors, friezeWinBarZ, incaStairSpec, incaBladesSpec, intakeSpec, INTAKE_IS_SLIT, gatSeal, descentSpec, woldaeSpec, drumPierAzimuths, descentPortSpec, portPrismTris, outwardTris, buildIncaPanel, mastSpec, buildMast, buildNexusPier, buildNexusHaunch, buildWestButtress} from './corridorStairsGeometry'
 import { pierBodyTris } from './drumCupGeometry'   // ★92-b 피어 몸(계단 밑동 포함) — 정본 하나
@@ -72,7 +73,7 @@ export function NeckSkirt() {
   if (!BOX_SKIRT_ON) return null
   return (
     <mesh name="목 스커트" geometry={geo}>
-      <meshStandardMaterial color="#b89a6a" roughness={0.92} side={THREE.DoubleSide} />
+      <meshStandardMaterial color={PAL_WALL} roughness={0.92} side={THREE.DoubleSide} />
     </mesh>
   )
 }
@@ -86,7 +87,7 @@ export function Bridge() {
   return (
     <mesh name="박스 바닥판(Bridge)" position={[(BOX_X0 + xEnd) / 2, COR_Y0, 0]} userData={{ walkable: true }}>
       <boxGeometry args={[xEnd - BOX_X0, COR_THICK, COR_FLOOR_HW * 2]} />
-      <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.DoubleSide} />
+      <meshStandardMaterial color={PAL_FLOOR} roughness={0.9} side={THREE.DoubleSide} />
     </mesh>
   )
 }
@@ -106,7 +107,7 @@ export function DescentStairs() {
       {steps.map((st, i) => (
         <mesh key={i} position={[st.x, st.yTop - COR_THICK / 2, 0]} userData={{ walkable: true }}>
           <boxGeometry args={[st.w + 0.06, COR_THICK, COR_FLOOR_HW * 2]} />
-          <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.DoubleSide} />
+          <meshStandardMaterial color={PAL_FLOOR} roughness={0.9} side={THREE.DoubleSide} />
         </mesh>
       ))}
     </group>
@@ -129,7 +130,7 @@ export function AscentStairs() {
       {steps.map((st, i) => (
         <mesh key={i} position={[st.x, st.yTop - COR_THICK / 2, 0]} userData={{ walkable: true }}>
           <boxGeometry args={[st.w + 0.06, COR_THICK, BOX_HW * 2 - 0.2]}  />
-          <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.DoubleSide} />
+          <meshStandardMaterial color={PAL_FLOOR} roughness={0.9} side={THREE.DoubleSide} />
         </mesh>
       ))}
     </group>
@@ -169,7 +170,7 @@ export function AscentTunnel() {
   }, [])
   return (
     <mesh geometry={geo}>
-      <meshStandardMaterial color="#b89a6a" roughness={0.92} side={THREE.DoubleSide} />
+      <meshStandardMaterial color={PAL_WALL} roughness={0.92} side={THREE.DoubleSide} />
     </mesh>
   )
 }
@@ -206,13 +207,13 @@ export function OrbRoom() {
   return (
     <group>
       <mesh geometry={shellGeo}>
-        <meshStandardMaterial color="#cdb074" roughness={0.85} side={THREE.DoubleSide} />
+        <meshStandardMaterial color={PAL_TREAD} roughness={0.85} side={THREE.DoubleSide} />
       </mesh>
       <mesh geometry={ringGeo}>
-        <meshStandardMaterial color="#a98f5e" roughness={0.7} side={THREE.DoubleSide} />
+        <meshStandardMaterial color={PAL_RECESS} roughness={0.7} side={THREE.DoubleSide} />
       </mesh>
       <mesh geometry={floorGeo} userData={{ walkable: true }}>
-        <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.DoubleSide} />
+        <meshStandardMaterial color={PAL_FLOOR} roughness={0.9} side={THREE.DoubleSide} />
       </mesh>
     </group>
   )
@@ -259,13 +260,13 @@ export function DescentPath() {
   return (
     <group>
       <mesh geometry={girderGeo}>
-        <meshStandardMaterial color="#b89a6a" roughness={0.92} side={THREE.DoubleSide} />
+        <meshStandardMaterial color={PAL_WALL} roughness={0.92} side={THREE.DoubleSide} />
       </mesh>
       {d.plates.filter(p => !p.onWoldae).map((p, i) => (
         <mesh key={i} position={[p.x, p.yTop - COR_RISE / 2, p.z]} rotation-y={p.rotY}
           userData={{ walkable: true }}>
           <boxGeometry args={[d.ds * 1.3, COR_RISE, DESC_HW * 2]} />
-          <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.DoubleSide} />
+          <meshStandardMaterial color={PAL_FLOOR} roughness={0.9} side={THREE.DoubleSide} />
         </mesh>
       ))}
     </group>
@@ -406,14 +407,14 @@ export function CorridorStairs() {
             <mesh key={i} position={[p.x, p.yTop - COR_RISE / 2, p.z]} rotation-y={p.rotY}
               userData={{ walkable: true }}>
               <boxGeometry args={[STAIR_TD, COR_RISE, STAIR_W]} />
-              <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.DoubleSide} />
+              <meshStandardMaterial color={PAL_FLOOR} roughness={0.9} side={THREE.DoubleSide} />
             </mesh>
           ))}
           {st.landings.map((ld, i) => (
             <mesh key={'ld' + i} position={[ld.x, ld.yTop - COR_RISE / 2, ld.z]} rotation-y={ld.rotY}
               userData={{ walkable: true }}>
               <boxGeometry args={[2.4, COR_RISE, STAIR_W + 0.8]} />
-              <meshStandardMaterial color="#cdb074" roughness={0.85} side={THREE.DoubleSide} />
+              <meshStandardMaterial color={PAL_TREAD} roughness={0.85} side={THREE.DoubleSide} />
             </mesh>
           ))}
         </group>
@@ -533,7 +534,7 @@ export function TempleBeam() {
   if (!geo) return null
   return (
     <mesh geometry={geo} userData={{ walkable: true }}>
-      <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.DoubleSide} />
+      <meshStandardMaterial color={PAL_WALL} roughness={0.9} side={THREE.DoubleSide} />
     </mesh>
   )
 }
@@ -773,10 +774,10 @@ export function IncaStair() {
         <meshStandardMaterial color={INCA_COLOR} roughness={0.92} side={THREE.DoubleSide} />
       </mesh>
       <mesh geometry={panelGeo} userData={{ walkable: true }}>
-        <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.DoubleSide} />
+        <meshStandardMaterial color={PAL_FLOOR} roughness={0.9} side={THREE.DoubleSide} />
       </mesh>
       <mesh geometry={nexusGeo} userData={{ walkable: true }}>
-        <meshStandardMaterial color="#cdb074" roughness={0.85} side={THREE.DoubleSide} />
+        <meshStandardMaterial color={PAL_TREAD} roughness={0.85} side={THREE.DoubleSide} />
       </mesh>
       {bladeGeos.map((g, i) => (
         <mesh key={'bl' + i} geometry={g} userData={{ walkable: true }}>
@@ -1021,7 +1022,7 @@ export function LightIntake() {
 }
 
 export function Corridor() {
-  const wallMat = '#b89a6a'
+  const wallMat = PAL_WALL
 
   // 거대 원기둥 벽: 바닥(돔 표면/0)→빗면 천장. +x에 ★창 ±43°(㊳ 복원), −x(θ=π)에 박스 연결부 문(트임).
   const wallGeo = useMemo(() => {
@@ -1299,11 +1300,11 @@ export function Corridor() {
         <DescentStairs />
         <mesh position={[PLAT_X, PLAT_Y, 0]} userData={{ walkable: true }}>
           <cylinderGeometry args={[PLAT_R, PLAT_R, COR_THICK, 48]} />
-          <meshStandardMaterial color="#cdb074" roughness={0.85} side={THREE.DoubleSide} />
+          <meshStandardMaterial color={PAL_TREAD} roughness={0.85} side={THREE.DoubleSide} />
         </mesh>
         <mesh position={[PLAT_X, (PLAT_Y - COR_THICK / 2) / 2, 0]}>
           <cylinderGeometry args={[PILLAR_R, PILLAR_R, PLAT_Y - COR_THICK / 2, 24]} />
-          <meshStandardMaterial color="#a98f5e" roughness={0.95} side={THREE.DoubleSide} />
+          <meshStandardMaterial color={PAL_RECESS} roughness={0.95} side={THREE.DoubleSide} />
         </mesh>
         <CorridorStairs />
       </>)}

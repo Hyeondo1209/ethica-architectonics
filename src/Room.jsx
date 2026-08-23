@@ -24,6 +24,11 @@ import {
   EAVE_ON,
   WBASE_ON,
   ROOM_SHELL_SOLID,
+  ROOM_PAL_LIT, ROOM_PAL_DIM, RM_SHAFT_COL, RM_SHAFT_OP,          // ★172 조명·팔레트 정본
+  RM_LGT_CORE_COL, RM_LGT_CORE_I, RM_LGT_SPOT_COL, RM_LGT_DAIS_COL, RM_LGT_DAIS_I,
+  RM_LGT_WELL_COL, RM_LGT_WELL_I, RM_AXSP_MASS_COL, RM_AXSP_SLAB_COL, RM_AXSP_SUP_COL,
+  RM_AXSP_VAULT_COL, RM_PLATE_COL, RM_SPIRE_COL, RM_DAIS_DARK_COL, RM_MARK_COL,
+  PAL_FLOOR, PAL_WALL,
 } from './constants'
 import { pitSpec, slotSpec, buildPitWalls, buildPitRim, buildPitFloor, buildHoledSlab,
   buildNiches, buildNicheStairs, buildPitSlot, buildSlotStairs, buildPitEaves } from './defPitGeometry'   // ★101 각뿔대 · ★102 감실(순수 기하 — 사본 금지)
@@ -220,7 +225,7 @@ export function DefAxiomRoom({ stairKind }) {
   // three 내장 ShaderMaterial — 의존성 추가 없음. 원기둥 옆면 uv.y: 1=위, 0=아래. ⚠ 세기 노브 = uOpacity(0.30).
   const shaftMat = useMemo(() => new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
-    uniforms: { uColor: { value: new THREE.Color('#ffdf9e') }, uOpacity: { value: 0.30 } },
+    uniforms: { uColor: { value: new THREE.Color(RM_SHAFT_COL) }, uOpacity: { value: RM_SHAFT_OP } },
     vertexShader: `
       varying vec3 vN; varying vec3 vV; varying float vY;
       void main() {
@@ -284,13 +289,7 @@ export function DefAxiomRoom({ stairKind }) {
   //  ★★★113 팔레트 — v2.2 암실은 알베도 눈속임이었다(현도 2026.08.05). ROOM_DIM=false면 방이
   //   **건물 나머지와 같은 석재**가 된다. 밝은 값은 전부 Corridor.jsx(드럼)에서 **역할별로 인용**했다 —
   //   새 색을 만들지 않았다: 벽 #b89a6a · 걷는 면 #c2a062 · 디딤 #cdb074 · 움푹한 면 #a98f5e.
-  const P = ROOM_DIM
-    ? { shell: '#221b10', floor: '#241d12', pitWall: '#2b2216', pitRim: '#2b2216', pitFloor: '#332918',
-        nicheWall: '#3a2f1c', nicheFloor: '#3f331e', nicheStep: '#463823',
-        slotWall: '#3a2f1c', slotFloor: '#463823', slotStep: '#4d3e27' }
-    : { shell: '#b89a6a', floor: '#c2a062', pitWall: '#b89a6a', pitRim: '#c2a062', pitFloor: '#c2a062',
-        nicheWall: '#a98f5e', nicheFloor: '#c2a062', nicheStep: '#cdb074',
-        slotWall: '#a98f5e', slotFloor: '#c2a062', slotStep: '#cdb074' }
+  const P = ROOM_DIM ? ROOM_PAL_DIM : ROOM_PAL_LIT   // ★172 정본화 — 값 동일(constants ⑷)
   //  fog 제외도 암실 패키지의 일부였다("밀폐 공간에 크림색 대기 미적용 — 먼 벽 뿌염 방지").
   //  눈속임을 걷으면 방도 건물과 같은 대기를 쓴다. ⚠분리하고 싶으면 이 한 줄만 false로 고정하면 된다.
   const RFOG = !ROOM_DIM
@@ -391,12 +390,12 @@ export function DefAxiomRoom({ stairKind }) {
         </>)}
       </>)}
       {/* 내부 채움광 — v2 감광(1.05→0.55): 판테온 무브의 상대 어둑함. 중앙에서 퍼지므로 선돌의 '중심을 보는 앞면'을 비추는 방향 */}
-      <pointLight position={[0, ROOM_FLOOR_Y + ROOM_HEIGHT * 0.45, 0]} intensity={0.12} distance={ROOM_R * 4} decay={1.4} color="#ffe2b0" />   {/* v2.2: 거의 소등 — 어둠은 여기서 나온다 */}
+      <pointLight position={[0, ROOM_FLOOR_Y + ROOM_HEIGHT * 0.45, 0]} intensity={RM_LGT_CORE_I} distance={ROOM_R * 4} decay={1.4} color={RM_LGT_CORE_COL} />   {/* v2.2: 거의 소등 — 어둠은 여기서 나온다 */}
       {/* 판테온 스포트 — 빛우물 위에서 원점으로 수직 낙하. three의 spotLight.target 기본값이 월드 원점(씬 밖 Object3D=항등행렬)이라 타깃 배선 불필요 */}
       <spotLight position={[0, ROOM_CYL_TOP - 6, 0]} angle={Math.atan(POOL_R / (ROOM_CYL_TOP - 6)) * 1.2}
-        penumbra={0.85} intensity={SPOT_I} distance={170} decay={1.1} color="#ffe8bd" />   {/* v2.1: 웅덩이 가장자리 녹임 */}
+        penumbra={0.85} intensity={SPOT_I} distance={170} decay={1.1} color={RM_LGT_SPOT_COL} />   {/* v2.1: 웅덩이 가장자리 녹임 */}
       {/* 웅덩이 반사광 — 낮은 포인트: 선돌 앞면(r26) 가독용. 벽(r91)에 닿기 전 감쇠 */}
-      <pointLight position={[0, ROOM_FLOOR_Y + DAIS_H + 2.5, 0]} intensity={1.4} distance={42} decay={1.7} color="#ffdf9e" />
+      <pointLight position={[0, ROOM_FLOOR_Y + DAIS_H + 2.5, 0]} intensity={RM_LGT_DAIS_I} distance={42} decay={1.7} color={RM_LGT_DAIS_COL} />
       {/* 빛 샤프트 2절 — 출처 = 원뿔대 '꼭대기 구멍'(y=CYL_TOP, r=WELL_RT). 상절: 우물 안 낙하 · 하절: 디스크 구멍→웅덩이.
           두 절의 이음(디스크 높이)에서 하절 상단이 다시 밝아지는 건 의도 — 아래에서 보면 '구멍에서 빛이 나온다'로 읽힘 */}
       {/*  ★★★113 소등(현도 2026.08.05) — 이 둘은 빛이 아니라 **빛처럼 보이는 물체**다(가짜 볼륨).
@@ -413,39 +412,39 @@ export function DefAxiomRoom({ stairKind }) {
           ⚠매스는 윗면이 램프다 — 경사 7.74°가 평면 나선에 잠겨 있어 계단이 성립하지 않는다(constants 주석). */}
       {SPIRAL_BODY === 'mass' ? (<>
         <mesh geometry={spiralMassGeo} userData={{ walkable: true }}>      {/* 몸통 — 윗면이 밟는 면 */}
-          <meshStandardMaterial color="#d6ab68" roughness={0.82} />
+          <meshStandardMaterial color={RM_AXSP_MASS_COL} roughness={0.82} />
         </mesh>
         {(SPIRAL_SUP === 'both' || SPIRAL_SUP === 'slab') && (
           <mesh geometry={spiralColGeo} userData={{ walkable: false }}>   {/* ② 판 기둥 — 하부 37% */}
-            <meshStandardMaterial color="#b8905a" roughness={0.9} />
+            <meshStandardMaterial color={RM_AXSP_SLAB_COL} roughness={0.9} />
           </mesh>
         )}
         {(SPIRAL_SUP === 'both' || SPIRAL_SUP === 'wall') && (
           <mesh geometry={spiralBeamGeo} userData={{ walkable: false }}>  {/* ① 벽 보 — 상부 63% */}
-            <meshStandardMaterial color="#c09a63" roughness={0.88} />
+            <meshStandardMaterial color={RM_AXSP_SUP_COL} roughness={0.88} />
           </mesh>
         )}
         {/* ★115 뿌리 십자 마구리(2026.08.05) — 위·좌·우 세 팔. 아래 팔(헌치)은 보가 그대로 갖고 있다.
             보와 같은 석재·같은 색. 상호 관입이라 불리언 없음(㊷ 날 뿌리·★92 극점 전례). */}
         {(SPIRAL_SUP === 'both' || SPIRAL_SUP === 'wall') && rootCrossGeo && (
           <mesh geometry={rootCrossGeo} userData={{ walkable: false }}>
-            <meshStandardMaterial color="#c09a63" roughness={0.88} />
+            <meshStandardMaterial color={RM_AXSP_SUP_COL} roughness={0.88} />
           </mesh>
         )}
         {axVaultGeo && (
           <mesh geometry={axVaultGeo} userData={{ walkable: false }}>    {/* ★111 공리 볼트(문) 7기 */}
-            <meshStandardMaterial color="#cfa261" roughness={0.86} />
+            <meshStandardMaterial color={RM_AXSP_VAULT_COL} roughness={0.86} />
           </mesh>
         )}
       </>) : (<>
         {/* 구세계 낱장 — T키로 8각형(각짐) ↔ 원형(매끈) 비교. 둘 다 같은 파라미터. */}
         <instancedMesh ref={treadRef} args={[undefined, undefined, INST_COUNT]} visible={stairKind === 'octagon'} userData={{ walkable: stairKind === 'octagon' }}>
           <boxGeometry args={[ROOM_STAIR_WIDTH, ROOM_STAIR_SLAB, ROOM_STAIR_TREAD]} />
-          <meshStandardMaterial color="#d6ab68" roughness={0.8} />
+          <meshStandardMaterial color={RM_PLATE_COL} roughness={0.8} />
         </instancedMesh>
         <instancedMesh ref={helixRef} args={[undefined, undefined, helixInsts.length]} visible={stairKind === 'circle'} userData={{ walkable: stairKind === 'circle' }}>
           <boxGeometry args={[ROOM_STAIR_WIDTH, ROOM_STAIR_SLAB, ROOM_STAIR_TREAD]} />
-          <meshStandardMaterial color="#d6ab68" roughness={0.8} />
+          <meshStandardMaterial color={RM_PLATE_COL} roughness={0.8} />
         </instancedMesh>
       </>)}
       {/* 주어진 것들 — 성역 기단·각인 + 정의 옥타곤 + 공리 스테이션(나선 왼쪽 동행). 형태 = 선돌(잠정) */}
@@ -457,24 +456,24 @@ export function DefAxiomRoom({ stairKind }) {
           구판의 "디스크가 림 위 1.827 허공에 뜬" 단차가 소멸한다. 윗면 101.320은 불변(걷는 면·문지방 물림).
           ⚠이제 닫힌 솔리드라 `side`는 FrontSide다(구판 DoubleSide는 종잇장이라 필요했던 것). */}
       <mesh geometry={discGeo} userData={{ walkable: true }}>
-        <meshStandardMaterial color="#c2a062" roughness={0.9} />
+        <meshStandardMaterial color={PAL_FLOOR} roughness={0.9} />
       </mesh>
       {/* 솟은 원뿔대(빛 우물) — 위는 막혀 리브 가림(스포), +x(통로)쪽 아래는 출입문으로 트여 통로로 나감.
           올려다보면 좁은 꼭대기로 빛만 보이고, 정면(통로쪽)으론 걸어 나갈 문이 있음. */}
       {/* ★127: 첨탑 = 닫힌 솔리드 → FrontSide(★118 디스크와 같은 근거 — 구 DoubleSide는 종잇장 관이라 필요했던 것) */}
       <mesh geometry={wellCut}>
-        <meshStandardMaterial color="#97784e" roughness={0.92} side={SPIRE_ON ? THREE.FrontSide : THREE.DoubleSide} />
+        <meshStandardMaterial color={RM_SPIRE_COL} roughness={0.92} side={SPIRE_ON ? THREE.FrontSide : THREE.DoubleSide} />
       </mesh>
       {/* ★128 첨탑 테라스 — 원기둥 안에 걸리는 고리 판(바깥 끝은 내벽 속에 묻힘 = 틈 없음).
           가운데 구멍은 세 체제(SPT_HOLE: 'circle'/'pit'/'tunnel') — 한 줄 교체로 로컬 비교. */}
       {terrGeo && (
         <mesh geometry={terrGeo} userData={{ walkable: true }}>
-          <meshStandardMaterial color="#97784e" roughness={0.92} side={THREE.FrontSide} />
+          <meshStandardMaterial color={RM_SPIRE_COL} roughness={0.92} side={THREE.FrontSide} />
         </mesh>
       )}
       {upperParts.map(({ id, geo }) => (
         <mesh key={id} geometry={geo} userData={{ walkable: true }}>
-          <meshStandardMaterial color="#97784e" roughness={0.92} side={THREE.FrontSide} />
+          <meshStandardMaterial color={RM_SPIRE_COL} roughness={0.92} side={THREE.FrontSide} />
         </mesh>
       ))}
       {/* ★★★★144-b 내벽 나선 계단 — 본체는 밟는 면, 난간(턱)은 아니다.
@@ -482,22 +481,22 @@ export function DefAxiomRoom({ stairKind }) {
       {stairParts.map(({ id, geo, walk }) => (
         walk
           ? <mesh key={'sps-' + id} name={'첨탑나선/' + id} geometry={geo} userData={{ walkable: true }}>
-              <meshStandardMaterial color="#97784e" roughness={0.92} side={THREE.FrontSide} />
+              <meshStandardMaterial color={RM_SPIRE_COL} roughness={0.92} side={THREE.FrontSide} />
             </mesh>
           : <mesh key={'sps-' + id} name={'첨탑나선/' + id} geometry={geo} userData={{ walkable: false }}>
-              <meshStandardMaterial color="#97784e" roughness={0.92} side={THREE.FrontSide} />
+              <meshStandardMaterial color={RM_SPIRE_COL} roughness={0.92} side={THREE.FrontSide} />
             </mesh>
       ))}
       {/* ★★★133 1p4 방위 0° 복합체(2026.08.15) — 2층 계단 관(참→테라스 · 참 위→새 층) + 참 + 기둥 + 아치.
           별개 메시(보존계 독립 · CSG 대상 아님 — 밀봉: 문 컷 = 다음 조각). 재질 = ★130 통로 가족(길 연속). */}
       {bridgeParts && bridgeParts.walk.map(({ id, geo }) => (
         <mesh key={'brg-' + id} name={'1p4복합체/' + id} geometry={geo} userData={{ walkable: true }}>
-          <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.FrontSide} />
+          <meshStandardMaterial color={PAL_FLOOR} roughness={0.9} side={THREE.FrontSide} />
         </mesh>
       ))}
       {bridgeParts && bridgeParts.solid.map(({ id, geo }) => (
         <mesh key={'brg-' + id} name={'1p4복합체/' + id} geometry={geo} userData={{ walkable: false }}>
-          <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
+          <meshStandardMaterial color={PAL_WALL} roughness={0.9} side={THREE.FrontSide} />
         </mesh>
       ))}
       {/* ★★★147 접속 통로(2026.08.19 현도 스케치 — 블록아웃 -a): 테라스 y127에서 수평 밀폐관으로 나가
@@ -506,37 +505,37 @@ export function DefAxiomRoom({ stairKind }) {
           재질 = ★130 통로 가족(길 연속 — walk/solid 두 톤). */}
       {bridgeDeckParts && bridgeDeckParts.walk.map(({ id, geo }) => (
         <mesh key={'brd-' + id} name={'1p12접속통로/' + id} geometry={geo} userData={{ walkable: true }}>
-          <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.FrontSide} />
+          <meshStandardMaterial color={PAL_FLOOR} roughness={0.9} side={THREE.FrontSide} />
         </mesh>
       ))}
       {bridgeDeckParts && bridgeDeckParts.solid.map(({ id, geo }) => (
         <mesh key={'brds-' + id} name={'1p12접속통로/' + id} geometry={geo} userData={{ walkable: false }}>
-          <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
+          <meshStandardMaterial color={PAL_WALL} roughness={0.9} side={THREE.FrontSide} />
         </mesh>
       ))}
       {/* ★★★148 관 사변형 리브 볼트 + 벽앞 기둥 + 첨탑 대역 ⓚ′ — 재질 = ★130 통로 가족 solid 톤 */}
       {bridgeVaultParts && bridgeVaultParts.solid.map(({ id, geo }) => (
         <mesh key={'brdv-' + id} name={'1p12접속통로/' + id} geometry={geo} userData={{ walkable: false }}>
-          <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
+          <meshStandardMaterial color={PAL_WALL} roughness={0.9} side={THREE.FrontSide} />
         </mesh>
       ))}
       {/* ★★★154 첨탑 az0° 문틀 — 첨탑 살 가족(우물 톤) */}
       {spireDoorGeo && (
         <mesh name="첨탑/az0문틀" geometry={spireDoorGeo} userData={{ walkable: false }}>
-          <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
+          <meshStandardMaterial color={PAL_WALL} roughness={0.9} side={THREE.FrontSide} />
         </mesh>
       )}
       {/* ★★★150 사다리꼴 관 — 같은 재질 가족 */}
       {bridgeTrapParts && bridgeTrapParts.solid.map(({ id, geo }) => (
         <mesh key={'brdt-' + id} name={'1p12접속통로/' + id} geometry={geo} userData={{ walkable: false }}>
-          <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
+          <meshStandardMaterial color={PAL_WALL} roughness={0.9} side={THREE.FrontSide} />
         </mesh>
       ))}
       {/* ★★★136 1p4 셸 나선 참 → ★133 참 수평 접속 관(2026.08.15) — LNK 가족 최초의 rise 0 관.
           두 안 병존: LK4_MODE 'zigzag'(세 마디·마이터 꺾임) / 'smooth'(3차 베지어). 재질 = ★130 통로 가족. */}
       {link4Parts && link4Parts.walk.map(({ id, geo }) => (
         <mesh key={'lk4-' + id} name={'1p4접속관/' + id} geometry={geo} userData={{ walkable: true }}>
-          <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.FrontSide} />
+          <meshStandardMaterial color={PAL_FLOOR} roughness={0.9} side={THREE.FrontSide} />
         </mesh>
       ))}
       {/* ★136-c 접합부 아치 — 관 곡선을 따라 휘는 스윕(걷는 면 아님). 재질 = ★133 solid 가족 */}
@@ -547,12 +546,12 @@ export function DefAxiomRoom({ stairKind }) {
         <group key={'lk3g-' + k} rotation-y={rotY}>
           {link3Parts.walk.map(({ id, geo }) => (
             <mesh key={'lk3-' + k + '-' + id} name={'1p' + LK3_PROP[k] + '통로/' + id} geometry={geo} userData={{ walkable: true }}>
-              <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.FrontSide} />
+              <meshStandardMaterial color={PAL_FLOOR} roughness={0.9} side={THREE.FrontSide} />
             </mesh>
           ))}
           {link3Parts.solid.map(({ id, geo }) => (
             <mesh key={'lk3s-' + k + '-' + id} name={'1p' + LK3_PROP[k] + '통로/' + id} geometry={geo} userData={{ walkable: false }}>
-              <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
+              <meshStandardMaterial color={PAL_WALL} roughness={0.9} side={THREE.FrontSide} />
             </mesh>
           ))}
         </group>
@@ -564,14 +563,14 @@ export function DefAxiomRoom({ stairKind }) {
         <group key={'lk2g-' + k} rotation-y={rotY}>
           {link2Parts.solid.map(({ id, geo }) => (
             <mesh key={'lk2s-' + k + '-' + id} name={'1p2통로/' + id} geometry={geo} userData={{ walkable: false }}>
-              <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
+              <meshStandardMaterial color={PAL_WALL} roughness={0.9} side={THREE.FrontSide} />
             </mesh>
           ))}
         </group>
       ))}
       {link4Parts && link4Parts.solid.map(({ id, geo }) => (
         <mesh key={'lk4-' + id} name={'1p4접속관/' + id} geometry={geo} userData={{ walkable: false }}>
-          <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
+          <meshStandardMaterial color={PAL_WALL} roughness={0.9} side={THREE.FrontSide} />
         </mesh>
       ))}
       {/* ★★★145 돔 리브 · 띠 · 기둥 · 고리 통로(2026.08.18 현도 스케치 — 블록아웃).
@@ -611,15 +610,15 @@ export function DefAxiomRoom({ stairKind }) {
           'block' 체제(보존계)면 walk에 민짜 블록 하나만 온다 — 마운트 코드는 그대로다. */}
       {ringParts && ringParts.corrParts.walk.map(({ id, geo }) => (
         <mesh key={'drgc-' + id} name={'고리회랑/' + id} geometry={geo} userData={{ walkable: true }}>
-          <meshStandardMaterial color="#c2a062" roughness={0.9} side={THREE.FrontSide} />
+          <meshStandardMaterial color={PAL_FLOOR} roughness={0.9} side={THREE.FrontSide} />
         </mesh>
       ))}
       {ringParts && ringParts.corrParts.solid.map(({ id, geo }) => (
         <mesh key={'drgs-' + id} name={'고리회랑/' + id} geometry={geo} userData={{ walkable: false }}>
-          <meshStandardMaterial color="#b89a6a" roughness={0.9} side={THREE.FrontSide} />
+          <meshStandardMaterial color={PAL_WALL} roughness={0.9} side={THREE.FrontSide} />
         </mesh>
       ))}
-      <pointLight position={[0, ROOM_CYL_TOP - 8, 0]} intensity={2.4} distance={ROOM_CYL_TOP * 1.6} decay={1.1} color="#fff1d2" />
+      <pointLight position={[0, ROOM_CYL_TOP - 8, 0]} intensity={RM_LGT_WELL_I} distance={ROOM_CYL_TOP * 1.6} decay={1.1} color={RM_LGT_WELL_COL} />
     </group>
   )
 }
@@ -653,26 +652,26 @@ function DefPrecinct() {
     <group>
       {!DAIS_ON ? null : Array.from({ length: DAIS_STEPS }, (_, k) => (PIT_ON ? (tierGeos[k] === null ? null : (
         <mesh key={k} geometry={tierGeos[k]} position={[0, ROOM_FLOOR_Y + DAIS_STEP_H * (k + 1), 0]} userData={{ walkable: true }}>
-          <meshStandardMaterial color="#322817" roughness={0.95} side={THREE.DoubleSide} fog={false} />
+          <meshStandardMaterial color={RM_DAIS_DARK_COL} roughness={0.95} side={THREE.DoubleSide} fog={false} />
         </mesh>
       )) : (
         <mesh key={k} position={[0, ROOM_FLOOR_Y + DAIS_STEP_H * (k + 0.5), 0]} userData={{ walkable: true }}>
           <cylinderGeometry args={[DAIS_R - DAIS_STEP_IN * k, DAIS_R - DAIS_STEP_IN * k, DAIS_STEP_H, 96]} />
-          <meshStandardMaterial color="#322817" roughness={0.95} fog={false} />   {/* v2.2 암실화 — 여전히 바닥보다 한 단 위(성역) */}
+          <meshStandardMaterial color={RM_DAIS_DARK_COL} roughness={0.95} fog={false} />   {/* v2.2 암실화 — 여전히 바닥보다 한 단 위(성역) */}
         </mesh>
       )))}
       {/* 팔각 각인선 — ringGeometry의 thetaSegments=8이면 8각 고리. 꼭짓점 각 집합이 좌우대칭이라 rotation-x 뒤집힘과 무관하게 선돌 각과 일치 */}
       {markOn && (
       <mesh position={[0, ROOM_FLOOR_Y + DAIS_H + 0.03, 0]} rotation-x={-Math.PI / 2}>
         <ringGeometry args={[markR - 0.28, markR + 0.28, 8, 1, markPhase]} />
-        <meshStandardMaterial color="#6b5942" roughness={1} side={THREE.DoubleSide} fog={false} />   {/* v2.2 반전: 암실에선 각인이 밝은 쪽 */}
+        <meshStandardMaterial color={RM_MARK_COL} roughness={1} side={THREE.DoubleSide} fog={false} />   {/* v2.2 반전: 암실에선 각인이 밝은 쪽 */}
       </mesh>
       )}
       {/* 상단 가장자리 링 — ★106: 기단이 폐기되면 함께 사라진다(구세계 각인 어휘) */}
       {DAIS_ON && (
       <mesh position={[0, ROOM_FLOOR_Y + DAIS_H + 0.03, 0]} rotation-x={-Math.PI / 2}>
         <ringGeometry args={[DAIS_TOP_R - 1.6, DAIS_TOP_R - 1.0, 96]} />
-        <meshStandardMaterial color="#6b5942" roughness={1} side={THREE.DoubleSide} fog={false} />   {/* v2.2 반전: 암실에선 각인이 밝은 쪽 */}
+        <meshStandardMaterial color={RM_MARK_COL} roughness={1} side={THREE.DoubleSide} fog={false} />   {/* v2.2 반전: 암실에선 각인이 밝은 쪽 */}
       </mesh>
       )}
     </group>
@@ -712,7 +711,7 @@ function AxiomStations() {
           <group key={id}>
             <mesh position={[x, platTop - ROOM_STAIR_SLAB / 2, z]}>
               <cylinderGeometry args={[AX_PLAT_R, AX_PLAT_R, ROOM_STAIR_SLAB, 24]} />
-              <meshStandardMaterial color="#d6ab68" roughness={0.8} />
+              <meshStandardMaterial color={RM_PLATE_COL} roughness={0.8} />
             </mesh>
             <GivenMonolith id={id} x={x} z={z} baseY={platTop} yRot={-ang}
               s={AX_MONO_SCALE} near={4} far={13} />
