@@ -433,6 +433,83 @@ console.log('\n— G. 래스터라이저 깊이 보간 (★도구 빚 ⑥ 수리
     `P7 렌더러 노브 도메인 (톤맵 '${K94g.RND_TONEMAP}' · 노출 ${K94g.RND_EXPOSURE})`)
 }
 
+//  ═══ Q절: ★173 무채 재편 가드 (2026.08.23 조명 2단계) ═══
+//  ⛔왜 검사하는가 — 석재 20노브가 파생식(base+폭)으로 넘어갔다. 파생식이 조용히 어긋나면
+//   (앵커 착오·범위 이탈·색상 누출) 로컬 화면으로는 원인 규명이 안 된다. 값은 자유(현도 튜닝),
+//   **관계**를 잠근다: 붕괴·간격 항등·앵커 정의·색상 통일·범위 센서스·제외역 보존·App 배선.
+{
+  //  범위 20명단 = 검사 자체가 독립으로 못 박는다(constants의 목록을 되읽으면 축소가 침묵한다 — 공허 방지)
+  const SCOPE = [
+    ['PAL_WALL', 'PAL_WALL'], ['PAL_FLOOR', 'PAL_FLOOR'], ['PAL_TREAD', 'PAL_TREAD'],
+    ['PAL_RECESS', 'PAL_RECESS'], ['PAL_SHELL', 'PAL_SHELL'], ['PAL_PLATE', 'PAL_PLATE'], ['PAL_RIB', 'PAL_RIB'],
+    ['RM_AXSP_MASS_COL', 'RM_AXSP_MASS'], ['RM_AXSP_SLAB_COL', 'RM_AXSP_SLAB'], ['RM_AXSP_SUP_COL', 'RM_AXSP_SUP'],
+    ['RM_AXSP_VAULT_COL', 'RM_AXSP_VAULT'], ['RM_PLATE_COL', 'RM_PLATE'], ['RM_SPIRE_COL', 'RM_SPIRE'],
+    ['RM_DAIS_DARK_COL', 'RM_DAIS_DARK'], ['RM_MARK_COL', 'RM_MARK'],
+    ['DOME_GND_COL', 'DOME_GND'], ['KNEE_LAND_COL', 'KNEE_LAND'], ['KNEE_RAIL_COL', 'KNEE_RAIL'],
+    ['DOME_POLE_COL', 'DOME_POLE'], ['TERR_COL', 'TERR'], ['WOLDAE_COLOR', 'WOLDAE']]   // ★173-b 월대 편입(초판 누락 — 현도 적발)
+  const FAM = ['PAL_WALL', 'PAL_FLOOR', 'PAL_TREAD', 'PAL_RECESS', 'PAL_SHELL', 'PAL_PLATE', 'PAL_RIB']
+  const { ACH_ON, ACH_BASE, ACH_W, ACH_WARM, ACH_ANCHOR_L, achDerive, achL } = K94g
+  const hexOk = (h) => /^#[0-9a-f]{6}$/.test(h)
+  ok(SCOPE.length === 21 && typeof ACH_ON === 'boolean' && ACH_W >= 0 && ACH_W <= 1 && hexOk(ACH_BASE),
+    `Q0 도메인: 범위 21노브 · ACH_W ${ACH_W} ∈ [0,1] · 기준색 ${ACH_BASE}`)
+  ok(SCOPE.every(([, w]) => hexOk(ACH_WARM[w])),
+    'Q0b 온난 기록: ACH_WARM에 21색 전부 유효 헥스로 실재 (보존계 정본)')
+  //  Q1 붕괴 — 순수 함수 성질: w=0이면 어떤 온난색이든 정확히 기준색(byte-identical)
+  ok(SCOPE.every(([, w]) => achDerive(ACH_WARM[w], 0) === ACH_BASE)
+    && achDerive('#000000', 0) === ACH_BASE && achDerive('#ffffff', 0) === ACH_BASE,
+    'Q1 붕괴: w=0 → 전 온난색(+흑백 극단)이 기준색으로 byte-identical 붕괴')
+  //  Q1b 현행 체제 반영 — 지금 켜진 값들이 실제로 파생 경로를 지났는가(범위에서 빼면 여기서 갈린다)
+  ok(SCOPE.every(([e, w]) => K94g[e] === (ACH_ON ? achDerive(ACH_WARM[w]) : ACH_WARM[w])),
+    `Q1b 현행 반영: 21노브 전부 = ${ACH_ON ? `achDerive(W=${ACH_W})` : '온난 기록 그대로(보존계)'}`)
+  //  Q2 간격 항등 — 임의 w에서 파생 명도차 = w × 온난 명도차 (앵커와 무관한 파생식의 심장)
+  const wTest = 0.5
+  const pairs = [['PAL_PLATE', 'PAL_RIB'], ['PAL_TREAD', 'PAL_RECESS'], ['TERR', 'RM_DAIS_DARK']]
+  ok(pairs.every(([a, b]) => Math.abs(
+    (achL(achDerive(ACH_WARM[a], wTest)) - achL(achDerive(ACH_WARM[b], wTest)))
+    - wTest * (achL(ACH_WARM[a]) - achL(ACH_WARM[b]))) < 0.006),
+    'Q2 간격 항등: w=0.5에서 파생 명도차 = 0.5×온난 명도차 (쌍 3종 · 양자화 오차 내)')
+  //  Q2b 앵커 정의 — w=1에서 가족 7 평균 명도 = 기준색 명도(앵커를 다른 값으로 바꾸면 여기서 갈린다)
+  const famMean1 = FAM.reduce((a, k) => a + achL(achDerive(ACH_WARM[k], 1)), 0) / 7
+  ok(Math.abs(famMean1 - achL(ACH_BASE)) < 0.006 && Math.abs(
+    FAM.reduce((a, k) => a + achL(ACH_WARM[k]), 0) / 7 - ACH_ANCHOR_L) < 1e-12,
+    `Q2b 앵커: w=1 가족 평균 명도 ${famMean1.toFixed(4)} = 기준 명도 ${achL(ACH_BASE).toFixed(4)} · ACH_ANCHOR_L = 가족 평균`)
+  //  Q3 색상·채도 통일 — MONO에서 파생 20색의 H·S = 기준색의 H·S(온난 색상 누출 금지)
+  const hs = (h) => { const [r, g, b] = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn
+    if (d === 0) return [0, 0]
+    const s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn)
+    const hh = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4
+    return [hh / 6, s] }   // ⚠독립 구현(constants 내부 함수의 사본 아님 — 별도로 유도해 상호 검산)
+  const [hB, sB] = hs(ACH_BASE)
+  ok(!ACH_ON || SCOPE.every(([e]) => { const [h, s] = hs(K94g[e]); return Math.abs(h - hB) < 0.02 && Math.abs(s - sB) < 0.04 }),
+    'Q3 색상 통일: MONO에서 21색 전부 기준색의 색상·채도(±양자화) — 온난 누출 0')
+  ok(SCOPE.every(([, w]) => { const l = achL(achDerive(ACH_WARM[w], 1)); return l > 0.02 && l < 0.98 }),
+    'Q3b 클램프 미발동: w=1 전 파생 명도 ∈ (0.02, 0.98) — 간격이 잘려나가지 않는다')
+  //  Q4 제외역 보존 — 발광체·광원·암실 팔레트는 파생을 지나지 않는다(소스 형태)
+  const cQ = readFileSync('src/constants.js', 'utf8')
+  ok(/LAMP_SHADE_COL\s*=\s*'#/.test(cQ) && /RM_SHAFT_COL\s*=\s*'#/.test(cQ) && /RM_LGT_CORE_COL = '#/.test(cQ)
+    && /STELE_STONE_COL = '#/.test(cQ),
+    'Q4 제외역: 등불 갓·샤프트·방 광원·담체 = 리터럴 그대로(발광체 판정 = 현도 열린 결정 · ⚠정점 광은 ★173-b 렌즈 일습으로 이동)')
+  //  Q4c ★173-b 렌즈 일습 — 현도 지시(투명·비웜): 6노브 전부 두 체제 삼항 + 온난 기록이 뒤값으로 보존
+  const lensKnobs = ['LENS_COL', 'LENS_EMIS_C', 'LENS_OPACITY', 'RIB_TINT_COL', 'APEX_LGT_COL', 'APEX_GLOW_COL']
+  ok(lensKnobs.every((k) => new RegExp(k + String.raw`\s*= ACH_ON \?`).test(cQ)),
+    'Q4c 렌즈 일습 6노브(몸체·발광색·불투명도·리브 워시·정점 광·발광구) = ACH_ON 삼항(온난 보존계 내장)')
+  ok(!K94g.ACH_ON || (hs(K94g.LENS_EMIS_C)[1] < 0.35 && hs(K94g.RIB_TINT_COL)[1] < 0.35 && K94g.LENS_OPACITY < 0.8),
+    `Q4d 렌즈 일습 무채·투명: 발광·워시 채도 < 0.35(웜 아님) · 불투명도 ${K94g.LENS_OPACITY} < 0.8(더 투명)`)
+  const dimBlkQ = (cQ.match(/ROOM_PAL_DIM = Object\.freeze\(\{[\s\S]*?\}\)/) || [''])[0]
+  ok((dimBlkQ.match(/#[0-9a-fA-F]{6}/g) || []).length === 11,
+    'Q4b 암실 팔레트: ROOM_PAL_DIM 고유값 11색 리터럴 보존(보존계 무접촉)')
+  //  Q5 App 배선 — fog 조건부 · MONO 추가 방향광 2기 · dir1 위치 전환
+  const appQ = readFileSync('src/App.jsx', 'utf8')
+  ok(/\{LGT_FOG_ON && <fog /.test(appQ)
+    && /ACH_ON \? \[400, 700, 300\] : \[30 \* SCALE, 120 \* SCALE, 20 \* SCALE\]/.test(appQ)
+    && /intensity=\{LGT_DIR2_I\} color=\{LGT_DIR_COL\}/.test(appQ)
+    && /intensity=\{LGT_DIR3_I\} color=\{LGT_DIR_COL\}/.test(appQ),
+    'Q5 App 배선: fog 스위치 · dir1 위치 두 체제 · CLAY 리그 둘째·셋째 방향광')
+  ok(K94g.LGT_FOG_COL === K94g.LGT_BG && typeof K94g.LGT_FOG_ON === 'boolean',
+    'Q6 fog: 색 = 배경 파생 유지 · 점등 스위치 불리언 (P6 계승)')
+}
+
 //  자식 컴포넌트(모듈 밖으로 export되지 않는 것)는 위 루프가 못 부른다.
 //  → 부모가 그 기술자를 만들었는지만 확인하고, 실제 호출이 필요한 것은 export해서 이 목록에 올린다.
 console.log('  ⓘ 한계: export 안 된 내부 컴포넌트는 기술자 생성까지만 검증된다(호출 필요 시 export할 것)')

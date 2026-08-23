@@ -285,7 +285,7 @@
 - **조작/임시:** `FREE_WALK=true`(편집용 — 1-④에서 끔). **★웨이포인트 텔레포트(신설 2026.07.13 — `waypoints.js`가 스폰·이동의 단일 정본):** 구 `SPAWN` 문자열 4갈래 하드코딩 폐기. 여정의 판정 지점 **19개**(§5 정리 배치표 = 15정리 전부 + 허브·접합·판넬·전실) 표에 좌표·yaw·pitch를 두고, `Tab` 패널(클릭) · `[` `]`(여정 순서 순환)으로 즉시 이동. 스폰 = `SPAWN_ID`(현재 `'p1'`, 배포 최종 `'room'`). **불변식 3:** ① **좌표 하드코딩 금지 — 전부 constants 파생**(노브 튜닝 시 웨이포인트 자동 추종. 하드코딩하면 튜닝마다 벽 속으로 감) ② y = **발 딛는 면**(walkable 윗면) — 눈높이 `EYE`는 `FirstPersonControls`가 더함(EYE 정본도 `waypoints.js`, 중복 정의 금지) ③ 착지 시 **위→아래 스냅 레이**(w.y+2.5에서 하향 8.5)로 실제 walkable에 맞춤 — ⚠'위에서' 쏘는 게 핵심: 매 프레임 `probe()`는 발+0.8서 쏘므로 융기(최대 1.5) 위에 평바닥 y로 떨어뜨리면 원판을 맞아 **파묻힌 채 걷는다**(07-12 실측 버그). ⚠**배포 전 `DEV_TELEPORT=false`**(패널·키 일괄 제거). `G` 그래프, `T` 방 계단 비교. 프리셋 키(1~4)는 리그 철거로 제거(1-③A) — 임시 보행(걷기 6·Shift×3)은 유지.
 
 ## 4. 요소 인벤토리 (코드명 · 상태)
-> **파일 구조(분할 2026.07.03):** `constants.js`(수치 정본 — ★1-③C판 2026.07.05: 전단 분리 + **부양 다리 노브 `BRIDGE_*`** · **★172 조명·팔레트·렌더러 정본 섹션 ⑴~⑹**〔2026.08.23 — 광원 LGT_*/RM_LGT_*/LAMP_*/APEX_* · 렌더러 RND_* · 사석 가족 PAL_* · 방 팔레트 ROOM_PAL_LIT/DIM · 담체 STELE_*. 장면 색·세기의 유일 정본 — check_render P절이 잠근다〕) · `FirstPersonControls.jsx` · **`Dome.jsx`(★1-③C: LandingBridge 신설·나선끝 디스크 폐치)** · `Room.jsx` · `Corridor.jsx` · **`Radial.jsx`(★신설 2026.07.09 — 방사 복합체)** · `Steles.jsx` · **`Lens.jsx`+`lensGeometry.js`(★신설 2026.07.12 — 정점 렌즈·기하는 순수 모듈로 분리해 검증 공유)** · **`RadialEvents.jsx`+`radialEventsGeometry.js`(★신설 2026.07.12 ㉖ — 방별 사건, 같은 분리 패턴)** · **`waypoints.js`(★신설 2026.07.13 — 텔레포트 웨이포인트 표·스폰·EYE 정본. 순수 모듈이라 검증에서 직접 import)** · **`corridorStairsGeometry.js`(★신설 2026.07.14 ㊳ — 1p5 홀 문 5·곡선 계단 5·파라펫 순수 빌더 + ★㊼ `intakeSpec()`〔빛 개구 기술자〕·`gatSeal()`〔갓 봉인 수치해석〕, 같은 분리 패턴)** · **`terraceGeometry.js`(★신설 2026.07.29 ★85 — 테라스 부채꼴, 같은 분리 패턴)** · **`drumCupGeometry.js`(★신설 2026.07.31 ★92 — 드럼 하판 반구·기둥·리브 탈락 판정, 같은 분리 패턴)** · **`wallBaseGeometry.js`(★신설 2026.08.05 ★114 — 벽 밑동 팔각 각뿔대)** · **`roomRibGeometry.js`(★신설 2026.08.05 ★116 — 방 돔 살 · ⛔현도 반려로 `RRIB_ON=false` 보존계)** · **`ascentTunnelGeometry.js`(★신설 2026.08.05 ★119 — 상승 터널 계단 관, 같은 분리 패턴)** · **`armGeometry.js`(★신설 2026.08.13 ★126 — 1p3 지지 팔: 프로파일 정본 `armSpec`/`armProfile` + 빌더 `buildArm13`)** · **`spireGeometry.js`(★신설 2026.08.14 ★127 — 빛우물 첨탑 4단: 스펙 `spireSpec` + 벽 사면 단일 정본 `wellWallR`〔구 coneR 사본 3곳 흡수〕 + 빌더 `buildSpire`)** · **`spireTerraceGeometry.js`(★신설 2026.08.14 ★128 — 첨탑 테라스: 스펙 `spireTerraceSpec` + 구멍 경계 `holeRAt` + **시선 닫힌 식 `sightSpec`** + 빌더 `buildSpireTerrace` + 부피 정확식 `terraceVolume`)** · **`bridgeComplexGeometry.js`(★신설 2026.08.15 ★133 — 1p4 복합체: 스펙 `bridgeSpec` + 돔 `bridgeDomeY` + 빌더 `buildBridgeComplex`)** · **`linkPassageGeometry.js`(★신설 2026.08.14 ★130 — 셸→테라스 접속 통로: `linkSpec` + 밀봉 관 `buildLinkTube` + 미니 첨탑 `buildLinkTower` + 나선 `buildLinkStair` + 조립 `buildLinkParts`)** · **`link3Geometry.js`(★신설 2026.08.15 ★137 — 1p3형 셸→테라스 통로: `link3Spec`·`buildLink3` + ★141 다중 마운트 `link3Mounts`/`link3RotY`〔기준 프레임 k=3을 회전해 1p1에도 단다 — 기하 사본 0〕)** · **`_probe_exterior.mjs`(★신설 2026.08.13 — room·p2·p3 외부 전경 프로브: COV_KNOWN 사각지대용, esbuild 번들 후 실행)** · `App.jsx`(조립) · `ethica1.js` · `GraphScaffold.jsx`. **코드 전달 = 바뀐 모듈만.**
+> **파일 구조(분할 2026.07.03):** `constants.js`(수치 정본 — ★1-③C판 2026.07.05: 전단 분리 + **부양 다리 노브 `BRIDGE_*`** · **★172 조명·팔레트·렌더러 정본 섹션 ⑴~⑹**〔2026.08.23 — 광원 LGT_*/RM_LGT_*/LAMP_*/APEX_* · 렌더러 RND_* · 사석 가족 PAL_* · 방 팔레트 ROOM_PAL_LIT/DIM · 담체 STELE_*. 장면 색·세기의 유일 정본 — check_render P절이 잠근다〕 · **★173 무채 재편 연속 노브**〔2026.08.23 둘째 — ACH_ON/ACH_BASE/ACH_W + ACH_WARM 온난 기록 · 석재 20노브 st() 파생 · check_render Q절이 잠근다〕) · `FirstPersonControls.jsx` · **`Dome.jsx`(★1-③C: LandingBridge 신설·나선끝 디스크 폐치)** · `Room.jsx` · `Corridor.jsx` · **`Radial.jsx`(★신설 2026.07.09 — 방사 복합체)** · `Steles.jsx` · **`Lens.jsx`+`lensGeometry.js`(★신설 2026.07.12 — 정점 렌즈·기하는 순수 모듈로 분리해 검증 공유)** · **`RadialEvents.jsx`+`radialEventsGeometry.js`(★신설 2026.07.12 ㉖ — 방별 사건, 같은 분리 패턴)** · **`waypoints.js`(★신설 2026.07.13 — 텔레포트 웨이포인트 표·스폰·EYE 정본. 순수 모듈이라 검증에서 직접 import)** · **`corridorStairsGeometry.js`(★신설 2026.07.14 ㊳ — 1p5 홀 문 5·곡선 계단 5·파라펫 순수 빌더 + ★㊼ `intakeSpec()`〔빛 개구 기술자〕·`gatSeal()`〔갓 봉인 수치해석〕, 같은 분리 패턴)** · **`terraceGeometry.js`(★신설 2026.07.29 ★85 — 테라스 부채꼴, 같은 분리 패턴)** · **`drumCupGeometry.js`(★신설 2026.07.31 ★92 — 드럼 하판 반구·기둥·리브 탈락 판정, 같은 분리 패턴)** · **`wallBaseGeometry.js`(★신설 2026.08.05 ★114 — 벽 밑동 팔각 각뿔대)** · **`roomRibGeometry.js`(★신설 2026.08.05 ★116 — 방 돔 살 · ⛔현도 반려로 `RRIB_ON=false` 보존계)** · **`ascentTunnelGeometry.js`(★신설 2026.08.05 ★119 — 상승 터널 계단 관, 같은 분리 패턴)** · **`armGeometry.js`(★신설 2026.08.13 ★126 — 1p3 지지 팔: 프로파일 정본 `armSpec`/`armProfile` + 빌더 `buildArm13`)** · **`spireGeometry.js`(★신설 2026.08.14 ★127 — 빛우물 첨탑 4단: 스펙 `spireSpec` + 벽 사면 단일 정본 `wellWallR`〔구 coneR 사본 3곳 흡수〕 + 빌더 `buildSpire`)** · **`spireTerraceGeometry.js`(★신설 2026.08.14 ★128 — 첨탑 테라스: 스펙 `spireTerraceSpec` + 구멍 경계 `holeRAt` + **시선 닫힌 식 `sightSpec`** + 빌더 `buildSpireTerrace` + 부피 정확식 `terraceVolume`)** · **`bridgeComplexGeometry.js`(★신설 2026.08.15 ★133 — 1p4 복합체: 스펙 `bridgeSpec` + 돔 `bridgeDomeY` + 빌더 `buildBridgeComplex`)** · **`linkPassageGeometry.js`(★신설 2026.08.14 ★130 — 셸→테라스 접속 통로: `linkSpec` + 밀봉 관 `buildLinkTube` + 미니 첨탑 `buildLinkTower` + 나선 `buildLinkStair` + 조립 `buildLinkParts`)** · **`link3Geometry.js`(★신설 2026.08.15 ★137 — 1p3형 셸→테라스 통로: `link3Spec`·`buildLink3` + ★141 다중 마운트 `link3Mounts`/`link3RotY`〔기준 프레임 k=3을 회전해 1p1에도 단다 — 기하 사본 0〕)** · **`_probe_exterior.mjs`(★신설 2026.08.13 — room·p2·p3 외부 전경 프로브: COV_KNOWN 사각지대용, esbuild 번들 후 실행)** · `App.jsx`(조립) · `ethica1.js` · `GraphScaffold.jsx`. **코드 전달 = 바뀐 모듈만.**
 
 | 코드 | 상태 |
 |---|---|
@@ -360,7 +360,13 @@
 >  LNK 가족 감김 · 접지 19기 · 회랑·전실 벽 두께 0 면 · 배포 스위치 미복귀.
 >
 >
-> ★**검증 현황(2026.08.23 ★172 조명 정본화 세션 후)**: **8종 2653항 중 2651 green · 2 = ★134 선언된 빚**
+> ★**검증 현황(2026.08.23 둘째 대화 · ★173+★173-b 후)**: **8종 2667항 중 2665 green · 2 = ★134 선언된 빚**
+> (bridge 333 · corridor 668〔666+빚2〕 · waypoints 330 · rooms 909 · radial 300 · lamps 35 · lens 25 · **render 67**〔★173 Q절 12항 + ★173-b 2항〕)
+> + 빌드 green + **보존계 스윕 green**(`ACH_ON=false` 재스윕 — 월대·렌즈 일습 포함 온난 완전 복귀 · 초판 스윕 4종은 ★173 기록 참조)
+> + **치환 반증 7/7 물림**(무관 항 오염 0): ⓐ앵커 편이→Q2b ⓑw 계수 왜곡→Q2 ⓒ범위 이탈→Q1b+Q3 ⓓ색상 누출→Q1+Q3
+> ⓔApp fog 조건 제거→Q5 ⓕ월대 재이탈→Q1b+Q3 ⓖ렌즈 웜 회귀→Q4d.
+>
+> ★**구 검증 현황(2026.08.23 ★172 조명 정본화 세션 후)**: **8종 2653항 중 2651 green · 2 = ★134 선언된 빚**
 > (bridge 333 · corridor 668〔666+빚2〕 · waypoints 330 · rooms 909 · radial 300 · lamps 35 · lens 25 · **render 53**〔★172 P절 22항 신설〕)
 > + 빌드 green + **`ROOM_DIM=true` 보존계 스윕 동일 green**.
 >
@@ -1552,7 +1558,61 @@ x120 → **124.85** · x124 → **129.50** · x130.5 → **137.06** · x145 → 
 >  현도 HUD 시점 재현본이 스크린샷과 층 구성 일치 — 부재 지목 왕복 **0회**. 세션 종료 시 개별 삭제(규율 21).
 > 노브: `BRD_COL_SECT`(`'trap'` = 보존계 한 줄).
 
-### ▶▶ 다음 (2026.08.22 **넷째 대화**(잔업) 종료 — v6 게이트 개정 완료 · 조명 진입 준비됨)
+### ▶▶ 다음 (2026.08.23 **둘째 대화** 종료 — ★173 무채 재편 구현 완료 · **남은 것 = 현도 로컬 판정**)
+> ★이 세션 = **조명 2단계 구현(A급·Fable)** — 현도 ⓑ 확정(폭 0 = CLAY 단색에서 출발). 산출물 = ★173.
+> ⓪ ★★★★**무채 로컬 판정** `[판정 → 현도 · 노브만 돌리면 됨]` — `npm run dev`에서 현행 = **W=0 무채 단색**.
+>   판정 노브(전부 `constants.js` ★173 블록): **`ACH_W`** 0 → 0.3 → 0.6 → 1.0 등을 돌려가며
+>   (0 = CLAY 붕괴 · 1 = 온난 명도 간격 복원 — 두께 위계가 명도로 돌아온다) · **`ACH_BASE`** 기준색 ·
+>   광원은 `LGT_*` 삼항의 MONO 쪽 값(하늘 `#b9bcc2` · hemi 1.15 · amb 0.42 · dir 0.55/0.38/0.26).
+>   ⚠**실내(방·회랑·계단)를 꼭 걸어볼 것** — W를 낮추면 두께 위계가 면 방향 그늘로만 읽힌다(전경만으론 판정 불가).
+>   ⛔전량 반려 시 `ACH_ON=false` 한 줄 = ★172 온난 체제 완전 복귀(보존계 스윕 green 확인됨).
+> ⓪′ ★★**fog 판정** `[판정 → 현도]` — 현행 MONO 기본 = **fog 끔**(CLAY 선명함). 재점등 = `LGT_FOG_ON`
+>   (색은 하늘 파생 자동) · 거리 = `LGT_FOG_NEAR/FAR`. ⚠완성 조건 3(1p11 공개)과의 절충 = 현도 결정.
+> ⓪″ ★★**발광체 판정** `[판정 → 현도]` — 무채 체제에서 채도가 남은 것 = 발광체뿐(렌즈 `#ffd98f` ·
+>   등불 갓 EMIS `#ffb45c` · 봉·웅덩이 · 방 광원 웜톤 · RIB_TINT 워시). ★173은 의도적으로 **제외**했다
+>   (Q4가 잠금) — 극단 강조가 문제인지 원하는 효과인지의 판정, 그리고 무채로 끌어올지의 결정.
+> ⓪‴ 판정 후 남을 수 있는 일: 발광체 무채화(범위 확장 = st() 관문에 추가 + Q절 센서스 갱신) ·
+>   fog 거리 재설계 · `ACH_BASE`/광원 값 튜닝(전부 노브 한 줄).
+>
+> ### ★★★173 무채 재편 — 연속 노브 (2026.08.23 둘째 대화 · 구현 완료 · 현도 판정 대기)
+> ★**구현 = 문서의 2단계 설계 그대로**: 무채 기준색 1(`ACH_BASE` = CLAY 실측 `#d7d3c9`) + 위계 폭 1(`ACH_W`)로
+>  **석재 재질 20노브를 파생**(사석 가족 7 + 방 8〔AXSP 4·판·첨탑·기단암실·각인〕 + 돔 5〔접지·참·난간·폴·테라스〕).
+>  파생식: 색상·채도 = 기준색 · 명도 = base_L + W×(온난_L − **앵커**〔가족 7 온난 명도 평균 0.5801 — 파생, 손 수치 0〕).
+>  W=0 → 20색 전부 기준색으로 **byte-identical 붕괴**(HSL 라운드트립 20색 전수 검산) · W=1 → 온난 명도 간격
+>  그대로(가족 평균 = 기준 명도가 앵커의 정의) · W=1 클램프 미발동 실측(파생 명도 0.378~0.867).
+> ★**광원 = 두 체제 삼항**(`LGT_* = ACH_ON ? MONO : 온난`): 하늘 `#b9bcc2` · fog **끔**(`LGT_FOG_ON` 신설 —
+>  App 조건부 마운트) · hemi `#ffffff`/`#8d8f94` 1.15 · amb 0.42 · **dir 4방향 CLAY 리그**(dir1 위치
+>  [400,700,300] 전환 + 둘째 [-500,300,-250] 0.38 · 셋째 [250,-400,-500] 0.26 MONO에서만 마운트 — 아래에서
+>  치는 광 포함, "어느 면도 검게 안 죽는" Survey 실측 그대로). 렌더러 `RND_*` 무변경(CLAY도 같은 렌더러였다).
+> ★**보존계 = `ACH_ON=false` 한 줄** — 온난 리터럴의 정본은 `ACH_WARM` 20색(★172 승격 시점 값 이관 ·
+>  Q0b가 실재를 잠금). 제외역(발광체·광원 웜톤·`ROOM_PAL_DIM`·`STELE_*`)은 리터럴 그대로 — Q4/Q4b 잠금.
+> ⚠**이름공간 자책**: 초판 접두사 `MONO_*`가 **선돌 가족 선점**과 충돌(모듈 평가가 즉시 적발) → `ACH_*` 전량 개명.
+> ⚠**스윕 자책**: ROOM_DIM 보존계 첫 실행이 sed 공백 불일치로 **매치 0 = 공허 스윕**(기본 체제 재실행) —
+>  복원 grep 규율이 적발, **전환 grep**(바꾼 직후 실제 물렸는지 확인)을 추가하고 재실행. ★149 계열 교훈의 재발.
+> 노브: `ACH_ON` · `ACH_BASE` · `ACH_W` · `ACH_WARM`(기록) · `LGT_FOG_ON` · `LGT_DIR2_I`/`LGT_DIR3_I`.
+> 검증: **check_render Q절 12항**(붕괴 · 현행 반영 · 간격 항등 · 앵커 정의 · 색상 통일 · 클램프 · 제외역 ·
+>  App 배선 — 값은 자유, 관계만 잠금. 색상 추출은 constants 사본이 아닌 **독립 구현**으로 상호 검산).
+>
+> ### ★★173-b 1차 로컬 판정 반영 (2026.08.23 같은 대화 · 현도 지적 3건)
+> ① **월대 누락 적발(현도)** — `WOLDAE_COLOR`가 ★172 정본 섹션 밖(★54 절) 거주라 초판 센서스에서 빠짐.
+>  **전수 재조사**(constants 헥스 export 전체 × 장면 color 사용 교차): 범위 밖 누락 = **월대 하나뿐**
+>  (INTAKE_GLOW는 meshBasic 발광 = 제외 합당). → 21번째 파생 편입, Q절 센서스 21로. ⚠교훈: 범위 조사는
+>  정본 섹션이 아니라 **전 파일 교차 실측**으로 — 섹션 거주지는 완전성의 근거가 아니다.
+> ② **렌즈 일습 무채·투명 전환(현도 지시: "투명한 느낌·웜톤 말고")** — 렌즈만 돌리면 "한 몸"인 리브 워시·
+>  정점 광이 웜으로 남으므로 **일습 6노브** 전환: `LENS_COL #e9edf1` · `LENS_EMIS_C #e4ebf2`(채도↓) ·
+>  `LENS_EMIS 0.18` · `LENS_OPACITY 0.45`(더 투명) · `RIB_TINT_COL #dfe5ea` · `APEX_LGT_COL #ffffff` ·
+>  `APEX_GLOW_COL #f2f5f8`. 전부 `ACH_ON` 삼항 = 온난 보존계 내장. 값 = 현도 튜닝 대상(Q4d는 관계만:
+>  채도 < 0.35 · 불투명도 < 0.8). 가드 Q4c(삼항 소스 형태)·Q4d(무채·투명 성질) 신설, 정점 광은 Q4 제외역에서 이동.
+> ③ **안개 스위치 단순화** — `ACH_FOG_ON`(★173 블록) 신설: 무채 체제에서 안개는 **이 한 노브만 true**로.
+>  거리 = `LGT_FOG_NEAR/FAR`(×SCALE) · 색 = 하늘 자동 파생.
+> 검증: 8종 **2667항 중 2665 green**(render 67) · `ACH_ON=false` 재스윕 green · 반증 ⓕ월대 재이탈→Q1b+Q3 ·
+>  ⓖ렌즈 웜 회귀→Q4d — 정확히 물림.
+> ④ **★173-b2 SURVEY_START 'clay'→'off'** — "fog 안 켜짐"(현도) 근본 원인: 앱이 매 리로드 점토 검토 모드로
+>  시작 → SurveyRig가 fog 강제 소등 + 무채 W=0과 화면 근사라 모드 구분 불가(이중 함정). 조명 판정은 반드시
+>  실제 체제에서 — 배포 전 'off' 복귀 묶음이었던 것을 앞당겨 복귀. 점토·법선 검토는 M키로 여전히 진입 가능.
+
+<!-- 폐기된 이전 '다음' -->
+### ▷ 구 다음 (2026.08.22 **넷째 대화**(잔업) 종료 — v6 게이트 개정 완료 · 조명 진입 준비됨)
 > ★이 세션 = **잔업 처리(B급·소 3건)** — 조형 무변경. 산출물 = v6 개정 + ★134 측정 + 도구 빚 ⑥ 해소.
 > ✅**v6 게이트 개정 완료** — 다음 세션의 Claude는 이제 문서를 읽고 "조명은 아직 이르다"고 **경고하지 않는다**.
 >  고친 자리 넷: 머리말 ⑥ · §4(조명을 순연→확정 병행 트랙으로 이관) · §8-3(구 게이트 폐지 + `⇄`) · §9(스냅샷 경고).

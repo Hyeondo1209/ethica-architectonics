@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import GraphScaffold from './GraphScaffold'
 import { SCALE, RIB_XFER_ON, RIB_DEST_PHI, TERRACE_ON, SURVEY_START,
   LGT_BG, LGT_FOG_COL, LGT_FOG_NEAR, LGT_FOG_FAR, LGT_HEMI_SKY, LGT_HEMI_GND, LGT_HEMI_I,
-  LGT_AMB_I, LGT_DIR_COL, LGT_DIR_I, RND_TONEMAP, RND_EXPOSURE, RND_SHADOWS, RND_LINEAR } from './constants'
+  LGT_AMB_I, LGT_DIR_COL, LGT_DIR_I, RND_TONEMAP, RND_EXPOSURE, RND_SHADOWS, RND_LINEAR,
+  ACH_ON, LGT_FOG_ON, LGT_DIR2_I, LGT_DIR3_I } from './constants'   // ★173 무채 재편
 import { FirstPersonControls } from './FirstPersonControls'
 import { WAYPOINTS, WP_GROUPS, SPAWN_ID, DEV_TELEPORT, wpIndexOf } from './waypoints'
 import { Ground, MirrorPads, DrumCup, DomeRibs, ExplorationRib, HallDoorRibs, RibStair, KneeWalk, RibJunction, Lookout, RevealPassage, CloisterLamps, Terrace, LampRoom, FriezeCrossing } from './Dome'
@@ -74,11 +75,15 @@ export default function App() {
                 쥐었다 놓으므로 여기 값들은 정본 그대로 남는다(끄면 원상 복귀). */}
             {survey === 'off' && <>
               <color attach="background" args={[LGT_BG]} />
-              <fog attach="fog" args={[LGT_FOG_COL, LGT_FOG_NEAR * SCALE, LGT_FOG_FAR * SCALE]} />
+              {LGT_FOG_ON && <fog attach="fog" args={[LGT_FOG_COL, LGT_FOG_NEAR * SCALE, LGT_FOG_FAR * SCALE]} />}{/* ★173: MONO 기본 = fog 끔(CLAY) — 재점등·거리 절충은 현도 */}
 
               <hemisphereLight args={[LGT_HEMI_SKY, LGT_HEMI_GND, LGT_HEMI_I]} />
               <ambientLight intensity={LGT_AMB_I} />
-              <directionalLight position={[30 * SCALE, 120 * SCALE, 20 * SCALE]} intensity={LGT_DIR_I} color={LGT_DIR_COL} />
+              <directionalLight position={ACH_ON ? [400, 700, 300] : [30 * SCALE, 120 * SCALE, 20 * SCALE]} intensity={LGT_DIR_I} color={LGT_DIR_COL} />
+              {ACH_ON && <>{/* ★173 CLAY 4방향 리그 둘째·셋째(Survey 실측 위치 그대로) — 어느 면도 검게 안 죽는 중립광 */}
+                <directionalLight position={[-500, 300, -250]} intensity={LGT_DIR2_I} color={LGT_DIR_COL} />
+                <directionalLight position={[250, -400, -500]} intensity={LGT_DIR3_I} color={LGT_DIR_COL} />
+              </>}
             </>}
             <SurveyRig mode={survey} />
             <SurveyLights mode={survey} />

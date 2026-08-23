@@ -145,8 +145,11 @@ export const AX_MONO_SCALE = 0.6           // 미니 선돌 스케일(정의 선
 //  ⚠**배포·P2 조명 판정은 반드시 `'off'`에서.** 이 모드는 조형을 재는 자이지 빛이 아니다.
 //  M키로 off → clay → normal 순환(Survey.jsx).
 // ════════════════════════════════════════════════════════════════════
-export const SURVEY_START     = 'clay'    // 시작 체제 'off' | 'clay'(점토) | 'normal'(법선 컬러)
-//   ⚠P3 출구 전에 **'off'로 되돌린다**(`DEV_TELEPORT`·`SPAWN='room'`과 같은 묶음 — 검사가 소리 낸다)
+export const SURVEY_START     = 'off'     // 시작 체제 'off' | 'clay'(점토) | 'normal'(법선 컬러)
+//   ★173-b2(2026.08.23): 'clay' → 'off'. 무채 W=0 체제가 CLAY와 근사해지며 clay 시작은 이중 함정이 됐다:
+//   ①SurveyRig가 fog를 강제 소등("안개 = 조형 판정의 적") — ACH_FOG_ON을 켜도 안 보임(현도 실증)
+//   ②실제 체제와 화면이 거의 같아 지금 어느 모드인지 구분 불가. 조명 판정은 반드시 실제 체제('off')에서.
+//   점토·법선 검토는 여전히 M키로 진입 가능. (구값 'clay' — 배포 전 'off' 복귀 묶음이었던 것을 앞당겨 복귀)
 export const SURVEY_CLAY      = '#d7d3c9' // 점토 알베도(무채 근처 — 색 판단을 유도하지 않게)
 export const SURVEY_ROUGH     = 0.95      // 점토 거칠기(정반사 0 = 형태만 남는다)
 export const SURVEY_BG_CLAY   = '#b9bcc2' // 점토 배경(셸 밖 — 실루엣이 배경에 안 묻히게 중간 명도)
@@ -165,17 +168,77 @@ export const SURVEY_BG_NORMAL = '#1b1c20' // 법선 배경(법선 컬러가 채�
 //   Survey(자체 주석이 "P2 조명 개편 아님"을 못박음) · 광원의 position/distance/decay/angle(기하·감쇠
 //   특성 — 인라인 유지, 필요 시 그때 승격).
 
-//  ── ⑴ 전역 광원·대기 (App.jsx dome 뷰) ──────────────────────────────────────────
-export const LGT_BG        = '#e7d6ad' // 배경(하늘 없는 대기)
+//  ══ ★173 무채 재편 — 연속 노브 (2026.08.23 조명 세션 2단계 · 현도 ⓑ: 폭 0 = CLAY 단색에서 출발) ══
+//  목표 그림 = ★108 CLAY 화면 그 자체(현도 확정): 무채 백색 석재 + 회청 하늘. 기제가 아니라 색 조화가 목표.
+//  ⛔ACH_ON=false = ★172 승격 시점 온난 체제 **그대로**(보존계 — 렌더 무변화. ACH_WARM이 그 기록이다).
+//  ★범위 = 발광 없는 석재 재질 20노브(사석 가족 7 + 방 8 + 돔 5). 제외(열린 결정 — 발광체 판정은 현도):
+//   광원 웜톤 전부(RM_LGT_*·APEX_*·LAMP_LGT_*) · 발광체(렌즈·등불 갓 EMIS·봉·웅덩이·샤프트·RIB_TINT) ·
+//   ROOM_PAL_DIM(암실 보존계 고유값) · STELE_*(담체 소등 중 · 권역 ⑬) · SURVEY_*(검토 도구).
+//  ★파생식: 색상·채도 = ACH_BASE 그대로 · 명도 = base_L + W×(온난_L − 가족7 평균 L).
+//   W=0 → 20색 전부 = ACH_BASE(단색 붕괴 = CLAY) · W=1 → 온난 체제의 명도 간격이 그대로 보존
+//   (두께 위계 ★65 계열이 명도로 복귀) · W=1에서 가족 평균 명도 = base 명도(앵커의 정의). 사이 연속.
+//  ⚠W를 낮추면 두께 위계가 명도에서 사라지고 면 방향 그늘로만 읽힌다 — 실내에서 갈림. 판정 = 현도 로컬.
+export const ACH_ON   = true       // ⛔false = ★172 온난 체제 복귀(보존계)
+export const ACH_BASE = '#d7d3c9'  // 무채 기준색(CLAY 석재 실측 — 현도 튜닝 대상)
+export const ACH_W    = 0.0        // 위계 폭 0~1 (현도 ⓑ: 0에서 출발, 올라가며 판정 — 0/0.3/0.6/1 등)
+//  온난 기록(★172 승격 시점 값 — 보존계의 정본. 아래 st()가 ACH_ON=false에서 이 값을 그대로 돌려준다)
+export const ACH_WARM = Object.freeze({
+  PAL_WALL: '#b89a6a', PAL_FLOOR: '#c2a062', PAL_TREAD: '#cdb074', PAL_RECESS: '#a98f5e',
+  PAL_SHELL: '#c3ae7f', PAL_PLATE: '#d6ab68', PAL_RIB: '#bb8a4e',
+  RM_AXSP_MASS: '#d6ab68', RM_AXSP_SLAB: '#b8905a', RM_AXSP_SUP: '#c09a63', RM_AXSP_VAULT: '#cfa261',
+  RM_PLATE: '#d6ab68', RM_SPIRE: '#97784e', RM_DAIS_DARK: '#322817', RM_MARK: '#6b5942',
+  DOME_GND: '#6f5e44', KNEE_LAND: '#c8a578', KNEE_RAIL: '#a8895c', DOME_POLE: '#8f6c3e', TERR: '#caa161',
+  WOLDAE: '#b09263' })   // ★173-b 편입: ★172 섹션 밖(★54 절) 거주라 초판 센서스 누락 — 현도 적발 2026.08.23
+//  HSL 변환(순수 — 라운드트립 20색 전수 byte-identical 검산 완료. check_render Q절이 재검한다)
+const hex2rgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
+const rgb2hsl = ([r, g, b]) => {
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2
+  if (mx === mn) return [0, 0, l]
+  const d = mx - mn
+  const s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn)
+  const h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4
+  return [h / 6, s, l]
+}
+const hue2c = (p, q, t) => { t = (t % 1 + 1) % 1
+  if (t < 1 / 6) return p + (q - p) * 6 * t
+  if (t < 1 / 2) return q
+  if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6
+  return p }
+const hsl2hex = ([h, s, l]) => {
+  let rgb
+  if (s === 0) rgb = [l, l, l]
+  else { const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q
+    rgb = [h + 1 / 3, h, h - 1 / 3].map((t) => hue2c(p, q, t)) }
+  return '#' + rgb.map((v) => Math.round(Math.min(1, Math.max(0, v)) * 255).toString(16).padStart(2, '0')).join('')
+}
+export const achL = (hex) => rgb2hsl(hex2rgb(hex))[2]   // 명도 추출(검증 공유)
+//  앵커 = 사석 가족 7의 온난 명도 평균(파생 — 손 수치 0)
+export const ACH_ANCHOR_L = ['PAL_WALL', 'PAL_FLOOR', 'PAL_TREAD', 'PAL_RECESS', 'PAL_SHELL', 'PAL_PLATE', 'PAL_RIB']
+  .reduce((a, k) => a + achL(ACH_WARM[k]), 0) / 7
+//  파생 함수(순수 — w·base·anchor를 인자로 받아 검증이 임의 값으로 반증할 수 있다)
+export const achDerive = (hex, w = ACH_W, base = ACH_BASE, anchorL = ACH_ANCHOR_L) => {
+  const [hb, sb, lb] = rgb2hsl(hex2rgb(base))
+  return hsl2hex([hb, sb, Math.min(1, Math.max(0, lb + w * (achL(hex) - anchorL)))])
+}
+const st = (hex) => (ACH_ON ? achDerive(hex) : hex)     // 석재 재질 20노브가 전부 이 관문을 지난다
+//  ═══════════════════════════ ★173 파생 기계 끝 ═══════════════════════════════════
+
+//  ── ⑴ 전역 광원·대기 (App.jsx dome 뷰) — ★173: ACH_ON이 두 체제를 가른다(뒤값 = ★172 온난 기록) ──
+//   MONO 쪽 값 = CLAY 리그 실측(hemi 백/회 1.15 · amb 0.42 · dir 3기 0.55/0.38/0.26 무채 · fog 없음).
+export const LGT_BG        = ACH_ON ? '#b9bcc2' : '#e7d6ad' // 하늘: CLAY 회청 실측 | 온난 대기
 export const LGT_FOG_COL   = LGT_BG    // fog = 배경에 녹는 색(파생 — 현행 코드가 같은 리터럴 2회)
-export const LGT_FOG_NEAR  = 30        // ×SCALE는 App에서(현행 식 유지)
-export const LGT_FOG_FAR   = 150
-export const LGT_HEMI_SKY  = '#ffeccb'
-export const LGT_HEMI_GND  = '#2e2618'
-export const LGT_HEMI_I    = 0.85
-export const LGT_AMB_I     = 0.25
-export const LGT_DIR_COL   = '#ffe6bf'
-export const LGT_DIR_I     = 0.3
+export const ACH_FOG_ON    = true     // ★173-b 무채 체제의 안개 스위치 — **켜려면 이것만 true로**(거리 = 아래 NEAR/FAR)
+export const LGT_FOG_ON    = ACH_ON ? ACH_FOG_ON : true      // ⚠CLAY 선명함 = fog 끔. fog는 완성 조건 3(1p11) 카드 — 거리 절충 = 현도
+export const LGT_FOG_NEAR  = 30        // ×SCALE는 App에서(현행 식 유지 — fog 재점등 시의 거리 노브)
+export const LGT_FOG_FAR   = 170
+export const LGT_HEMI_SKY  = ACH_ON ? '#ffffff' : '#ffeccb'
+export const LGT_HEMI_GND  = ACH_ON ? '#8d8f94' : '#2e2618'
+export const LGT_HEMI_I    = ACH_ON ? 1.15 : 0.85
+export const LGT_AMB_I     = ACH_ON ? 0.42 : 0.25
+export const LGT_DIR_COL   = ACH_ON ? '#ffffff' : '#ffe6bf'
+export const LGT_DIR_I     = ACH_ON ? 0.55 : 0.3
+export const LGT_DIR2_I    = 0.38      // ★173 CLAY 4방향 리그 둘째(MONO에서만 마운트 — 위치는 App 인라인)
+export const LGT_DIR3_I    = 0.26      // ★173 CLAY 4방향 리그 셋째(아래에서 치는 광 — 어느 면도 검게 안 죽게)
 
 //  ── ⑵ 렌더러 (App.jsx <Canvas>) — 현행 = R3F v9 기본값을 명시 핀 고정(설치본 소스 실측) ──
 export const RND_TONEMAP  = 'aces'  // 'aces'|'none'|'linear'|'reinhard'|'cineon'|'agx'|'neutral' (매핑은 App)
@@ -185,13 +248,14 @@ export const RND_LINEAR   = false   // false = sRGB 출력(현행)
 
 //  ── ⑶ 공유 사석 가족 (기록된 동일성: Corridor 원산 · Radial MAT_* · RadialEvents "=Radial" ·
 //        Room ★113 밝은 팔레트 · Dome "Corridor 어휘 공유"·무릎길 "같은 돌") ──────────
-export const PAL_WALL   = '#b89a6a' // 벽·몸·보 (드럼·프리즈·셀라·잉카 기본이 이 값을 참조)
-export const PAL_FLOOR  = '#c2a062' // 걷는 면 (잉카 판·제단이 참조)
-export const PAL_TREAD  = '#cdb074' // 디딤
-export const PAL_RECESS = '#a98f5e' // 움푹한 면 (기둥·관이 참조)
-export const PAL_SHELL  = '#c3ae7f' // 꽃잎 셸(매싱 구분 — Radial 원산)
-export const PAL_PLATE  = '#d6ab68' // 판(부양 요소 — Dome 디딤판 원산)
-export const PAL_RIB    = '#bb8a4e' // 경선 리브 (LOCKED: 두 컴포넌트 재질 동일)
+//  ★173: 일곱 전부 st() 파생 — 온난 리터럴의 정본은 ACH_WARM(위). ACH_ON=false면 그 값 그대로.
+export const PAL_WALL   = st(ACH_WARM.PAL_WALL)   // 벽·몸·보 (드럼·프리즈·셀라·잉카 기본이 이 값을 참조)
+export const PAL_FLOOR  = st(ACH_WARM.PAL_FLOOR)  // 걷는 면 (잉카 판·제단이 참조)
+export const PAL_TREAD  = st(ACH_WARM.PAL_TREAD)  // 디딤
+export const PAL_RECESS = st(ACH_WARM.PAL_RECESS) // 움푹한 면 (기둥·관이 참조)
+export const PAL_SHELL  = st(ACH_WARM.PAL_SHELL)  // 꽃잎 셸(매싱 구분 — Radial 원산)
+export const PAL_PLATE  = st(ACH_WARM.PAL_PLATE)  // 판(부양 요소 — Dome 디딤판 원산)
+export const PAL_RIB    = st(ACH_WARM.PAL_RIB)    // 경선 리브 (LOCKED: 두 컴포넌트 재질 동일)
 
 //  ── ⑷ 방(Room) 팔레트·광원 ─────────────────────────────────────────────────────
 //  ★113 두 체제: LIT(밝음·현행) = 사석 가족 참조("새 색을 만들지 않았다") / DIM(암실·보존계) = 고유값
@@ -212,24 +276,26 @@ export const RM_LGT_WELL_COL = '#fff1d2' // 빛우물 상단 점광
 export const RM_LGT_WELL_I   = 2.4
 export const RM_SHAFT_COL    = '#ffdf9e' // 빛 샤프트(가짜 볼륨) 색 — 기단 점광과 같은 값이나 기록 없음 → 분리
 export const RM_SHAFT_OP     = 0.30      // 샤프트 세기(uOpacity — 원주석이 노브라 명명)
-export const RM_AXSP_MASS_COL  = '#d6ab68' // ★107 공리 나선 매스(판과 같은 값 — 기록 없음 → 분리)
-export const RM_AXSP_SLAB_COL  = '#b8905a' // 나선 지지 슬래브
-export const RM_AXSP_SUP_COL   = '#c09a63' // 나선 지지 기둥
-export const RM_AXSP_VAULT_COL = '#cfa261' // ★111 공리 볼트(문)
-export const RM_PLATE_COL      = '#d6ab68' // 구세계 낱장·AX 플랫폼 판(방 안 '판' 어법)
-export const RM_SPIRE_COL      = '#97784e' // 빛 우물 원뿔대(첨탑)·테라스 고리
-export const RM_DAIS_DARK_COL  = '#322817' // 기단 암실화(v2.2 — 성역: 바닥보다 한 단 위)
-export const RM_MARK_COL       = '#6b5942' // 팔각 각인선(v2.2 반전: 암실에선 각인이 밝은 쪽)
+//  ★173: 방 석재 재질 8노브 = st() 파생(발광 없는 meshStandardMaterial 실측 확인 — Room.jsx 415~674)
+export const RM_AXSP_MASS_COL  = st(ACH_WARM.RM_AXSP_MASS)  // ★107 공리 나선 매스(판과 같은 값 — 기록 없음 → 분리)
+export const RM_AXSP_SLAB_COL  = st(ACH_WARM.RM_AXSP_SLAB)  // 나선 지지 슬래브
+export const RM_AXSP_SUP_COL   = st(ACH_WARM.RM_AXSP_SUP)   // 나선 지지 기둥
+export const RM_AXSP_VAULT_COL = st(ACH_WARM.RM_AXSP_VAULT) // ★111 공리 볼트(문)
+export const RM_PLATE_COL      = st(ACH_WARM.RM_PLATE)      // 구세계 낱장·AX 플랫폼 판(방 안 '판' 어법)
+export const RM_SPIRE_COL      = st(ACH_WARM.RM_SPIRE)      // 빛 우물 원뿔대(첨탑)·테라스 고리
+export const RM_DAIS_DARK_COL  = st(ACH_WARM.RM_DAIS_DARK)  // 기단 암실화(v2.2 성역 — W=0에선 붕괴, W↑로 복귀)
+export const RM_MARK_COL       = st(ACH_WARM.RM_MARK)       // 팔각 각인선(v2.2 반전: 암실에선 각인이 밝은 쪽)
 
 //  ── ⑸ 돔(Dome)·등불·정점 ───────────────────────────────────────────────────────
-export const DOME_GND_COL   = '#6f5e44' // 접지(폐기 지면 Ground 보존계 + 거울 패드 — 같은 접지 어휘)
-export const KNEE_LAND_COL  = '#c8a578' // ★66 참 — 디딤(밝음)과 몸(어두움) 사이 톤
-export const KNEE_RAIL_COL  = '#a8895c' // ★68-3 난간 — 몸보다 한 톤 어둡게
-export const DOME_POLE_COL  = '#8f6c3e' // ★58 폴(보존계 RIB_POLE_ON)
-export const TERR_COL       = '#caa161' // 테라스 판(등불 갓과 같은 값 — 기록 없음 → 분리)
-export const APEX_LGT_COL   = '#ffe3b0' // 정점 점광 — Dome Apex + Lens("구 Apex 점광 계승 · 색·강도 동일")
+//  ★173: 돔 석재 재질 5노브 = st() 파생. ⚠LAMP_*는 발광체 계열(등불 통째) — 제외(열린 결정).
+export const DOME_GND_COL   = st(ACH_WARM.DOME_GND)  // 접지(폐기 지면 Ground 보존계 + 거울 패드 — 같은 접지 어휘)
+export const KNEE_LAND_COL  = st(ACH_WARM.KNEE_LAND) // ★66 참 — 디딤(밝음)과 몸(어두움) 사이 톤
+export const KNEE_RAIL_COL  = st(ACH_WARM.KNEE_RAIL) // ★68-3 난간 — 몸보다 한 톤 어둡게
+export const DOME_POLE_COL  = st(ACH_WARM.DOME_POLE) // ★58 폴(보존계 RIB_POLE_ON)
+export const TERR_COL       = st(ACH_WARM.TERR)      // 테라스 판(등불 갓과 같은 값 — 기록 없음 → 분리)
+export const APEX_LGT_COL   = ACH_ON ? '#ffffff' : '#ffe3b0' // 정점 점광(렌즈 일습 — 현도 지시로 무채 전환) — Dome Apex + Lens("구 Apex 점광 계승 · 색·강도 동일")
 export const APEX_LGT_I     = 2.2
-export const APEX_GLOW_COL  = '#fff1d4' // 정점 발광구
+export const APEX_GLOW_COL  = ACH_ON ? '#f2f5f8' : '#fff1d4' // 정점 발광구(렌즈 일습)
 export const LAMP_LGT_JOINT_COL = '#ffc27a' // 등불 접합부 점광(관이 리브 밑면에 꽂히는 자리)
 export const LAMP_LGT_JOINT_I   = 22
 export const LAMP_LGT_MOUTH_COL = '#ffce8a' // 등불 갓 입 하향 점광
@@ -3283,7 +3349,7 @@ export const WOLDAE_RISE_H  = 4    // ★상승 높이(노브) — ★★체제�
 export const WOLDAE_RISE_HW = 5    // front·back 전망단 반폭(all은 전폭 — 사다리꼴 따라감)
 export const WOLDAE_STEP_R  = 0.6  // 단높이 목표 — 실제 단높이 = H/n으로 균등 배분
 export const WOLDAE_STEP_T  = 0.7  // 디딤 깊이. 0.6/0.7 = 40.6° = 짧은 기념 계단(월대 계단은 가파르다)
-export const WOLDAE_COLOR  = '#b09263'  // 톤 — 잉카 판·제단 계열보다 반 톤 어둡게(받치는 것 = 무거운 것). P2 재판정
+export const WOLDAE_COLOR  = st(ACH_WARM.WOLDAE)  // 톤 — 잉카 판·제단 계열보다 반 톤 어둡게(받치는 것 = 무거운 것). ★173-b 파생 편입(초판 누락 — 현도 적발)
 
 export const ORB_OPEN     = true                     // ★㊶-4(현도): 동캡을 '유리'가 아니라 '뻥 뚫린 개구'로 — 반투명 재질(알파 블렌딩·오버드로우)이
                                                      //  렉 원인이라 재질을 얹지 않고 동쪽 셸을 CSG로 제거. 조종석 시야(다섯 리브)는 유지, 렉은 소멸.
@@ -3715,12 +3781,12 @@ export const LENS_FACETS = MERIDIANS          // ★패싯 수 = 리브 1:1(현�
 export const LENS_IRREG  = 0.65               // ★0=정규(대칭 세공) ↔ 1=원석(비대칭). 하나의 노브로 연속 조절(현도: 원석 지향)
 export const LENS_SEED   = 7                  // 결정론 시드 — 같은 값이면 항상 같은 원석
 export const LENS_FOG    = false              // 렌즈 재질 fog 면제(안개 속 유일하게 또렷한 보석). true면 거리 워시
-export const LENS_COL    = '#efe3c6'          // 몸체(옅은 세공석) — 진짜 색·빛 연출은 Phase 3에서 논의(현도)
-export const LENS_EMIS_C = '#ffd98f'          // 발광색(웜 플레이스홀더)
-export const LENS_EMIS   = 0.35               // 발광 강도
+export const LENS_COL    = ACH_ON ? '#e9edf1' : '#efe3c6'   // 몸체: 무채 = 차가운 근백(현도 지시 2026.08.23 "투명한 느낌·웜톤 말고") | 온난 = 옅은 세공석
+export const LENS_EMIS_C = ACH_ON ? '#e4ebf2' : '#ffd98f'   // 발광색: 무채 = 한색 옅음 | 온난 = 웜 플레이스홀더
+export const LENS_EMIS   = ACH_ON ? 0.18 : 0.35             // 발광 강도: 무채 = 은은(투명감 우선)
 // ── 리브 굴절 그라데이션(렌즈와 한 몸 — 위에서 내려오는 굴절광이 무릎으로 잦아듦) ──
 //  구현 = 셰이더 패치(Dome.jsx ribTintOBC): 기하·CSG 무접촉 → #0과 71개 자동 동일(LOCKED 안전). 끄기 = AMT·EMIS 0.
-export const RIB_TINT_COL  = '#f3ddb0'        // 워시 색(웜 플레이스홀더 — 팔레트는 Phase 3)
+export const RIB_TINT_COL  = ACH_ON ? '#dfe5ea' : '#f3ddb0'  // 워시 색: 무채 = 렌즈 한색 계열(렌즈와 '한 몸' — 렌즈만 차가우면 워시가 웜으로 남는다) | 온난 = 구값
 export const RIB_TINT_AMT  = 0.15             // 알베도 혼합 최대치(정점에서) — ★복구(2026.07.19, 렌즈 검수용 임시 소등 해제)
 export const RIB_TINT_EMIS = 0.10             // 발광 성분(안개 관통 보조) — ★복구(2026.07.19)
 export const RIB_TINT_Y0   = 320              // 그라데이션 시작(무릎 위 — 여기 아래는 순수 석재)
@@ -3733,7 +3799,7 @@ export const LENS_TRANSMIT = 0.85             // glass 투과율(0~1)
 export const LENS_IOR      = 1.5              // 굴절률(유리 1.5·수정 1.55)
 export const LENS_ROUGH_G  = 0.18             // glass 표면 거칠기(패싯 하이라이트 — 낮을수록 유리)
 export const LENS_THICK    = 20               // glass 굴절 두께감(왜곡 강도)
-export const LENS_OPACITY  = 0.8             // alpha 모드 불투명도
+export const LENS_OPACITY  = ACH_ON ? 0.45 : 0.8   // alpha 불투명도: 무채 = 더 투명(현도 지시) | 온난 = 구값
 
 // ════════════════════════════════════════════════════════════════════
 // ── ★1p1~4 방별 사건(P1~P4) + 방사 비석(P_ST) — 2026.07.12 브리프 구현 ──
