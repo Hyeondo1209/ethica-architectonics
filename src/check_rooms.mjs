@@ -14,6 +14,7 @@ import {
   P4_TILT_MAX, P4_PATH_HW, P4_SCALE, P_ST_X, P_ST_NEAR, P_ST_FAR, P_STELE_ON, P_SPAWN_LX,
   RAD_ANG0, RAD_R,
 } from './constants.js'
+import * as K from './constants.js'   // ★174-c 체제 인지 가드용(SPOT_I 규칙 분기)
 import {
   buildP2Shear, buildP3Pulls,
   buildP4A, buildP1Swells, p1HeightAt,
@@ -376,8 +377,10 @@ if (!PIT_ON) {
   //  ★★★113 눈속임 해제(현도 2026.08.05) — 알베도와 스포트는 **한 몸**이었다.
   //   v2.2가 알베도를 5.48배 어둡게 하고 스포트를 같은 배수로 증폭해 웅덩이 밝기를 맞춰 놨다.
   //   한쪽만 되돌리면 웅덩이가 타 버린다 → 관계를 코드가 지키는지 여기서 잰다(값이 아니라 관계).
-  ok(Math.abs(SPOT_I - (ROOM_DIM ? 8.0 : 8.0 / ROOM_ALBEDO_GAIN)) < 1e-9,
-    `스포트 ${SPOT_I.toFixed(2)} = 8.0${ROOM_DIM ? '' : ` ÷ 알베도비 ${ROOM_ALBEDO_GAIN}`} — 암실 해제와 **짝으로** 움직인다(ROOM_DIM=${ROOM_DIM})`)
+  ok(Math.abs(SPOT_I - (K.ACH_ON ? K.RM_SPOT_I : (ROOM_DIM ? 8.0 : 8.0 / ROOM_ALBEDO_GAIN))) < 1e-9,
+    K.ACH_ON
+      ? `스포트 ${SPOT_I.toFixed(2)} = RM_SPOT_I(★174-c 확정 그림 — 어둠은 빛 차단이, 세기는 명시 노브가) `
+      : `스포트 ${SPOT_I.toFixed(2)} = 8.0${ROOM_DIM ? '' : ` ÷ 알베도비 ${ROOM_ALBEDO_GAIN}`} — 암실 해제와 **짝으로** 움직인다(ROOM_DIM=${ROOM_DIM})`)
   ok(!(ROOM_DIM && !ROOM_SHAFT_ON) || true,
     `눈속임 체제: 알베도 ${ROOM_DIM ? '암실(보존계)' : '건물 석재 — 눈속임 없음'} · 빛기둥 ${ROOM_SHAFT_ON ? '켜짐' : '소등'}`)
 

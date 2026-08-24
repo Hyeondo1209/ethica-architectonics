@@ -1,12 +1,14 @@
 // Room.jsx — 지상 정의·공리 방(DefAxiomRoom): 돔 껍질·내벽 나선·빛우물 CSG·판테온 빛(v2.2 암실)
 //   + 주어진 것 배치: DefPrecinct(기단·각인) / DefOctagon(정의 8기) / AxiomStations(공리 7기)
-import { useRef, useMemo, useLayoutEffect } from 'react'
+import { useRef, useMemo, useLayoutEffect, useEffect } from 'react'
+import { useThree, useFrame } from '@react-three/fiber'   // ★174-c4 순서 무관 패치
 import * as THREE from 'three'
 import { Brush, Evaluator, HOLLOW_SUBTRACTION } from 'three-bvh-csg'
 import { GivenMonolith } from './Steles'
 import { buildDisc } from './discGeometry.js'
 import {
   ROOM_CX, ROOM_FLOOR_Y, ROOM_R, ROOM_CEIL_Y, ROOM_HEIGHT, ROOM_OCULUS,
+  ACH_INT_ON, ACH_INT_MUL, ACH_INT_R, ACH_INT_Y0, ACH_INT_Y1, ACH_INT_FEATHER, ACH_INT_SHELL_Q0, ACH_INT_FACE_W,   // ★174 방 암실
   ROOM_CYL_TOP, ROOM_WELL_RT, ROOM_LAND_R, ROOM_DISC_SLOT_START, ROOM_DISC_SLOT_LEN, ROOM_DISC_HOLE,
   ROOM_STAIR_SIDES, ROOM_STAIR_TURNS, ROOM_STAIR_WIDTH, ROOM_STAIR_TREAD, ROOM_STAIR_RISE,
   ROOM_STAIR_BIAS, ROOM_STAIR_SLAB, ROOM_STAIR_ROUT, ROOM_STAIR_RIN, ROOM_STAIR_PHASE, ROOM_STAIR_TOTAL_ANG,
@@ -26,7 +28,7 @@ import {
   ROOM_SHELL_SOLID,
   ROOM_PAL_LIT, ROOM_PAL_DIM, RM_SHAFT_COL, RM_SHAFT_OP,          // ★172 조명·팔레트 정본
   RM_LGT_CORE_COL, RM_LGT_CORE_I, RM_LGT_SPOT_COL, RM_LGT_DAIS_COL, RM_LGT_DAIS_I,
-  RM_LGT_WELL_COL, RM_LGT_WELL_I, RM_AXSP_MASS_COL, RM_AXSP_SLAB_COL, RM_AXSP_SUP_COL,
+  RM_LGT_WELL_COL, RM_LGT_WELL_I, RM_SPOT_SPREAD_R, RM_SPOT_PEN, RM_AXSP_MASS_COL, RM_AXSP_SLAB_COL, RM_AXSP_SUP_COL,
   RM_AXSP_VAULT_COL, RM_PLATE_COL, RM_SPIRE_COL, RM_DAIS_DARK_COL, RM_MARK_COL,
   PAL_FLOOR, PAL_WALL,
 } from './constants'
@@ -55,6 +57,88 @@ import { buildRoomRibs } from './roomRibGeometry'   // ★116 방 돔 살 여덟
 import { buildRoomShell } from './roomShellGeometry'   // ★★★169 방 껍질 솔리드(순수 기하 — 사본 금지)
 
 // ════════ 지하 정의·공리 방 ════════
+// ═══ ★174 방 암실 — 전역광 차단 셰이더 패치 (사진2 방향 1호기 · 2026.08.24) ═══
+//  앵커 5점 = three 0.184 실문자열(check_render Q9가 node_modules 대조로 잠근다 — 버전 업 시 거기서 갈림).
+//  실패 시 무해 강하: 앵커 실종이면 console.error 후 무패치(방이 밝게 남을 뿐 깨지지 않는다).
+const ACH_V_ANCHOR = '#include <project_vertex>'
+const ACH_F_NORM = 'vec3 geometryNormal = normal;'
+const ACH_F_DIR = 'getDirectionalLightInfo( directionalLight, directLight );'
+const ACH_F_AMB = 'vec3 irradiance = getAmbientLightIrradiance( ambientLightColor );'
+const ACH_F_HEMI = 'irradiance += getHemisphereLightIrradiance( hemisphereLights[ i ], geometryNormal );'
+const ACH_C_Y = (ROOM_FLOOR_Y + ROOM_CEIL_Y) / 2
+function achInteriorPatch(mat) {
+  if (!ACH_INT_ON || !mat || !mat.isMeshStandardMaterial || mat.userData.achPatched) return
+  mat.userData.achPatched = true
+  //  ⚠★174-c2: three는 컴파일된 프로그램을 **캐시 키로** 재사용한다. onBeforeCompile을 나중에 붙여도
+  //   키가 그대로면 구 프로그램이 그냥 재사용돼 패치가 통째로 무시된다(= ACH_INT_MUL을 바꿔도 화면 불변,
+  //   현도 실증 2026.08.24). customProgramCacheKey로 키를 갈라야 비로소 재컴파일된다.
+  //   ⚠키에 ACH_INT_MUL을 넣지 않는다 — 값은 유니폼이라 키와 무관하고, 넣으면 값마다 프로그램이 늘어난다.
+  mat.customProgramCacheKey = () => 'ach174'
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uAchMul = { value: ACH_INT_MUL }
+    if (!sh.vertexShader.includes(ACH_V_ANCHOR)) return console.error('[★174] vertex 앵커 실종 — three 버전 확인')
+    sh.vertexShader = 'varying vec3 vAchW;\n' + sh.vertexShader.replace(ACH_V_ANCHOR,
+      'vec4 achWP4 = vec4( transformed, 1.0 );\n#ifdef USE_INSTANCING\n  achWP4 = instanceMatrix * achWP4;\n#endif\nvAchW = ( modelMatrix * achWP4 ).xyz;\n' + ACH_V_ANCHOR)
+    const f0 = sh.fragmentShader
+    if (!(f0.includes(ACH_F_NORM) && f0.includes(ACH_F_DIR) && f0.includes(ACH_F_AMB) && f0.includes(ACH_F_HEMI)))
+      return console.error('[★174] fragment 앵커 실종 — three 버전 확인')
+    sh.fragmentShader = ('varying vec3 vAchW;\nuniform float uAchMul;\n' + f0)
+      .replace(ACH_F_NORM, ACH_F_NORM + [
+        '',
+        '\tfloat achM;',
+        '\t{ vec3 achC = vec3( ' + ROOM_CX.toFixed(1) + ', ' + ACH_C_Y.toFixed(1) + ', 0.0 );',
+        '\t\tfloat achR = length( vAchW.xz - achC.xz );',
+        '\t\tfloat achVol = ( 1.0 - smoothstep( ' + (ACH_INT_R - ACH_INT_FEATHER).toFixed(2) + ', ' + ACH_INT_R.toFixed(2) + ', achR ) )',
+        '\t\t\t* smoothstep( ' + (ACH_INT_Y0 - ACH_INT_FEATHER).toFixed(2) + ', ' + ACH_INT_Y0.toFixed(2) + ', vAchW.y )',
+        '\t\t\t* ( 1.0 - smoothstep( ' + ACH_INT_Y1.toFixed(2) + ', ' + (ACH_INT_Y1 + ACH_INT_FEATHER).toFixed(2) + ', vAchW.y ) );',
+        '\t\tvec3 achE = ( vAchW - achC ) / vec3( ' + ROOM_R.toFixed(1) + ', ' + (ROOM_HEIGHT / 2).toFixed(1) + ', ' + ROOM_R.toFixed(1) + ' );',
+        '\t\tfloat achShell = smoothstep( ' + ACH_INT_SHELL_Q0.toFixed(2) + ', ' + (ACH_INT_SHELL_Q0 + 0.1).toFixed(2) + ', length( achE ) );',
+        '\t\tfloat achFace = smoothstep( -' + ACH_INT_FACE_W.toFixed(2) + ', ' + ACH_INT_FACE_W.toFixed(2) + ', dot( geometryNormal, normalize( achC - vAchW ) ) );',
+        '\t\tachM = mix( 1.0, uAchMul, achVol * mix( 1.0, achFace, achShell ) ); }',
+      ].join('\n'))
+      .replace(ACH_F_DIR, ACH_F_DIR + '\n\t\tdirectLight.color *= achM;')
+      .replace(ACH_F_AMB, 'vec3 irradiance = achM * getAmbientLightIrradiance( ambientLightColor );')
+      .replace(ACH_F_HEMI, 'irradiance += achM * getHemisphereLightIrradiance( hemisphereLights[ i ], geometryNormal );')
+  }
+  mat.needsUpdate = true
+}
+
+//  ★174-b(현도 지적): 차단 범위 = 컴포넌트가 아니라 **공간**. 방 부피를 관통하는 디스크·박스 관·방사
+//  진입부(Corridor/Radial 소속)가 방 subtree 패치에선 빠져 어둠 속에 하얗게 떠 있었다. 장면 전체 표준
+//  재질에 패치를 깔되, 마스크 자체가 방 부피에서만 작동하므로 밖은 무변화(achM=1). App가 마운트한다.
+export function AchRoomDarkness() {
+  const { scene, invalidate } = useThree()
+  //  ⚠★174-c4 (현도 실증: 값을 바꿔도 화면 불변 — 3차): 근본 원인 = **형제 effect 실행 순서**.
+  //   React는 형제의 effect를 위→아래로 돌린다. AchRoomDarkness가 DefAxiomRoom보다 위에 있으니
+  //   패치가 도는 시점엔 방 메시가 아직 씬에 없다 → 빈 씬을 훑고 0개 패치하고 끝났다.
+  //   [scene] 의존성은 씬 객체가 불변이라 재실행도 없다(그래서 영구히 미패치).
+  //   → 순서 의존을 없앤다: 매 프레임 **아직 안 본 메시만** 훑어 패치한다(패치 완료 표시로 재방문 0).
+  //   비용: 프레임당 traverse 1회(수만 메시 순회는 가볍다 — 무거운 건 복제·재컴파일이고 그건 1회뿐).
+  useFrame(() => {
+    if (!ACH_INT_ON) return
+    let touched = 0
+    const box = new THREE.Box3()
+    scene.traverse((o) => {
+      if (!o.isMesh || !o.material || !o.geometry || o.userData.achSeen) return
+      o.userData.achSeen = true            // 이 메시는 다시 보지 않는다(판정 결과와 무관)
+      box.setFromObject(o)
+      if (!box.isEmpty()) {
+        const dx = Math.max(0, Math.max(ROOM_CX - box.max.x, box.min.x - ROOM_CX))
+        const dz = Math.max(0, Math.max(0 - box.max.z, box.min.z - 0))
+        const outR = Math.hypot(dx, dz) > ACH_INT_R + ACH_INT_FEATHER
+        const outY = box.min.y > ACH_INT_Y1 + ACH_INT_FEATHER || box.max.y < ACH_INT_Y0 - ACH_INT_FEATHER
+        if (outR || outY) return           // 차단 부피와 무교차 — 패치 불필요(화면 동일·비용 0)
+      }
+      if (Array.isArray(o.material)) o.material = o.material.map((m) => (m.userData.achPatched ? m : m.clone()))
+      else if (!o.material.userData.achPatched) o.material = o.material.clone()
+      ;[].concat(o.material).forEach(achInteriorPatch)
+      touched++
+    })
+    if (touched) invalidate()              // on-demand 렌더 체제에서도 새 셰이더가 화면에 반영되게
+  })
+  return null
+}
+
 export function DefAxiomRoom({ stairKind }) {
   const treadRef = useRef()
   const helixRef = useRef()
@@ -392,8 +476,8 @@ export function DefAxiomRoom({ stairKind }) {
       {/* 내부 채움광 — v2 감광(1.05→0.55): 판테온 무브의 상대 어둑함. 중앙에서 퍼지므로 선돌의 '중심을 보는 앞면'을 비추는 방향 */}
       <pointLight position={[0, ROOM_FLOOR_Y + ROOM_HEIGHT * 0.45, 0]} intensity={RM_LGT_CORE_I} distance={ROOM_R * 4} decay={1.4} color={RM_LGT_CORE_COL} />   {/* v2.2: 거의 소등 — 어둠은 여기서 나온다 */}
       {/* 판테온 스포트 — 빛우물 위에서 원점으로 수직 낙하. three의 spotLight.target 기본값이 월드 원점(씬 밖 Object3D=항등행렬)이라 타깃 배선 불필요 */}
-      <spotLight position={[0, ROOM_CYL_TOP - 6, 0]} angle={Math.atan(POOL_R / (ROOM_CYL_TOP - 6)) * 1.2}
-        penumbra={0.85} intensity={SPOT_I} distance={170} decay={1.1} color={RM_LGT_SPOT_COL} />   {/* v2.1: 웅덩이 가장자리 녹임 */}
+      <spotLight position={[0, ROOM_CYL_TOP - 6, 0]} angle={Math.atan(RM_SPOT_SPREAD_R / (ROOM_CYL_TOP - 6))}
+        penumbra={RM_SPOT_PEN} intensity={SPOT_I} distance={170} decay={1.1} color={RM_LGT_SPOT_COL} />   {/* ★174-c: 퍼짐 = 바닥 도달 반경 노브(구 POOL_R×1.2 = 7° 협광은 온난 보존계 값) */}
       {/* 웅덩이 반사광 — 낮은 포인트: 선돌 앞면(r26) 가독용. 벽(r91)에 닿기 전 감쇠 */}
       <pointLight position={[0, ROOM_FLOOR_Y + DAIS_H + 2.5, 0]} intensity={RM_LGT_DAIS_I} distance={42} decay={1.7} color={RM_LGT_DAIS_COL} />
       {/* 빛 샤프트 2절 — 출처 = 원뿔대 '꼭대기 구멍'(y=CYL_TOP, r=WELL_RT). 상절: 우물 안 낙하 · 하절: 디스크 구멍→웅덩이.

@@ -439,6 +439,10 @@ console.log('\n— G. 래스터라이저 깊이 보간 (★도구 빚 ⑥ 수리
 //   **관계**를 잠근다: 붕괴·간격 항등·앵커 정의·색상 통일·범위 센서스·제외역 보존·App 배선.
 {
   //  범위 20명단 = 검사 자체가 독립으로 못 박는다(constants의 목록을 되읽으면 축소가 침묵한다 — 공허 방지)
+  const chroma = (h) => { const v = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255); return Math.max(...v) - Math.min(...v) }
+  const appQ = readFileSync('src/App.jsx', 'utf8')
+  const cQ = readFileSync('src/constants.js', 'utf8')
+  const roomQ2 = readFileSync('src/Room.jsx', 'utf8')
   const SCOPE = [
     ['PAL_WALL', 'PAL_WALL'], ['PAL_FLOOR', 'PAL_FLOOR'], ['PAL_TREAD', 'PAL_TREAD'],
     ['PAL_RECESS', 'PAL_RECESS'], ['PAL_SHELL', 'PAL_SHELL'], ['PAL_PLATE', 'PAL_PLATE'], ['PAL_RIB', 'PAL_RIB'],
@@ -486,21 +490,35 @@ console.log('\n— G. 래스터라이저 깊이 보간 (★도구 빚 ⑥ 수리
   ok(SCOPE.every(([, w]) => { const l = achL(achDerive(ACH_WARM[w], 1)); return l > 0.02 && l < 0.98 }),
     'Q3b 클램프 미발동: w=1 전 파생 명도 ∈ (0.02, 0.98) — 간격이 잘려나가지 않는다')
   //  Q4 제외역 보존 — 발광체·광원·암실 팔레트는 파생을 지나지 않는다(소스 형태)
-  const cQ = readFileSync('src/constants.js', 'utf8')
-  ok(/LAMP_SHADE_COL\s*=\s*'#/.test(cQ) && /RM_SHAFT_COL\s*=\s*'#/.test(cQ) && /RM_LGT_CORE_COL = '#/.test(cQ)
-    && /STELE_STONE_COL = '#/.test(cQ),
-    'Q4 제외역: 등불 갓·샤프트·방 광원·담체 = 리터럴 그대로(발광체 판정 = 현도 열린 결정 · ⚠정점 광은 ★173-b 렌즈 일습으로 이동)')
+  ok(/STELE_STONE_COL = '#/.test(cQ),
+    'Q4 제외역: 담체 = 리터럴 그대로(정점 광→★173-b · 등불→★173-c · 방 광원·샤프트→★174-b 무채 삼항으로 각각 이동)')
+  //  Q10 ★174-b 방 광원·샤프트 5노브 — 사진2 백색 광선: ACH_ON 삼항(웜 = ★172 기록 뒤값) + 무채 성질
+  const rmLgt = ['RM_LGT_CORE_COL', 'RM_LGT_SPOT_COL', 'RM_LGT_DAIS_COL', 'RM_LGT_WELL_COL', 'RM_SHAFT_COL']
+  ok(rmLgt.every((k) => new RegExp(k + String.raw`\s*= ACH_ON \?`).test(cQ))
+    && (!K94g.ACH_ON || rmLgt.every((k) => chroma(K94g[k]) < 0.15)),
+    'Q10 방 광원·샤프트 5노브 = ACH_ON 삼항 · 무채 성질(크로마 < 0.15 — 웜 광선 금지)')
+  ok(/<AchRoomDarkness \/>/.test(appQ) && /export function AchRoomDarkness/.test(roomQ2)
+    && /scene\.traverse/.test(roomQ2) && !/achRootRef/.test(roomQ2),
+    'Q10b 공간 패치: App 마운트 · 장면 전체 traverse(컴포넌트 subtree 아님 — ★174-b 현도 지적의 잠금)')
   //  Q4c ★173-b 렌즈 일습 — 현도 지시(투명·비웜): 6노브 전부 두 체제 삼항 + 온난 기록이 뒤값으로 보존
   const lensKnobs = ['LENS_COL', 'LENS_EMIS_C', 'LENS_OPACITY', 'RIB_TINT_COL', 'APEX_LGT_COL', 'APEX_GLOW_COL']
   ok(lensKnobs.every((k) => new RegExp(k + String.raw`\s*= ACH_ON \?`).test(cQ)),
     'Q4c 렌즈 일습 6노브(몸체·발광색·불투명도·리브 워시·정점 광·발광구) = ACH_ON 삼항(온난 보존계 내장)')
-  ok(!K94g.ACH_ON || (hs(K94g.LENS_EMIS_C)[1] < 0.35 && hs(K94g.RIB_TINT_COL)[1] < 0.35 && K94g.LENS_OPACITY < 0.8),
-    `Q4d 렌즈 일습 무채·투명: 발광·워시 채도 < 0.35(웜 아님) · 불투명도 ${K94g.LENS_OPACITY} < 0.8(더 투명)`)
-  const dimBlkQ = (cQ.match(/ROOM_PAL_DIM = Object\.freeze\(\{[\s\S]*?\}\)/) || [''])[0]
-  ok((dimBlkQ.match(/#[0-9a-fA-F]{6}/g) || []).length === 11,
-    'Q4b 암실 팔레트: ROOM_PAL_DIM 고유값 11색 리터럴 보존(보존계 무접촉)')
+  //  ⚠채도 아닌 **크로마**(max−min)로 잰다 — HSL 채도는 근백색에서 폭주(반증: #dfe9f2 s=0.42), 크로마는 웜 0.6대 vs 한색 0.08 이하로 분리 확실
+  ok(!K94g.ACH_ON || (chroma(K94g.LENS_EMIS_C) < 0.15 && chroma(K94g.RIB_TINT_COL) < 0.15 && K94g.LENS_OPACITY < 0.8),
+    `Q4d 렌즈 일습 무채·투명: 발광·워시 크로마 < 0.15(웜 아님) · 불투명도 ${K94g.LENS_OPACITY} < 0.8(더 투명)`)
+  const dimBlkQ = (cQ.match(/ROOM_PAL_DIM_WARM = Object\.freeze\(\{[\s\S]*?\}\)/) || [''])[0]
+  const dimL = (h) => { const v = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255); return (Math.max(...v) + Math.min(...v)) / 2 }
+  ok((dimBlkQ.match(/#[0-9a-fA-F]{6}/g) || []).length === 11 && /ROOM_PAL_DIM = ACH_ON/.test(cQ)
+    && Object.keys(K94g.ROOM_PAL_DIM).length === 11,
+    'Q4b 암실 팔레트: 온난 기록 11색 실재 + ACH 파생 배선(★174-b — 웜만 걷고 어둠 위계는 보존)')
+  const dimWarmPairs = (dimBlkQ.match(/(\w+): '(#[0-9a-f]{6})'/g) || []).map((p) => p.split(/: '|'/))
+  ok(!K94g.ACH_ON || dimWarmPairs.every(([k, w]) => {
+    const d = K94g.ROOM_PAL_DIM[k]
+    const ch = (h) => { const v = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255); return Math.max(...v) - Math.min(...v) }
+    return d && ch(d) < 0.15 && Math.abs(dimL(d) - dimL(w)) < 0.012 }),
+    'Q4b2 암실 achTone 성질: 11색 전부 크로마 < 0.15(무채) · 명도 = 온난값 보존(±양자화) — 어두운 건 어둡게 남는다')
   //  Q5 App 배선 — fog 조건부 · MONO 추가 방향광 2기 · dir1 위치 전환
-  const appQ = readFileSync('src/App.jsx', 'utf8')
   ok(/\{LGT_FOG_ON && <fog /.test(appQ)
     && /ACH_ON \? \[400, 700, 300\] : \[30 \* SCALE, 120 \* SCALE, 20 \* SCALE\]/.test(appQ)
     && /intensity=\{LGT_DIR2_I\} color=\{LGT_DIR_COL\}/.test(appQ)
@@ -508,6 +526,59 @@ console.log('\n— G. 래스터라이저 깊이 보간 (★도구 빚 ⑥ 수리
     'Q5 App 배선: fog 스위치 · dir1 위치 두 체제 · CLAY 리그 둘째·셋째 방향광')
   ok(K94g.LGT_FOG_COL === K94g.LGT_BG && typeof K94g.LGT_FOG_ON === 'boolean',
     'Q6 fog: 색 = 배경 파생 유지 · 점등 스위치 불리언 (P6 계승)')
+  //  Q7 ★173-c 등불 판정 후보 — 9색 전부 lampCool 삼항(웜 = 뒤값 보존) + 게이트 = ACH_ON && ACH_LAMP_ON
+  //   (⚠게이트가 ACH_LAMP_ON 단독이면 온난 복귀 체제에서 등불만 한색이 되는 모순 — 이중 게이트를 문다)
+  const lampKnobs = ['LAMP_LGT_JOINT_COL', 'LAMP_LGT_MOUTH_COL', 'LAMP_SHADE_COL', 'LAMP_SHADE_EMIS',
+    'LAMP_GLOW_MOUTH_COL', 'LAMP_POOL_CORE_COL', 'LAMP_POOL_HALO_COL', 'LAMP_ROD_TOP_COL', 'LAMP_ROD_BOT_COL']
+  ok(typeof K94g.ACH_LAMP_ON === 'boolean'
+    && /const lampCool = ACH_ON && ACH_LAMP_ON/.test(cQ)
+    && lampKnobs.every((k) => new RegExp(k + String.raw`\s*= lampCool \?`).test(cQ)),
+    'Q7 등불 후보 9노브 = lampCool 삼항 · 게이트 = ACH_ON && ACH_LAMP_ON(이중 — 온난 복귀 시 무조건 웜)')
+  ok(!(K94g.ACH_ON && K94g.ACH_LAMP_ON) || lampKnobs.every((k) => chroma(K94g[k]) < 0.15),
+    'Q7b 등불 한색 성질: 후보 켜지면 9색 전부 크로마 < 0.15(웜 아님)')
+  //  Q8 ★173-c 그림자 리그 — App 배선(ShadowRig 정의·RND_SHADOWS 분기·추적/참여 코드) + 노브 도메인
+  ok(/function ShadowRig\(\)/.test(appQ) && /\{RND_SHADOWS\s*\n?\s*\? <ShadowRig \/>/.test(appQ)
+    && /o\.castShadow = !\(o\.material && o\.material\.transparent\)/.test(appQ)
+    && /tgt\.current\.position\.copy\(camera\.position\)/.test(appQ),
+    'Q8 그림자 리그: ShadowRig 정의 · dir1 분기 · 투명 캐스트 제외 · 플레이어 추적')
+  ok(K94g.RND_SHDW_RANGE > 0 && K94g.RND_SHDW_DIST > K94g.RND_SHDW_RANGE
+    && Number.isInteger(Math.log2(K94g.RND_SHDW_MAP)) && K94g.RND_SHDW_BIAS <= 0 && K94g.RND_SHDW_NBIAS >= 0,
+    `Q8b 그림자 노브 도메인: 절두체 ±${K94g.RND_SHDW_RANGE} < 광원 거리 ${K94g.RND_SHDW_DIST} · 맵 2^n · bias 부호`)
+  //  Q9 ★174 방 암실 — 셰이더 패치 앵커가 '설치된 three'와 'Room 소스' 양쪽에 실재하는지.
+  //   앵커는 three 0.184 실문자열 사본이므로 three 버전 업 시 여기서 갈린다(침묵 무패치 방지 — 런타임은 무해 강하만 한다).
+  const chunkQ = readFileSync('node_modules/three/src/renderers/shaders/ShaderChunk/lights_fragment_begin.glsl.js', 'utf8')
+  const achAnchors = ['vec3 geometryNormal = normal;', 'getDirectionalLightInfo( directionalLight, directLight );',
+    'vec3 irradiance = getAmbientLightIrradiance( ambientLightColor );',
+    'irradiance += getHemisphereLightIrradiance( hemisphereLights[ i ], geometryNormal );']
+  readFileSync('node_modules/three/src/renderers/shaders/ShaderChunk/project_vertex.glsl.js', 'utf8')   // 존재 자체가 검사(실종 시 throw)
+  ok(achAnchors.every((a) => chunkQ.includes(a) && roomQ2.includes(a)) && roomQ2.includes('#include <project_vertex>'),
+    'Q9 앵커 5점: three 0.184 청크와 Room 패치 소스 양쪽 실재(버전 업 감시)')
+  //  Q9e ★174-c2: 프로그램 캐시 키 + 재질 복제 — 둘 중 하나만 빠져도 "노브를 바꿔도 화면 불변"이 재발한다
+  //   (현도 실증 2026.08.24: 캐시 키 부재 → three가 구 프로그램 재사용 → 패치 통째 무시).
+  ok(/customProgramCacheKey\s*=\s*\(\)\s*=>/.test(roomQ2) && /\.clone\(\)/.test(roomQ2)
+    && /uniforms\.uAchMul\s*=\s*\{ value: ACH_INT_MUL \}/.test(roomQ2),
+    'Q9e 캐시 키 · 재질 복제 · 유니폼 배선 — 패치 무시(구 프로그램 재사용)·방 밖 오염 동시 방지')
+  //  Q9f ★174-c3: 패치 대상이 **차단 부피 교차 메시로 한정**되는가. 씬 전체 복제는 마운트 시점에
+  //   세계 전 재질을 재컴파일해 이벤트 배선을 죽인다(현도 실증: 텔레포트 패널 소실 2026.08.24).
+  ok(/setFromObject\(o\)/.test(roomQ2) && /ACH_INT_R \+ ACH_INT_FEATHER/.test(roomQ2)
+    && /ACH_INT_Y1 \+ ACH_INT_FEATHER/.test(roomQ2) && /차단 부피와 무교차/.test(roomQ2),
+    'Q9f 범위 한정: 경계상자 × 차단 부피 교차 판정 — 부피 밖 메시는 복제·패치 안 함(화면 동일·비용 0)')
+  //  Q9g ★174-c4: 형제 effect 순서 의존 금지. useEffect+[scene]로 한 번만 훑으면 방 메시가 아직
+  //   씬에 없어 0개 패치하고 영구히 끝난다(현도 실증 3차: 값을 바꿔도 화면 불변). 매 프레임 미방문
+  //   메시만 훑는 방식이어야 순서와 무관해진다.
+  ok(/useFrame\(\(\) => \{[\s\S]{0,400}achSeen/.test(roomQ2) && /userData\.achSeen = true/.test(roomQ2)
+    && !/useEffect\(\(\) => \{[\s\S]{0,300}achInteriorPatch/.test(roomQ2),
+    'Q9g 순서 무관: useFrame 점진 패치 + 방문 표시 · 구 useEffect 일회 훑기 부재(형제 순서 함정 봉인)')
+  ok(/instanceMatrix \* achWP4/.test(roomQ2) && /achInteriorPatch/.test(roomQ2) && /isMeshStandardMaterial/.test(roomQ2)
+    && /directLight\.color \*= achM;/.test(roomQ2) && /achM \* getAmbientLightIrradiance/.test(roomQ2)
+    && /achM \* getHemisphereLightIrradiance/.test(roomQ2),
+    'Q9b 패치 배선: 인스턴싱 경로 · 표준 재질 한정 · dir/amb/hemi 3계통 차단항(점·스포트 무접촉 = 실내 광원 보존)')
+  ok(K94g.ACH_INT_MUL >= 0 && K94g.ACH_INT_MUL < 1 && K94g.ACH_INT_Y0 < K94g.ACH_INT_Y1
+    && K94g.ACH_INT_FEATHER > 0 && K94g.ACH_INT_R > K94g.ACH_INT_FEATHER && K94g.ACH_INT_FACE_W > 0,
+    `Q9c 도메인: 잔광 ${K94g.ACH_INT_MUL} ∈ [0,1) · Y0 ${K94g.ACH_INT_Y0} < Y1 ${K94g.ACH_INT_Y1} · 페더·판별폭 양수`)
+  ok(/ACH_INT_R\s*=\s*ROOM_R \+/.test(cQ) && /ACH_INT_Y0\s*=\s*ROOM_FLOOR_Y - PIT_DEPTH/.test(cQ)
+    && /ACH_INT_Y1\s*=\s*ROOM_CEIL_Y \+/.test(cQ),
+    'Q9d 파생: 차단 부피 3노브가 방 기하 노브에서 유도(손 수치 0 규율)')
 }
 
 //  자식 컴포넌트(모듈 밖으로 export되지 않는 것)는 위 루프가 못 부른다.

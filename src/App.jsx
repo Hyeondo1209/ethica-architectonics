@@ -1,11 +1,12 @@
-import { Canvas } from '@react-three/fiber'
+import { Canvas, useThree, useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import GraphScaffold from './GraphScaffold'
 import { SCALE, RIB_XFER_ON, RIB_DEST_PHI, TERRACE_ON, SURVEY_START,
   LGT_BG, LGT_FOG_COL, LGT_FOG_NEAR, LGT_FOG_FAR, LGT_HEMI_SKY, LGT_HEMI_GND, LGT_HEMI_I,
   LGT_AMB_I, LGT_DIR_COL, LGT_DIR_I, RND_TONEMAP, RND_EXPOSURE, RND_SHADOWS, RND_LINEAR,
-  ACH_ON, LGT_FOG_ON, LGT_DIR2_I, LGT_DIR3_I } from './constants'   // ★173 무채 재편
+  ACH_ON, LGT_FOG_ON, LGT_DIR2_I, LGT_DIR3_I,
+  RND_SHDW_RANGE, RND_SHDW_DIST, RND_SHDW_MAP, RND_SHDW_BIAS, RND_SHDW_NBIAS } from './constants'   // ★173 무채 재편 · ★173-c 그림자 리그
 import { FirstPersonControls } from './FirstPersonControls'
 import { WAYPOINTS, WP_GROUPS, SPAWN_ID, DEV_TELEPORT, wpIndexOf } from './waypoints'
 import { Ground, MirrorPads, DrumCup, DomeRibs, ExplorationRib, HallDoorRibs, RibStair, KneeWalk, RibJunction, Lookout, RevealPassage, CloisterLamps, Terrace, LampRoom, FriezeCrossing } from './Dome'
@@ -29,6 +30,41 @@ const TONEMAP = {
   aces: THREE.ACESFilmicToneMapping, none: THREE.NoToneMapping, linear: THREE.LinearToneMapping,
   reinhard: THREE.ReinhardToneMapping, cineon: THREE.CineonToneMapping,
   agx: THREE.AgXToneMapping, neutral: THREE.NeutralToneMapping,
+}
+
+// ★173-c 그림자 판정 리그 — RND_SHADOWS=true일 때만 마운트. 두 가지 일을 한다:
+//  ①전 메시 그림자 참여(투명 재질은 캐스트 제외 — 렌즈·웅덩이·샤프트가 판을 검게 찍는 것 방지)
+//  ②dir1을 '추적 방향광'으로 대체: 방향광 조명은 **방향만** 쓰므로 광원을 플레이어 곁으로 옮겨도
+//    조도는 한 픽셀도 안 변하고, 그림자 절두체(±RND_SHDW_RANGE)만 플레이어를 따라간다
+//    (월드 실규모 반경 1382·높이 4608 — 전역 맵 하나는 텍셀이 1실단위를 넘어 화질 불가, 실측).
+function ShadowRig() {
+  const { scene, camera } = useThree()
+  const light = useRef(); const tgt = useRef()
+  const dir = ACH_ON ? [400, 700, 300] : [30 * SCALE, 120 * SCALE, 20 * SCALE]   // dir1과 같은 방향(두 체제)
+  const n = Math.hypot(...dir); const d = dir.map((v) => v / n * RND_SHDW_DIST)
+  useEffect(() => {   // 그림자 참여는 마운트 때 1회 일괄 — 씬 구성은 정적(스위치 변경 = 전체 리로드)
+    scene.traverse((o) => {
+      if (o.isMesh) { o.castShadow = !(o.material && o.material.transparent); o.receiveShadow = true }
+    })
+    return () => scene.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false } })
+  }, [scene])
+  useFrame(() => {
+    if (!light.current || !tgt.current) return
+    tgt.current.position.copy(camera.position)
+    light.current.position.set(camera.position.x + d[0], camera.position.y + d[1], camera.position.z + d[2])
+    light.current.target = tgt.current
+  })
+  return (
+    <>
+      <directionalLight ref={light} castShadow intensity={LGT_DIR_I} color={LGT_DIR_COL}
+        shadow-mapSize-width={RND_SHDW_MAP} shadow-mapSize-height={RND_SHDW_MAP}
+        shadow-camera-left={-RND_SHDW_RANGE} shadow-camera-right={RND_SHDW_RANGE}
+        shadow-camera-top={RND_SHDW_RANGE} shadow-camera-bottom={-RND_SHDW_RANGE}
+        shadow-camera-near={1} shadow-camera-far={RND_SHDW_DIST * 2}
+        shadow-bias={RND_SHDW_BIAS} shadow-normalBias={RND_SHDW_NBIAS} />
+      <object3D ref={tgt} />
+    </>
+  )
 }
 
 export default function App() {
@@ -79,7 +115,10 @@ export default function App() {
 
               <hemisphereLight args={[LGT_HEMI_SKY, LGT_HEMI_GND, LGT_HEMI_I]} />
               <ambientLight intensity={LGT_AMB_I} />
-              <directionalLight position={ACH_ON ? [400, 700, 300] : [30 * SCALE, 120 * SCALE, 20 * SCALE]} intensity={LGT_DIR_I} color={LGT_DIR_COL} />
+              {/* ★173-c: 그림자 켜면 dir1을 ShadowRig로 대체 — 같은 방향·색·세기, 그림자 절두체만 플레이어 추적 */}
+              {RND_SHADOWS
+                ? <ShadowRig />
+                : <directionalLight position={ACH_ON ? [400, 700, 300] : [30 * SCALE, 120 * SCALE, 20 * SCALE]} intensity={LGT_DIR_I} color={LGT_DIR_COL} />}
               {ACH_ON && <>{/* ★173 CLAY 4방향 리그 둘째·셋째(Survey 실측 위치 그대로) — 어느 면도 검게 안 죽는 중립광 */}
                 <directionalLight position={[-500, 300, -250]} intensity={LGT_DIR2_I} color={LGT_DIR_COL} />
                 <directionalLight position={[250, -400, -500]} intensity={LGT_DIR3_I} color={LGT_DIR_COL} />

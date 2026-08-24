@@ -220,7 +220,13 @@ export const achDerive = (hex, w = ACH_W, base = ACH_BASE, anchorL = ACH_ANCHOR_
   const [hb, sb, lb] = rgb2hsl(hex2rgb(base))
   return hsl2hex([hb, sb, Math.min(1, Math.max(0, lb + w * (achL(hex) - anchorL)))])
 }
-const st = (hex) => (ACH_ON ? achDerive(hex) : hex)     // 석재 재질 20노브가 전부 이 관문을 지난다
+const st = (hex) => (ACH_ON ? achDerive(hex) : hex)     // 석재 재질 21노브가 전부 이 관문을 지난다
+//  ★174-b: 명도 보존 무채화 — 암실 팔레트용. achDerive는 가족 앵커 기준이라 W=0에서 어두운 색도 밝은
+//  기준색으로 붕괴시킨다(암실이 사라짐). achTone은 명도를 그대로 두고 색상·채도만 기준색 계열로 튼다.
+export const achTone = (hex) => { const [hb, sb] = rgb2hsl(hex2rgb(ACH_BASE)); return hsl2hex([hb, sb, achL(hex)]) }
+//  ── ★173-c 조명 잔여 판정 스위치 (2026.08.23 셋째 흐름 · 현도 ⓐ: 이번 대화에서 이어서) ──
+export const ACH_LAMP_ON = false   // 등불 판정: false = 웜 유지(현행 — 무채 속 채도 유일자) · true = 한색 후보(렌즈 일습 계열)
+const lampCool = ACH_ON && ACH_LAMP_ON   // ⚠온난 복귀(ACH_ON=false)에선 무조건 웜 — 게이트 이중
 //  ═══════════════════════════ ★173 파생 기계 끝 ═══════════════════════════════════
 
 //  ── ⑴ 전역 광원·대기 (App.jsx dome 뷰) — ★173: ACH_ON이 두 체제를 가른다(뒤값 = ★172 온난 기록) ──
@@ -243,7 +249,14 @@ export const LGT_DIR3_I    = 0.26      // ★173 CLAY 4방향 리그 셋째(아�
 //  ── ⑵ 렌더러 (App.jsx <Canvas>) — 현행 = R3F v9 기본값을 명시 핀 고정(설치본 소스 실측) ──
 export const RND_TONEMAP  = 'aces'  // 'aces'|'none'|'linear'|'reinhard'|'cineon'|'agx'|'neutral' (매핑은 App)
 export const RND_EXPOSURE = 1.0     // toneMappingExposure
-export const RND_SHADOWS  = false   // true면 PCFSoft(R3F 기본)
+export const RND_SHADOWS  = false   // true면 PCFSoft(R3F 기본) + ★173-c 추적 그림자 리그 가동(아래 노브)
+//  ── ★173-c 그림자 판정 리그 — 월드 실규모(반경 1382·높이 4608)에 전역 맵 하나는 화질 불가 →
+//     그림자 카메라가 플레이어를 따라간다(방향광 조명은 방향만 쓰므로 위치 이동 = 조도 무변화)
+export const RND_SHDW_RANGE = 180   // 그림자 절두체 반폭(실단위 — 플레이어 주변 ±이 범위만 그림자)
+export const RND_SHDW_DIST  = 400   // 광원을 타깃에서 떼는 거리 — 깊이 범위(×2)를 조이면 acne 완화(★173-c2: 600→400)
+export const RND_SHDW_MAP   = 4096  // 섀도 맵 해상도(한 변) — 텍셀 0.088실단위(★173-c2: 2048→4096)
+export const RND_SHDW_BIAS  = -0.0015 // acne 방지 bias(★173-c2: 리브 줄무늬 실증 후 5배 — 그림자가 발에서 떨어져 보이면 절반씩 줄일 것)
+export const RND_SHDW_NBIAS = 5.0   // normalBias(실단위 큼 — 곡면 자기그림자 억제. ★173-c2: 2→5. 빛샘 보이면 줄일 것)
 export const RND_LINEAR   = false   // false = sRGB 출력(현행)
 
 //  ── ⑶ 공유 사석 가족 (기록된 동일성: Corridor 원산 · Radial MAT_* · RadialEvents "=Radial" ·
@@ -263,18 +276,23 @@ export const ROOM_PAL_LIT = Object.freeze({
   shell: PAL_WALL,  floor: PAL_FLOOR, pitWall: PAL_WALL,  pitRim: PAL_FLOOR, pitFloor: PAL_FLOOR,
   nicheWall: PAL_RECESS, nicheFloor: PAL_FLOOR, nicheStep: PAL_TREAD,
   slotWall: PAL_RECESS,  slotFloor: PAL_FLOOR,  slotStep: PAL_TREAD })
-export const ROOM_PAL_DIM = Object.freeze({
+//  ★174-b: 암실 팔레트 = achTone 파생(명도 보존 무채화 — 어둠의 위계는 그대로, 웜만 걷는다).
+//   온난 기록 = ROOM_PAL_DIM_WARM(보존계 정본 · ACH_ON=false면 그 값 그대로).
+const ROOM_PAL_DIM_WARM = Object.freeze({
   shell: '#221b10', floor: '#241d12', pitWall: '#2b2216', pitRim: '#2b2216', pitFloor: '#332918',
   nicheWall: '#3a2f1c', nicheFloor: '#3f331e', nicheStep: '#463823',
   slotWall: '#3a2f1c', slotFloor: '#463823', slotStep: '#4d3e27' })
-export const RM_LGT_CORE_COL = '#ffe2b0' // 방 중앙 점광(v2.2 거의 소등 — 어둠은 여기서 나온다)
+export const ROOM_PAL_DIM = ACH_ON
+  ? Object.freeze(Object.fromEntries(Object.entries(ROOM_PAL_DIM_WARM).map(([k, v]) => [k, achTone(v)])))
+  : ROOM_PAL_DIM_WARM
+export const RM_LGT_CORE_COL = ACH_ON ? '#dfe4ea' : '#ffe2b0' // 방 중앙 점광(v2.2 거의 소등 — 어둠은 여기서 나온다)
 export const RM_LGT_CORE_I   = 0.12
-export const RM_LGT_SPOT_COL = '#ffe8bd' // 판테온 스포트 색(세기 = 기존 SPOT_I 노브)
-export const RM_LGT_DAIS_COL = '#ffdf9e' // 기단 점광
+export const RM_LGT_SPOT_COL = ACH_ON ? '#ffffff' : '#ffe8bd' // 판테온 스포트 색(세기 = 기존 SPOT_I 노브)
+export const RM_LGT_DAIS_COL = ACH_ON ? '#e8edf2' : '#ffdf9e' // 기단 점광
 export const RM_LGT_DAIS_I   = 1.4
-export const RM_LGT_WELL_COL = '#fff1d2' // 빛우물 상단 점광
+export const RM_LGT_WELL_COL = ACH_ON ? '#f2f5f8' : '#fff1d2' // 빛우물 상단 점광
 export const RM_LGT_WELL_I   = 2.4
-export const RM_SHAFT_COL    = '#ffdf9e' // 빛 샤프트(가짜 볼륨) 색 — 기단 점광과 같은 값이나 기록 없음 → 분리
+export const RM_SHAFT_COL    = ACH_ON ? '#edf1f5' : '#ffdf9e' // 빛 샤프트(가짜 볼륨) 색 — 기단 점광과 같은 값이나 기록 없음 → 분리
 export const RM_SHAFT_OP     = 0.30      // 샤프트 세기(uOpacity — 원주석이 노브라 명명)
 //  ★173: 방 석재 재질 8노브 = st() 파생(발광 없는 meshStandardMaterial 실측 확인 — Room.jsx 415~674)
 export const RM_AXSP_MASS_COL  = st(ACH_WARM.RM_AXSP_MASS)  // ★107 공리 나선 매스(판과 같은 값 — 기록 없음 → 분리)
@@ -296,20 +314,20 @@ export const TERR_COL       = st(ACH_WARM.TERR)      // 테라스 판(등불 갓
 export const APEX_LGT_COL   = ACH_ON ? '#ffffff' : '#ffe3b0' // 정점 점광(렌즈 일습 — 현도 지시로 무채 전환) — Dome Apex + Lens("구 Apex 점광 계승 · 색·강도 동일")
 export const APEX_LGT_I     = 2.2
 export const APEX_GLOW_COL  = ACH_ON ? '#f2f5f8' : '#fff1d4' // 정점 발광구(렌즈 일습)
-export const LAMP_LGT_JOINT_COL = '#ffc27a' // 등불 접합부 점광(관이 리브 밑면에 꽂히는 자리)
+export const LAMP_LGT_JOINT_COL = lampCool ? '#eaf0f6' : '#ffc27a' // 등불 접합부 점광(관이 리브 밑면에 꽂히는 자리)
 export const LAMP_LGT_JOINT_I   = 22
-export const LAMP_LGT_MOUTH_COL = '#ffce8a' // 등불 갓 입 하향 점광
+export const LAMP_LGT_MOUTH_COL = lampCool ? '#e4ecf4' : '#ffce8a' // 등불 갓 입 하향 점광
 export const LAMP_LGT_MOUTH_I   = 14
-export const LAMP_SHADE_COL     = '#caa161' // 갓(뒤집힌 깔때기)
-export const LAMP_SHADE_EMIS    = '#ffb45c' // 갓 발광색
+export const LAMP_SHADE_COL     = lampCool ? '#cfd3d8' : '#caa161' // 갓(뒤집힌 깔때기)
+export const LAMP_SHADE_EMIS    = lampCool ? '#dfe9f2' : '#ffb45c' // 갓 발광색
 export const LAMP_SHADE_EMIS_I  = 0.55
-export const LAMP_GLOW_MOUTH_COL = '#fff1d4' // 갓 입 발광면(정점 발광구와 같은 값 — 기록 없음 → 분리)
-export const LAMP_POOL_CORE_COL = '#ffdc9a' // 바닥 웅덩이 코어
+export const LAMP_GLOW_MOUTH_COL = lampCool ? '#f2f5f8' : '#fff1d4' // 갓 입 발광면(정점 발광구와 같은 값 — 기록 없음 → 분리)
+export const LAMP_POOL_CORE_COL = lampCool ? '#e8eef4' : '#ffdc9a' // 바닥 웅덩이 코어
 export const LAMP_POOL_CORE_OP  = 0.5
-export const LAMP_POOL_HALO_COL = '#ffce7d' // 바닥 웅덩이 헤일로
+export const LAMP_POOL_HALO_COL = lampCool ? '#dce4ec' : '#ffce7d' // 바닥 웅덩이 헤일로
 export const LAMP_POOL_HALO_OP  = 0.22
-export const LAMP_ROD_TOP_COL   = '#ffedc4' // 봉 그라데이션: 진입고(리브 쪽) — 밝음
-export const LAMP_ROD_BOT_COL   = '#c08a48' // 봉 그라데이션: 목(아래끝) — 어두움
+export const LAMP_ROD_TOP_COL   = lampCool ? '#eef2f6' : '#ffedc4' // 봉 그라데이션: 진입고(리브 쪽) — 밝음
+export const LAMP_ROD_BOT_COL   = lampCool ? '#9aa3ad' : '#c08a48' // 봉 그라데이션: 목(아래끝) — 어두움
 
 //  ── ⑹ 담체(Steles — 전 계열 소등 중 · 권역 ⑬) ──────────────────────────────────
 export const STELE_INK_TAG  = '#ece0c6' // 각자(刻字) 머리표 잉크
@@ -569,14 +587,17 @@ export const SHAFT_TOP_R  = 5.5            // 허리 반지름 — 디스크 구
 //   만들려고 임시로 해놓은 눈속임 같은 거였어. 그냥 눈속임 없이 가보자").
 //   `false` = 방이 건물 나머지와 **같은 석재**가 된다(색은 Corridor.jsx 드럼 팔레트를 역할별로 인용 —
 //   새 색을 만들지 않았다). `true` = 구 v2.2 암실 복원(보존계 — 색 + fog 제외 + 스포트 증폭이 한 몸).
-export const ROOM_DIM      = false
+export const ROOM_DIM      = false   // ★174-b: 재소등(현도 지적) — 암실 팔레트 = 알베도로 어둠을 위조하던 철회 어법. 어둠은 ACH_INT 빛 차단이, 색은 무채 일가(LIT 파생)가 담당
 //   ★빛 샤프트(가짜 볼륨 원기둥 2절 · AdditiveBlending 셰이더) — 빛이 아니라 **빛처럼 보이는 물체**였다.
 //   현도: "방 내부의 빛으로 눈속임해놓은 빛기둥도 그냥 없애줘." 코드·상수는 보존, 마운트만 끈다.
-export const ROOM_SHAFT_ON = false
+export const ROOM_SHAFT_ON = false   // ⛔★174 폐기와 함께 구 소등 복귀
 //   ★실측 알베도 휘도비(바닥 #241d12 → #c2a062) = **5.48**. 스포트는 이 배수만큼 증폭돼 있었으므로
 //   해제하면 같은 배수로 되돌린다 — 그래야 웅덩이 밝기가 보존된다(수치가 아니라 **관계**를 옮긴다).
 export const ROOM_ALBEDO_GAIN = 5.48
-export const SPOT_I       = ROOM_DIM ? 8.0 : 8.0 / ROOM_ALBEDO_GAIN   // ★판테온 스포트 세기. 렌더 보며 튜닝
+export const RM_SPOT_I        = 14   // ★174-c 우물 낙하광 세기(확정 그림 — 현도 튜닝 1순위)
+export const RM_SPOT_SPREAD_R = 40   // ★174-c 바닥에서 빛이 닿는 반경(퍼짐 노브 — 방 반경 64 안. 웅덩이 13보다 넓게 '공간에 퍼짐')
+export const RM_SPOT_PEN      = 0.9  // ★174-c 가장자리 녹임(0 = 칼같은 원 · 1 = 전부 페더)
+export const SPOT_I       = ACH_ON ? RM_SPOT_I : (ROOM_DIM ? 8.0 : 8.0 / ROOM_ALBEDO_GAIN)   // ★판테온 스포트 세기(온난 = 구식 유지)
 
 // ── ★101 정의 각뿔대(팔각 역각뿔대) — 블록아웃 (2026.08.02 현도 그림 · 기하 = defPitGeometry.js) ──
 //  현도 그림: "방 바닥을 8각형 각뿔대로 판다 → 각 면을 또 수평으로 파서 거기에 정의 하나씩."
@@ -596,6 +617,21 @@ export const PIT_FLOOR_T  = 1.5    // 바닥 슬래브 두께(밑면은 봉인 �
 export const PIT_MARK_MODE = 'off' // 팔각 각인선 처분 — 'rim' 구멍 테두리 밖으로 파생 이동 / **'off' 숨김(현도 08.02 철거 지시)** / 'keep' 원위치(비교용)
 export const PIT_MARK_GAP  = 0.6   // 'rim'에서 입술 바깥면부터 각인선까지
 export const PIT_SHAFT_DROP = false // 판테온 빛 하절을 각뿔대 바닥까지 늘일지. ⚠기본 false = 현도 지시("이번엔 손 안 대고 어떻게 보이는지 본다") — 빛은 P2 몫
+
+//  ── ★174 방 암실 프로토타입 — 사진2 방향 1호기 (2026.08.24 현도 확정: 실내 어둠 + 개구부 낙하광) ──
+//  실시간 GI 부재 → 전역광(dir·hemi·amb)이 차폐를 무시하고 실내를 균일 조사(사진2 불가의 근본 원인).
+//  기제: 방 부피 안 프래그먼트에서 **전역광 응답만** ACH_INT_MUL로 눌러 어둠을 만들고, 방 자체 광원
+//  (판테온 스포트·점광·샤프트)은 그대로 둔다(점·스포트 루프 무접촉 — 유형 분리 = 전역/실내 분리와 정확히 일치).
+//  ★169 껍질이 박막(0.19~0.30)이라 공간 마스크만으론 안팎 면 분리 불가 → 껍질권(타원 정규 q>Q0)에선
+//  법선이 방 중심을 보는 면(=실내면)만 차단. 셰이더 패치는 Room.jsx achInteriorPatch — Q9가 앵커를 잠근다.
+export const ACH_INT_ON       = false             // ⛔★174 셰이더 차단 접근 폐기(2026.08.24 — 배선 결함 4연속·최종 무반응. 재시도 금지: DESIGN 철회 이력 참조)
+export const ACH_INT_MUL      = 0.02              // 실내 전역광 잔광(0 = 칠흑 · 1 = 차단 없음) — 확정 그림 '완전 깜깜'(★174-c 0.06→0.02)
+export const ACH_INT_R        = ROOM_R + 0.5      // 차단 원통 반경(파생 — 방 안반경 + 반 벽)
+export const ACH_INT_Y0       = ROOM_FLOOR_Y - PIT_DEPTH - 2  // 아래끝(각뿔대 바닥 아래 — 파생)
+export const ACH_INT_Y1       = ROOM_CEIL_Y + 1   // 위끝(천장 위 — 빛우물 목은 밝게 남긴다 = 빛이 드는 인상)
+export const ACH_INT_FEATHER  = 1.5               // 부피 경계 페더
+export const ACH_INT_SHELL_Q0 = 0.85              // 껍질권 시작(타원 정규 거리 — 이 안은 법선 무관 전면 차단)
+export const ACH_INT_FACE_W   = 0.12              // 실내면 판별 페더(법선·중심방향 내적 폭)
 // ★★★106 기단 찌꺼기 철거(2026.08.02 현도: "기존 정의가 놓인 기단에 있던 찌꺼기들 없애줘.
 //  원형과 팔각형으로 된 테두리들 있잖아.") — 각뿔대가 정의를 가져간 뒤 남은 구세계 잔재 셋:
 //   ⓐ 기단 단(r34 → 구멍 33.5 = 폭 0.5짜리 **얇은 고리**만 살아 있었다) ⓑ 팔각 각인선 ⓒ 원형 가장자리 링.
