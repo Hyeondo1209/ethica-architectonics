@@ -6,6 +6,7 @@ import * as THREE from 'three'
 import { Brush, Evaluator, HOLLOW_SUBTRACTION } from 'three-bvh-csg'
 import { GivenMonolith } from './Steles'
 import { buildDisc } from './discGeometry.js'
+import { shaftNodes } from './lightingModel.js'   // ★175-e 빛기둥 마디 정본(사본 금지)
 import {
   ROOM_CX, ROOM_FLOOR_Y, ROOM_R, ROOM_CEIL_Y, ROOM_HEIGHT, ROOM_OCULUS,
   ACH_INT_ON, ACH_INT_MUL, ACH_INT_R, ACH_INT_Y0, ACH_INT_Y1, ACH_INT_FEATHER, ACH_INT_SHELL_Q0, ACH_INT_FACE_W,   // ★174 방 암실
@@ -15,6 +16,7 @@ import {
   COR_Y0, COR_THICK, BOX_X0, BOX_X1, BOX_HW, BOX_TOP,
   RAD_ANG0, RAD_T_IN, RAD_T_HW, RAD_TOP, RAD_DOOR_HW,
   DAIS_R, DAIS_STEP_H, DAIS_STEP_IN, DAIS_STEPS, DAIS_H, DAIS_ON, POOL_R, SHAFT_TOP_Y, SHAFT_TOP_R, SPOT_I,
+  SHAFT_WAIST_R, SHAFT_POOL_R, SHAFT_HALO_ON, SHAFT_HALO_OP, RM_SPOT_SHADOW, RM_SPOT_SHDW_MAP, RM_SPOT_SHDW_BIAS, RM_SPOT_SHDW_NBIAS, RM_SPOT_SHDW_NEAR,
   DEF_OCT_R, DEF_OCT_PHASE, AX_F0, AX_F1, AX_OFFSET, AX_PLAT_R, AX_MONO_SCALE,
   ROOM_FLOOR_LIFT,
   PIT_ON, PIT_SIDES, PIT_PHASE, PIT_MARK_MODE, PIT_MARK_GAP, PIT_SHAFT_DROP, DEF_OCT_ON,
@@ -25,7 +27,7 @@ import {
   RRIB_ON,
   EAVE_ON,
   WBASE_ON,
-  ROOM_SHELL_SOLID,
+  ROOM_SHELL_SOLID, ROOM_DARK_ON, ROOM_DARK_AO, ROOM_DARK_SHELL, RM_SPOT_DECAY, SHDW_CAST_SCOPE, SPIRE_NOCAST,
   ROOM_PAL_LIT, ROOM_PAL_DIM, RM_SHAFT_COL, RM_SHAFT_OP,          // ★172 조명·팔레트 정본
   RM_LGT_CORE_COL, RM_LGT_CORE_I, RM_LGT_SPOT_COL, RM_LGT_DAIS_COL, RM_LGT_DAIS_I,
   RM_LGT_WELL_COL, RM_LGT_WELL_I, RM_SPOT_SPREAD_R, RM_SPOT_PEN, RM_AXSP_MASS_COL, RM_AXSP_SLAB_COL, RM_AXSP_SUP_COL,
@@ -142,6 +144,53 @@ export function AchRoomDarkness() {
 export function DefAxiomRoom({ stairKind }) {
   const treadRef = useRef()
   const helixRef = useRef()
+
+  //  ═══════════ ★175 ROOM_DARK — 방 안에서만 간접광(amb+hemi)을 끊는다 ═══════════
+  //  three 0.184 aomap_fragment: `reflectedLight.indirectDiffuse *= ambientOcclusion`
+  //    → aoMap은 ★간접확산광에만★ 곱해진다. directional·point·spot은 무영향(directDiffuse).
+  //  1×1 검은 텍스처 + aoMapIntensity=1 → 그 재질의 amb+hemi 응답이 0.
+  //  방 재질은 전부 JSX 인라인 <meshStandardMaterial>이라 mesh마다 별 인스턴스 = 바깥과 공유 없음.
+  //  ⚠★174와 다른 점 셋: ①셰이더 문자열 무접촉(표준 재질 속성) ②순회 범위 = 방 그룹 한정
+  //   ③적용 개수를 콘솔에 찍는다 — '먹었는지'를 F12로 1초에 확인할 수 있다(무반응 오진 재발 방지).
+  const darkRef = useRef()
+  const { invalidate } = useThree()
+  const aoTex = useMemo(() => {
+    if (!ROOM_DARK_ON) return null
+    const t = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1, THREE.RGBAFormat)
+    t.needsUpdate = true                 // DataTexture는 명시 업로드 필요
+    return t                             // colorSpace 기본 = NoColorSpace(비색 데이터) — aoMap의 요구와 일치
+  }, [])
+  //  형제 effect 순서에 기대지 않는다(★174-c4가 지목한 함정): 매 프레임 '아직 안 본' 메시만 훑는다.
+  //  방 그룹 하위만 순회하므로 비용은 무시할 수준이고, 재방문은 표식으로 0이 된다.
+  //  ⚠게이트 둘은 독립이다: `ROOM_DARK_ON=false`(어둠 복귀)로 되돌려도 그림자 캐스터 주입은 계속돼야 한다 —
+  //   한 게이트로 묶으면 킬스위치 한 줄이 씬 전체의 그림자를 통째로 끄는 숨은 결합이 된다.
+  useFrame(() => {
+    if (!darkRef.current) return
+    const wantDark = ROOM_DARK_ON && !!aoTex
+    const wantCast = SHDW_CAST_SCOPE === 'room'
+    if (!wantDark && !wantCast) return
+    let n = 0
+    darkRef.current.traverse((o) => {
+      if (!o.isMesh || !o.material || o.userData.rdSeen) return
+      o.userData.rdSeen = true                                  // 판정 결과와 무관하게 재방문 안 함
+      //  ★175-b 그림자 캐스터 = 방 그룹만(현도 지시: 리브는 그림자를 만들지 않는다).
+      //   실내 어둠은 **방 껍질 자신**이 dir을 막아 만든다 — 멀리 있는 리브가 던질 필요가 없다.
+      //   ⚠투명 재질은 캐스터에서 제외(구 ShadowRig 규칙 승계 — 유리·샤프트가 검은 덩어리를 던지지 않게).
+      //  ★175-g 첨탑은 캐스터에서 뺀다 — 조리개는 디스크(r6)이고 첨탑 벽(16.8)은 아무것도 막지 않는다.
+      if (wantCast) o.castShadow = !(o.material && o.material.transparent) && !(SPIRE_NOCAST && o.userData.spireShell)
+      if (!wantDark) return
+      if (!ROOM_DARK_SHELL && o.userData.roomShell) return       // 껍질 제외 체제(aoMap 한정 — 그림자는 위에서 이미 켰다)
+      for (const m of [].concat(o.material)) {
+        if (!m || !m.isMeshStandardMaterial || m.userData.roomDark) continue
+        m.aoMap = aoTex
+        m.aoMapIntensity = ROOM_DARK_AO
+        m.userData.roomDark = true
+        m.needsUpdate = true      // ★USE_AOMAP define 재컴파일 — 이 한 줄이 없으면 화면은 그대로다
+        n++
+      }
+    })
+    if (n) { console.info(`[ROOM_DARK] aoMap 주입 재질 ${n}개 (AO=${ROOM_DARK_AO} · 껍질포함=${ROOM_DARK_SHELL})`); invalidate() }
+  })
 
   // 나선 치수 — 꼭대기 칸 윗면 = 디스크 고리 윗면(49.3). 낱장 디딤판이 중심 반지름 RIN(=14, 고리 6~18 위)에 내려서고, 거기서 고리를 밟아 슬롯으로 나감.
   const TOP_SURFACE = COR_Y0 + COR_THICK / 2                       // 맨 윗 칸 윗면 = 착지 디스크 고리 윗면(49.3)
@@ -328,6 +377,36 @@ export function DefAxiomRoom({ stairKind }) {
         gl_FragColor = vec4(uColor, uOpacity * edge * len);
       }`,
   }), [])
+  //  ★175-e 헤일로 = 같은 셰이더의 흐린 사본(색은 공유, 불투명도만 낮춘다 — 새 색을 만들지 않는다).
+  const haloMat = useMemo(() => { const m = shaftMat.clone(); m.uniforms = THREE.UniformsUtils.clone(shaftMat.uniforms); m.uniforms.uOpacity.value = SHAFT_HALO_OP; return m }, [shaftMat])
+  const SHAFT = useMemo(() => shaftNodes(), [])
+  //  ★175-g 세그먼트 uv 리맵 — 셰이더의 세로 페이드(`len = smoothstep(0,0.18,vY)·(0.30+0.70·vY)`)는
+  //   uv.y를 쓴다. 마디 사슬로 쪼개면 **세그먼트마다 자기 하단에서 0으로 꺼져** 이음매에 밝기 점프가 생긴다
+  //   (현도 실증: "빛이 연결되는 부분에 미세하게 원형의 빛 경계" — 정확히 y52 마디 높이).
+  //   ⇒ 각 세그먼트의 uv.y를 **사슬 전체에서의 높이 비율**로 다시 쓴다. 셰이더는 손대지 않는다.
+  const SHAFT_CHAINS = useMemo(() => {
+    const build = (tag, nodes, mat) => {
+      if (!nodes || nodes.length < 2) return null
+      const yTop = nodes[0][0], yBot = nodes[nodes.length - 1][0], span = yTop - yBot
+      const segs = nodes.slice(0, -1).map(([yA, rA], i) => {
+        const [yB, rB] = nodes[i + 1]
+        const geo = new THREE.CylinderGeometry(rA, rB, yA - yB, 40, 1, true)
+        const uv = geo.getAttribute('uv'), pos = geo.getAttribute('position')
+        for (let k = 0; k < uv.count; k++) {
+          //  로컬 y(±h/2) → 월드 y → 사슬 비율. 정점 위치에서 직접 읽으므로 세그먼트 순서에 의존하지 않는다.
+          const wy = (yA + yB) / 2 + pos.getY(k)
+          uv.setY(k, (wy - yBot) / span)
+        }
+        uv.needsUpdate = true
+        return { geo, cy: (yA + yB) / 2 }
+      })
+      return { tag, mat, segs }
+    }
+    return [
+      build('u', SHAFT.upper, shaftMat), build('l', SHAFT.lower, shaftMat),
+      ...(SHAFT_HALO_ON ? [build('hu', SHAFT.haloUp, haloMat), build('hl', SHAFT.haloLo, haloMat)] : []),
+    ].filter(Boolean)
+  }, [SHAFT, shaftMat, haloMat])
 
   // ── ★101 정의 각뿔대(2026.08.02 현도 그림) — 기하는 전부 defPitGeometry가 만든다(사본 금지) ──
   //  판 = 팔각 구멍 뚫린 고리 · 각뿔대 = 옆벽 껍질 + 바닥 슬래브. 셋 다 노브(깊이·상면·하면) 자동 추종.
@@ -379,12 +458,12 @@ export function DefAxiomRoom({ stairKind }) {
   const RFOG = !ROOM_DIM
 
   return (
-    <group position={[ROOM_CX, 0, 0]}>
+    <group position={[ROOM_CX, 0, 0]} ref={darkRef}>
       {/* ★★★169 방 껍질 솔리드(2026.08.22 현도 ⓒ) — 종잇장 두 장을 법선 오프셋 껍질 하나로.
           두께 = 봉합(T_OUT 0.187 · T_IN 0.300 — 전부 오차 파생, constants ★169 주석이 정본).
           닫힌 솔리드라 DoubleSide 불필요. ⛔ROOM_SHELL_SOLID=false = 아래 구 종잇장 복귀(보존계) */}
       {ROOM_SHELL_SOLID ? (
-        <mesh geometry={shellGeo} userData={{ walkable: false }}>   {/* 벽 — 밟는 면 아님 */}
+        <mesh geometry={shellGeo} userData={{ walkable: false, roomShell: true }}>   {/* 벽 — 밟는 면 아님. ★175 roomShell = ROOM_DARK_SHELL 제외 표식 */}
           <meshStandardMaterial color={P.shell} roughness={0.95} fog={RFOG} />   {/* ★113 ROOM_DIM 노브 */}
         </mesh>
       ) : (<>
@@ -477,7 +556,13 @@ export function DefAxiomRoom({ stairKind }) {
       <pointLight position={[0, ROOM_FLOOR_Y + ROOM_HEIGHT * 0.45, 0]} intensity={RM_LGT_CORE_I} distance={ROOM_R * 4} decay={1.4} color={RM_LGT_CORE_COL} />   {/* v2.2: 거의 소등 — 어둠은 여기서 나온다 */}
       {/* 판테온 스포트 — 빛우물 위에서 원점으로 수직 낙하. three의 spotLight.target 기본값이 월드 원점(씬 밖 Object3D=항등행렬)이라 타깃 배선 불필요 */}
       <spotLight position={[0, ROOM_CYL_TOP - 6, 0]} angle={Math.atan(RM_SPOT_SPREAD_R / (ROOM_CYL_TOP - 6))}
-        penumbra={RM_SPOT_PEN} intensity={SPOT_I} distance={170} decay={1.1} color={RM_LGT_SPOT_COL} />   {/* ★174-c: 퍼짐 = 바닥 도달 반경 노브(구 POOL_R×1.2 = 7° 협광은 온난 보존계 값) */}
+        penumbra={RM_SPOT_PEN} intensity={SPOT_I} distance={170} decay={RM_SPOT_DECAY} color={RM_LGT_SPOT_COL}
+        castShadow={RM_SPOT_SHADOW}
+        shadow-mapSize-width={RM_SPOT_SHDW_MAP} shadow-mapSize-height={RM_SPOT_SHDW_MAP}
+        shadow-bias={RM_SPOT_SHDW_BIAS} shadow-normalBias={RM_SPOT_SHDW_NBIAS}
+        shadow-camera-near={RM_SPOT_SHDW_NEAR} shadow-camera-far={180} />
+        {/* ★174-c: 퍼짐 = 바닥 도달 반경 노브 · ★175-c castShadow = 빛을 **개구 모양으로 자른다**
+            (없으면 원뿔이 천장을 뚫어 웅덩이 반경이 40으로 벌어지고 빛기둥과 어긋난다) */}
       {/* 웅덩이 반사광 — 낮은 포인트: 선돌 앞면(r26) 가독용. 벽(r91)에 닿기 전 감쇠 */}
       <pointLight position={[0, ROOM_FLOOR_Y + DAIS_H + 2.5, 0]} intensity={RM_LGT_DAIS_I} distance={42} decay={1.7} color={RM_LGT_DAIS_COL} />
       {/* 빛 샤프트 2절 — 출처 = 원뿔대 '꼭대기 구멍'(y=CYL_TOP, r=WELL_RT). 상절: 우물 안 낙하 · 하절: 디스크 구멍→웅덩이.
@@ -485,12 +570,12 @@ export function DefAxiomRoom({ stairKind }) {
       {/*  ★★★113 소등(현도 2026.08.05) — 이 둘은 빛이 아니라 **빛처럼 보이는 물체**다(가짜 볼륨).
            `ROOM_SHAFT_ON=true` 한 줄로 복원된다 — 셰이더·상수·기하 전부 보존. */}
       {ROOM_SHAFT_ON && (<>
-        <mesh material={shaftMat} position={[0, (ROOM_CYL_TOP + SHAFT_TOP_Y) / 2, 0]}>
-          <cylinderGeometry args={[ROOM_WELL_RT - 0.3, SHAFT_TOP_R - 0.3, ROOM_CYL_TOP - SHAFT_TOP_Y, 40, 1, true]} />
-        </mesh>
-        <mesh material={shaftMat} position={[0, (SHAFT_TOP_Y + SHAFT_BOT_Y) / 2, 0]}>
-          <cylinderGeometry args={[SHAFT_TOP_R, POOL_R, SHAFT_TOP_Y - SHAFT_BOT_Y, 40, 1, true]} />
-        </mesh>
+        {/* ★175-e 현도 스케치: 갓 꼭지에서 시작해 각뿔대 바닥까지 관통하는 기둥 + 그 2배 폭의 헤일로.
+            마디는 lightingModel.shaftNodes()가 기하에서 유도한다(사본 금지 — check_lux가 같은 함수를 문다).
+            ⚠조리개·바닥 두 마디는 실제 스포트 원뿔 위의 점이라 기둥과 빛 자국이 어긋나지 않는다. */}
+        {SHAFT_CHAINS.map(({ tag, mat, segs }) => segs.map((g, i) => (
+          <mesh key={`${tag}${i}`} geometry={g.geo} material={mat} position={[0, g.cy, 0]} />
+        )))}
       </>)}
       {/* ★107 공리 나선 — 'mass'(속 찬 매스 + 지지) ↔ 'treads'(구세계 낱장 141칸 · 보존계).
           ⚠매스는 윗면이 램프다 — 경사 7.74°가 평면 나선에 잠겨 있어 계단이 성립하지 않는다(constants 주석). */}
@@ -545,7 +630,7 @@ export function DefAxiomRoom({ stairKind }) {
       {/* 솟은 원뿔대(빛 우물) — 위는 막혀 리브 가림(스포), +x(통로)쪽 아래는 출입문으로 트여 통로로 나감.
           올려다보면 좁은 꼭대기로 빛만 보이고, 정면(통로쪽)으론 걸어 나갈 문이 있음. */}
       {/* ★127: 첨탑 = 닫힌 솔리드 → FrontSide(★118 디스크와 같은 근거 — 구 DoubleSide는 종잇장 관이라 필요했던 것) */}
-      <mesh geometry={wellCut}>
+      <mesh geometry={wellCut} userData={{ spireShell: true }}>   {/* ★175-g 캐스터 제외 표식 — 조리개는 디스크(r6)이지 첨탑 벽(16.8)이 아니다 */}
         <meshStandardMaterial color={RM_SPIRE_COL} roughness={0.92} side={SPIRE_ON ? THREE.FrontSide : THREE.DoubleSide} />
       </mesh>
       {/* ★128 첨탑 테라스 — 원기둥 안에 걸리는 고리 판(바깥 끝은 내벽 속에 묻힘 = 틈 없음).

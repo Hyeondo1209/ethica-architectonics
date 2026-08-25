@@ -497,9 +497,11 @@ console.log('\n— G. 래스터라이저 깊이 보간 (★도구 빚 ⑥ 수리
   ok(rmLgt.every((k) => new RegExp(k + String.raw`\s*= ACH_ON \?`).test(cQ))
     && (!K94g.ACH_ON || rmLgt.every((k) => chroma(K94g[k]) < 0.15)),
     'Q10 방 광원·샤프트 5노브 = ACH_ON 삼항 · 무채 성질(크로마 < 0.15 — 웜 광선 금지)')
-  ok(/<AchRoomDarkness \/>/.test(appQ) && /export function AchRoomDarkness/.test(roomQ2)
-    && /scene\.traverse/.test(roomQ2) && !/achRootRef/.test(roomQ2),
-    'Q10b 공간 패치: App 마운트 · 장면 전체 traverse(컴포넌트 subtree 아님 — ★174-b 현도 지적의 잠금)')
+  //  ★175 갱신: ★174(셰이더 차단) 전면 폐기·재시도 금지에 맞춰 '가동 확인'에서 '폐기 확인'으로 뒤집는다.
+  //   구 항목은 폐기된 기계의 마운트를 요구해 영구 적자였다(기준선 실패 1/81의 정체).
+  //   기계 자체는 보존계로 존치하되(함수 정의는 남는다), 마운트 0 · 게이트 소등을 문다.
+  ok(!/<AchRoomDarkness \/>/.test(appQ) && K94g.ACH_INT_ON === false,
+    'Q10b ★174 셰이더 차단 폐기 확인: App 마운트 0 · ACH_INT_ON 소등(재시도 금지 — DESIGN 철회 이력)')
   //  Q4c ★173-b 렌즈 일습 — 현도 지시(투명·비웜): 6노브 전부 두 체제 삼항 + 온난 기록이 뒤값으로 보존
   const lensKnobs = ['LENS_COL', 'LENS_EMIS_C', 'LENS_OPACITY', 'RIB_TINT_COL', 'APEX_LGT_COL', 'APEX_GLOW_COL']
   ok(lensKnobs.every((k) => new RegExp(k + String.raw`\s*= ACH_ON \?`).test(cQ)),
@@ -519,11 +521,13 @@ console.log('\n— G. 래스터라이저 깊이 보간 (★도구 빚 ⑥ 수리
     return d && ch(d) < 0.15 && Math.abs(dimL(d) - dimL(w)) < 0.012 }),
     'Q4b2 암실 achTone 성질: 11색 전부 크로마 < 0.15(무채) · 명도 = 온난값 보존(±양자화) — 어두운 건 어둡게 남는다')
   //  Q5 App 배선 — fog 조건부 · MONO 추가 방향광 2기 · dir1 위치 전환
+  //  ★175 갱신: dir 위치 리터럴이 App 인라인 → constants(LGT_DIR_POS/2/3)로 승격됐다.
+  //   두 체제 삼항은 상수 쪽에서 유지되므로 여기서는 '정본을 참조하는가'를 문다(리터럴 재출현 = 적발).
   ok(/\{LGT_FOG_ON && <fog /.test(appQ)
-    && /ACH_ON \? \[400, 700, 300\] : \[30 \* SCALE, 120 \* SCALE, 20 \* SCALE\]/.test(appQ)
-    && /intensity=\{LGT_DIR2_I\} color=\{LGT_DIR_COL\}/.test(appQ)
-    && /intensity=\{LGT_DIR3_I\} color=\{LGT_DIR_COL\}/.test(appQ),
-    'Q5 App 배선: fog 스위치 · dir1 위치 두 체제 · CLAY 리그 둘째·셋째 방향광')
+    && /LGT_DIR_POS\s*= ACH_ON \? \[400, 700, 300\] : \[30 \* SCALE, 120 \* SCALE, 20 \* SCALE\]/.test(cQ)
+    && /position=\{LGT_DIR2_POS\}|dirPos=\{LGT_DIR2_POS\}/.test(appQ)
+    && /position=\{LGT_DIR3_POS\}|dirPos=\{LGT_DIR3_POS\}/.test(appQ),
+    'Q5 App 배선: fog 스위치 · dir1 위치 두 체제(constants 정본) · CLAY 리그 둘째·셋째 방향광')
   ok(K94g.LGT_FOG_COL === K94g.LGT_BG && typeof K94g.LGT_FOG_ON === 'boolean',
     'Q6 fog: 색 = 배경 파생 유지 · 점등 스위치 불리언 (P6 계승)')
   //  Q7 ★173-c 등불 판정 후보 — 9색 전부 lampCool 삼항(웜 = 뒤값 보존) + 게이트 = ACH_ON && ACH_LAMP_ON
@@ -537,10 +541,14 @@ console.log('\n— G. 래스터라이저 깊이 보간 (★도구 빚 ⑥ 수리
   ok(!(K94g.ACH_ON && K94g.ACH_LAMP_ON) || lampKnobs.every((k) => chroma(K94g[k]) < 0.15),
     'Q7b 등불 한색 성질: 후보 켜지면 9색 전부 크로마 < 0.15(웜 아님)')
   //  Q8 ★173-c 그림자 리그 — App 배선(ShadowRig 정의·RND_SHADOWS 분기·추적/참여 코드) + 노브 도메인
-  ok(/function ShadowRig\(\)/.test(appQ) && /\{RND_SHADOWS\s*\n?\s*\? <ShadowRig \/>/.test(appQ)
-    && /o\.castShadow = !\(o\.material && o\.material\.transparent\)/.test(appQ)
-    && /tgt\.current\.position\.copy\(camera\.position\)/.test(appQ),
-    'Q8 그림자 리그: ShadowRig 정의 · dir1 분기 · 투명 캐스트 제외 · 플레이어 추적')
+  //  ★175 갱신: ShadowRig가 방향·세기·맵을 prop으로 받는 재사용 리그가 됐다(dir2·dir3도 같은 절두체·추적을 쓴다).
+  //   ⚠castShadow만 켜고 리그를 안 씌우면 three 기본 정사영 ±5라 방(반경 64)조차 못 덮는다 — 그래서 리그 재사용을 문다.
+  ok(/function ShadowRig\(\{[^}]*dirPos[^}]*map[^}]*\}\)/.test(appQ)
+    && /\? <ShadowRig dirPos=\{LGT_DIR_POS\}[^>]*primary \/>/.test(appQ)
+    && /castAll \? !\(o\.material && o\.material\.transparent\) : false/.test(appQ)
+    && /tgt\.current\.position\.copy\(camera\.position\)/.test(appQ)
+    && /primary\) return/.test(appQ),
+    'Q8 그림자 리그: 일반화 정의(dirPos·map) · dir1 primary 분기 · 캐스터 범위 분기(★175-b) · 플레이어 추적 · 참여주입 1회')
   ok(K94g.RND_SHDW_RANGE > 0 && K94g.RND_SHDW_DIST > K94g.RND_SHDW_RANGE
     && Number.isInteger(Math.log2(K94g.RND_SHDW_MAP)) && K94g.RND_SHDW_BIAS <= 0 && K94g.RND_SHDW_NBIAS >= 0,
     `Q8b 그림자 노브 도메인: 절두체 ±${K94g.RND_SHDW_RANGE} < 광원 거리 ${K94g.RND_SHDW_DIST} · 맵 2^n · bias 부호`)

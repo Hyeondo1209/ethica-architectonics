@@ -246,17 +246,71 @@ export const LGT_DIR_I     = ACH_ON ? 0.55 : 0.3
 export const LGT_DIR2_I    = 0.38      // ★173 CLAY 4방향 리그 둘째(MONO에서만 마운트 — 위치는 App 인라인)
 export const LGT_DIR3_I    = 0.26      // ★173 CLAY 4방향 리그 셋째(아래에서 치는 광 — 어느 면도 검게 안 죽게)
 
+//  ★175 방향광 위치 정본화 — 구 App.jsx 인라인 리터럴 승격.
+//  조도 모델(lightingModel.js)이 보상·차폐 계산에 쓰므로 코드와 모델이 같은 값을 봐야 한다(★172 정본화 원칙).
+export const LGT_DIR_POS  = ACH_ON ? [400, 700, 300] : [30 * SCALE, 120 * SCALE, 20 * SCALE]
+export const LGT_DIR2_POS = [-500, 300, -250]
+export const LGT_DIR3_POS = [250, -400, -500]
+//  ★175 dir2·dir3 그림자 참여. 실내 어둠의 잔여 누수원 — 이 둘이 castShadow가 아니면 방 안에
+//  조도 0.180이 남고, 톤매핑을 거치면 화면 밝기 0.55(중간 회색)라 '칠흑'이 성립하지 않는다.
+//  대가 = 섀도 맵 2장 추가(드로우콜 3배). 무거우면 false로 끄고 대신 세기를 낮추거나 hemi로 이관.
+export const LGT_DIR23_SHADOW = true
+//  ★175-b 그림자 캐스터 범위(현도 지시 2026.08.25: **"리브는 그림자를 만들지 말아야 해 — 아주 멀리 떨어져 있으니 괜찮다"**).
+//  ⚠★175 초판의 근본 결함: `scene.traverse`로 **씬의 모든 메시**를 캐스터로 만들었다. 그 결과
+//   ①리브 72개·외피가 돔 안을 통째로 그림자로 덮어 방 외면이 줄무늬로 죽었고(현도 사진2)
+//   ②아래에서 치는 채움광 dir3가 **지면에 막혀** 역할을 잃었다 — CLAY 리그의 "어느 면도 검게 안 죽게"를 손으로 없앤 셈.
+//  'room' = 방 그룹만 캐스터. 실내 어둠은 **방 껍질 자신**이 dir을 막아 만든다(멀리 있는 리브는 필요 없다).
+//  ⛔'all' = 구 체제 복귀(한 줄).
+export const SHDW_CAST_SCOPE = 'room'   // 'room' | 'all'
+export const RND_SHDW_MAP23   = 2048  // dir2·dir3 전용 맵 해상도(dir1의 절반 — 채움광이라 윤곽 정밀도 요구가 낮다)
+
+//  ═══════════════ ★175 방 실내 어둠(ROOM_DARK) — 간접광 차단 ═══════════════
+//  원리: three의 aoMap은 `reflectedLight.indirectDiffuse *= ambientOcclusion`으로
+//  ★간접확산광(ambient + hemisphere)에만★ 곱해진다(three 0.184 aomap_fragment 실측).
+//  directional·point·spot(directDiffuse)에는 작용하지 않는다.
+//  → 1×1 검은 텍스처를 방 메시 재질에만 물리면, 전역 조명을 한 줄도 건드리지 않고
+//    방 안에서만 amb+hemi(=조도 1.570, 전역광의 71%)가 0이 된다. 외부 인상 무손실.
+//  ⚠★174(onBeforeCompile 셰이더 차단, 전면 폐기·재시도 금지)와 다른 기제다:
+//    셰이더 문자열을 건드리지 않는 three 표준 재질 속성이며, 재질 인스턴스 단위로 걸린다.
+//  ⚠★113 ROOM_DIM(알베도로 어둠 위조)과도 다르다: 알베도(color)는 그대로, 받는 빛만 끊는다.
+export const ROOM_DARK_ON    = true   // ⛔false = 전면 복귀(한 줄). 방 재질에서 aoMap을 떼고 needsUpdate
+export const ROOM_DARK_AO    = 0.97   // aoMapIntensity — 1 = 간접광 완전 차단, 0 = 무효.
+                                      //   ⚠★175-b 정정(현도 실증: "흑백영화 느낌"): 1.0은 과했다.
+                                      //   판테온에서 벽이 보이는 것은 바닥에 떨어진 빛이 반사돼 공간을 채우기 때문(GI)이다.
+                                      //   실시간 WebGL에 GI가 없으므로 amb+hemi가 그 '퍼짐'을 근사하던 **유일한** 성분이었고,
+                                      //   0으로 만들면 광원이 직접 때린 면만 희고 나머지는 순검정 = 조명이 아니라 컷아웃이 된다.
+                                      //   ⇒ 그림의 후반부("빛을 **공급받는다**")를 살리려면 잔광을 남겨야 한다.
+                                      //   화면밝기 실측(벽/웅덩이 0.82): 1.0 → 0.01 · 0.98 → 0.13 · 0.97 → 0.15 · 0.96 → 0.22 · 0.90 → 0.42.
+                                      //   현도 튜닝 노브 — 더 어둡게는 0.98~0.99, 더 밝게는 0.95.
+export const ROOM_DARK_SHELL = true   // 방 껍질(shellGeo)에도 걸까.
+                                      //   ⚠껍질은 솔리드 한 덩이라 안팎이 같은 재질 — 걸면 바깥 면도 간접광을 잃는다.
+                                      //   실측: dir 3기가 못 닿는 법선 방향이 실재(합 0) → 그 면은 완전히 검어진다.
+                                      //   false면 껍질만 제외(방 안 천장은 밝게 남음 = 어둠 불완전). 현도 로컬 판정 노브.
+
 //  ── ⑵ 렌더러 (App.jsx <Canvas>) — 현행 = R3F v9 기본값을 명시 핀 고정(설치본 소스 실측) ──
 export const RND_TONEMAP  = 'aces'  // 'aces'|'none'|'linear'|'reinhard'|'cineon'|'agx'|'neutral' (매핑은 App)
 export const RND_EXPOSURE = 1.0     // toneMappingExposure
-export const RND_SHADOWS  = false   // true면 PCFSoft(R3F 기본) + ★173-c 추적 그림자 리그 가동(아래 노브)
+export const RND_SHADOWS  = false   // ★175-h **소등으로 철회**(현도 실증 2026.08.25 — 캐시된 구버전 화면이 신버전보다 나았다).
+                                   //  ⚠★175의 "그림자는 실내 어둠의 필요조건" 판단은 **오판이었다**: 그것은 *완전 칠흑*의 조건이지
+                                   //   현도가 원한 "어둡되 빛을 공급받는" 상태의 조건이 아니다 — 그건 aoMap 하나로 이미 된다.
+                                   //   그림자를 끄면 dir 3기가 벽을 통과해 들어오는데, 물리적으로는 틀렸지만 화면에서는
+                                   //   **형태를 드러내는 방향성 채움광**으로 작동한다(GI 없는 렌더의 대역폭 역할).
+                                   //   실측 화면밝기 — 벽 0.68·천장 0.51(그림자 ON일 때 0.16·0.13으로 뭉갠다).
+                                   //   그림자가 추가로 하는 일은 dir 차단 하나인데, 대가로 acne·첨탑 얼룩·개구 잘림 결함을 전부 떠안았다.
+                                   //  ⛔true = 그림자 체제 복귀(리그·노브 일체는 보존계로 존치 — SHDW_CAST_SCOPE·SPIRE_NOCAST·RM_SPOT_SHADOW).
 //  ── ★173-c 그림자 판정 리그 — 월드 실규모(반경 1382·높이 4608)에 전역 맵 하나는 화질 불가 →
 //     그림자 카메라가 플레이어를 따라간다(방향광 조명은 방향만 쓰므로 위치 이동 = 조도 무변화)
 export const RND_SHDW_RANGE = 180   // 그림자 절두체 반폭(실단위 — 플레이어 주변 ±이 범위만 그림자)
 export const RND_SHDW_DIST  = 400   // 광원을 타깃에서 떼는 거리 — 깊이 범위(×2)를 조이면 acne 완화(★173-c2: 600→400)
 export const RND_SHDW_MAP   = 4096  // 섀도 맵 해상도(한 변) — 텍셀 0.088실단위(★173-c2: 2048→4096)
-export const RND_SHDW_BIAS  = -0.0015 // acne 방지 bias(★173-c2: 리브 줄무늬 실증 후 5배 — 그림자가 발에서 떨어져 보이면 절반씩 줄일 것)
-export const RND_SHDW_NBIAS = 5.0   // normalBias(실단위 큼 — 곡면 자기그림자 억제. ★173-c2: 2→5. 빛샘 보이면 줄일 것)
+export const RND_SHDW_BIAS  = -0.0004 // ★175 재유도: 깊이 NDC 단위 → 월드 환산 = |bias|×(far−near)=0.32.
+                                      //   구 -0.0015는 월드 1.2 = 리브 반경(4.375)의 1/4 → peter-panning(그림자가 발에서 뜸).
+                                      //   하한 = 텍셀(0.0879)의 3~4배. 그림자가 뜨면 줄이고, 줄무늬가 나면 키운다.
+export const RND_SHDW_NBIAS = 0.15  // ★175 재유도(★173-c2의 5.0 = acne의 원인으로 지목 — 자책 아님, 반대 방향 처방이었다).
+                                    //   normalBias는 셰이딩 점을 법선으로 밀어 shadow map을 샘플한다. 5.0은 텍셀(0.0879)의 57배·
+                                    //   리브 관 반경(SHELL_RIB_R 4.375)과 맞먹어, 곡면에서 샘플이 표면과 무관한 곳으로 튄다 = 줄무늬를 만든다.
+                                    //   적정 = 텍셀의 1~2배 且 방 껍질 두께(T_OUT+T_IN=0.487) 미만(넘으면 얇은 벽을 뚫어 빛샘).
+                                    //   ⚠check_lux가 이 상·하한을 문다.
 export const RND_LINEAR   = false   // false = sRGB 출력(현행)
 
 //  ── ⑶ 공유 사석 가족 (기록된 동일성: Corridor 원산 · Radial MAT_* · RadialEvents "=Radial" ·
@@ -590,11 +644,70 @@ export const SHAFT_TOP_R  = 5.5            // 허리 반지름 — 디스크 구
 export const ROOM_DIM      = false   // ★174-b: 재소등(현도 지적) — 암실 팔레트 = 알베도로 어둠을 위조하던 철회 어법. 어둠은 ACH_INT 빛 차단이, 색은 무채 일가(LIT 파생)가 담당
 //   ★빛 샤프트(가짜 볼륨 원기둥 2절 · AdditiveBlending 셰이더) — 빛이 아니라 **빛처럼 보이는 물체**였다.
 //   현도: "방 내부의 빛으로 눈속임해놓은 빛기둥도 그냥 없애줘." 코드·상수는 보존, 마운트만 끈다.
-export const ROOM_SHAFT_ON = false   // ⛔★174 폐기와 함께 구 소등 복귀
+export const ROOM_SHAFT_ON = true    // ★175-c 점등(현도 2026.08.25 선택 ⓑ) — ★113 소등의 재론·복귀.
+                                    //  ⚠★113의 소등 사유는 *"눈속임 없이 가보자"*였고, 그때 이것은 **알베도 어둠(1/5.48)을
+                                    //   보조하던 가짜**였다. 지금은 알베도가 그대로이고 빛이 실제로 끊긴 진짜 어둠이며,
+                                    //   빠진 것은 **공기의 산란**뿐이다 — 표면 조명은 공기를 밝히지 않으므로
+                                    //   '빛이 쏟아져 내려온다'는 볼륨 없이 물리적으로 표현 불가능하다(★175-c 규명).
+                                    //  ⛔false = 소등 복귀(한 줄).
+//  ★175-c 샤프트 기하 정합 — 구 값(허리 5.5 · 밑 13)은 **구 협광 7° 웅덩이 체제**의 것이라 현행과 어긋난다.
+//   빛기둥은 디자인 대상이 아니라 **개구와 웅덩이를 잇는 원뿔대**다(빛의 경로 그 자체) ⇒ 두 끝에서 유도한다.
+//   ⛔'legacy' = 구 5.5/13 복귀(보존계).
+export const SHAFT_FIT = 'oculus'   // 'oculus' | 'legacy'
+const _shaftSpotY = ROOM_CYL_TOP - 6                       // 스포트 높이(Room.jsx와 같은 식 — 사본 아님, 여기가 정본)
+//  허리 = 천장 개구 레벨의 반경. 빛은 이 구멍을 통과하므로 기둥의 잘록한 곳이 곧 개구다.
+export const SHAFT_WAIST_R = SHAFT_FIT === 'oculus' ? ROOM_OCULUS_R : SHAFT_TOP_R
+//  밑 = 개구를 통과한 원뿔이 바닥에 만드는 반경(닮음비) — 스포트에 castShadow가 걸리면 실제 웅덩이가 정확히 이 값이 된다.
+export const SHAFT_POOL_R = SHAFT_FIT === 'oculus'
+  ? ROOM_OCULUS_R * (_shaftSpotY - ROOM_FLOOR_Y) / (_shaftSpotY - ROOM_CEIL_Y)
+  : POOL_R
+//  ★175-c 스포트 그림자 — 이게 없으면 원뿔(천장 높이 반경 24.6)이 개구(17.45)를 **뚫고** 들어와
+//   빛이 구멍 모양으로 잘리지 않는다 = 기둥과 웅덩이가 어긋난다. ⛔false = 구 체제(뚫림).
+export const RM_SPOT_SHADOW = true
+export const RM_SPOT_SHDW_MAP  = 2048   // ★175-d 1024→2048. 원뿔 바닥 지름 ~57 → 텍셀 0.028(구 0.056)
+export const RM_SPOT_SHDW_BIAS = -0.0015
+//  ★175-d ⚠자책: ★175-c에서 스포트 그림자를 켜면서 **normalBias를 빠뜨렸다**(dir 리그엔 0.15를 줘 놓고).
+//   스포트는 y179에 있는데 **그 높이의 목 반경은 3.57** — 반경 3.6짜리 좁은 굴뚝 안에 광원이 들어 있다.
+//   원뿔 기울기 0.315 > 목 벽 기울기 0.178이라 스포트 아래 26(y153)에서 원뿔이 목 벽에 부딪히고,
+//   광선이 벽과 이루는 각이 ~80°다 = shadow acne의 교과서적 조건.
+//   목 상부에서 필요 bias 0.035 vs 실효 0.007(5배 부족) ⇒ 목 안쪽 acne가 shadow map에 기록돼 방 아래로 투영됐다
+//   (현도 실증 2026.08.25: "이상한 곳에 그림자들이 생기고 있어" — ⓐ 미실행과 무관한 배선 결함).
+export const RM_SPOT_SHDW_NBIAS = 0.15
+//  ★175-d near = 목 벽을 캐스터 범위에서 빼는 칼. 실측상 **목 벽이 하는 일을 천장 개구가 이미 다 한다**
+//   (목 벽 차폐를 넣고 계산한 개구 도달 반경 = 17.45 = 개구 반경, 정확히 일치) ⇒ 목 벽은 그림자를 던질 필요가 없다.
+//   하한 = 원뿔이 목 벽에 처음 닿는 거리 26(그보다 작으면 목 내벽이 캐스터로 들어와 acne를 만든다)
+//   상한 = 스포트→천장 거리 78(그보다 크면 **천장이 빠져 개구 잘림 자체가 사라진다**)
+//   ⇒ 70(상한의 90%). 깊이 범위가 176→110으로 좁아져 정밀도도 함께 오른다. check_lux가 두 끝을 문다.
+export const RM_SPOT_SHDW_NEAR = 70
+//  ★175-e 현도 스케치(2026.08.25) — "빨강 = 뚜렷한 빛기둥 · 노랑 형광 = 빛이 번지는 영역".
+//   기둥은 **갓 꼭지에서 시작해 각뿔대 바닥까지 관통**한다(현도 답: ①갓꼭지 ②바닥에 닿는다 ③헤일로).
+//   마디 좌표는 lightingModel.shaftNodes()가 기하에서 유도한다 — 여기 숫자를 적지 않는다.
+export const SHAFT_DROP_ON  = true   // ⛔false = 방 바닥에서 멈춤(구 체제). 구 PIT_SHAFT_DROP의 후신
+export const SHAFT_HALO_ON  = true   // ⛔false = 헤일로 소등 — 기둥만 남는다
+//  ★175-f 착지 디스크 실측(buildDisc 정점 스캔) — **빛의 진짜 조리개**.
+//   ⚠★175-e까지 놓쳤다: 우물 통(16.8)·천장 개구(17.45)가 아니라 이 r6 구멍이 빛을 조인다(현도 지적).
+export const DISC_HOLE_R = 6.00
+export const DISC_Y_LO   = 99.14   // 디스크 하면(= 하절 기둥이 뻗어나가는 곳)
+export const DISC_Y_HI   = 101.72  // 디스크 상면(= 상절 기둥이 끝나는 곳)
+//  ★175-g 첨탑을 그림자 캐스터에서 제외한다(현도 실증: 첨탑 내부에 "이상한 그림자들이 너무 많다").
+//   ⚠첨탑 벽(y98~109 · 내부 r16.8)은 스포트에 대해 **스침각 ~77°**라 acne의 온상인데,
+//    **막을 이유가 전혀 없다** — 조리개는 착지 디스크 구멍(r6)이고 그보다 2.8배 넓다.
+//   ⛔false = 구 체제(첨탑도 캐스터).
+export const SPIRE_NOCAST = true
+export const SHAFT_HALO_K_UP = 2.0   // 상절 헤일로 배수. 스케치 실측 = 어깨 21 / 기둥 10.6
+export const SHAFT_HALO_K_LO = 5.2   // 하절 헤일로 배수. 스케치 실측 = 방 바닥 50 / 기둥 9.5
+                                     //  ⚠위아래가 다르다 — 단일 배수로 묶으면 스케치와 어긋난다
+export const SHAFT_HALO_OP  = 0.10   // 헤일로 불투명도(기둥 RM_SHAFT_OP보다 낮게 — '번짐'은 흐려야 한다)
 //   ★실측 알베도 휘도비(바닥 #241d12 → #c2a062) = **5.48**. 스포트는 이 배수만큼 증폭돼 있었으므로
 //   해제하면 같은 배수로 되돌린다 — 그래야 웅덩이 밝기가 보존된다(수치가 아니라 **관계**를 옮긴다).
 export const ROOM_ALBEDO_GAIN = 5.48
-export const RM_SPOT_I        = 14   // ★174-c 우물 낙하광 세기(확정 그림 — 현도 튜닝 1순위)
+export const RM_SPOT_DECAY    = 0.5  // ★175 신설(구 Room.jsx 인라인 1.1 승격). 거리 감쇠 지수.
+                                    //   ⚠이 방의 스케일(스포트→바닥 127)에서 decay 1.1의 감쇠 계수는 0.0023 —
+                                    //   세기 14가 조도 0.032(전역광의 1.5%)로 소멸한다. '노브를 돌려도 화면이 그대로'의 실체.
+                                    //   0.5 → 감쇠 0.042(18배). 물리 정직값은 2지만 이 스케일에서는 실용 불가.
+export const RM_SPOT_I        = 7.4  // ★175 재유도: ROOM_DARK로 실내 배경이 0이 되면 이 값이 곧 웅덩이 조도다.
+                                    //   7.4×0.042 = 조도 0.31 → 화면 밝기 0.70(ACES+sRGB 환산).
+                                    //   ⚠구 14는 decay 1.1 체제의 값 — 감쇠를 바꿨으므로 함께 재설정해야 한다.
 export const RM_SPOT_SPREAD_R = 40   // ★174-c 바닥에서 빛이 닿는 반경(퍼짐 노브 — 방 반경 64 안. 웅덩이 13보다 넓게 '공간에 퍼짐')
 export const RM_SPOT_PEN      = 0.9  // ★174-c 가장자리 녹임(0 = 칼같은 원 · 1 = 전부 페더)
 export const SPOT_I       = ACH_ON ? RM_SPOT_I : (ROOM_DIM ? 8.0 : 8.0 / ROOM_ALBEDO_GAIN)   // ★판테온 스포트 세기(온난 = 구식 유지)

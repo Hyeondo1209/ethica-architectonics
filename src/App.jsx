@@ -6,7 +6,8 @@ import { SCALE, RIB_XFER_ON, RIB_DEST_PHI, TERRACE_ON, SURVEY_START,
   LGT_BG, LGT_FOG_COL, LGT_FOG_NEAR, LGT_FOG_FAR, LGT_HEMI_SKY, LGT_HEMI_GND, LGT_HEMI_I,
   LGT_AMB_I, LGT_DIR_COL, LGT_DIR_I, RND_TONEMAP, RND_EXPOSURE, RND_SHADOWS, RND_LINEAR,
   ACH_ON, LGT_FOG_ON, LGT_DIR2_I, LGT_DIR3_I,
-  RND_SHDW_RANGE, RND_SHDW_DIST, RND_SHDW_MAP, RND_SHDW_BIAS, RND_SHDW_NBIAS } from './constants'   // ★173 무채 재편 · ★173-c 그림자 리그
+  RND_SHDW_RANGE, RND_SHDW_DIST, RND_SHDW_MAP, RND_SHDW_BIAS, RND_SHDW_NBIAS,
+  LGT_DIR_POS, LGT_DIR2_POS, LGT_DIR3_POS, LGT_DIR23_SHADOW, RND_SHDW_MAP23, SHDW_CAST_SCOPE } from './constants'   // ★173 무채 재편 · ★173-c 그림자 리그 · ★175 dir 정본화
 import { FirstPersonControls } from './FirstPersonControls'
 import { WAYPOINTS, WP_GROUPS, SPAWN_ID, DEV_TELEPORT, wpIndexOf } from './waypoints'
 import { Ground, MirrorPads, DrumCup, DomeRibs, ExplorationRib, HallDoorRibs, RibStair, KneeWalk, RibJunction, Lookout, RevealPassage, CloisterLamps, Terrace, LampRoom, FriezeCrossing } from './Dome'
@@ -37,17 +38,26 @@ const TONEMAP = {
 //  ②dir1을 '추적 방향광'으로 대체: 방향광 조명은 **방향만** 쓰므로 광원을 플레이어 곁으로 옮겨도
 //    조도는 한 픽셀도 안 변하고, 그림자 절두체(±RND_SHDW_RANGE)만 플레이어를 따라간다
 //    (월드 실규모 반경 1382·높이 4608 — 전역 맵 하나는 텍셀이 1실단위를 넘어 화질 불가, 실측).
-function ShadowRig() {
+//  ★175 일반화: 방향·세기·맵 크기를 받는다(구 dir1 전용 → dir2·dir3도 같은 리그를 쓴다).
+//  ⚠dir2·dir3에 castShadow만 켜면 안 된다 — three 기본 shadow camera는 정사영 ±5라
+//   반경 64의 방조차 못 덮는다. 절두체·추적이 이 리그의 본체다.
+//  primary = 씬 메시에 castShadow/receiveShadow를 켜는 부수효과 담당(한 번만 — 세 리그가 중복 수행할 일 아님).
+function ShadowRig({ dirPos, intensity, map, primary = false }) {
   const { scene, camera } = useThree()
   const light = useRef(); const tgt = useRef()
-  const dir = ACH_ON ? [400, 700, 300] : [30 * SCALE, 120 * SCALE, 20 * SCALE]   // dir1과 같은 방향(두 체제)
+  const dir = dirPos
   const n = Math.hypot(...dir); const d = dir.map((v) => v / n * RND_SHDW_DIST)
   useEffect(() => {   // 그림자 참여는 마운트 때 1회 일괄 — 씬 구성은 정적(스위치 변경 = 전체 리로드)
+    if (!primary) return
+    //  ★175-b: **받기는 전부 · 던지기는 범위대로**(현도 지시 — 리브는 그림자를 만들지 않는다).
+    //   'room'이면 여기서는 castShadow를 켜지 않는다 — 방 그룹의 주입 루프(Room.jsx)가 자기 메시에만 켠다.
+    //   ⚠받기(receiveShadow)를 전역으로 두는 것은 안전하다: 캐스터가 방뿐이면 방이 던진 그림자만 존재한다.
+    const castAll = SHDW_CAST_SCOPE === 'all'
     scene.traverse((o) => {
-      if (o.isMesh) { o.castShadow = !(o.material && o.material.transparent); o.receiveShadow = true }
+      if (o.isMesh) { o.castShadow = castAll ? !(o.material && o.material.transparent) : false; o.receiveShadow = true }
     })
     return () => scene.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false } })
-  }, [scene])
+  }, [scene, primary])
   useFrame(() => {
     if (!light.current || !tgt.current) return
     tgt.current.position.copy(camera.position)
@@ -56,8 +66,8 @@ function ShadowRig() {
   })
   return (
     <>
-      <directionalLight ref={light} castShadow intensity={LGT_DIR_I} color={LGT_DIR_COL}
-        shadow-mapSize-width={RND_SHDW_MAP} shadow-mapSize-height={RND_SHDW_MAP}
+      <directionalLight ref={light} castShadow intensity={intensity} color={LGT_DIR_COL}
+        shadow-mapSize-width={map} shadow-mapSize-height={map}
         shadow-camera-left={-RND_SHDW_RANGE} shadow-camera-right={RND_SHDW_RANGE}
         shadow-camera-top={RND_SHDW_RANGE} shadow-camera-bottom={-RND_SHDW_RANGE}
         shadow-camera-near={1} shadow-camera-far={RND_SHDW_DIST * 2}
@@ -117,11 +127,18 @@ export default function App() {
               <ambientLight intensity={LGT_AMB_I} />
               {/* ★173-c: 그림자 켜면 dir1을 ShadowRig로 대체 — 같은 방향·색·세기, 그림자 절두체만 플레이어 추적 */}
               {RND_SHADOWS
-                ? <ShadowRig />
-                : <directionalLight position={ACH_ON ? [400, 700, 300] : [30 * SCALE, 120 * SCALE, 20 * SCALE]} intensity={LGT_DIR_I} color={LGT_DIR_COL} />}
+                ? <ShadowRig dirPos={LGT_DIR_POS} intensity={LGT_DIR_I} map={RND_SHDW_MAP} primary />
+                : <directionalLight position={LGT_DIR_POS} intensity={LGT_DIR_I} color={LGT_DIR_COL} />}
               {ACH_ON && <>{/* ★173 CLAY 4방향 리그 둘째·셋째(Survey 실측 위치 그대로) — 어느 면도 검게 안 죽는 중립광 */}
-                <directionalLight position={[-500, 300, -250]} intensity={LGT_DIR2_I} color={LGT_DIR_COL} />
-                <directionalLight position={[250, -400, -500]} intensity={LGT_DIR3_I} color={LGT_DIR_COL} />
+                {/* ★175: 이 둘이 그림자를 안 지면 방 안에 조도 0.180이 남는다 = 화면 밝기 0.55(중간 회색).
+                    ROOM_DARK가 amb+hemi를 끊어도 여기서 새면 '칠흑'은 성립하지 않는다. ⛔LGT_DIR23_SHADOW=false = 구 체제 복귀 */}
+                {RND_SHADOWS && LGT_DIR23_SHADOW ? (<>
+                  <ShadowRig dirPos={LGT_DIR2_POS} intensity={LGT_DIR2_I} map={RND_SHDW_MAP23} />
+                  <ShadowRig dirPos={LGT_DIR3_POS} intensity={LGT_DIR3_I} map={RND_SHDW_MAP23} />
+                </>) : (<>
+                  <directionalLight position={LGT_DIR2_POS} intensity={LGT_DIR2_I} color={LGT_DIR_COL} />
+                  <directionalLight position={LGT_DIR3_POS} intensity={LGT_DIR3_I} color={LGT_DIR_COL} />
+                </>)}
               </>}
             </>}
             <SurveyRig mode={survey} />
