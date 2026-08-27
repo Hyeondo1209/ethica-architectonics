@@ -15,9 +15,10 @@ import {
   RM_SPOT_I, RM_SPOT_SPREAD_R, RM_SPOT_PEN, RM_SPOT_DECAY,
   RM_LGT_CORE_I, RM_LGT_DAIS_I, RM_LGT_WELL_I,
   SHAFT_DROP_ON, SHAFT_HALO_K_UP, SHAFT_HALO_K_LO, DISC_HOLE_R, DISC_Y_LO, DISC_Y_HI, ROOM_WELL_RT,
-  BAKE_N, BAKE_FLOOR, BAKE_GAMMA,
+  BAKE_N, BAKE_FLOOR, BAKE_GAMMA, BAKE_TIP_CAP_ON, BAKE_DISC_GAP_ON, BAKE_WRAP, BAKE_AMB, BAKE_BOUNCE, BAKE_TONE, BAKE_DISC_OPEN_SEG, BAKE_POLY_ON,
 } from './constants.js'
 import { spireSpec, wellWallR } from './spireGeometry.js'
+import { discSpec } from './discGeometry.js'   // ★180 하절 공급지에 디스크 트인 틈 합류
 import { pitSpec } from './defPitGeometry.js'
 
 // ── 벡터 ──────────────────────────────────────────────────────
@@ -203,54 +204,287 @@ export function supplyRingSamples({ c, R, n = BAKE_N, sn = [0, -1, 0] }) {
   }
   return out
 }
+/** 고리-부채꼴 공급지 표본(중심 c · 반경 r0~r1 · 방위 a0에서 폭 da) — ★180 착지 디스크의 **트인 틈**.
+ *  ⚠면적 균일 표집이다: 반경은 √보간(r = √(r0²+u(r1²−r0²)))이라야 바깥쪽이 과소표집되지 않는다.
+ *  ⚠표본당 면적을 다른 공급지와 **같게** 맞춰 넘겨야 한다 — bakeIrradianceAt이 단순 평균이므로,
+ *   표본 밀도가 곧 가중치다(개수를 면적비로 주면 평균이 참 조사량에 비례한다). zoneABakeSpec이 그렇게 배분한다. */
+export function supplyAnnulusSectorSamples({ c, r0, r1, a0, da, n = BAKE_N, sn = [0, -1, 0] }) {
+  const out = []
+  for (let i = 0; i < n; i++) {
+    //  2D 저불일치(R2 격자) — 결정론적이고 부채꼴에서 뭉치지 않는다
+    const u = (i + 0.5) / n, v = (i * 0.7548776662466927) % 1
+    const r = Math.sqrt(r0 * r0 + u * (r1 * r1 - r0 * r0)), a = a0 + v * da
+    out.push({ p: [c[0] + r * Math.cos(a), c[1], c[2] + r * Math.sin(a)], n: sn })
+  }
+  return out
+}
 /** 표본 집합이 점 (pos, 법선 n)에 주는 조사량 — 순수 함수. 공급지 좌표는 인자(samples)에만 있다 */
-export function bakeIrradianceAt(pos, n, samples) {
-  let E = 0
+//  ★181 상호반사 근사(2026.08.27 현도 ⓐ) — 1차 모델엔 튄 빛이 없어 **수직·아래 보는 면이 전부 칠흑**이었다
+//   (실측: 계단 옆면 0.036 · 밑면 0.030 = BAKE_FLOOR에 붙음. 윗면만 0.99). 실제 통 안이라면 벽에 부딪힌 빛이
+//   튀어 챌면을 물들인다. 두 항으로 근사한다 — 물리 정확성은 목적이 아니라 수단이다(규율 41).
+//    wrap: 수신 코사인 감싸기 (cr+w)/(1+w) — 스치는 면을 부드럽게 든다(반-람베르트).
+//    amb : 수신 코사인 **없는** 개구 가시량 몫 — 아래 보는 면(cr<0)까지 닿는 유일한 항.
+//   ⚠wrap=0·amb=0이면 식이 ★176 원형과 항등이다(보존계 — 검사가 문다).
+//   ⚠eRef도 같은 함수로 계산되므로 기준점이 함께 움직인다(노브를 밀어도 축상 착지점 shade는 1 유지).
+export function bakeIrradianceAt(pos, n, samples, { wrap = BAKE_WRAP, amb = BAKE_AMB } = {}) {
+  let Ed = 0, Ea = 0
   for (const s of samples) {
     const v = sub(s.p, pos), d = len(v)
     if (d < 1e-6) continue                              // 표본과 정점 일치 — 특이점 제외
     const l = [v[0] / d, v[1] / d, v[2] / d]
-    const cr = dot(n, l); if (cr <= 0) continue         // 표면 등 뒤
     const cs = -dot(s.n, l); if (cs <= 0) continue      // 개구 뒤(발광 반구 밖)
-    E += (cr * cs) / (d * d)
+    const g = cs / (d * d)
+    Ea += g
+    const cr0 = dot(n, l)
+    const cr = wrap > 0 ? Math.max(0, (cr0 + wrap) / (1 + wrap)) : Math.max(0, cr0)   // 표면 등 뒤
+    if (cr > 0) Ed += cr * g
   }
-  return E / samples.length
+  return (Ed + amb * Ea) / samples.length
+}
+
+// ── ★186 해석적 개구 조사량(2026.08.27 현도 실증: 개구에 가까울수록 어두워짐) ─────
+//  ⛔점 표본 근사는 **근거리에서 붕괴**한다: 표본 간격보다 가까이 가면 바로 위에 표본이 없어 E→0.
+//   실측(틈 가장자리 r15.4): y97 0.143 → y98.6 0.036 → y99.0 0.030(칠흑). 개구 바로 밑이 가장 밝아야 하는데 정반대.
+//  → 면적분을 **해석적으로** 푼다(램버트 폴리곤 공식): 균일 복사휘도 평면 다각형이 점 P에 주는 조사량
+//     E = ½ Σ_i β_i (Γ_i · n)   (β_i = 변의 두 끝이 P에서 이루는 각 · Γ_i = 그 삼각형 법선)
+//   거리에 무관하게 정확하다 — 개구에 붙어도 π로 수렴한다. 표본 수·간격이라는 개념 자체가 사라진다.
+//  ⚠반환 스케일이 점표본판(면적으로 나눈 평균)과 다르다 — eRef도 같은 경로로 계산되므로 비는 보존된다.
+const EPSA = 1e-9
+export function polyIrradiance(p, n, poly, sn) {
+  //  발광 반구 밖(개구 뒤)이면 0 — 개구는 sn 방향으로만 발광한다
+  const d0 = sn[0] * (p[0] - poly[0][0]) + sn[1] * (p[1] - poly[0][1]) + sn[2] * (p[2] - poly[0][2])
+  if (d0 <= EPSA) return 0                                        // p가 발광 방향(sn) 쪽에 있어야 받는다
+  //  감김 방향 정규화 — 공식의 부호는 P에서 본 감김에 달렸다. 다각형 법선을 sn에 맞춰 보정한다
+  //  (⚠구현 중 부호를 두 번 틀렸다: 발광면 판정 한 번, 감김 한 번. 폐형해 대조가 둘 다 즉시 적발 — 규율 32의 연장)
+  const e1 = [poly[1][0] - poly[0][0], poly[1][1] - poly[0][1], poly[1][2] - poly[0][2]]
+  const e2 = [poly[2][0] - poly[0][0], poly[2][1] - poly[0][1], poly[2][2] - poly[0][2]]
+  const npx = e1[1] * e2[2] - e1[2] * e2[1], npy = e1[2] * e2[0] - e1[0] * e2[2], npz = e1[0] * e2[1] - e1[1] * e2[0]
+  const orient = (npx * sn[0] + npy * sn[1] + npz * sn[2]) > 0 ? -1 : 1
+  let E = 0
+  const m = poly.length
+  for (let i = 0; i < m; i++) {
+    const a = poly[i], b = poly[(i + 1) % m]
+    let ax = a[0] - p[0], ay = a[1] - p[1], az = a[2] - p[2]
+    let bx = b[0] - p[0], by = b[1] - p[1], bz = b[2] - p[2]
+    const la = Math.hypot(ax, ay, az), lb = Math.hypot(bx, by, bz)
+    if (la < EPSA || lb < EPSA) continue
+    ax /= la; ay /= la; az /= la; bx /= lb; by /= lb; bz /= lb
+    let cx = ay * bz - az * by, cy = az * bx - ax * bz, cz = ax * by - ay * bx
+    const lc = Math.hypot(cx, cy, cz)
+    if (lc < EPSA) continue
+    const beta = Math.atan2(lc, ax * bx + ay * by + az * bz)     // 안정적인 각(acos보다 낫다)
+    E += beta * ((cx * n[0] + cy * n[1] + cz * n[2]) / lc)
+  }
+  E *= 0.5 * orient
+  return E > 0 ? E : 0                                            // 표면 등 뒤 몫은 버린다
+}
+/** 다각형 여러 장의 합 — 개구가 '중앙 원판 + 부채꼴'처럼 나뉘어도 그냥 더한다(서로 겹치지 않으므로 정확) */
+export function polysIrradiance(p, n, polys) {
+  let E = 0
+  for (const q of polys) E += polyIrradiance(p, n, q.v, q.n)
+  return E
+}
+/** 원판 개구 → **다각형 한 장**(램버트 공식은 단순 다각형이면 성립 — 쪼갤 이유가 없다. 변 수 = 비용) */
+export function diskPolys({ c, r, sn = [0, -1, 0], seg = 24 }) {
+  const v = []
+  for (let i = 0; i < seg; i++) {
+    const a = (i / seg) * Math.PI * 2
+    v.push([c[0] + r * Math.cos(a), c[1], c[2] + r * Math.sin(a)])
+  }
+  return [{ n: sn, v }]
+}
+/** 고리-부채꼴 개구 → **다각형 한 장**(바깥 호 정방향 + 안쪽 호 역방향으로 폐합) */
+export function annulusSectorPolys({ c, r0, r1, a0, da, sn = [0, -1, 0], seg = 16 }) {
+  const v = []
+  for (let i = 0; i <= seg; i++) { const t = a0 + (i / seg) * da
+    v.push([c[0] + r1 * Math.cos(t), c[1], c[2] + r1 * Math.sin(t)]) }
+  for (let i = seg; i >= 0; i--) { const t = a0 + (i / seg) * da
+    v.push([c[0] + r0 * Math.cos(t), c[1], c[2] + r0 * Math.sin(t)]) }
+  return [{ n: sn, v }]
 }
 
 /** A구획 베이크 명세 — 두 절(★175-f의 빛기둥 2절과 같은 구조):
  *   하절 = 착지 디스크 구멍(r6, y=DISC_Y_LO)이 방을 공급 / 상절 = 첨탑 꼭지 구멍(holeR)이 우물을 공급.
  *   eRef = 각 절의 축상 착지점(하절 = 방 바닥 중앙 · 상절 = 디스크 상면 중앙)의 조사량 → 거기서 shade 1.
  *   전부 파생 — 손 반경·손 y 0. */
+//  ★183 2차 베이크 — 반사 공급지(2026.08.27 현도 ⓑ '정공법'):
+//   1차(★176)는 개구 → 표면의 직사뿐이라 개구를 못 보는 면(챌면·밑면)이 칠흑이었다(★181 wrap/amb는 임시방편 — 되돌림).
+//   2차 = **빛이 착지한 웅덩이를 위로 발광하는 2차 광원으로 삼는다**(단일 반사). 전부 파생:
+//    하절 웅덩이 = 축상 원판(반경 = 빛기둥 프로파일의 바닥 반경) + 틈 그림자 부채꼴(틈과 같은 각·반경, 바닥에 투영)
+//    상절 웅덩이 = 디스크 상면의 살(C자 그대로 — 빛이 앉는 곳이 곧 발광면)
+//   세기 = BAKE_BOUNCE 한 노브(알베도·복사휘도 비를 흡수 — 규율 41: 물리 정확성은 수단).
 export function zoneABakeSpec() {
   const S = spireSpec()
-  const lower = supplyDiskSamples({ c: [0, DISC_Y_LO, 0], r: DISC_HOLE_R })
+  //  ★180 하절 공급지 = 디스크 구멍 **+ 트인 틈**(2026.08.27 현도 지적: "완전한 도넛이 아니라 안쪽이 베어물린 도넛").
+  //   디스크는 C자다(살 sweep · 틈 gap, 반경 rIn~rOut 전폭) — 그 틈으로도 빛이 쏟아지는데 ★176은 구멍만 셌다.
+  //   ⚠표본당 면적을 원판과 같게 맞춰 개수를 배분한다(평균 집계에서 밀도 = 가중치 — 안 맞추면 좁은 구멍이 과대평가된다).
+  const D = discSpec()
+  //  ⚠방위 규약(규율 32): **틈 = wA→+gap** · **살 = wB→+sweep**. ★180 초판은 둘 다 거꾸로 넣어
+  //   공급지를 살 위에 얹고 반사면을 틈 위에 얹었다(현도 실증으로 ★186에서 발각).
+  const aPer = Math.PI * DISC_HOLE_R * DISC_HOLE_R / BAKE_N          // 원판의 표본당 면적
+  const aGap = (D.gap / 2) * (D.rOut * D.rOut - D.rIn * D.rIn)       // 틈 부채꼴 면적
+  const nGap = Math.max(1, Math.round(aGap / aPer))
+  //  ★186 해석 경로용 다각형(점 표본은 검사·보존계용으로 존치)
+  const lowerP = [
+    ...diskPolys({ c: [0, DISC_Y_LO, 0], r: DISC_HOLE_R }),
+    ...(BAKE_DISC_GAP_ON ? annulusSectorPolys({ c: [0, DISC_Y_LO, 0], r0: D.rIn, r1: D.rOut, a0: D.wA, da: D.gap }) : []),
+  ]
+  const upperP = diskPolys({ c: [0, S.tipY, 0], r: S.holeR })
+  const lower = [
+    ...supplyDiskSamples({ c: [0, DISC_Y_LO, 0], r: DISC_HOLE_R }),
+    ...(BAKE_DISC_GAP_ON
+      ? supplyAnnulusSectorSamples({ c: [0, DISC_Y_LO, 0], r0: D.rIn, r1: D.rOut, a0: D.wA, da: D.gap, n: nGap })
+      : []),
+  ]
   const upper = supplyDiskSamples({ c: [0, S.tipY, 0], r: S.holeR })
-  return {
-    spire: S,
-    splitY: (DISC_Y_LO + DISC_Y_HI) / 2,
-    lower: { samples: lower, eRef: bakeIrradianceAt([0, ROOM_FLOOR_Y, 0], [0, 1, 0], lower) },
-    upper: { samples: upper, eRef: bakeIrradianceAt([0, DISC_Y_HI, 0], [0, 1, 0], upper) },
-  }
+  //  ── ★183 반사 공급지(위로 발광 sn=[0,1,0] — cs 검사가 자기 평면 아래는 자동으로 0으로 만든다) ──
+  const EPS_Y = 1e-3
+  const nodes = shaftNodes()
+  const poolR = nodes.lower[1][1]                                    // 빛기둥 바닥 반경(파생)
+  const nPool = BAKE_N
+  const aPerB = Math.PI * poolR * poolR / nPool                      // 반사 표본당 면적 기준
+  const aGapFl = (D.gap / 2) * (D.rOut * D.rOut - D.rIn * D.rIn)
+  const nGapFl = Math.max(1, Math.round(aGapFl / aPerB))
+  const aDiscTop = (D.sweep / 2) * (D.rOut * D.rOut - D.rIn * D.rIn)
+  const nDiscTop = Math.max(1, Math.round(aDiscTop / aPerB))
+  const bounceLo = [
+    ...supplyDiskSamples({ c: [0, ROOM_FLOOR_Y + EPS_Y, 0], r: poolR, sn: [0, 1, 0] }),
+    ...supplyAnnulusSectorSamples({ c: [0, ROOM_FLOOR_Y + EPS_Y, 0], r0: D.rIn, r1: D.rOut, a0: D.wA, da: D.gap, n: nGapFl, sn: [0, 1, 0] }),
+  ]
+  const bounceUp = supplyAnnulusSectorSamples({ c: [0, D.yTop + EPS_Y, 0], r0: D.rIn, r1: D.rOut, a0: D.wB, da: D.sweep, n: nDiscTop, sn: [0, 1, 0] })
+  const bounceLoP = [
+    ...diskPolys({ c: [0, ROOM_FLOOR_Y + EPS_Y, 0], r: poolR, sn: [0, 1, 0] }),
+    ...annulusSectorPolys({ c: [0, ROOM_FLOOR_Y + EPS_Y, 0], r0: D.rIn, r1: D.rOut, a0: D.wA, da: D.gap, sn: [0, 1, 0] }),
+  ]
+  const bounceUpP = annulusSectorPolys({ c: [0, D.yTop + EPS_Y, 0], r0: D.rIn, r1: D.rOut, a0: D.wB, da: D.sweep, sn: [0, 1, 0], seg: 20 })
+  //  eRef도 같은 합성(직사 + BOUNCE·반사)으로 — 기준점 항등 유지(노브를 밀어도 축상 착지점 shade 1)
+  const eAt = (p, n, seg) => BAKE_POLY_ON
+    ? polysIrradiance(p, n, seg.polys) + BAKE_BOUNCE * polysIrradiance(p, n, seg.bouncePolys)
+    : bakeIrradianceAt(p, n, seg.samples) + BAKE_BOUNCE * bakeIrradianceAt(p, n, seg.bounce)
+  const lowSeg = { samples: lower, bounce: bounceLo, polys: lowerP, bouncePolys: bounceLoP }
+  const upSeg = { samples: upper, bounce: bounceUp, polys: upperP, bouncePolys: bounceUpP }
+  lowSeg.eRef = eAt([0, ROOM_FLOOR_Y, 0], [0, 1, 0], lowSeg)
+  upSeg.eRef = eAt([0, DISC_Y_HI, 0], [0, 1, 0], upSeg)
+  return { spire: S, splitY: (DISC_Y_LO + DISC_Y_HI) / 2, lower: lowSeg, upper: upSeg, eAt }
 }
 /** 정점 하나의 베이크 밝기 배율 ∈ [BAKE_FLOOR, 1] */
+//  ★183 톤 곡선 — 구 곡선 min(1, t)는 **잘라내기**라 개구 근처(조사량이 기준점의 수 배)가 전부 순백으로 눌리고
+//   ('이상한 곳이 밝아졌어' — 실측 t=3.7 클립), 먼 곳은 γ가 뭉갰다. 'soft' = 1−exp(−t): 잘리지 않고 수렴한다
+//   (t=1 → 0.632 · t=3.7 → 0.975 — 계조가 남는다). ⛔'clip' = ★176 곡선(보존계 · BAKE_BOUNCE=0과 짝지으면 ★179 체제).
+export function toneCurve(t, mode = BAKE_TONE, g = BAKE_GAMMA) {
+  const x = mode === 'soft' ? 1 - Math.exp(-t) : Math.min(1, t)
+  return g === 1 ? x : Math.pow(x, g)
+}
+//  ★185 절 배정 — 구 규칙은 높이 하나(splitY)였다. 그런데 **디스크 개구(중앙 구멍·트인 틈) 안**에는 디스크가 없다:
+//   거기 선 점은 우물이 그대로 열려 있어 상절에 속한다. 구 규칙은 y∈[DISC_Y_LO, splitY]인 개구 안의 점을 하절로 몰아
+//   **아래로 발광하는 하절 개구를 등지게** 만들어 조사량 0 → 칠흑이었다(현도 실증: 틈으로 올라온 계단 free:14.49,100.06,-1.65).
+export function zoneASegOf(pos, Z) {
+  if (pos[1] >= Z.splitY) return Z.upper
+  if (BAKE_DISC_OPEN_SEG && pos[1] >= DISC_Y_LO) {
+    const D = discSpec()
+    const r = Math.hypot(pos[0], pos[2])
+    if (r < D.rIn) return Z.upper                                   // 중앙 구멍
+    if (r <= D.rOut) {                                              // 고리 대역 — 트인 틈인가
+      const TAU = Math.PI * 2
+      const rel = (((Math.atan2(pos[2], pos[0]) - D.wA) % TAU) + TAU) % TAU
+      if (rel <= D.gap) return Z.upper
+    }
+  }
+  return Z.lower
+}
 export function zoneAShadeAt(pos, n, Z = zoneABakeSpec()) {
-  const seg = pos[1] >= Z.splitY ? Z.upper : Z.lower
-  const t = Math.min(1, bakeIrradianceAt(pos, n, seg.samples) / seg.eRef)
-  const g = BAKE_GAMMA === 1 ? t : Math.pow(t, BAKE_GAMMA)
-  return BAKE_FLOOR + (1 - BAKE_FLOOR) * g
+  const seg = zoneASegOf(pos, Z)
+  const E = Z.eAt ? Z.eAt(pos, n, seg)
+    : bakeIrradianceAt(pos, n, seg.samples) + BAKE_BOUNCE * bakeIrradianceAt(pos, n, seg.bounce)
+  return BAKE_FLOOR + (1 - BAKE_FLOOR) * toneCurve(E / seg.eRef)
 }
 /** A구획 '내부' 판정(방 로컬 좌표 — 그룹 x=ROOM_CX 평행이동 이전) —
  *   ① 방 타원구 중립면 안(ρ≤1: 안면은 ρ<1·바깥면은 ρ>1 — 안팎이 여기서 갈린다)
  *   ② 첨탑 대역(yB~tipY)의 벽 중립면 안(rxz ≤ 바깥반경 − T/2). yT 위(피니얼)는 rTopOut로 클램프 */
+//  ★179 갓 중립면 = 우물의 천장(2026.08.27 현도 실증 — 꼭지 바깥이 검어짐).
+//   yT 위는 관이 끝나고 **핀 기둥(링 rTopOut−T/2) + 갓 셸**이 선다. 갓은 원뿔(구멍 holeR@tipY → finCapR@finColTop)이라
+//   반경만 보는 판정은 갓의 *윗면*(하늘 보는 면)까지 삼킨다 — 실측: 꼭지 바깥벽 288정점이 전부 '안'으로 먹혔다.
+//   → 상절의 천장을 갓 중립면으로 준다. 수직 오프셋 = 수직두께 = capT·√(1+기울기²) (평행 오프셋의 정의 — 손 수치 0).
+export function capMidY(rxz, S = spireSpec()) {
+  const slope = S.finCapH / (S.finCapR - S.holeR)          // dy/dr (구멍에서 처마로 내려간다)
+  //  구멍 안(r<holeR)은 갓이 없다 → 반경을 림에 클램프해 중립면을 **수평으로 연장**한다(분기 없는 한 식).
+  //  ⚠특례로 tipY를 주면 구멍 림의 윗면(y=tipY)이 도로 '안'이 된다 — 표본 판정이 적발.
+  return S.tipY - (Math.max(rxz, S.holeR) - S.holeR) * slope - S.capT * Math.hypot(1, slope) / 2
+}
 export function zoneAInterior(p, S = spireSpec()) {
   const rxz = Math.hypot(p[0], p[2])
   const rho = Math.hypot(rxz / ROOM_R, (p[1] - ROOM_FLOOR_Y) / ROOM_HEIGHT)
   if (rho <= 1) return true
   if (p[1] >= S.yB && p[1] <= S.tipY + 1e-6) {
     const rOut = p[1] <= S.yT ? wellWallR(p[1], { spec: S, forceSpire: true }) : S.rTopOut
-    return rxz <= rOut - S.T / 2
+    if (rxz > rOut - S.T / 2) return false
+    //  ★179: 상절은 천장(갓 중립면)도 넘지 않아야 안이다. 하절(관 안)은 위가 열려 있으므로 무조건.
+    if (BAKE_TIP_CAP_ON && p[1] > S.yT && p[1] > capMidY(rxz, S) + 1e-9) return false
+    return true
   }
   return false
+}
+
+// ── ★178 경계 분할(2026.08.27 현도 ⓒ) ────────────────────────
+//  베이크는 정점색이라, 한 삼각형이 구획 경계를 걸치면 GPU 보간이 어둠을 바깥면으로 번지게 한다
+//  (★176 "구획 밖 정점 = 화면 불변"은 정점 단위로만 참 — 픽셀 단위로는 거짓. 실측: 바깥 오염 7,020).
+//  해법 = 걸친 삼각형만 최장변 재귀 이분: 경계선이 정점 해상도로 근사되고, 새 정점은 전부 부모 변의
+//  중점이라 위치 이동 0 = 실루엣·면 불변(색 해상도만 는다). 순수 배열·three 무의존 — check_lux가 같은 함수를 문다.
+//  attrs: { name: {array, itemSize} } 비인덱스 수프(position 필수) · classify(x,y,z)→bool(월드 판정 콜백) ·
+//  eps = 걸친 삼각형에 허용하는 최장변 상한(파생 = BAKE_SPLIT_EPS).
+export function splitSoupAtBoundary(attrs, classify, eps, normalizeNames = ['normal']) {
+  const names = Object.keys(attrs)
+  const nTri = (attrs.position.array.length / 9) | 0
+  const out = {}; for (const nm of names) out[nm] = []
+  let straddle0 = 0, emitted = 0
+  const corner = (tri, k) => { const c = {}
+    for (const nm of names) { const it = attrs[nm].itemSize, b = (tri * 3 + k) * it
+      c[nm] = Array.prototype.slice.call(attrs[nm].array, b, b + it) }
+    return c }
+  const flagOf = (c) => !!classify(c.position[0], c.position[1], c.position[2])
+  const d2 = (a, b) => { const p = a.position, q = b.position
+    const dx = p[0] - q[0], dy = p[1] - q[1], dz = p[2] - q[2]; return dx * dx + dy * dy + dz * dz }
+  const mid = (a, b) => { const c = {}
+    for (const nm of names) { const A = a[nm], B = b[nm], M = new Array(A.length)
+      for (let i = 0; i < A.length; i++) M[i] = (A[i] + B[i]) / 2
+      if (normalizeNames.includes(nm)) { let L = 0; for (const x of M) L += x * x; L = Math.sqrt(L) || 1
+        for (let i = 0; i < M.length; i++) M[i] /= L }
+      //  ⚠저장은 Float32다 — 판정을 저장 정밀도에 맞춘다(fround). 안 맞추면 경계 위 정점이 반올림으로
+      //  판정이 뒤집혀, '균일'로 emit한 큰 삼각형이 런타임에서 걸친 삼각형이 된다(검사 [108]이 적발).
+      for (let i = 0; i < M.length; i++) M[i] = Math.fround(M[i])
+      c[nm] = M }
+    return c }
+  const emit = (A, B, C) => { emitted++
+    for (const nm of names) out[nm].push(...A[nm], ...B[nm], ...C[nm]) }
+  const eps2 = eps * eps, stack = []
+  for (let t = 0; t < nTri; t++) {
+    const A = corner(t, 0), B = corner(t, 1), C = corner(t, 2)
+    const fa = flagOf(A), fb = flagOf(B), fc = flagOf(C)
+    const su = (fa ? 1 : 0) + (fb ? 1 : 0) + (fc ? 1 : 0)
+    if (su === 0 || su === 3) { emit(A, B, C); continue }
+    straddle0++
+    //  깊이 예산: 4분할은 매 단계 '모든' 변을 정확히 반감하므로 ⌈log₂(최장변/eps)⌉면 종료가 보장된다(+1 여유).
+    //  ⚠초판(최장변 이분)은 가는 삼각형에서 자식이 부모의 긴 변을 물려받아 예산 안에 수렴하지 못했다 — 검사 [102]가 적발.
+    const m2 = Math.max(d2(A, B), d2(B, C), d2(C, A))
+    const depth = Math.max(0, Math.ceil(Math.log2(Math.sqrt(m2) / eps))) + 1
+    stack.push([A, B, C, fa, fb, fc, depth])
+  }
+  while (stack.length) {
+    const [A, B, C, fa, fb, fc, depth] = stack.pop()
+    const su = (fa ? 1 : 0) + (fb ? 1 : 0) + (fc ? 1 : 0)
+    const m2 = Math.max(d2(A, B), d2(B, C), d2(C, A))
+    if (su === 0 || su === 3 || m2 <= eps2 || depth <= 0) { emit(A, B, C); continue }
+    //  4분할(세 변 중점 — 감김 보존은 Loop 연결과 동일): 균일해진 자식은 다음 pop에서 즉시 emit되므로 과분할 없음
+    const Mab = mid(A, B), Mbc = mid(B, C), Mca = mid(C, A)
+    const fab = flagOf(Mab), fbc = flagOf(Mbc), fca = flagOf(Mca)
+    stack.push([A, Mab, Mca, fa, fab, fca, depth - 1])
+    stack.push([Mab, B, Mbc, fab, fb, fbc, depth - 1])
+    stack.push([Mca, Mbc, C, fca, fbc, fc, depth - 1])
+    stack.push([Mab, Mbc, Mca, fab, fbc, fca, depth - 1])
+  }
+  const res = {}
+  for (const nm of names) res[nm] = new Float32Array(out[nm])
+  return { attrs: res, straddle: straddle0, tris: emitted, added: emitted - nTri }
 }
 
 // ── 그림자 리그 유도량(acne / 빛샘의 척도) ────────────────────

@@ -6,8 +6,8 @@ import * as THREE from 'three'
 import { Brush, Evaluator, HOLLOW_SUBTRACTION } from 'three-bvh-csg'
 import { GivenMonolith } from './Steles'
 import { buildDisc } from './discGeometry.js'
-import { shaftNodes, zoneABakeSpec, zoneAShadeAt, zoneAInterior } from './lightingModel.js'   // ★175-e 빛기둥 마디 정본 + ★176 베이크(사본 금지)
-import { BAKE_A_ON, BAKE_N, BAKE_FLOOR } from './constants.js'   // ★176 베이크 노브(한 노브 A/B)
+import { shaftNodes, zoneABakeSpec, zoneAShadeAt, zoneAInterior, splitSoupAtBoundary } from './lightingModel.js'   // ★175-e 빛기둥 마디 정본 + ★176 베이크 + ★178 경계 분할(사본 금지)
+import { BAKE_A_ON, BAKE_N, BAKE_FLOOR, BAKE_SPLIT_ON, BAKE_SPLIT_EPS, BAKE_STAIR_MIN, BAKE_INST_ON } from './constants.js'   // ★176 베이크 + ★178 분할 + ★184 부재 하한 + ★185 인스턴스
 import {
   ROOM_CX, ROOM_FLOOR_Y, ROOM_R, ROOM_CEIL_Y, ROOM_HEIGHT, ROOM_OCULUS,
   ACH_INT_ON, ACH_INT_MUL, ACH_INT_R, ACH_INT_Y0, ACH_INT_Y1, ACH_INT_FEATHER, ACH_INT_SHELL_Q0, ACH_INT_FACE_W,   // ★174 방 암실
@@ -193,6 +193,34 @@ export function DefAxiomRoom({ stairKind }) {
     if (n) { console.info(`[ROOM_DARK] aoMap 주입 재질 ${n}개 (AO=${ROOM_DARK_AO} · 껍질포함=${ROOM_DARK_SHELL})`); invalidate() }
   })
 
+  //  ★178 분할 어댑터 — 수학 정본 = lightingModel.splitSoupAtBoundary(사본 금지). 여기는 마샬링만:
+  //   ⑴걸침 선판정(무접촉이면 기하 원형 보존 — index·groups 그대로) ⑵toNonIndexed ⑶속성 수프 → 분할 → 재장착.
+  //   새 정점 = 부모 변 중점뿐(위치 이동 0) → 보행 레이캐스트 무해(표면 동일 · boundingSphere 재계산).
+  //   ⚠interleaved 속성은 건너뛴다(수프 마샬링 불가 — 스미어 존치가 크래시보다 낫다).
+  const splitGeoAtZone = (g, matrixWorld, Z) => {
+    const w = new THREE.Vector3()
+    const inside = (x, y, z) => { w.set(x, y, z).applyMatrix4(matrixWorld); return zoneAInterior([w.x - ROOM_CX, w.y, w.z], Z.spire) }
+    const posA = g.attributes.position, idx = g.index
+    const flagAt = (i) => inside(posA.getX(i), posA.getY(i), posA.getZ(i))
+    const nCorner = idx ? idx.count : posA.count
+    let any = false
+    for (let t = 0; t < nCorner; t += 3) {
+      const s = (flagAt(idx ? idx.getX(t) : t) ? 1 : 0) + (flagAt(idx ? idx.getX(t + 1) : t + 1) ? 1 : 0) + (flagAt(idx ? idx.getX(t + 2) : t + 2) ? 1 : 0)
+      if (s > 0 && s < 3) { any = true; break }
+    }
+    if (!any) return 0
+    if (Object.values(g.attributes).some((a) => a.isInterleavedBufferAttribute)) { console.warn('[BAKE_A] interleaved 속성 — 분할 건너뜀'); return 0 }
+    const src = g.index ? g.toNonIndexed() : g
+    const attrs = {}
+    for (const nm of Object.keys(src.attributes)) attrs[nm] = { array: src.attributes[nm].array, itemSize: src.attributes[nm].itemSize }
+    const res = splitSoupAtBoundary(attrs, inside, BAKE_SPLIT_EPS)
+    g.setIndex(null)
+    g.clearGroups()
+    for (const nm of Object.keys(res.attrs)) g.setAttribute(nm, new THREE.BufferAttribute(res.attrs[nm], attrs[nm].itemSize))
+    g.computeBoundingSphere()
+    return res.added
+  }
+
   //  ═══════════ ★176 베이크 1차 — A구획 정점색(조명 헌장 Ⅱ · 2026.08.27) ═══════════
   //  공급지(표본점 집합)와의 방향·거리·코사인에서 정점별 밝기 배율을 유도해 color 속성에 굽는다.
   //  ⚠안팎 구분 = 제1 원칙: 구획 밖·바깥면 정점은 색 1(백) → 화면 불변. aoMap과 달리 안팎이 갈린다.
@@ -202,16 +230,47 @@ export function DefAxiomRoom({ stairKind }) {
   const bakeZ = useMemo(() => (BAKE_A_ON ? zoneABakeSpec() : null), [])
   useFrame(() => {
     if (!BAKE_A_ON || !bakeZ || !darkRef.current) return
-    let n = 0
+    let n = 0, nSplitTri = 0, msSplit = 0
+    const tmpCol = new THREE.Color()
     const v = new THREE.Vector3(), nm = new THREE.Vector3(), nMat = new THREE.Matrix3()
     darkRef.current.traverse((o) => {
-      if (!o.isMesh || o.isInstancedMesh || !o.geometry || o.userData.bakeSeen) return
+      if (!o.isMesh || !o.geometry || o.userData.bakeSeen) return
       o.userData.bakeSeen = true                                // 판정 결과와 무관하게 재방문 안 함
+      //  ★185 인스턴스 부재(낱장 디딤판 등)는 정점색을 쓸 수 없다 — 기하가 모든 인스턴스에 공유되기 때문.
+      //   → **인스턴스 단위 색**(setColorAt)으로 굽는다. 표본점 = 그 인스턴스의 밟는 면 중심(윗면 법선).
+      //   ⚠구 순회는 isInstancedMesh를 통째로 건너뛰었다 — 방 8각 나선(현도가 디스크 틈으로 올라오는 계단)이
+      //    베이크를 한 번도 못 받아 검게 남은 원인(현도 실증 2026.08.27 free:14.49,100.06,-1.65).
+      if (o.isInstancedMesh) {
+        if (!BAKE_INST_ON || !o.instanceMatrix) return
+        const mats0 = [].concat(o.material)
+        if (!mats0.every((m) => m && m.isMeshStandardMaterial)) return
+        o.geometry.computeBoundingBox()
+        const bb = o.geometry.boundingBox
+        const top = new THREE.Vector3((bb.min.x + bb.max.x) / 2, bb.max.y, (bb.min.z + bb.max.z) / 2)  // 밟는 면 중심(로컬)
+        const im = new THREE.Matrix4(), wp = new THREE.Vector3()
+        let nInst = 0
+        o.updateWorldMatrix(true, false)
+        for (let i = 0; i < o.count; i++) {
+          o.getMatrixAt(i, im)
+          wp.copy(top).applyMatrix4(im).applyMatrix4(o.matrixWorld)
+          const p = [wp.x - ROOM_CX, wp.y, wp.z]
+          let s = 1
+          if (zoneAInterior(p, bakeZ.spire)) { s = zoneAShadeAt(p, [0, 1, 0], bakeZ); nInst++ }
+          if (o.userData.bakeMin > s) s = o.userData.bakeMin
+          o.setColorAt(i, tmpCol.setScalar(s))
+        }
+        if (!nInst) return                                      // 전 인스턴스가 구획 밖 — 무접촉
+        if (o.instanceColor) o.instanceColor.needsUpdate = true
+        n++
+        return
+      }
       const mats = [].concat(o.material)
       if (!mats.length || !mats.every((m) => m && m.isMeshStandardMaterial)) return   // 샤프트 ShaderMaterial 등 제외
       const g = o.geometry
       if (g.userData.bakedA || !g.attributes.position || !g.attributes.normal) return
       o.updateWorldMatrix(true, false)
+      //  ★178: 굽기 전에 경계를 걸친 삼각형을 이분(스미어 소거). 재방문은 표식으로 0. 공유 기하는 첫 메시가 처리.
+      if (BAKE_SPLIT_ON && !g.userData.bakeSplit) { g.userData.bakeSplit = true; const t0 = performance.now(); nSplitTri += splitGeoAtZone(g, o.matrixWorld, bakeZ); msSplit += performance.now() - t0 }
       nMat.getNormalMatrix(o.matrixWorld)
       const P = g.attributes.position, N = g.attributes.normal
       const col = new Float32Array(P.count * 3)
@@ -223,6 +282,8 @@ export function DefAxiomRoom({ stairKind }) {
         if (zoneAInterior(p, bakeZ.spire)) {
           nm.fromBufferAttribute(N, i).applyMatrix3(nMat).normalize()
           s = zoneAShadeAt(p, [nm.x, nm.y, nm.z], bakeZ)
+          //  ★184 부재 베이크 하한(미학 제어): 조명이 물리적으로 못 주는 밝기(챌·측면 t≈0.03 천장)는 부재가 갖는다
+          if (o.userData.bakeMin > s) s = o.userData.bakeMin
           touched = true
         }
         col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = s
@@ -233,7 +294,7 @@ export function DefAxiomRoom({ stairKind }) {
       mats.forEach((m) => { m.vertexColors = true; m.needsUpdate = true })
       n++
     })
-    if (n) { console.info(`[BAKE_A] 정점색 베이크 메시 ${n}개 (N=${BAKE_N} · floor=${BAKE_FLOOR})`); invalidate() }
+    if (n) { console.info(`[BAKE_A] 정점색 베이크 메시 ${n}개 (N=${BAKE_N} · floor=${BAKE_FLOOR} · 경계분할 +${nSplitTri}tri ${msSplit.toFixed(0)}ms)`); invalidate() }
   })
 
   // 나선 치수 — 꼭대기 칸 윗면 = 디스크 고리 윗면(49.3). 낱장 디딤판이 중심 반지름 RIN(=14, 고리 6~18 위)에 내려서고, 거기서 고리를 밟아 슬롯으로 나감.
@@ -693,10 +754,10 @@ export function DefAxiomRoom({ stairKind }) {
           ⚠walkable은 리터럴로 적는다(check_waypoints 메시 센서스가 소스를 파싱한다 — ★131 교훈). */}
       {stairParts.map(({ id, geo, walk }) => (
         walk
-          ? <mesh key={'sps-' + id} name={'첨탑나선/' + id} geometry={geo} userData={{ walkable: true }}>
+          ? <mesh key={'sps-' + id} name={'첨탑나선/' + id} geometry={geo} userData={{ walkable: true, bakeMin: BAKE_STAIR_MIN }}>
               <meshStandardMaterial color={RM_SPIRE_COL} roughness={0.92} side={THREE.FrontSide} />
             </mesh>
-          : <mesh key={'sps-' + id} name={'첨탑나선/' + id} geometry={geo} userData={{ walkable: false }}>
+          : <mesh key={'sps-' + id} name={'첨탑나선/' + id} geometry={geo} userData={{ walkable: false, bakeMin: BAKE_STAIR_MIN }}>
               <meshStandardMaterial color={RM_SPIRE_COL} roughness={0.92} side={THREE.FrontSide} />
             </mesh>
       ))}
