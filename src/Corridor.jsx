@@ -3,7 +3,10 @@
 //   ★1p5 재재설계 ㊳(2026.07.14): 슬릿·피어·리빌 잼 폐기 → 구 파노라마 창 ±43° 복원(다섯을 세워 무너뜨림).
 //   유지: 박스 ㄷ′ 압축(BOX_IN_H=7) · 헤더 봉인 · 단면 동결 · PLAT_F 노브.
 //   계단 기하의 정본 = corridorStairsGeometry.js(순수 빌더 — 판·참·간극 전부 저기서 파생).
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
+import { useFrame, invalidate } from '@react-three/fiber'   // ★188 D구획 베이크(Room.jsx와 같은 어법)
+import { zoneDBakeSpec, zoneDShadeAt, zoneDInterior } from './lightingModel.js'   // ★188 수학 정본(사본 금지 — check_lux P절이 같은 함수를 문다)
+import { BAKE_D_ON, BAKE_D_SHELL, BAKE_D_GAMMA, BAKE_FLOOR } from './constants.js'
 import * as THREE from 'three'
 import { Brush, Evaluator, SUBTRACTION, ADDITION } from 'three-bvh-csg'
 import {
@@ -1292,8 +1295,53 @@ export function Corridor() {
   }, [])
 
 
+  //  ═══════════ ★188 D구획(드럼 홀) 베이크 — 공급지 = 갓 링 슬릿(2026.08.27 셋째 대화) ═══════════
+  //  ⚠수학 정본 = lightingModel(zoneDShadeAt·zoneDInterior — 사본 금지). 여기는 순회·마샬링만.
+  //  ⚠순회 어법 = Room.jsx ★176과 동일(매 프레임 '아직 안 본 메시만' — 형제 effect 순서 함정 회피).
+  //  ⚠**두께 0 셸 제외**(BAKE_D_SHELL=false): 드럼 벽·천장·박스는 두께가 0이고 DoubleSide라 안팎이 같은
+  //   정점을 공유한다 → 안을 어둡게 하면 밖도 어두워져 헌장 제1 원칙(안팎 구분)을 못 지킨다. ★177이 같은 계열의 사고였다.
+  const dRef = useRef(null)
+  const bakeD = useMemo(() => (BAKE_D_ON ? zoneDBakeSpec() : null), [])
+  useFrame(() => {
+    if (!BAKE_D_ON || !bakeD || !dRef.current) return
+    let n = 0, nShellSkip = 0
+    const tmpCol = new THREE.Color()
+    const v = new THREE.Vector3(), nm = new THREE.Vector3(), nMat = new THREE.Matrix3()
+    dRef.current.traverse((o) => {
+      if (!o.isMesh || !o.geometry || o.userData.bakeDSeen) return
+      o.userData.bakeDSeen = true
+      if (!BAKE_D_SHELL && o.userData.bakeShell) { nShellSkip++; return }
+      const mats = [].concat(o.material)
+      if (!mats.length || !mats.every((m) => m && m.isMeshStandardMaterial)) return
+      const g = o.geometry
+      if (g.userData.bakedD || !g.attributes.position || !g.attributes.normal) return
+      o.updateWorldMatrix(true, false)
+      nMat.getNormalMatrix(o.matrixWorld)
+      const P = g.attributes.position, N = g.attributes.normal
+      const col = new Float32Array(P.count * 3)
+      let touched = false
+      for (let i = 0; i < P.count; i++) {
+        v.fromBufferAttribute(P, i).applyMatrix4(o.matrixWorld)
+        const p = [v.x, v.y, v.z]                              // ⚠D는 월드 그대로(방과 달리 평행이동 없음)
+        let s = 1
+        if (zoneDInterior(p, bakeD)) {
+          nm.fromBufferAttribute(N, i).applyMatrix3(nMat).normalize()
+          s = zoneDShadeAt(p, [nm.x, nm.y, nm.z], bakeD)
+          touched = true
+        }
+        col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = s
+      }
+      if (!touched) return                                     // 전 정점이 구획 밖 — 색·재질 무접촉(비용 0·화면 동일)
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3))
+      g.userData.bakedD = true
+      mats.forEach((m) => { m.vertexColors = true; m.needsUpdate = true })
+      n++
+    })
+    if (n || nShellSkip) { console.info(`[BAKE_D] 정점색 베이크 메시 ${n}개 (γ=${BAKE_D_GAMMA} · floor=${BAKE_FLOOR} · 두께0셸 제외 ${nShellSkip}개)`); invalidate() }
+  })
+
   return (
-    <group>
+    <group ref={dRef}>
       {/* === 길(path): ★㊴ 시퀀스 = 수평 다리 → 하강 계단 → 낮은 플랫폼(결절) — "플랫폼을 내려다보는" 진입 === */}
       <Bridge />
       {HALL_ENTRY === 'descent' && (<>
@@ -1326,10 +1374,10 @@ export function Corridor() {
       <NeckSkirt />
 
       {/* === 외피: 거대 원기둥(벽 + 닫힌 빗면 천장) — 공간감 통로 === */}
-      <mesh geometry={wallGeo}>
+      <mesh name="드럼 벽" geometry={wallGeo} userData={{ bakeShell: true }}>
         <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
       </mesh>
-      <mesh geometry={ceilGeo}>
+      <mesh name="드럼 천장" geometry={ceilGeo} userData={{ bakeShell: true }}>
         <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
       </mesh>
 
@@ -1345,16 +1393,16 @@ export function Corridor() {
            ⛔★134(현도): 관 소등 — 새 구조물(★133 복합체의 연장선)이 들어올 자리를 **열어둔다**.
            캡은 아래에 존치(방 문 봉인). BOX_TUBE_ON=true 한 줄이면 옛 관 복귀(보존계). */}
       {BOX_TUBE_ON && (<>
-        <mesh name="박스 측벽" geometry={boxWallCut}>
+        <mesh name="박스 측벽" geometry={boxWallCut} userData={{ bakeShell: true }}>
           <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
         </mesh>
-        <mesh name="박스 천장" geometry={boxCeilCut}>
+        <mesh name="박스 천장" geometry={boxCeilCut} userData={{ bakeShell: true }}>
           <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
         </mesh>
       </>)}
       {/* 서캡 — ⚠방 동쪽 문 봉인을 맡는다. BOX_CAP_ON=false로 끌 수 있으나 그 자리가 뚫린다(★134-b 주석). */}
       {BOX_CAP_ON && (
-        <mesh name="박스 서캡" geometry={boxCap}>
+        <mesh name="박스 서캡" geometry={boxCap} userData={{ bakeShell: true }}>
           <meshStandardMaterial color={wallMat} roughness={0.9} side={THREE.DoubleSide} />
         </mesh>
       )}

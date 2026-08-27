@@ -17,7 +17,8 @@ import {
   BAKE_A_ON, BAKE_N, BAKE_FLOOR, BAKE_GAMMA, BAKE_SPLIT_ON, BAKE_SPLIT_EPS, ROOM_CX, BAKE_TIP_CAP_ON,
   BAKE_DISC_GAP_ON, BAKE_WRAP, BAKE_AMB, BAKE_BOUNCE, BAKE_TONE, BAKE_STAIR_MIN, BAKE_INST_ON, BAKE_DISC_OPEN_SEG,
 } from './constants.js'
-import { shaftNodes } from './lightingModel.js'
+import { shaftNodes, zoneDBakeSpec, zoneDShadeAt, zoneDInterior, cylinderBandPolys,
+  shaftSilhouetteFacing, shaftSlopes, shaftLenCurve, polysSolidAngle, polysIrradianceW } from './lightingModel.js'   // ★188 D구획 + ★189·★190 빛기둥
 import { spireSpec } from './spireGeometry.js'
 const _SP = spireSpec(), SP_TIP = _SP.tipY, SP_HOLE = _SP.holeR
 import { luxAt, displayLum, selfTest, SHDW_TEXEL, SHDW_BIAS_WORLD,
@@ -25,6 +26,8 @@ import { luxAt, displayLum, selfTest, SHDW_TEXEL, SHDW_BIAS_WORLD,
   splitSoupAtBoundary, capMidY, toneCurve, zoneASegOf, polysIrradiance, diskPolys,
 } from './lightingModel.js'
 import { pitSpec } from './defPitGeometry.js'
+import { COR_CX, COR_R, ceilY, gatCap, GAT_SLIT, GAT_CROWN_R, GAT_POSTS, BAKE_D_GAMMA, BAKE_D_SEG, SHAFT_EDGE_AXIAL, SHAFT_TOP_FADE } from './constants.js'   // ★188 D구획
+import { incaBladesSpec } from './corridorStairsGeometry.js'   // ★188 실효성 항(홀 안 실부재 좌표)
 import { shellMid, shellNrm } from './roomShellGeometry.js'   // ★177 D절 — 벽 표본점(합성 화면 판정)
 import { readFileSync } from 'fs'
 
@@ -610,6 +613,290 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
       Number.isFinite(BAKE_STAIR_MIN) && BAKE_STAIR_MIN >= 0 && BAKE_STAIR_MIN <= 1)
   }
   T(`노브 위생 — BAKE_WRAP(${BAKE_WRAP})·BAKE_AMB(${BAKE_AMB}) ∈ [0,1] 유한`,
+    Number.isFinite(BAKE_WRAP) && BAKE_WRAP >= 0 && BAKE_WRAP <= 1
+    && Number.isFinite(BAKE_AMB) && BAKE_AMB >= 0 && BAKE_AMB <= 1)
+}
+
+
+// ══════ P. ★188 D구획(드럼 홀) 베이크 — 공급지 = 갓 링 슬릿 ══════
+//  성질을 문다(현재값 단언 없음 — 튜닝 노브는 자유롭게 움직여야 한다).
+{
+  console.log('\n── P. ★188 D구획 베이크(갓 링 슬릿 = 수직 원통 띠) ──')
+  const D = zoneDBakeSpec()
+  const S = D.slit
+  const cx = COR_CX, up = [0, 1, 0]
+
+  //  ⑴ 실기하 정합 — 슬릿이 갓 정본(gatCap)에서 파생되는가(손 수치 0)
+  const g = gatCap()
+  T(`슬릿 수직 구간 = gatCap 파생(절단면 ${g.cutY.toFixed(3)} → 리드 밑 ${g.lidY.toFixed(3)} · 높이 = GAT_SLIT ${GAT_SLIT})`,
+    S.y0 === g.cutY && S.y1 === g.lidY && Math.abs((S.y1 - S.y0) - GAT_SLIT) < 1e-9)
+  T(`슬릿 반경 = GAT_CROWN_R(${GAT_CROWN_R}) · 축 = 드럼 중심 COR_CX(${COR_CX})`,
+    S.R === GAT_CROWN_R && S.cx === COR_CX)
+
+  //  ⑵ 기둥 잠식 — ★175-j ⑶의 23.5%가 **재유도되는가**(문서값을 베끼지 않고 기하에서 나온다)
+  const occ = (2 * S.half * GAT_POSTS) / (Math.PI * 2)
+  const openTotal = S.arcs.reduce((t, a) => t + a.da, 0)
+  T(`기둥 ${GAT_POSTS}기 잠식률 ${(occ * 100).toFixed(1)}% = 1 − 트인각합/2π(${(1 - openTotal / (Math.PI * 2)) * 100 > 0 ? ((1 - openTotal / (Math.PI * 2)) * 100).toFixed(1) : '?'}%) — 두 경로가 일치`,
+    Math.abs(occ - (1 - openTotal / (Math.PI * 2))) < 1e-12 && occ > 0 && occ < 1)
+  T(`트인 구간 ${S.arcs.length}개 = 기둥 수 · 서로 겹치지 않는다(기둥이 사이를 가른다)`,
+    S.arcs.length === GAT_POSTS && S.arcs.every((a, i) => i === 0 || a.a0 >= S.arcs[i - 1].a0 + S.arcs[i - 1].da - 1e-12))
+  //  ⚠방위 규약(규율 32 — ★185가 살 구간을 틈이라 부른 전례): 기둥 **중심**은 트인 구간 **밖**이어야 한다
+  T('방위 규약 — 기둥 중심(i·step)이 어느 트인 구간에도 들어가지 않는다(살/틈 뒤집힘 가드)',
+    Array.from({ length: GAT_POSTS }, (_, i) => i * S.step).every((t) =>
+      S.arcs.every((a) => { const TAU = Math.PI * 2; const rel = (((t - a.a0) % TAU) + TAU) % TAU; return !(rel < a.da) })))
+
+  //  ⑶ 개구는 **수직 띠**다 — ★176-b 예측(수평 고리) 정정의 falsifiable 증거
+  const flatN = D.seg.polys.every((q) => Math.abs(q.n[1]) < 1e-12)
+  const spans = D.seg.polys.every((q) => q.v.some((v) => v[1] === S.y0) && q.v.some((v) => v[1] === S.y1))
+  T('개구 조각의 발광 법선이 전부 **수평**(y성분 0) — 수평 고리가 아니라 수직 띠임의 증거', flatN)
+  T('개구 조각마다 y가 슬릿 상·하단을 모두 품는다(두께 0 고리가 아니다)', spans)
+  T('발광 법선이 **안쪽**을 향한다(빛이 통 안으로 들어온다 — 방향 뒤집힘 가드)',
+    D.seg.polys.every((q) => {
+      const c = [(q.v[0][0] + q.v[1][0]) / 2 - S.cx, 0, (q.v[0][2] + q.v[1][2]) / 2]
+      return q.n[0] * c[0] + q.n[2] * c[2] < 0
+    }))
+
+  //  ⑷ 도구 검증 — 폴리곤 seg 수렴(곡면→현 근사의 유일한 오차원)
+  const eSeg = (k) => polysIrradiance([cx, 0, 0], up, cylinderBandPolys({ ...S, seg: k }))
+  const e3 = eSeg(3), e24 = eSeg(24)
+  T(`seg 수렴 — seg3 대비 seg24 편차 ${(Math.abs(e3 / e24 - 1) * 100).toFixed(3)}% < 1%(현 근사가 충분히 촘촘)`,
+    Math.abs(e3 / e24 - 1) < 0.01)
+  T('seg를 키우면 조사량이 단조 증가해 수렴(현이 호에 안쪽에서 접근)', eSeg(1) < eSeg(2) && eSeg(2) < e3 && e3 < e24)
+
+  //  ⑸ 베이커 무변경의 증명 — D는 **생성기만** 갈아 끼웠다(★176 ⑴의 약속)
+  const lmSrc = readFileSync(new URL('./lightingModel.js', import.meta.url), 'utf8')
+  T('베이커 본체(bakeIrradianceAt·polyIrradiance)에 D구획 좌표가 한 글자도 없다 — 일반화 약속 유지',
+    !/function bakeIrradianceAt[\s\S]*?\n}/.exec(lmSrc)[0].match(/GAT_|COR_C?X|CROWN/)
+    && !/function polyIrradiance[\s\S]*?\n}/.exec(lmSrc)[0].match(/GAT_|CROWN/))
+
+  //  ⑹ 정규화 — 기준점은 **크라운 문턱**이고, 거기서 shade 1이다(A의 '착지점'과 갈리는 지점)
+  //  ⚠불변식은 **t=1**이지 shade=1이 아니다(★183 A절 개정과 같은 이유 — 'soft' 곡선은 t=1에서 0.632).
+  //   이 항목은 처음에 shade=1을 물었다가 붉어졌고, 검사가 아니라 **검사를 쓴 쪽**이 틀렸음이 규명됐다.
+  T(`기준점 = 크라운 통 밑동 축상(y ${S.baseY.toFixed(3)} = gatCap.baseY 파생)에서 t = 1(정규화 항등)`,
+    Math.abs(D.eAt([cx, S.baseY, 0], up, D.seg) / D.seg.eRef - 1) < 1e-9)
+  T('기준점 shade가 톤 곡선의 t=1 값과 정확히 일치(감마·바닥이 같은 공식을 통과한다)',
+    Math.abs(zoneDShadeAt([cx, S.baseY, 0], up, D)
+      - (BAKE_FLOOR + (1 - BAKE_FLOOR) * toneCurve(1, BAKE_TONE, BAKE_D_GAMMA))) < 1e-12)
+  //  ⚠왜 바닥이 아닌가의 근거를 검사가 **재유도**한다(문서 서술을 베끼지 않는다)
+  const eFloor = polysIrradiance([cx, D.floorY, 0], up, D.seg.polys)
+  const eNear = polysIrradiance([cx, S.baseY, 0], up, D.seg.polys)
+  T(`바닥 중앙은 축상 **최소**다(문턱 대비 ${(eNear / eFloor).toFixed(0)}배 어둡다) — 바닥을 1로 잡으면 상부가 포화한다`,
+    eNear > eFloor * 10)
+
+  //  ⑺ 단조성 — 개구에 가까울수록 밝다(★186이 A에서 잡은 근거리 붕괴가 D에 없음의 확인)
+  const axis = [0, 40, 80, 120, 160, 190].map((y) => polysIrradiance([cx, y, 0], up, D.seg.polys))
+  T('축상 조도가 높이에 대해 단조 증가(개구에 가까울수록 밝다 — 점 표본 붕괴 없음)',
+    axis.every((e, i) => i === 0 || e > axis[i - 1]))
+
+  //  ⑻ 내부 판정 — 세 대역(홀·양태·크라운 통)과 그 **밖**
+  T('내부 판정: 홀 바닥 중앙·홀 중간·크라운 통 안 = 안',
+    zoneDInterior([cx, 0, 0], D) && zoneDInterior([cx, 80, 0], D) && zoneDInterior([cx, 196, 0], D))
+  //  ⚠'천장 위 허공'으로 잡았던 축상 표본은 **갓 양태 깔때기 안**이었다(coneR 113.9 ≫ 0) — 항목을 정정했다.
+  //   깔때기는 천장에서 크라운으로 좁아지는 실공간이므로 그 안이 '안'인 것이 옳다.
+  T('내부 판정: 슬릿 위(리드 밑)·드럼 벽 밖 = 밖',
+    !zoneDInterior([cx, S.y0 + 1, 0], D) && !zoneDInterior([cx + COR_R + 5, 40, 0], D))
+  //  ⚠**양태 대역은 축대칭이 아니다** — 천장이 빗면(ceilY)이라 +x로 갈수록 높아져, 같은 y가 다시 홀 대역이 된다
+  //   (실측: y167에서 r0은 양태 · r50은 이미 홀). 처음엔 이걸 놓치고 천장+5의 먼 표본으로 경계를 물었다가
+  //   붉어졌다 — 또 한 번 **검사를 쓴 쪽이 틀린** 경우다. 경계 표본은 천장이 밑동을 안 넘는 축 근처에서 잡는다.
+  const yCone = S.baseY - GAT_SLIT                       // 밑동 바로 아래(파생 — 손 수치 0)
+  const cR = D.coneR(yCone)
+  T(`양태 깔때기는 경계에서 갈린다 — y${yCone.toFixed(1)}에서 coneR ${cR.toFixed(1)} 안쪽 = 안 · 바깥 = 밖`,
+    zoneDInterior([cx + cR - 1, yCone, 0], D) && !zoneDInterior([cx + cR + 1, yCone, 0], D)
+    && yCone > ceilY(cx + cR + 1))                       // ⚠두 표본이 실제로 양태 대역에 있음을 함께 문다(공허 방지)
+  T('양태 깔때기가 위로 좁아진다 — coneR(천장) > coneR(밑동) = 크라운 반경',
+    D.coneR(S.baseY) === S.R && D.coneR(ceilY(cx)) > S.R)
+
+  //  ⑼ **실효성**(공허 가드 방지 — 규율: 켜도 아무것도 안 굽는 구현은 무효다)
+  //   홀 안 실부재의 실좌표를 빌더에서 가져와 '안' 판정을 받는지 본다.
+  const bl = incaBladesSpec()
+  const incaPts = [{ x: bl.ncx, y: bl.cutY, z: 0 }]
+  for (const b of bl.blades) if (b.steps) for (const st of b.steps) {
+    const sm = (st.s0 + st.s1) / 2
+    incaPts.push({ x: bl.ncx + sm * Math.cos(b.az), y: st.yTop, z: sm * Math.sin(b.az) })
+  }
+  const inCnt = incaPts.filter((q) => zoneDInterior([q.x, q.y, q.z], D)).length
+  T(`실효성 — 잉카 계단 실좌표 ${incaPts.length}점 중 ${inCnt}점이 '안'(두께 0 셸을 빼도 구울 부재가 실재한다)`,
+    inCnt > 0 && inCnt === incaPts.length)
+  const incaShades = incaPts.slice(0, 40).map((q) => zoneDShadeAt([q.x, q.y, q.z], up, D))
+  T(`실효성 — 그 부재들의 shade가 1이 아니다(실제로 어두워진다 · 표본 최대 ${Math.max(...incaShades).toFixed(3)})`,
+    incaShades.every((v) => v >= BAKE_FLOOR - 1e-9 && v <= 1) && Math.max(...incaShades) < 0.999)
+
+  //  ⑽ 두께 0 셸 제외 — 배선이 실제로 그 태그를 읽는가
+  const corSrc = readFileSync(new URL('./Corridor.jsx', import.meta.url), 'utf8')
+  T('배선이 두께 0 셸을 건너뛴다(BAKE_D_SHELL 게이트 + bakeShell 태그를 함께 읽는다)',
+    /!BAKE_D_SHELL\s*&&\s*o\.userData\.bakeShell/.test(corSrc))
+  T('드럼 벽·천장·박스 3종이 bakeShell로 태그돼 있다(태그 없는 셸이 남으면 밖이 어두워진다)',
+    (corSrc.match(/userData=\{\{ bakeShell: true \}\}/g) || []).length >= 5)
+  T('배선이 수학 정본을 임포트한다(사본 금지 — 이 검사가 무는 함수와 같은 것을 쓴다)',
+    /import \{ zoneDBakeSpec, zoneDShadeAt, zoneDInterior \} from '\.\/lightingModel\.js'/.test(corSrc))
+  T('D는 월드 좌표를 그대로 쓴다(방과 달리 평행이동 없음 — ROOM_CX 감산이 섞이면 공급지가 어긋난다)',
+    !/const p = \[v\.x - ROOM_CX[\s\S]{0,200}zoneDInterior/.test(corSrc))
+
+  //  ⑾ 노브 위생 · 킬스위치
+  T(`노브 위생 — BAKE_D_GAMMA(${BAKE_D_GAMMA}) > 0 유한 · BAKE_D_SEG(${BAKE_D_SEG}) ≥ 1 정수`,
+    Number.isFinite(BAKE_D_GAMMA) && BAKE_D_GAMMA > 0 && Number.isInteger(BAKE_D_SEG) && BAKE_D_SEG >= 1)
+  T('⛔킬스위치 BAKE_D_ON — false면 명세 생성 자체를 안 한다(한 줄 복귀 · 화면 완전 동일)',
+    /BAKE_D_ON \? zoneDBakeSpec\(\) : null/.test(corSrc) && /if \(!BAKE_D_ON \|\| !bakeD/.test(corSrc))
+  T('D는 A의 FLOOR·TONE·BOUNCE·POLY_ON을 공유한다(갈라진 것은 감마 하나뿐 — 노브 위생)',
+    /toneCurve\(E \/ D\.seg\.eRef, BAKE_TONE, BAKE_D_GAMMA\)/.test(lmSrc)
+    && /BAKE_FLOOR \+ \(1 - BAKE_FLOOR\) \* toneCurve\(E \/ D\.seg\.eRef/.test(lmSrc))
+}
+
+
+// ══════ Q. ★189 빛기둥 실루엣 경계 제거(원뿔대 눈속임의 대가) ══════
+{
+  console.log('\n── Q. ★189 빛기둥 실루엣 facing ──')
+  const slopes = shaftSlopes()
+
+  //  ⑴ 도구 검증 — 닫힌 식이 원기둥/원뿔의 알려진 성질을 재현하는가
+  T('원기둥(기울기 0)은 구 체제에서도 실루엣 facing = 0 — 경계가 원래 안 생긴다',
+    shaftSilhouetteFacing({ slope: 0, dh: 13.8, dy: 40, axial: false }) === 0)
+  T('구 체제 facing은 기울기에 대해 단조 증가 — **원뿔대가 곧 원인**임의 재유도',
+    [0, 0.05, 0.1, 0.2, 0.4].map((k) => shaftSilhouetteFacing({ slope: k, dh: 13.8, dy: 40, axial: false }))
+      .every((v, i, a) => i === 0 || v > a[i - 1]))
+  T('구 체제 facing은 시선이 수평일 때(dy=0) 0이고 기울수록 커진다(고개를 들면 선이 진해진다)',
+    shaftSilhouetteFacing({ slope: 0.16, dh: 13.8, dy: 0, axial: false }) === 0
+    && shaftSilhouetteFacing({ slope: 0.16, dh: 13.8, dy: 80, axial: false })
+     > shaftSilhouetteFacing({ slope: 0.16, dh: 13.8, dy: 20, axial: false }))
+
+  //  ⑵ 신체제 = 항등적 0(기하·시점 무관) — 이것이 ★189의 주장 전부다
+  const grid = []
+  for (const k of [0, 0.05, 0.16, 0.4, 1.0]) for (const dy of [-50, 0, 30, 100]) for (const dh of [5, 13.8, 60])
+    grid.push(shaftSilhouetteFacing({ slope: k, dh, dy, axial: true }))
+  T(`신체제 실루엣 facing = 0 (기울기×시점 격자 ${grid.length}조합 전부) — 원뿔 기울기가 식에서 사라진다`,
+    grid.every((v) => v === 0))
+
+  //  ⑶ 실기하 — 구 체제에서 현도가 본 그 값이 실제로 재현되는가(증상 재현 = 반증 가능성)
+  const camDh = 13.81 - ROOM_CX, camY = 100.77
+  const old189 = slopes.map((sg) => shaftSilhouetteFacing({
+    slope: sg.slope, dh: Math.abs(camDh), dy: camY - (sg.yA + sg.yB) / 2, axial: false }))
+  T(`실기하 사슬 ${slopes.length}구간이 구 체제에서 전부 0이 아니다(실측 ${old189.map((v) => v.toFixed(3)).join(' · ')}) — 현도가 본 선`,
+    old189.every((v) => v > 0.01))
+  T('빛기둥 사슬의 기울기가 전부 0이 아니다(전 구간이 원뿔대 — 원기둥이면 애초에 문제가 없다)',
+    slopes.length >= 2 && slopes.every((sg) => Math.abs(sg.slope) > 1e-6))
+  T('기울기는 shaftNodes 실기하에서 유도된다(손 수치 0 — 마디를 옮기면 따라온다)',
+    slopes.every((sg) => Math.abs(sg.slope - (sg.rA - sg.rB) / (sg.yA - sg.yB)) < 1e-12))
+
+  //  ⑷ 셰이더 배선 — ⚠GLSL은 노드에서 못 돌린다(★174 교훈). 여기서 무는 것은 **배선**이지 화면이 아니다.
+  const roomSrc189 = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+  T('셰이더가 축 기준 반경방향 varying을 만든다(vNr = normalMatrix * normalize(vec3(position.x, 0, position.z)))',
+    /vNr\s*=\s*normalMatrix\s*\*\s*normalize\(vec3\(position\.x,\s*0\.0,\s*position\.z\)\)/.test(roomSrc189))
+  T('프래그먼트가 uAxial로 두 법선을 섞어 facing을 만든다(mix — 보존계가 한 값으로 열린다)',
+    /mix\(normalize\(vN\),\s*normalize\(vNr\),\s*uAxial\)/.test(roomSrc189)
+    && /float facing = abs\(dot\(nrm, normalize\(vV\)\)\)/.test(roomSrc189))
+  T('uAxial uniform이 노브 SHAFT_EDGE_AXIAL에 실제로 물려 있다(하드코딩 1.0이 아니다)',
+    /uAxial:\s*\{\s*value:\s*SHAFT_EDGE_AXIAL\s*\?\s*1\.0\s*:\s*0\.0\s*\}/.test(roomSrc189))
+  T('헤일로는 같은 셰이더의 사본이다 — uAxial이 헤일로에도 함께 걸린다(한쪽만 고치면 헤일로에 선이 남는다)',
+    /haloMat\s*=\s*useMemo\(\(\)\s*=>\s*\{\s*const m = shaftMat\.clone\(\)/.test(roomSrc189)
+    && /m\.uniforms = THREE\.UniformsUtils\.clone\(shaftMat\.uniforms\)/.test(roomSrc189))
+  T('★189는 **기하를 안 건드린다** — 사슬 빌더의 CylinderGeometry 인자가 그대로다(셰이더만 바뀌었다)',
+    /new THREE\.CylinderGeometry\(rA, rB, yA - yB, 40, 1, true\)/.test(roomSrc189))
+
+  //  ⑸ 노브 위생 · 킬스위치
+  T(`노브 위생 — SHAFT_EDGE_AXIAL(${SHAFT_EDGE_AXIAL}) 불리언 · ⛔false = 구 체제(경계선 복귀 · 보존계)`,
+    typeof SHAFT_EDGE_AXIAL === 'boolean')
+  T('순수 함수의 기본 인자가 노브를 따른다(검사와 화면이 같은 체제를 본다)',
+    shaftSilhouetteFacing({ slope: 0.16, dh: 13.8, dy: 40 })
+      === shaftSilhouetteFacing({ slope: 0.16, dh: 13.8, dy: 40, axial: SHAFT_EDGE_AXIAL }))
+
+  //  ── ★190 상단 페이드(현도가 가리킨 그 모서리) ──
+  console.log('\n── Q-2. ★190 빛기둥 상단 페이드 ──')
+  //  ⑴ 병의 정체 — 구 체제는 사슬 **꼭대기에서 알파가 최대**다(하단만 깃털이었다)
+  T('⛔구 체제(topFade=0): vY=1에서 len이 최대 1.000 — 알파가 최대인 채 기하가 끝난다(= 모서리)',
+    Math.abs(shaftLenCurve(1, 0) - 1) < 1e-12
+    && [0.8, 0.9, 0.99].every((v) => shaftLenCurve(v, 0) < shaftLenCurve(1, 0)))
+  T('구 체제도 **하단은** 깃털이다(vY=0에서 0) — 위아래 비대칭이 병의 정체였다',
+    shaftLenCurve(0, 0) === 0)
+  //  ⑵ 신체제 — 상단도 0으로 수렴
+  //  ⚠**체제 무관 형태**로 쓴다(★183 A절 개정과 같은 처리): 노브를 0으로 돌린 보존계 스윕에서도 green이어야 한다.
+  //   초판은 `shaftLenCurve(1) === 0`이라 신체제를 전제했고 `SHAFT_TOP_FADE=0` 스윕에서 붉어졌다 — 검사 쪽 결함.
+  T('페이드가 켜지면 꼭대기가 녹고, 꺼지면 구 체제로 열린다(노브 ↔ 곡선 일관성 — 배선이 끊기면 붉어진다)',
+    shaftLenCurve(1) === (SHAFT_TOP_FADE > 0 ? 0 : 1))
+  T('페이드 폭 0.10에서 꼭대기 len = 0(값을 명시로 넘겨 체제와 무관하게 성질을 문다)',
+    shaftLenCurve(1, 0.10) === 0)
+  T('상단 페이드는 위쪽 끝에서만 듣는다(vY ≤ 1−topFade 구간은 구 체제와 항등 — 기둥 몸통 불변)',
+    [0, 0.3, 0.6, 0.90].every((v) => Math.abs(shaftLenCurve(v, 0.10) - shaftLenCurve(v, 0)) < 1e-12))
+  T('페이드 구간에서 단조 감소한다(계단이 아니라 깃털 — 새 경계선을 만들지 않는다)',
+    [0.92, 0.95, 0.97, 0.99, 1.0].map((v) => shaftLenCurve(v, 0.10)).every((v, i, a) => i === 0 || v < a[i - 1]))
+  T('폭을 넓히면 더 일찍 녹는다(0.06 < 0.10 < 0.18에서 같은 높이의 len이 단조 감소 — 노브가 실제로 듣는다)',
+    shaftLenCurve(0.96, 0.06) > shaftLenCurve(0.96, 0.10) && shaftLenCurve(0.96, 0.10) > shaftLenCurve(0.96, 0.18))
+  //  ⑶ 배선 · 노브 위생
+  T('셰이더가 상단 페이드 항을 len에 곱한다(uTopFade > 0일 때만 — 0이면 구 체제로 열린다)',
+    /float top = uTopFade > 0\.0 \? 1\.0 - smoothstep\(1\.0 - uTopFade, 1\.0, vY\) : 1\.0/.test(roomSrc189)
+    && /float len = smoothstep\(0\.0, 0\.18, vY\) \* \(0\.30 \+ 0\.70 \* vY\) \* top/.test(roomSrc189))
+  T('uTopFade uniform이 노브 SHAFT_TOP_FADE에 물려 있다(하드코딩 아님)',
+    /uTopFade:\s*\{\s*value:\s*SHAFT_TOP_FADE\s*\}/.test(roomSrc189))
+  T(`노브 위생 — SHAFT_TOP_FADE(${SHAFT_TOP_FADE}) ∈ [0,1) 유한 · ⛔0 = 구 체제(보존계)`,
+    Number.isFinite(SHAFT_TOP_FADE) && SHAFT_TOP_FADE >= 0 && SHAFT_TOP_FADE < 1)
+  T('★190도 기하를 안 건드린다 — 사슬 uv 리맵(★175-g)이 그대로다(vY = 사슬 전체 비율이어야 꼭대기가 하나다)',
+    /uv\.setY\(k, \(wy - yBot\) \/ span\)/.test(roomSrc189))
+}
+
+
+// ══════ R. ★191 해석적 입체각 — 죽어 있던 wrap·amb 복원 ══════
+{
+  console.log('\n── R. ★191 입체각(wrap·amb 실효성) ──')
+  const Z = zoneABakeSpec()
+  const up = [0, 1, 0]
+
+  //  ⑴ 도구 검증 — 원판 축상 입체각 폐형해 Ω = 2π(1 − h/√(h²+R²)) 대조(★186이 조사량에 한 것과 같은 방식)
+  const R0 = 6, cY = 100
+  const dp = diskPolys({ c: [0, cY, 0], r: R0, sn: [0, -1, 0], seg: 64 })
+  const errs = [1, 3, 10, 30, 100].map((h) => {
+    const O = polysSolidAngle([0, cY - h, 0], dp)
+    return Math.abs(O / (2 * Math.PI * (1 - h / Math.hypot(h, R0))) - 1)
+  })
+  T(`입체각이 원판 폐형해와 일치(최대 오차 ${(Math.max(...errs) * 100).toFixed(3)}% — 원을 64각형으로 근사한 몫)`,
+    Math.max(...errs) < 0.005)
+  T('개구에 붙을수록 입체각이 2π로 수렴한다(반구 전체가 개구로 덮인다)',
+    polysSolidAngle([0, cY - 0.05, 0], dp) > 6.0 && polysSolidAngle([0, cY - 0.05, 0], dp) <= 2 * Math.PI + 1e-9)
+  T('개구 뒤(발광 반구 밖)에서는 입체각 0 — polyIrradiance와 **같은 규약**',
+    polysSolidAngle([0, cY + 5, 0], dp) === 0)
+  T('거리가 멀수록 입체각은 단조 감소',
+    [1, 3, 10, 30].map((h) => polysSolidAngle([0, cY - h, 0], dp)).every((v, i, a) => i === 0 || v < a[i - 1]))
+
+  //  ⑵ 보존계 항등 — wrap=amb=0이면 polysIrradiance와 **한 글자도 안 달라진다**
+  const pv = [7, 120, 0]
+  T('wrap=0·amb=0에서 polysIrradianceW ≡ polysIrradiance(보존계가 정확히 열린다)',
+    [[pv, [1, 0, 0]], [pv, up], [[-30, 70, 0], [1, 0, 0]]].every(([q, nn]) =>
+      polysIrradianceW(q, nn, Z.upper.polys, { wrap: 0, amb: 0 }) === polysIrradiance(q, nn, Z.upper.polys)))
+
+  //  ⑶ ★죽은 노브였음의 재현 — **이 항이 ★191의 존재 이유다**(공허참 방지)
+  //   ⛔★186~★190 동안 wrap은 해석 경로에 안 넘어가 무효였다. 검사 [152]는 노브 위생만 물어 못 잡았다.
+  T('wrap이 실제로 조사량을 바꾼다 — 수직면에서 wrap>0이 wrap=0보다 크다(무효 배선이면 같아진다)',
+    polysIrradianceW(pv, [1, 0, 0], Z.upper.polys, { wrap: 0.5, amb: 0 })
+      > polysIrradianceW(pv, [1, 0, 0], Z.upper.polys, { wrap: 0, amb: 0 }))
+  T('amb도 실제로 듣는다(코사인이 죽은 면에 닿는 유일한 항)',
+    polysIrradianceW(pv, [1, 0, 0], Z.upper.polys, { wrap: 0, amb: 0.1 })
+      > polysIrradianceW(pv, [1, 0, 0], Z.upper.polys, { wrap: 0, amb: 0 }))
+  T('★배선 실효성 — 베이크 명세의 eAt가 wrap 판을 쓴다(현행 노브에서 수직면 shade가 FLOOR를 벗어난다)',
+    BAKE_WRAP <= 0 || zoneAShadeAt(pv, [1, 0, 0], Z) > BAKE_FLOOR + 1e-6)
+
+  //  ⑷ 국소성 — 수직면만 들고 수평면은 안 건드린다(★181이 주장한 성질)
+  const wOf = (nn, w) => {
+    const seg = zoneASegOf(pv, Z)
+    const e = polysIrradianceW(pv, nn, seg.polys, { wrap: w, amb: 0 }) + BAKE_BOUNCE * polysIrradiance(pv, nn, seg.bouncePolys)
+    const rp = [0, DISC_Y_HI, 0]
+    const eR = polysIrradianceW(rp, up, seg.polys, { wrap: w, amb: 0 }) + BAKE_BOUNCE * polysIrradiance(rp, up, seg.bouncePolys)
+    return BAKE_FLOOR + (1 - BAKE_FLOOR) * toneCurve(e / eR)
+  }
+  T(`국소성 — wrap을 0→0.5로 올려도 **윗면**은 거의 안 변한다(Δ ${Math.abs(wOf(up, 0.5) - wOf(up, 0)).toFixed(4)} < 0.02)`,
+    Math.abs(wOf(up, 0.5) - wOf(up, 0)) < 0.02)
+  T(`효력 — 같은 변경이 **옆면**은 실제로 든다(${wOf([1, 0, 0], 0).toFixed(3)} → ${wOf([1, 0, 0], 0.5).toFixed(3)})`,
+    wOf([1, 0, 0], 0.5) > wOf([1, 0, 0], 0) + 0.05)
+  T('wrap이 커질수록 옆면이 단조 상승(노브가 방향을 갖는다)',
+    [0, 0.2, 0.5, 0.8].map((w) => wOf([1, 0, 0], w)).every((v, i, a) => i === 0 || v > a[i - 1]))
+
+  //  ⑸ ⚠wrap·amb는 **직사에만** 건다 — 반사에 걸면 폭주한다(실측 0.030 → 0.952)
+  const lmSrcW = readFileSync(new URL('./lightingModel.js', import.meta.url), 'utf8')
+  T('eAt가 직사에만 wrap 판을 쓰고 반사는 원식이다(이중 계산 금지 · 기준점 동일평면 폭주 방지)',
+    /polysIrradianceW\(p, n, seg\.polys\) \+ BAKE_BOUNCE \* polysIrradiance\(p, n, seg\.bouncePolys\)/.test(lmSrcW)
+    && !/BAKE_BOUNCE \* polysIrradianceW/.test(lmSrcW))
+  T('상절 기준점이 반사면과 같은 평면에 앉아 반사를 못 받는다(폭주의 구조적 원인 — 상시 감시)',
+    polysIrradiance([0, DISC_Y_HI, 0], up, Z.upper.bouncePolys) === 0)
+
+  //  ⑹ 노브 위생
+  T(`노브 위생 — BAKE_WRAP(${BAKE_WRAP})·BAKE_AMB(${BAKE_AMB}) ∈ [0,1] 유한 · ⛔둘 다 0 = ★176 원형(보존계)`,
     Number.isFinite(BAKE_WRAP) && BAKE_WRAP >= 0 && BAKE_WRAP <= 1
     && Number.isFinite(BAKE_AMB) && BAKE_AMB >= 0 && BAKE_AMB <= 1)
 }

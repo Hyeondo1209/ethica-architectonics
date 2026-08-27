@@ -16,6 +16,8 @@ import {
   RM_LGT_CORE_I, RM_LGT_DAIS_I, RM_LGT_WELL_I,
   SHAFT_DROP_ON, SHAFT_HALO_K_UP, SHAFT_HALO_K_LO, DISC_HOLE_R, DISC_Y_LO, DISC_Y_HI, ROOM_WELL_RT,
   BAKE_N, BAKE_FLOOR, BAKE_GAMMA, BAKE_TIP_CAP_ON, BAKE_DISC_GAP_ON, BAKE_WRAP, BAKE_AMB, BAKE_BOUNCE, BAKE_TONE, BAKE_DISC_OPEN_SEG, BAKE_POLY_ON,
+  BAKE_D_SEG, BAKE_D_GAMMA, SHAFT_EDGE_AXIAL, SHAFT_TOP_FADE,
+  gatCap, ceilY, COR_CX, COR_R, CUP_R, GAT_CROWN_R, GAT_POSTS, GAT_POST_R, GAT_CONE_H, GAT_FACETS,   // ★188 D구획 = 드럼 홀 + 갓
 } from './constants.js'
 import { spireSpec, wellWallR } from './spireGeometry.js'
 import { discSpec } from './discGeometry.js'   // ★180 하절 공급지에 디스크 트인 틈 합류
@@ -278,6 +280,48 @@ export function polyIrradiance(p, n, poly, sn) {
   E *= 0.5 * orient
   return E > 0 ? E : 0                                            // 표면 등 뒤 몫은 버린다
 }
+// ── ★191 해석적 입체각 — 죽어 있던 wrap·amb를 되살린다(2026.08.27 현도 실증) ────
+//  ⛔**규명: `BAKE_WRAP`·`BAKE_AMB`는 ★186 이후 아무 효과가 없었다.** 해석 경로(BAKE_POLY_ON=true)로
+//   갈아탈 때 `polysIrradiance`에 두 인자를 안 넘겼다 — 기제는 점 표본 경로에만 살아 있었고 그 경로는 안 쓰인다.
+//   DESIGN.md의 "기제는 보존계로 존치"는 사실과 달랐고, 검사 [152]는 노브 위생만 물어 못 잡았다(공허참).
+//   현도 실증(수직면이 전부 shade 0.030 = FLOOR 바닥)이 그 결과다.
+//  ★열쇠 = **amb의 정의가 곧 입체각이다.** ★181의 amb는 "수신 코사인 **없는** 개구 가시량"인데,
+//   ∫ cosθ_s/r² dA = dΩ 이므로 그 적분은 정확히 점 P에서 본 개구의 **입체각 Ω**다.
+//   ⇒ 표본 없이 닫힌 식으로 풀 수 있다(★186이 조사량에 한 일을 가시량에 그대로 한다).
+//  ⚠wrap은 클램프 max(0,·) 때문에 엄밀한 닫힌 형태가 없다 — (E + w·Ω)/(1+w)로 근사한다.
+//   등 뒤 깊은 영역을 안 버리는 근사이고, w=0이면 **원식과 항등**이다(보존계가 정확히 열린다).
+const EPS_SA = 1e-12
+/** 평면 다각형이 점 p에 이루는 입체각(부호 없음) — Van Oosterom & Strackee 삼각형 팬.
+ *  ⚠발광 반구 판정은 polyIrradiance와 **같은 규약**을 쓴다(개구 뒤면 0). */
+export function polySolidAngle(p, poly, sn) {
+  const d0 = sn[0] * (p[0] - poly[0][0]) + sn[1] * (p[1] - poly[0][1]) + sn[2] * (p[2] - poly[0][2])
+  if (d0 <= EPSA) return 0
+  const u = (q) => { const v = [q[0] - p[0], q[1] - p[1], q[2] - p[2]], l = Math.hypot(v[0], v[1], v[2])
+    return l < EPS_SA ? null : [v[0] / l, v[1] / l, v[2] / l] }
+  const a = u(poly[0]); if (!a) return 0
+  let O = 0
+  for (let i = 1; i < poly.length - 1; i++) {
+    const b = u(poly[i]), c = u(poly[i + 1]); if (!b || !c) continue
+    const tri = a[0] * (b[1] * c[2] - b[2] * c[1]) + a[1] * (b[2] * c[0] - b[0] * c[2]) + a[2] * (b[0] * c[1] - b[1] * c[0])
+    const den = 1 + (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) + (a[0] * c[0] + a[1] * c[1] + a[2] * c[2])
+      + (b[0] * c[0] + b[1] * c[1] + b[2] * c[2])
+    O += 2 * Math.atan2(tri, den)
+  }
+  return Math.abs(O)
+}
+export function polysSolidAngle(p, polys) {
+  let O = 0
+  for (const q of polys) O += polySolidAngle(p, q.v, q.n)
+  return O
+}
+/** ★191 조사량 = 직사(코사인 가중) + wrap·amb(입체각 몫). wrap=amb=0이면 polysIrradiance와 항등. */
+export function polysIrradianceW(p, n, polys, { wrap = BAKE_WRAP, amb = BAKE_AMB } = {}) {
+  const E = polysIrradiance(p, n, polys)
+  if (wrap <= 0 && amb <= 0) return E                      // 보존계 — 한 글자도 안 달라진다
+  const O = polysSolidAngle(p, polys)
+  return (E + wrap * O) / (1 + wrap) + amb * O
+}
+
 /** 다각형 여러 장의 합 — 개구가 '중앙 원판 + 부채꼴'처럼 나뉘어도 그냥 더한다(서로 겹치지 않으므로 정확) */
 export function polysIrradiance(p, n, polys) {
   let E = 0
@@ -358,8 +402,13 @@ export function zoneABakeSpec() {
   ]
   const bounceUpP = annulusSectorPolys({ c: [0, D.yTop + EPS_Y, 0], r0: D.rIn, r1: D.rOut, a0: D.wB, da: D.sweep, sn: [0, 1, 0], seg: 20 })
   //  eRef도 같은 합성(직사 + BOUNCE·반사)으로 — 기준점 항등 유지(노브를 밀어도 축상 착지점 shade 1)
+  //  ★191: 해석 경로도 wrap·amb를 받는다(죽어 있던 노브 복원 — 둘 다 0이면 이전과 항등).
+  //  ⚠**wrap·amb는 직사에만 건다.** 반사에도 걸었더니 옆면이 0.030 → 0.952로 폭주했다. 이유 둘:
+  //   ⑴반사는 이미 '튄 빛'이다 — 거기 또 wrap을 얹으면 이중 계산이다(★181의 wrap은 직사 개구용 근사였다).
+  //   ⑵상절 기준점은 반사면(디스크 상면)과 **같은 평면**에 앉아 반사 Ω를 못 받는다(실측 E·Ω 둘 다 0).
+  //    기준점만 못 받는 큰 Ω가 다른 점에 더해지니 비(t)가 통째로 터진다.
   const eAt = (p, n, seg) => BAKE_POLY_ON
-    ? polysIrradiance(p, n, seg.polys) + BAKE_BOUNCE * polysIrradiance(p, n, seg.bouncePolys)
+    ? polysIrradianceW(p, n, seg.polys) + BAKE_BOUNCE * polysIrradiance(p, n, seg.bouncePolys)
     : bakeIrradianceAt(p, n, seg.samples) + BAKE_BOUNCE * bakeIrradianceAt(p, n, seg.bounce)
   const lowSeg = { samples: lower, bounce: bounceLo, polys: lowerP, bouncePolys: bounceLoP }
   const upSeg = { samples: upper, bounce: bounceUp, polys: upperP, bouncePolys: bounceUpP }
@@ -423,6 +472,151 @@ export function zoneAInterior(p, S = spireSpec()) {
     return true
   }
   return false
+}
+
+// ── ★189 빛기둥 실루엣 facing — 경계선의 닫힌 식(2026.08.27 현도 실증) ──────
+//  빛기둥은 원뿔대 껍질에 프레넬형 알파를 입힌 눈속임이다. 실루엣에서 알파가 0으로 떨어져야 윤곽이 안 보이는데,
+//  **원뿔대는 그렇지 않다**: 실루엣 접점에서 법선의 수평 성분은 시선과 정확히 수직이라 사라지지만,
+//  옆면이 기울어 있으면 **축방향 성분이 남는다**. 그 남는 몫이 곧 현도가 본 선이다.
+//   ⇒ 아래 식은 그 몫의 닫힌 형태다(표본 없음). axial 체제는 법선에 축방향 성분 자체가 없으므로 항등적으로 0.
+//   ⚠셰이더(GLSL)는 노드에서 못 돌린다 — 이 함수는 **주장의 검증용**이고, 셰이더가 같은 식을 쓰는지는 배선 항이 문다.
+export function shaftSilhouetteFacing({ slope, dh, dy, axial = SHAFT_EDGE_AXIAL }) {
+  if (axial) return 0                                   // 축 기준 반경방향 = 실루엣에서 시선과 정확히 수직
+  const v = Math.hypot(dh, dy)
+  if (v < 1e-12) return 0
+  return (Math.abs(dy) / v) * (Math.abs(slope) / Math.hypot(1, slope))
+}
+/** ★190 빛기둥 세로 감쇠 곡선 — 셰이더 `len`과 같은 식(검증용 순수 사본).
+ *  하단 깃털 · 위로 갈수록 진해짐 · **상단 깃털**(★190). topFade=0이면 구 체제와 항등.
+ *  ⚠GLSL은 노드에서 못 돌린다 — 이 함수는 곡선의 성질을 무는 용도이고, 셰이더가 같은 식인지는 배선 항이 문다. */
+export function shaftLenCurve(vY, topFade = SHAFT_TOP_FADE) {
+  const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t) }
+  const top = topFade > 0 ? 1 - ss(1 - topFade, 1, vY) : 1
+  return ss(0, 0.18, vY) * (0.30 + 0.70 * vY) * top
+}
+
+/** 빛기둥 사슬의 세그먼트별 기울기(dr/dy) — 실기하에서 유도(손 수치 0) */
+export function shaftSlopes(S = shaftNodes()) {
+  const out = []
+  for (const key of ['upper', 'lower']) {
+    const n = S[key]; if (!n || n.length < 2) continue
+    for (let i = 0; i < n.length - 1; i++) {
+      const [yA, rA] = n[i], [yB, rB] = n[i + 1]
+      out.push({ key, i, slope: (rA - rB) / (yA - yB), yA, yB, rA, rB })
+    }
+  }
+  return out
+}
+
+// ── ★188 D구획(드럼 홀) 베이크 — 공급지 = 갓 링 슬릿 ─────────────────
+//  ⛔**★176-b 예측 정정(실측이 문서를 이겼다)**: DESIGN.md ⓪¹은 "`supplyRingSamples`(이미 있음)에
+//   갓 링 슬릿 실기하를 물리면 된다"고 적었으나, 실기하를 재 보니 슬릿은 **수평 고리가 아니라 수직 원통 띠**다
+//   (반경 26 · y = cutY 202.381 ~ lidY 207.381 · 높이 GAT_SLIT 5 · 기둥 16기가 둘레 23.5% 잠식).
+//   supplyRingSamples는 두께가 0이고 발광 법선 `sn`이 **전 표본 공통**이라 이 기하를 표현할 수 없다 —
+//   원통 띠는 표본마다 법선이 다르다(각자 안쪽 수평).
+//  ★그럼에도 ★176 ⑴의 일반화 약속은 지켜졌다: **베이커 본체는 한 글자도 안 바뀐다.**
+//   `bakeIrradianceAt`은 표본별 `s.n`을 읽고 `polyIrradiance`는 폴리곤별 `sn`을 받는다 — 갈아 끼운 것은 생성기뿐이다.
+//  ⚠A와 기제가 반대(★175-j ⑵): A = 위에서 떨어지는 수직 낙하광 / D = 옆에서 들어오는 **측면 유입**.
+
+/** 갓 링 슬릿 실기하 — 기둥 GAT_POSTS기가 잠식하고 남은 트인 방위 구간들. 전부 파생(손 수치 0) */
+//  ⚠방위 규약(규율 32 — ★185에서 살 구간을 틈이라 부른 전례): 기둥 중심 = i·step (Corridor.jsx가 그리는 위상
+//   `t=(i/GAT_POSTS)*2π`와 **같은 식**). 트인 구간 = 기둥 i와 i+1 **사이** = [i·step+half, (i+1)·step−half].
+export function gatSlitSpec() {
+  const g = gatCap()
+  const half = Math.asin(GAT_POST_R / GAT_CROWN_R)          // 기둥 하나가 링에서 가리는 반각
+  const step = (Math.PI * 2) / GAT_POSTS
+  const arcs = []
+  for (let i = 0; i < GAT_POSTS; i++) {
+    const da = step - 2 * half
+    if (da > 0) arcs.push({ a0: i * step + half, da })
+  }
+  return { cx: COR_CX, R: GAT_CROWN_R, y0: g.cutY, y1: g.lidY, baseY: g.baseY, half, step, arcs }
+}
+/** 원통 띠 공급지 표본(점 경로 — 보존계·검사용). 발광 법선 = 안쪽 수평이라 **표본마다 다르다** */
+//  ⚠구간별 표본 수를 각폭에 비례 배분한다(평균 집계에서 밀도 = 가중치 — supplyAnnulusSector와 같은 규율).
+export function supplyCylinderBandSamples({ cx, R, y0, y1, arcs, n = BAKE_N }) {
+  const out = []
+  const total = arcs.reduce((t, a) => t + a.da, 0)
+  for (const a of arcs) {
+    const k = Math.max(1, Math.round((n * a.da) / total))
+    for (let i = 0; i < k; i++) {
+      const u = (i + 0.5) / k, v = (i * 0.7548776662466927) % 1     // R2 저불일치(부채꼴 생성기와 같은 상수)
+      const t = a.a0 + u * a.da, c = Math.cos(t), sn = Math.sin(t)
+      out.push({ p: [cx + R * c, y0 + v * (y1 - y0), R * sn], n: [-c, 0, -sn] })
+    }
+  }
+  return out
+}
+/** 원통 띠 개구 → 평면 사각형 여러 장(구간마다 seg 조각 — 곡면을 현으로 근사).
+ *  ⚠각 조각은 **정확히 평면이다**(현을 품는 수직 평면) — 램버트 폴리곤 공식의 전제를 만족한다.
+ *   근사가 있는 곳은 곡면→현 대체뿐이고, 검사가 seg 수렴으로 그 오차를 문다. */
+export function cylinderBandPolys({ cx, R, y0, y1, arcs, seg = BAKE_D_SEG }) {
+  const out = []
+  for (const a of arcs) {
+    for (let j = 0; j < seg; j++) {
+      const t0 = a.a0 + (j / seg) * a.da, t1 = a.a0 + ((j + 1) / seg) * a.da, tm = (t0 + t1) / 2
+      const c0 = Math.cos(t0), s0 = Math.sin(t0), c1 = Math.cos(t1), s1 = Math.sin(t1)
+      out.push({
+        n: [-Math.cos(tm), 0, -Math.sin(tm)],                        // 안쪽 수평(빛은 통 안으로 들어온다)
+        v: [[cx + R * c0, y0, R * s0], [cx + R * c1, y0, R * s1],
+            [cx + R * c1, y1, R * s1], [cx + R * c0, y1, R * s0]],
+      })
+    }
+  }
+  return out
+}
+/** D구획 베이크 명세 — **단일 절**이다(A의 두 절과 갈리는 지점).
+ *  A가 절을 나눈 것은 공급지가 둘이었기 때문(디스크 구멍·꼭지 구멍)이고, D는 개구가 링 슬릿 하나뿐이다.
+ *  eRef = 홀 바닥 중앙(축상 착지점) → 거기서 shade 1. 링 광원이라 축상이 최대인 것은 ★175-j ⑷의 귀결이다. */
+//  ★반사 공급지(★183과 같은 어법) = 홀 바닥이 위로 발광하는 2차 광원. 세기 = BAKE_BOUNCE(A와 공유).
+//   ⚠1차 근사 선언: 바닥 원판을 **드럼 전폭(r ≤ COR_R)**으로 둔다. 실제로는 중앙 r<63이 사발로 파여 있으나,
+//    사발도 빛을 받아 되쏘므로 전폭 근사가 구멍을 비우는 것보다 참에 가깝다. 정밀화는 차폐 도입(A급) 때.
+export function zoneDBakeSpec() {
+  const S = gatSlitSpec()
+  const rOut = COR_R / Math.cos(Math.PI / GAT_FACETS)              // 갓 양태 바깥 다각형(드럼 벽 외접 — Corridor와 같은 식)
+  const coneR = (y) => S.R + ((S.baseY - y) * (rOut - S.R)) / GAT_CONE_H   // 양태 깔때기 반경(밑동에서 R, 아래로 벌어진다)
+  const EPS_Y = 1e-3
+  const FLOOR_Y = 0                                                // 홀 바닥 = 드럼 벽 기립선(wallGeo가 y0에서 세운다) = 고리판 상면
+  const polys = cylinderBandPolys(S)
+  const samples = supplyCylinderBandSamples(S)
+  const bouncePolys = diskPolys({ c: [COR_CX, FLOOR_Y + EPS_Y, 0], r: COR_R, sn: [0, 1, 0] })
+  const bounce = supplyDiskSamples({ c: [COR_CX, FLOOR_Y + EPS_Y, 0], r: COR_R, sn: [0, 1, 0] })
+  //  ★191: 해석 경로도 wrap·amb를 받는다(죽어 있던 노브 복원 — 둘 다 0이면 이전과 항등).
+  //  ⚠**wrap·amb는 직사에만 건다.** 반사에도 걸었더니 옆면이 0.030 → 0.952로 폭주했다. 이유 둘:
+  //   ⑴반사는 이미 '튄 빛'이다 — 거기 또 wrap을 얹으면 이중 계산이다(★181의 wrap은 직사 개구용 근사였다).
+  //   ⑵상절 기준점은 반사면(디스크 상면)과 **같은 평면**에 앉아 반사 Ω를 못 받는다(실측 E·Ω 둘 다 0).
+  //    기준점만 못 받는 큰 Ω가 다른 점에 더해지니 비(t)가 통째로 터진다.
+  const eAt = (p, n, seg) => BAKE_POLY_ON
+    ? polysIrradianceW(p, n, seg.polys) + BAKE_BOUNCE * polysIrradiance(p, n, seg.bouncePolys)
+    : bakeIrradianceAt(p, n, seg.samples) + BAKE_BOUNCE * bakeIrradianceAt(p, n, seg.bounce)
+  const seg = { samples, bounce, polys, bouncePolys }
+  //  ★기준점 = **크라운 통 밑동 축상**(빛이 홀로 들어서는 문턱) — A의 '착지점'과 갈리는 지점이다.
+  //   ⛔A의 어법(바닥 중앙)을 그대로 옮기면 안 된다: 실측 결과 D의 바닥 중앙은 축상 **최소**다
+  //    (직사 조도 y0 1.83e-3 ↔ y190 2.98e-1 = **163배**). 바닥을 1로 잡으면 홀 상부 전체가 포화한다(실측 0.97~1.00).
+  //   기준을 문턱에 두면 홀은 그보다 어둡고, 그 어둠을 눈에 보이게 펴는 일은 톤 노브가 맡는다(관심사 분리).
+  seg.eRef = eAt([COR_CX, S.baseY, 0], [0, 1, 0], seg)
+  return { slit: S, coneR, rOut, floorY: FLOOR_Y, seg, eAt }
+}
+/** D구획 '내부' 판정 — 월드 좌표(A와 달리 평행이동 없음: 드럼은 원점계에 서 있다).
+ *   ① 크라운 통(baseY~cutY): 반경 GAT_CROWN_R 안 ② 갓 양태 깔때기(천장~baseY): coneR(y) 안
+ *   ③ 드럼 홀(사발 바닥~빗면 천장): 반경 COR_R 안
+ *  ⚠슬릿(cutY) 위는 밖이다 — 거기부터는 기둥·리드의 자리이고, 개구 자체는 '안'에 안 넣는다. */
+export function zoneDInterior(p, D = zoneDBakeSpec()) {
+  const S = D.slit
+  const r = Math.hypot(p[0] - S.cx, p[2])
+  if (p[1] > S.y0 + 1e-6) return false
+  if (p[1] >= S.baseY) return r <= S.R
+  if (p[1] > ceilY(p[0])) return r <= D.coneR(p[1])
+  return p[1] >= -CUP_R && r <= COR_R
+}
+/** D구획 정점 하나의 베이크 밝기 배율 ∈ [BAKE_FLOOR, 1] — 톤 곡선·바닥·감마는 A와 **같은 노브** */
+export function zoneDShadeAt(pos, n, D = zoneDBakeSpec()) {
+  const E = D.eAt(pos, n, D.seg)
+  //  ⚠**D 전용 감마**(BAKE_D_GAMMA) — 주석에 "D 전용 톤 노브는 안 만든다"고 적었다가 실측이 뒤집었다.
+  //   사유는 취향이 아니라 기하다: A의 개구는 여정 공간 **안**(방 천장의 디스크 구멍)이라 조도 범위가 좁지만,
+  //   D의 개구는 홀 바닥에서 202 위에 있어 역제곱만으로 163배가 벌어진다. 한 감마로 둘을 덮을 수 없다.
+  //   FLOOR·TONE·BOUNCE·POLY_ON은 여전히 공유한다 — 갈라야 했던 것은 **압축률 하나뿐**이다.
+  return BAKE_FLOOR + (1 - BAKE_FLOOR) * toneCurve(E / D.seg.eRef, BAKE_TONE, BAKE_D_GAMMA)
 }
 
 // ── ★178 경계 분할(2026.08.27 현도 ⓒ) ────────────────────────

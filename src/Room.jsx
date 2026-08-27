@@ -29,7 +29,7 @@ import {
   EAVE_ON,
   WBASE_ON,
   ROOM_SHELL_SOLID, ROOM_DARK_ON, ROOM_DARK_AO, ROOM_DARK_SHELL, RM_SPOT_DECAY, SHDW_CAST_SCOPE, SPIRE_NOCAST,
-  ROOM_PAL_LIT, ROOM_PAL_DIM, RM_SHAFT_COL, RM_SHAFT_OP,          // ★172 조명·팔레트 정본
+  ROOM_PAL_LIT, ROOM_PAL_DIM, RM_SHAFT_COL, RM_SHAFT_OP, SHAFT_EDGE_AXIAL, SHAFT_TOP_FADE,   // ★172 조명·팔레트 정본 + ★189 실루엣 판정 + ★190 상단 페이드
   RM_LGT_CORE_COL, RM_LGT_CORE_I, RM_LGT_SPOT_COL, RM_LGT_DAIS_COL, RM_LGT_DAIS_I,
   RM_LGT_WELL_COL, RM_LGT_WELL_I, RM_SPOT_SPREAD_R, RM_SPOT_PEN, RM_AXSP_MASS_COL, RM_AXSP_SLAB_COL, RM_AXSP_SUP_COL,
   RM_AXSP_VAULT_COL, RM_PLATE_COL, RM_SPIRE_COL, RM_DAIS_DARK_COL, RM_MARK_COL,
@@ -463,22 +463,32 @@ export function DefAxiomRoom({ stairKind }) {
   // three 내장 ShaderMaterial — 의존성 추가 없음. 원기둥 옆면 uv.y: 1=위, 0=아래. ⚠ 세기 노브 = uOpacity(0.30).
   const shaftMat = useMemo(() => new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
-    uniforms: { uColor: { value: new THREE.Color(RM_SHAFT_COL) }, uOpacity: { value: RM_SHAFT_OP } },
+    uniforms: { uColor: { value: new THREE.Color(RM_SHAFT_COL) }, uOpacity: { value: RM_SHAFT_OP },
+      uAxial: { value: SHAFT_EDGE_AXIAL ? 1.0 : 0.0 }, uTopFade: { value: SHAFT_TOP_FADE } },
     vertexShader: `
-      varying vec3 vN; varying vec3 vV; varying float vY;
+      varying vec3 vN; varying vec3 vNr; varying vec3 vV; varying float vY;
       void main() {
         vN = normalMatrix * normal;
+        //  ★189 축 기준 반경방향 — 원기둥 로컬 원점이 곧 축이므로 (x,0,z)가 그대로 반경 방향이다.
+        //   면 법선과 달리 **원뿔 기울기가 들어 있지 않아** 실루엣에서 정확히 시선과 수직이 된다.
+        vNr = normalMatrix * normalize(vec3(position.x, 0.0, position.z));
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
         vV = -mv.xyz; vY = uv.y;
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: `
-      uniform vec3 uColor; uniform float uOpacity;
-      varying vec3 vN; varying vec3 vV; varying float vY;
+      uniform vec3 uColor; uniform float uOpacity; uniform float uAxial; uniform float uTopFade;
+      varying vec3 vN; varying vec3 vNr; varying vec3 vV; varying float vY;
       void main() {
-        float facing = abs(dot(normalize(vN), normalize(vV)));
+        //  ★189 uAxial=1이면 축 기준 반경방향으로 실루엣을 판정한다(원뿔대의 경계선 소거).
+        //   ⛔uAxial=0 = 구 체제(면 법선) — SHAFT_EDGE_AXIAL 보존계.
+        vec3 nrm = normalize(mix(normalize(vN), normalize(vNr), uAxial));
+        float facing = abs(dot(nrm, normalize(vV)));
         float edge = pow(facing, 1.6);
-        float len = smoothstep(0.0, 0.18, vY) * (0.30 + 0.70 * vY);
+        //  ★190 상단 페이드 — 하단 깃털(smoothstep(0,0.18,vY))의 짝. 없으면 사슬 꼭대기에서 알파가
+        //   최대인 채 끊겨 원형 모서리가 보인다(현도 실증). ⛔uTopFade=0 = 구 체제(보존계).
+        float top = uTopFade > 0.0 ? 1.0 - smoothstep(1.0 - uTopFade, 1.0, vY) : 1.0;
+        float len = smoothstep(0.0, 0.18, vY) * (0.30 + 0.70 * vY) * top;
         gl_FragColor = vec4(uColor, uOpacity * edge * len);
       }`,
   }), [])
