@@ -287,6 +287,17 @@ export const ROOM_DARK_SHELL = true   // 방 껍질(shellGeo)에도 걸까.
                                       //   실측: dir 3기가 못 닿는 법선 방향이 실재(합 0) → 그 면은 완전히 검어진다.
                                       //   false면 껍질만 제외(방 안 천장은 밝게 남음 = 어둠 불완전). 현도 로컬 판정 노브.
 
+//  ── ★176 베이크 1차(A구획 프로토 · 2026.08.27) — 조명 헌장 Ⅱ(★175-i)의 첫 구현 ──
+//  명암을 동적 광원이 아니라 **정점색으로 굽는다**: 공급지(표본점 집합)와의 방향·거리·코사인에서
+//  정점별 밝기 배율을 유도해 geometry의 color 속성에 기록한다(1차 = 차폐 없음).
+//  ⚠공급지는 점이 아니라 **표본점들의 집합**이다(현도 지시 2026.08.25 — A는 착지 디스크 구멍 r6의
+//   점광원'급' 좁은 면, D는 갓 링 슬릿 반경 26의 링 광원. 점으로 하드코딩하면 D에서 재작업).
+//  ⚠내부 면만 어두워진다(안팎 구분 = 헌장 제1 원칙): 구획 밖·바깥면 정점은 색 1(백) = 화면 불변.
+export const BAKE_A_ON  = true    // ⛔한 노브 A/B(규율 41): false = 현행 동적 체제 그대로(정점색 미기록·재질 무접촉)
+export const BAKE_N     = 16      // 공급지 표본 수(구획 공통 — A 디스크·D 링이 같은 수를 쓴다)
+export const BAKE_FLOOR = 0.1    // 완전 그늘의 밝기 배율(0=칠흑 · 1=베이크 무효). 현도 튜닝 노브
+export const BAKE_GAMMA = 0.9     // 응답 지수(<1 = 중간톤 상승 · 1 = 선형). 현도 튜닝 노브
+
 //  ── ⑵ 렌더러 (App.jsx <Canvas>) — 현행 = R3F v9 기본값을 명시 핀 고정(설치본 소스 실측) ──
 export const RND_TONEMAP  = 'aces'  // 'aces'|'none'|'linear'|'reinhard'|'cineon'|'agx'|'neutral' (매핑은 App)
 export const RND_EXPOSURE = 1.0     // toneMappingExposure

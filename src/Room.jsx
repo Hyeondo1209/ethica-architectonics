@@ -6,7 +6,8 @@ import * as THREE from 'three'
 import { Brush, Evaluator, HOLLOW_SUBTRACTION } from 'three-bvh-csg'
 import { GivenMonolith } from './Steles'
 import { buildDisc } from './discGeometry.js'
-import { shaftNodes } from './lightingModel.js'   // ★175-e 빛기둥 마디 정본(사본 금지)
+import { shaftNodes, zoneABakeSpec, zoneAShadeAt, zoneAInterior } from './lightingModel.js'   // ★175-e 빛기둥 마디 정본 + ★176 베이크(사본 금지)
+import { BAKE_A_ON, BAKE_N, BAKE_FLOOR } from './constants.js'   // ★176 베이크 노브(한 노브 A/B)
 import {
   ROOM_CX, ROOM_FLOOR_Y, ROOM_R, ROOM_CEIL_Y, ROOM_HEIGHT, ROOM_OCULUS,
   ACH_INT_ON, ACH_INT_MUL, ACH_INT_R, ACH_INT_Y0, ACH_INT_Y1, ACH_INT_FEATHER, ACH_INT_SHELL_Q0, ACH_INT_FACE_W,   // ★174 방 암실
@@ -190,6 +191,49 @@ export function DefAxiomRoom({ stairKind }) {
       }
     })
     if (n) { console.info(`[ROOM_DARK] aoMap 주입 재질 ${n}개 (AO=${ROOM_DARK_AO} · 껍질포함=${ROOM_DARK_SHELL})`); invalidate() }
+  })
+
+  //  ═══════════ ★176 베이크 1차 — A구획 정점색(조명 헌장 Ⅱ · 2026.08.27) ═══════════
+  //  공급지(표본점 집합)와의 방향·거리·코사인에서 정점별 밝기 배율을 유도해 color 속성에 굽는다.
+  //  ⚠안팎 구분 = 제1 원칙: 구획 밖·바깥면 정점은 색 1(백) → 화면 불변. aoMap과 달리 안팎이 갈린다.
+  //  ⚠수학 정본 = lightingModel(zoneAShadeAt — 사본 금지, check_lux N절이 같은 함수를 문다).
+  //  ⚠순회 방식 = ROOM_DARK와 동일(매 프레임 '아직 안 본' 메시만 — ★174-c4 형제 effect 순서 함정 회피).
+  //   순회 범위도 동일하게 방 그룹 한정(★175 ② 근거 승계). 재질 무접촉 — vertexColors 한 비트만 켠다.
+  const bakeZ = useMemo(() => (BAKE_A_ON ? zoneABakeSpec() : null), [])
+  useFrame(() => {
+    if (!BAKE_A_ON || !bakeZ || !darkRef.current) return
+    let n = 0
+    const v = new THREE.Vector3(), nm = new THREE.Vector3(), nMat = new THREE.Matrix3()
+    darkRef.current.traverse((o) => {
+      if (!o.isMesh || o.isInstancedMesh || !o.geometry || o.userData.bakeSeen) return
+      o.userData.bakeSeen = true                                // 판정 결과와 무관하게 재방문 안 함
+      const mats = [].concat(o.material)
+      if (!mats.length || !mats.every((m) => m && m.isMeshStandardMaterial)) return   // 샤프트 ShaderMaterial 등 제외
+      const g = o.geometry
+      if (g.userData.bakedA || !g.attributes.position || !g.attributes.normal) return
+      o.updateWorldMatrix(true, false)
+      nMat.getNormalMatrix(o.matrixWorld)
+      const P = g.attributes.position, N = g.attributes.normal
+      const col = new Float32Array(P.count * 3)
+      let touched = false
+      for (let i = 0; i < P.count; i++) {
+        v.fromBufferAttribute(P, i).applyMatrix4(o.matrixWorld)
+        const p = [v.x - ROOM_CX, v.y, v.z]                     // 방 로컬(베이크 좌표계 — 표본이 이 좌표)
+        let s = 1
+        if (zoneAInterior(p, bakeZ.spire)) {
+          nm.fromBufferAttribute(N, i).applyMatrix3(nMat).normalize()
+          s = zoneAShadeAt(p, [nm.x, nm.y, nm.z], bakeZ)
+          touched = true
+        }
+        col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = s
+      }
+      if (!touched) return                                      // 전 정점이 구획 밖 — 색·재질 무접촉(화면 동일·비용 0)
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3))
+      g.userData.bakedA = true
+      mats.forEach((m) => { m.vertexColors = true; m.needsUpdate = true })
+      n++
+    })
+    if (n) { console.info(`[BAKE_A] 정점색 베이크 메시 ${n}개 (N=${BAKE_N} · floor=${BAKE_FLOOR})`); invalidate() }
   })
 
   // 나선 치수 — 꼭대기 칸 윗면 = 디스크 고리 윗면(49.3). 낱장 디딤판이 중심 반지름 RIN(=14, 고리 6~18 위)에 내려서고, 거기서 고리를 밟아 슬롯으로 나감.

@@ -14,11 +14,15 @@ import {
   ROOM_WELL_RT, RM_SPOT_SHDW_NEAR, RM_SPOT_SHDW_NBIAS,
   SHAFT_DROP_ON, SHAFT_HALO_K_UP, SHAFT_HALO_K_LO, SHAFT_HALO_OP, RM_SHAFT_OP, ROOM_R,
   DISC_HOLE_R, DISC_Y_LO, DISC_Y_HI, SPIRE_NOCAST,
+  BAKE_A_ON, BAKE_N, BAKE_FLOOR, BAKE_GAMMA,
 } from './constants.js'
 import { shaftNodes } from './lightingModel.js'
 import { spireSpec } from './spireGeometry.js'
 const _SP = spireSpec(), SP_TIP = _SP.tipY, SP_HOLE = _SP.holeR
-import { luxAt, displayLum, selfTest, SHDW_TEXEL, SHDW_BIAS_WORLD } from './lightingModel.js'
+import { luxAt, displayLum, selfTest, SHDW_TEXEL, SHDW_BIAS_WORLD,
+  supplyDiskSamples, supplyRingSamples, bakeIrradianceAt, zoneABakeSpec, zoneAShadeAt, zoneAInterior,
+} from './lightingModel.js'
+import { pitSpec } from './defPitGeometry.js'
 import { readFileSync } from 'fs'
 
 let pass = 0, fail = 0
@@ -207,7 +211,7 @@ T('Room.jsx aoMap 주입에 m.needsUpdate 존재 — 없으면 USE_AOMAP 재컴�
   /m\.needsUpdate\s*=\s*true/.test(room))
 T('Room.jsx 스포트 decay가 RM_SPOT_DECAY 참조(인라인 리터럴 아님)', room.includes('decay={RM_SPOT_DECAY}'))
 T('Room.jsx 샤프트가 shaftNodes() 정본을 쓴다 — 마디 좌표 사본 금지',
-  room.includes("import { shaftNodes } from './lightingModel.js'")
+  /import \{[^}]*shaftNodes[^}]*\} from '\.\/lightingModel\.js'/.test(room)   // ★176: 임포트 줄이 자라도 의도(정본 사용)를 문다
   && /SHAFT\.upper/.test(room) && /SHAFT\.lower/.test(room))
 T('Room.jsx가 헤일로 두 절을 그린다', /SHAFT\.haloUp/.test(room) && /SHAFT\.haloLo/.test(room))
 //  ★175-g 이음매 밝기 점프 방지 — 셰이더의 세로 페이드가 uv.y를 쓰므로, 세그먼트 uv를 사슬 전체 비율로 다시 써야 한다.
@@ -228,6 +232,81 @@ T('어둠 게이트와 캐스터 게이트가 분리돼 있다 — ROOM_DARK_ON=
   /const wantDark = ROOM_DARK_ON/.test(room) && /const wantCast = SHDW_CAST_SCOPE/.test(room))
 T('킬스위치 3종 존재(ROOM_DARK_ON · ROOM_DARK_AO · ROOM_DARK_SHELL)',
   typeof ROOM_DARK_ON === 'boolean' && typeof ROOM_DARK_AO === 'number' && typeof ROOM_DARK_SHELL === 'boolean')
+
+console.log('\n── N. ★176 베이크 1차(공급지 = 표본점 집합 · 조명 헌장 Ⅱ) ──')
+//  ⚠일반화가 설계 조건(현도 2026.08.25): 베이커 본체는 표본 배열만 받는다 — A(원판)·D(링)가 같은 함수.
+{
+  const B = zoneABakeSpec()
+  //  ⑴ 표본 생성 — 결정론·기하 소속
+  const d1 = supplyDiskSamples({ c: [0, DISC_Y_LO, 0], r: DISC_HOLE_R })
+  const d2 = supplyDiskSamples({ c: [0, DISC_Y_LO, 0], r: DISC_HOLE_R })
+  T(`원판 표본 결정론 — 두 호출이 비트 동일(N=${BAKE_N})`,
+    d1.length === BAKE_N && JSON.stringify(d1) === JSON.stringify(d2))
+  T('원판 표본 전부가 원판 위(반경 이내 · 같은 y)',
+    d1.every((s) => Math.hypot(s.p[0], s.p[2]) <= DISC_HOLE_R + 1e-9 && s.p[1] === DISC_Y_LO))
+  const RING_R = 10   // ⚠임의 반경 — D의 실제 기하가 아니라 링 광원의 **물리**를 무는 항(실기하는 D 착수 때)
+  const rg = supplyRingSamples({ c: [0, 40, 0], R: RING_R })
+  T('링 표본 전부가 정확히 고리 위(|ρ−R| < 1e-9)',
+    rg.length === BAKE_N && rg.every((s) => Math.abs(Math.hypot(s.p[0], s.p[2]) - RING_R) < 1e-9))
+  //  ⑵ 베이커 일반성 — 공급지 좌표가 함수 밖(표본)에만 있다는 증명: 평행이동 불변
+  const tr = [7.3, -11.1, 4.2]
+  const dT = d1.map((s) => ({ p: [s.p[0] + tr[0], s.p[1] + tr[1], s.p[2] + tr[2]], n: s.n }))
+  const pA = [3, 60, -2], nA = [0, 1, 0]
+  T('베이커 평행이동 불변 — 공급지 하드코딩 없음(표본·정점을 같이 옮기면 E 동일)',
+    Math.abs(bakeIrradianceAt(pA, nA, d1)
+      - bakeIrradianceAt([pA[0] + tr[0], pA[1] + tr[1], pA[2] + tr[2]], nA, dT)) < 1e-15)
+  //  ⑶ 코사인 두 짝 — 표면 등 뒤 0 · 개구 뒤(발광 반구 밖) 0
+  T('표면 등 뒤(법선이 공급지 반대) → E = 0', bakeIrradianceAt([0, 60, 0], [0, -1, 0], d1) === 0)
+  //  ⚠배치 주의(공허 가드 자기 적발 — ★161 계열): 위쪽 점에 **상향** 법선을 주면 수신 코사인이 먼저 죽여
+  //   발광 코사인을 지워도 통과한다. 발광 코사인만이 죽일 수 있는 배치 = 개구 위에서 **내려다보는** 면.
+  T('개구 뒤(공급면 위에서 내려다보는 면) → E = 0 — 발광 반구 밖',
+    bakeIrradianceAt([0, DISC_Y_LO + 10, 0], [0, -1, 0], d1) === 0)
+  //  ⑷ 거리 단조(하절 축상): 방 바닥 중앙 > 각뿔대 바닥 중앙(더 멀다)
+  const pit = pitSpec()
+  T('축상 거리 단조 — 방 바닥 E > 각뿔대 바닥 E',
+    bakeIrradianceAt([0, ROOM_FLOOR_Y, 0], [0, 1, 0], B.lower.samples)
+    > bakeIrradianceAt([0, pit.yBot, 0], [0, 1, 0], B.lower.samples))
+  //  ⑸ ★176 ③ 방향 가드 — "첨두의 빛기둥 쪽 면은 밝고 반대 면은 어둡다"(★175-i 헌장 예문 그대로)
+  const rEx = pit.rTop   // 각뿔대 상면 외접(파생) — 첨두·감실권의 대표 반경
+  T(`방향 가드 — r≈${rEx.toFixed(1)} 높이 중간에서 축 향한 면 shade > 반대 면 shade (엄격 부등)`,
+    zoneAShadeAt([rEx, ROOM_FLOOR_Y + 1, 0], [-1, 0, 0], B)
+    > zoneAShadeAt([rEx, ROOM_FLOOR_Y + 1, 0], [1, 0, 0], B))
+  //  ⑹ 범위·정규화
+  const sweep = [
+    [[0, ROOM_FLOOR_Y, 0], [0, 1, 0]], [[60, 70, 0], [-1, 0, 0]], [[60, 70, 0], [1, 0, 0]],
+    [[0, 130, 0], [0, 1, 0]], [[-40, 55, 20], [0.6, 0.8, 0]], [[0, pit.yBot, 0], [0, 1, 0]],
+  ].map(([p, n2]) => zoneAShadeAt(p, n2, B))
+  T(`shade 전 표본 ∈ [BAKE_FLOOR(${BAKE_FLOOR}), 1]`,
+    sweep.every((s) => s >= BAKE_FLOOR - 1e-12 && s <= 1 + 1e-12))
+  T('정규화 항등 — 하절 기준점(방 바닥 중앙·상향)의 shade = 1',
+    Math.abs(zoneAShadeAt([0, ROOM_FLOOR_Y, 0], [0, 1, 0], B) - 1) < 1e-12)
+  //  ⑺ 두 절 분리 — 경계·공급지 대응이 전부 파생(디스크 상하면·첨탑 꼭지)
+  T('절 경계 = 디스크 중간 높이(파생)', Math.abs(B.splitY - (DISC_Y_LO + DISC_Y_HI) / 2) < 1e-12)
+  T('상절 공급지 = 첨탑 꼭지 구멍(y=tipY · r=holeR — 파생 대조)',
+    B.upper.samples.every((s) => s.p[1] === SP_TIP && Math.hypot(s.p[0], s.p[2]) <= SP_HOLE + 1e-9))
+  T('우물 안 점(경계 위)은 상절로 계산된다 — 함수 자기일관',
+    Math.abs(zoneAShadeAt([0, DISC_Y_HI + 5, 0], [0, 1, 0], B)
+      - (BAKE_FLOOR + (1 - BAKE_FLOOR) * Math.pow(Math.min(1,
+          bakeIrradianceAt([0, DISC_Y_HI + 5, 0], [0, 1, 0], B.upper.samples) / B.upper.eRef), BAKE_GAMMA))) < 1e-12)
+  //  ⑻ D 미리보기 — 링 광원의 물리(★175-j ⑷: 중앙 중첩·외곽 감쇠)를 **같은 베이커**가 재현
+  const ringE = (x) => bakeIrradianceAt([x, 40 - RING_R, 0], [0, 1, 0], rg)
+  T('링 광원: 축 아래 중앙 E > 2R 벗어난 점 E (중앙 중첩·외곽 감쇠)', ringE(0) > ringE(2 * RING_R))
+  //  ⑼ 내부 판정(안팎 구분 = 제1 원칙) — 방·우물 안 true / 껍질 밖·첨탑 밖 false
+  T('내부 판정: 방 중심·각뿔대 바닥·우물 축 true / 방 밖·첨탑 밖 false',
+    zoneAInterior([0, 70, 0]) && zoneAInterior([0, pit.yBot + 0.1, 0]) && zoneAInterior([0, 140, 0])
+    && !zoneAInterior([ROOM_R + 5, ROOM_FLOOR_Y, 0]) && !zoneAInterior([30, 140, 0]))
+  //  ⑽ 노브 위생 — 표본 4 미만이면 링이 링이 아니다 · floor는 (0,1) 열린 구간
+  T(`노브 위생 — BAKE_N(${BAKE_N}) ≥ 4 · BAKE_FLOOR(${BAKE_FLOOR}) ∈ (0,1)`,
+    BAKE_N >= 4 && BAKE_FLOOR > 0 && BAKE_FLOOR < 1)
+  //  ⑾ 배선 — Room.jsx가 정본 함수를 쓰고(사본 금지) 재질 무접촉 원칙을 지키는가
+  T('Room.jsx가 lightingModel의 베이크 정본을 임포트(사본 금지)',
+    /zoneABakeSpec, zoneAShadeAt, zoneAInterior/.test(room))
+  T('베이크 게이트 = BAKE_A_ON 한 노브(규율 41 — 순회·useMemo 둘 다 문다)',
+    /BAKE_A_ON \|\| !bakeZ/.test(room) && /BAKE_A_ON \? zoneABakeSpec\(\)/.test(room))
+  T('구획 밖 전용 메시는 색·재질 무접촉(touched 게이트)', /if \(!touched\) return/.test(room))
+  T('베이크 순회도 방 그룹 한정 + 재방문 표식(ROOM_DARK와 같은 어법)',
+    /o\.userData\.bakeSeen/.test(room))
+}
 
 console.log(`\n전체 ${pass + fail}항 중 ${pass}항 통과 ${fail ? '❌ ' + fail + '항 실패' : '✅'}`)
 process.exit(fail ? 1 : 0)

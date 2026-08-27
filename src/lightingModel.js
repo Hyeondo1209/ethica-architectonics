@@ -15,6 +15,7 @@ import {
   RM_SPOT_I, RM_SPOT_SPREAD_R, RM_SPOT_PEN, RM_SPOT_DECAY,
   RM_LGT_CORE_I, RM_LGT_DAIS_I, RM_LGT_WELL_I,
   SHAFT_DROP_ON, SHAFT_HALO_K_UP, SHAFT_HALO_K_LO, DISC_HOLE_R, DISC_Y_LO, DISC_Y_HI, ROOM_WELL_RT,
+  BAKE_N, BAKE_FLOOR, BAKE_GAMMA,
 } from './constants.js'
 import { spireSpec, wellWallR } from './spireGeometry.js'
 import { pitSpec } from './defPitGeometry.js'
@@ -173,6 +174,83 @@ export function shaftNodes() {
   const haloUp = upper.map(([y, r]) => [y, r * SHAFT_HALO_K_UP])
   const haloLo = lower.filter((n) => n[0] >= ROOM_FLOOR_Y).map(([y, r]) => [y, r * SHAFT_HALO_K_LO])
   return { tanW, tanD, apY, spotY, upper, lower, haloUp, haloLo }
+}
+
+// ── ★176 베이크 1차 — 공급지 = 표본점들의 집합 (조명 헌장 Ⅱ) ──────────
+//  ⚠일반화가 설계 조건이다(현도 지시 2026.08.25): A구획 공급지 = 착지 디스크 구멍 r6(좁은 원판),
+//   D구획 공급지 = 갓 링 슬릿 반경 26의 고리(★175-j). 공급지를 점으로 하드코딩하면 D에서 재작업이다.
+//   → 베이커 본체(bakeIrradianceAt)는 **표본 배열만** 받는다. 구획별 차이는 표본 생성기에만 있다.
+//  1차 모델(★176 ①): 차폐 없음 — 각 표본에 대해 수신 코사인 × 발광 코사인 / 거리²의 평균.
+//   (원판·고리 다 램버시안 개구 근사 — 개구 아래 반구로만 발광한다. 개구 뒤·표면 등 뒤는 0.)
+
+const GOLDEN_A = Math.PI * (3 - Math.sqrt(5))    // 황금각 — 결정론적 원판 표본(Vogel 나선)
+
+/** 원판 공급지 표본(중심 c · 반지름 r · 발광 법선 sn 기본 아래) — A구획(디스크 구멍·첨탑 꼭지 구멍) */
+export function supplyDiskSamples({ c, r, n = BAKE_N, sn = [0, -1, 0] }) {
+  const out = []
+  for (let i = 0; i < n; i++) {
+    const rho = r * Math.sqrt((i + 0.5) / n), a = i * GOLDEN_A
+    out.push({ p: [c[0] + rho * Math.cos(a), c[1], c[2] + rho * Math.sin(a)], n: sn })
+  }
+  return out
+}
+/** 고리 공급지 표본(중심 c · 반지름 R) — D구획(갓 링 슬릿)이 그대로 쓴다. 베이커는 안 바뀐다 */
+export function supplyRingSamples({ c, R, n = BAKE_N, sn = [0, -1, 0] }) {
+  const out = []
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2
+    out.push({ p: [c[0] + R * Math.cos(a), c[1], c[2] + R * Math.sin(a)], n: sn })
+  }
+  return out
+}
+/** 표본 집합이 점 (pos, 법선 n)에 주는 조사량 — 순수 함수. 공급지 좌표는 인자(samples)에만 있다 */
+export function bakeIrradianceAt(pos, n, samples) {
+  let E = 0
+  for (const s of samples) {
+    const v = sub(s.p, pos), d = len(v)
+    if (d < 1e-6) continue                              // 표본과 정점 일치 — 특이점 제외
+    const l = [v[0] / d, v[1] / d, v[2] / d]
+    const cr = dot(n, l); if (cr <= 0) continue         // 표면 등 뒤
+    const cs = -dot(s.n, l); if (cs <= 0) continue      // 개구 뒤(발광 반구 밖)
+    E += (cr * cs) / (d * d)
+  }
+  return E / samples.length
+}
+
+/** A구획 베이크 명세 — 두 절(★175-f의 빛기둥 2절과 같은 구조):
+ *   하절 = 착지 디스크 구멍(r6, y=DISC_Y_LO)이 방을 공급 / 상절 = 첨탑 꼭지 구멍(holeR)이 우물을 공급.
+ *   eRef = 각 절의 축상 착지점(하절 = 방 바닥 중앙 · 상절 = 디스크 상면 중앙)의 조사량 → 거기서 shade 1.
+ *   전부 파생 — 손 반경·손 y 0. */
+export function zoneABakeSpec() {
+  const S = spireSpec()
+  const lower = supplyDiskSamples({ c: [0, DISC_Y_LO, 0], r: DISC_HOLE_R })
+  const upper = supplyDiskSamples({ c: [0, S.tipY, 0], r: S.holeR })
+  return {
+    spire: S,
+    splitY: (DISC_Y_LO + DISC_Y_HI) / 2,
+    lower: { samples: lower, eRef: bakeIrradianceAt([0, ROOM_FLOOR_Y, 0], [0, 1, 0], lower) },
+    upper: { samples: upper, eRef: bakeIrradianceAt([0, DISC_Y_HI, 0], [0, 1, 0], upper) },
+  }
+}
+/** 정점 하나의 베이크 밝기 배율 ∈ [BAKE_FLOOR, 1] */
+export function zoneAShadeAt(pos, n, Z = zoneABakeSpec()) {
+  const seg = pos[1] >= Z.splitY ? Z.upper : Z.lower
+  const t = Math.min(1, bakeIrradianceAt(pos, n, seg.samples) / seg.eRef)
+  const g = BAKE_GAMMA === 1 ? t : Math.pow(t, BAKE_GAMMA)
+  return BAKE_FLOOR + (1 - BAKE_FLOOR) * g
+}
+/** A구획 '내부' 판정(방 로컬 좌표 — 그룹 x=ROOM_CX 평행이동 이전) —
+ *   ① 방 타원구 중립면 안(ρ≤1: 안면은 ρ<1·바깥면은 ρ>1 — 안팎이 여기서 갈린다)
+ *   ② 첨탑 대역(yB~tipY)의 벽 중립면 안(rxz ≤ 바깥반경 − T/2). yT 위(피니얼)는 rTopOut로 클램프 */
+export function zoneAInterior(p, S = spireSpec()) {
+  const rxz = Math.hypot(p[0], p[2])
+  const rho = Math.hypot(rxz / ROOM_R, (p[1] - ROOM_FLOOR_Y) / ROOM_HEIGHT)
+  if (rho <= 1) return true
+  if (p[1] >= S.yB && p[1] <= S.tipY + 1e-6) {
+    const rOut = p[1] <= S.yT ? wellWallR(p[1], { spec: S, forceSpire: true }) : S.rTopOut
+    return rxz <= rOut - S.T / 2
+  }
+  return false
 }
 
 // ── 그림자 리그 유도량(acne / 빛샘의 척도) ────────────────────
