@@ -18,7 +18,7 @@ import {
   BAKE_DISC_GAP_ON, BAKE_WRAP, BAKE_AMB, BAKE_BOUNCE, BAKE_TONE, BAKE_STAIR_MIN, BAKE_INST_ON, BAKE_DISC_OPEN_SEG,
 } from './constants.js'
 import { shaftNodes, zoneDBakeSpec, zoneDShadeAt, zoneDInterior, cylinderBandPolys,
-  shaftSilhouetteFacing, shaftSlopes, shaftLenCurve, polysSolidAngle, polysIrradianceW } from './lightingModel.js'   // ★188 D구획 + ★189·★190 빛기둥
+  shaftSilhouetteFacing, shaftSlopes, shaftLenCurve, shaftAddAlpha, polysSolidAngle, polysIrradianceW } from './lightingModel.js'   // ★188 D구획 + ★189·★190·★208 빛기둥
 import { spireSpec } from './spireGeometry.js'
 const _SP = spireSpec(), SP_TIP = _SP.tipY, SP_HOLE = _SP.holeR
 import { luxAt, displayLum, selfTest, SHDW_TEXEL, SHDW_BIAS_WORLD,
@@ -1416,6 +1416,96 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
   T('국소성 — 틈 한가운데는 안 · 틈 밖 0.01rad은 밖 · rOut 밖 0.01m은 밖(허용오차가 1e-6을 안 넘는다)',
     discOpenAt(at7(D7.gap / 2, 12)) && !discOpenAt(at7(D7.gap + 0.01, 12)) && !discOpenAt(at7(-0.01, 12))
     && !discOpenAt(at7(D7.gap / 2, D7.rOut + 0.01)))
+}
+
+
+// ══════ S-8. ★208 헤일로 세기(번짐) — '빛의 질감' 다이얼 ══════
+{
+  console.log('\n── S-8. ★208 헤일로 세기(번짐) ──')
+  const S8 = shaftNodes()
+  //  화면 알파 = 기둥 + 헤일로(가산). 기둥 세기는 언제나 RM_SHAFT_OP — 헤일로 노브와 무관하다.
+  const A8 = (op, x, y = 60) =>
+    shaftAddAlpha({ nodes: S8.lower, op: RM_SHAFT_OP, y, x }) + shaftAddAlpha({ nodes: S8.haloLo, op, y, x })
+
+  //  ⑴ 도구 검증 — 닫힌 식이 원기둥 껍질의 알려진 성질을 재현하는가(공허 방지)
+  T('도구 — 축 위(x=0)에서 알파 = 2·op·len (앞뒤 두 장 · facing=1)',
+    Math.abs(shaftAddAlpha({ nodes: S8.haloLo, op: 0.10, y: 60, x: 0 })
+      - 2 * 0.10 * shaftLenCurve((60 - S8.haloLo[S8.haloLo.length - 1][0]) / (S8.haloLo[0][0] - S8.haloLo[S8.haloLo.length - 1][0]))) < 1e-12)
+  T('도구 — 반경 밖은 0이고, 안에서는 축에서 멀어질수록 단조 감소(실루엣에서 0으로 꺼진다)',
+    shaftAddAlpha({ nodes: S8.lower, op: 0.34, y: 60, x: 100 }) === 0
+    && [0, 2, 4, 6, 8].map((x) => shaftAddAlpha({ nodes: S8.lower, op: 0.34, y: 60, x }))
+      .every((v, i, a) => i === 0 || v < a[i - 1]))
+  T('도구 — 사슬 밖 높이는 0(하절 헤일로는 각뿔대 안에 없다 · 상절 헤일로는 디스크 아래에 없다)',
+    shaftAddAlpha({ nodes: S8.haloLo, op: 0.20, y: ROOM_FLOOR_Y - 5 }) === 0
+    && shaftAddAlpha({ nodes: S8.haloUp, op: 0.20, y: 60 }) === 0)
+  //  ⚠공허 적발(★208 자책): 초판에는 이 항이 없어 **감쇠 지수를 1.6→1.0으로 바꿔도 아무 항도 안 물었다**.
+  //   지수는 셰이더와 닫힌 식이 공유해야 하는 값이므로 **양쪽에서** 못 박는다(규율 11의 실전례).
+  {
+    //  ⚠표본은 **사슬 한가운데**로 잡는다 — 꼭대기는 ★190 상단 페이드로 len=0이라 양변이 함께 0이 되어
+    //   이 항 자체가 공허 통과한다(초판이 정확히 그랬다. 두 번 연속 같은 함정 — 규율 11).
+    const yE = 60, hT = S8.haloLo[0][0], hB = S8.haloLo[S8.haloLo.length - 1][0]
+    const rE = shaftAddAlpha({ nodes: S8.haloLo, op: 0.5, y: yE }) > 0
+      ? S8.haloLo[0][1] + (S8.haloLo[1][1] - S8.haloLo[0][1]) * ((hT - yE) / (hT - hB)) : 0
+    const lenE = shaftLenCurve((yE - hB) / (hT - hB))
+    const aE = shaftAddAlpha({ nodes: S8.haloLo, op: 0.20, y: yE, x: 0.6 * rE })
+    T(`도구 — 가장자리 감쇠 지수가 1.6이다(x/r=0.6 ⇒ facing 0.8 ⇒ 2·op·len·0.8^1.6 = ${(2 * 0.20 * lenE * Math.pow(0.8, 1.6)).toFixed(4)})`,
+      lenE > 0.05 && aE > 0.01 && Math.abs(aE - 2 * 0.20 * lenE * Math.pow(0.8, 1.6)) < 1e-9)
+  }
+
+  //  ⑵ ⛔병 재현 — 구 체제(0.10)에서 기둥 가장자리 밖으로 나가는 순간 알파가 **절벽**으로 떨어진다.
+  //   현도가 말한 "번짐이 안 느껴진다"의 기하적 정체. 체제와 무관하게 **명시 인자**로 묻는다(★190 교훈).
+  const cliff = (op) => A8(op, 6) / A8(op, 10)
+  T(`⛔구 체제 재현 — SHAFT_HALO_OP=0.10에서 절벽비(x6/x10) = ${cliff(0.10).toFixed(2)} > 4 (기둥 반경 8.9 밖에서 급락)`,
+    cliff(0.10) > 4)
+  T('⛔구 체제 재현 — 헤일로 몫이 기둥의 1/4 미만이다(문서의 "1/3"은 틀렸다 — 사슬 span 차이 때문)',
+    shaftAddAlpha({ nodes: S8.haloLo, op: 0.10, y: 60 }) / shaftAddAlpha({ nodes: S8.lower, op: RM_SHAFT_OP, y: 60 }) < 0.25)
+  T('⛔병의 원인 — 두 사슬의 span이 다르다(기둥이 각뿔대까지 내려가고 헤일로는 방 바닥에서 멈춘다)',
+    (S8.lower[0][0] - S8.lower[S8.lower.length - 1][0]) > (S8.haloLo[0][0] - S8.haloLo[S8.haloLo.length - 1][0]) + 1)
+
+  //  ⑶ ★다이얼 방향성 — 세기를 올리면 번짐이 밝아지고 절벽이 단조로 완만해진다(노브가 실제로 듣는다)
+  const dial = [0.10, 0.15, 0.20, 0.26]
+  T(`★다이얼 — x10 알파가 단조 상승 (${dial.map((o) => A8(o, 10).toFixed(3)).join(' < ')})`,
+    dial.map((o) => A8(o, 10)).every((v, i, a) => i === 0 || v > a[i - 1]))
+  T(`★다이얼 — 절벽비가 단조 완화 (${dial.map((o) => cliff(o).toFixed(2)).join(' > ')})`,
+    dial.map((o) => cliff(o)).every((v, i, a) => i === 0 || v < a[i - 1]))
+
+  //  ⑷ ★기둥 불변 — 이 노브를 어떻게 밀어도 **기둥은 비트 동일**이다(헤일로 재질만 uOpacity를 덮어쓴다).
+  //   배선이 어긋나 shaftMat에 물리면 여기가 문다.
+  const pillarAt = (y, x) => shaftAddAlpha({ nodes: S8.lower, op: RM_SHAFT_OP, y, x })
+  const haloAt = (op, y, x) => shaftAddAlpha({ nodes: S8.haloLo, op, y, x })
+  const pts8 = [[60, 0], [60, 6], [85, 3], [95, 0]]
+  //  ⚠비트 동일로 쓰면 **검사 쪽 결함**이 된다(가산 순서가 달라 부동소수 결합법칙이 깨진다 — 초판이 여기서 붉었다).
+  //   주장의 알맹이는 "늘어난 몫이 전부 헤일로다"이므로 그렇게 쓴다.
+  T('★기둥 불변 — 0.10→0.20에서 늘어난 알파가 **전부 헤일로 몫**이다(기둥이 함께 밝아지면 여기가 문다)',
+    pts8.every(([y, x]) => Math.abs((A8(0.20, x, y) - A8(0.10, x, y))
+      - (haloAt(0.20, y, x) - haloAt(0.10, y, x))) < 1e-12))
+  //  공허 방지 — 위 항이 "기둥 몫이 0이라 자명하게 참"인 게 아님을 함께 문다.
+  T(`★공허 방지 — 표본 ${pts8.length}곳 중 기둥 몫이 0이 아닌 곳이 있다(${pts8.filter(([y, x]) => pillarAt(y, x) > 0).length}곳)`,
+    pts8.some(([y, x]) => pillarAt(y, x) > 0.05))
+  //  ⛔오염 체제 재현 — 노브가 기둥에도 물렸다면 증분이 눈에 띄게 커진다(그 체제를 수치로 못 박는다)
+  //  임계 = **8비트 한 계단**(1/255 = 3.9e-3) — 이 프로젝트가 '화면에서 갈리는가'에 쓰는 눈금(★206 어법).
+  T('⛔오염 재현 — 노브가 기둥에도 물린 가짜 체제는 표본 전부에서 8비트 한 계단 넘게 벌어진다(검사가 그 체제를 실제로 가른다)',
+    pts8.filter(([y, x]) => pillarAt(y, x) > 0.05).every(([y, x]) => {
+      const real = A8(0.20, x, y) - A8(0.10, x, y)
+      const fake = real + (shaftAddAlpha({ nodes: S8.lower, op: 0.20, y, x }) - shaftAddAlpha({ nodes: S8.lower, op: 0.10, y, x }))
+      return fake - real > 1 / 255
+    }))
+
+  //  ⑸ 노브 위생 · 배선 — 현행 노브는 **함의**로 따로 묻는다(보존계 0.10 스윕에서도 green이어야 한다)
+  T(`노브 위생 — SHAFT_HALO_OP(${SHAFT_HALO_OP}) ∈ (0, RM_SHAFT_OP) 유한 · ⛔0.10 = ★175-e 원값 복귀(한 줄)`,
+    Number.isFinite(SHAFT_HALO_OP) && SHAFT_HALO_OP > 0 && SHAFT_HALO_OP < RM_SHAFT_OP)
+  T(`★현행 체제 일관성 — (SHAFT_HALO_OP > 0.10) ⟺ (현행 절벽비 ${cliff(SHAFT_HALO_OP).toFixed(2)} < 구 체제 ${cliff(0.10).toFixed(2)})`,
+    (SHAFT_HALO_OP > 0.10) === (cliff(SHAFT_HALO_OP) < cliff(0.10)))
+  const roomSrc208 = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+  T('배선 — 기둥 재질의 uOpacity는 RM_SHAFT_OP다(헤일로 노브가 기둥에 새지 않는다)',
+    /uOpacity:\s*\{\s*value:\s*RM_SHAFT_OP\s*\}/.test(roomSrc208))
+  T('배선 — 셰이더의 감쇠 지수가 닫힌 식과 같다(GLSL `pow(facing, 1.6)`) — 한쪽만 바꾸면 검사와 화면이 갈린다',
+    /float edge = pow\(facing, 1\.6\)/.test(roomSrc208))
+  T('배선 — 헤일로 재질이 사본의 uOpacity만 SHAFT_HALO_OP로 덮어쓴다(하드코딩 아님)',
+    /m\.uniforms\.uOpacity\.value = SHAFT_HALO_OP/.test(roomSrc208))
+  T('★208은 기하·폭을 안 건드린다 — 헤일로 배수는 여전히 K_UP·K_LO 파생이다(세기 축만 움직였다)',
+    S8.haloLo.every((h, i) => Math.abs(h[1] - S8.lower[i][1] * SHAFT_HALO_K_LO) < 1e-9)
+    && S8.haloUp.every((h, i) => Math.abs(h[1] - S8.upper[i][1] * SHAFT_HALO_K_UP) < 1e-9))
 }
 
 console.log(`\n전체 ${pass + fail}항 중 ${pass}항 통과 ${fail ? '❌ ' + fail + '항 실패' : '✅'}`)

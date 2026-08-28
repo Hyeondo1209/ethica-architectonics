@@ -616,6 +616,26 @@ export function shaftLenCurve(vY, topFade = SHAFT_TOP_FADE) {
   return ss(0, 0.18, vY) * (0.30 + 0.70 * vY) * top
 }
 
+/** ★208 빛기둥·헤일로가 **화면에 더하는 알파** — 축에서 x 떨어진 수평 시선 기준의 닫힌 식(표본 없음).
+ *  가산 혼합(AdditiveBlending) + DoubleSide라 시선이 껍질을 **앞뒤 두 번** 지난다. 법선이 축 기준
+ *  반경방향(★189)이므로 두 교점의 facing이 같다 ⇒ 합 = 2 · op · len · facing^1.6.
+ *   facing = √(1 − (x/r)²)  ·  지수 1.6 = 셰이더 `pow(facing, 1.6)`  ·  len = shaftLenCurve(사슬 전체 비율 vY)
+ *  ⚠사슬 비율은 ★175-g uv 리맵 규약(세그먼트가 아니라 **사슬 전체**에서의 높이 비율)을 그대로 쓴다.
+ *  ⚠GLSL은 노드에서 못 돌린다 — 이 함수는 성질 검증용이고, 셰이더가 같은 식인지는 배선 항이 문다. */
+export function shaftAddAlpha({ nodes, op, y, x = 0, topFade = SHAFT_TOP_FADE }) {
+  if (!nodes || nodes.length < 2) return 0
+  const yTop = nodes[0][0], yBot = nodes[nodes.length - 1][0]
+  if (!(y <= yTop + 1e-12 && y >= yBot - 1e-12) || yTop <= yBot) return 0
+  let r = null
+  for (let i = 0; i < nodes.length - 1; i++) {
+    const [yA, rA] = nodes[i], [yB, rB] = nodes[i + 1]
+    if (y <= yA + 1e-12 && y >= yB - 1e-12) { r = rA + (rB - rA) * ((yA - y) / (yA - yB)); break }
+  }
+  if (r === null || r <= 0 || Math.abs(x) >= r) return 0
+  const facing = Math.sqrt(Math.max(0, 1 - (x / r) * (x / r)))
+  return 2 * op * shaftLenCurve((y - yBot) / (yTop - yBot), topFade) * Math.pow(facing, 1.6)
+}
+
 /** 빛기둥 사슬의 세그먼트별 기울기(dr/dy) — 실기하에서 유도(손 수치 0) */
 export function shaftSlopes(S = shaftNodes()) {
   const out = []
