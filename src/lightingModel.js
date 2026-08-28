@@ -490,12 +490,19 @@ export function toneCurve(t, mode = BAKE_TONE, g = BAKE_GAMMA) {
  *   정확 비교는 정점 열마다 절이 교대해 **바코드 줄무늬**가 된다(2026.08.28 현도 실증 · 실측 60열 중 전환 22회).
  *   허용오차가 경계 위 정점을 전부 구멍(상절) 쪽으로 일관 배정한다(구멍 벽 = ★192의 표적 면 — 상절이 옳다). */
 export function discGapAt(pos) {                                    // 트인 틈(C자 gap)만 — ★193 블렌드가 쓴다
+  //  ★207 **방위 허용오차**(2026.08.28 현도 실증: 디스크 단면의 줄무늬 얼룩).
+  //   ★193은 **반경** 경계에만 허용오차를 줬다(`r >= rIn + 1e-6`). 방위 경계는 정확 비교로 남아 있었고,
+  //   틈 끝면 2장의 정점은 `atan2`가 wA를 ±ULP로 되돌려 **rel ≈ 0 ↔ rel ≈ 2π** 로 갈렸다
+  //   ⇒ 같은 평면 위에서 절이 교대(실측: 끝면A 20정점 중 상 11/하 9 · 끝면B 20 중 상 15/하 5)하고
+  //   상절 0.31 ↔ 하절 0.030(10배)이 이웃해 **★193 바코드의 방위판**이 된다. 병도 수리도 ★193과 같은 계열이다.
+  //  ⚠경계 위 정점의 정답은 **상절**이다 — 틈 끝면·바깥 테두리면은 ★192 우물광의 표적 면이다(★194 주석의 선언).
   const D = discSpec()
   const r = Math.hypot(pos[0], pos[2])
-  if (r >= D.rIn + 1e-6 && r <= D.rOut) {
+  if (r >= D.rIn + 1e-6 && r <= D.rOut + 1e-6) {                    // ★207 바깥 테두리도 같은 허용오차(모서리 정점)
     const TAU = Math.PI * 2
-    const rel = (((Math.atan2(pos[2], pos[0]) - D.wA) % TAU) + TAU) % TAU
-    if (rel <= D.gap) return true
+    let rel = (((Math.atan2(pos[2], pos[0]) - D.wA) % TAU) + TAU) % TAU
+    if (rel > TAU - 1e-6) rel = 0                                   // 시작 경계(wA) 위 정점이 한 바퀴 돌아온 것
+    if (rel <= D.gap + 1e-6) return true                            // 끝 경계(wA+gap) 위 정점 포함
   }
   return false
 }

@@ -29,6 +29,7 @@ import { pitSpec } from './defPitGeometry.js'
 import { COR_CX, COR_R, ceilY, gatCap, GAT_SLIT, GAT_CROWN_R, GAT_POSTS, BAKE_D_GAMMA, BAKE_D_SEG, SHAFT_EDGE_AXIAL, SHAFT_TOP_FADE } from './constants.js'   // ★188 D구획
 import { BAKE_WELL, BAKE_WELL_BANDS, BAKE_WELL_SEG, BAKE_POLY_ON, BAKE_SEG_BLEND, BAKE_WALL_FACE_ON, BAKE_BOUNCE_UP, BAKE_GAMMA_UP, BAKE_GRAD_ON, BAKE_GRAD_TOL, BAKE_GRAD_MIN } from './constants.js'   // ★192~★198
 import { wellWallBandPolys, polysIrradianceWtd, discOpenAt, discGapInteriorAt, splitSoupByGradient } from './lightingModel.js'   // ★192~★198
+import { buildDisc } from './discGeometry.js'   // ★207 실기하 정점(합성 좌표는 병을 재현 못 한다)
 import { wellInnerClear, wellWallR, buildSpire } from './spireGeometry.js'   // ★192 2경로 재유도 · ★195 벽 바깥반경 · ★198 표적 부재
 import { discSpec as discSpec192 } from './discGeometry.js'   // ★192 대역 하단 파생 검증
 import { incaBladesSpec } from './corridorStairsGeometry.js'   // ★188 실효성 항(홀 안 실부재 좌표)
@@ -1048,10 +1049,14 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
   const maxStep = Math.max(...ysG.map((v, i) => (i ? Math.abs(v - ysG[i - 1]) : 0)))
   T(`틈 기둥 전 구간(0.1 격자)이 매끄럽다 — 최대 인접 단차 ${maxStep.toFixed(3)} < 0.08`,
     !BAKE_POLY_ON || BAKE_SEG_BLEND <= 0 || maxStep < 0.08)
-  T('⛔blendK=0이 병을 그대로 재현한다(하드 컷 > 0.5 — 보존계가 정확히 그 증상이다)',
-    !BAKE_POLY_ON || Math.abs(
-      zoneAShadeAt(pG(DISC_Y_LO - 1e-3), up, zoneABakeSpec({ blendK: 0 }))
-      - zoneAShadeAt(pG(DISC_Y_LO + 1e-3), up, zoneABakeSpec({ blendK: 0 }))) > 0.5)
+  //  ⚠**임계 개정(★206)**: 구판 '> 0.5'는 ★197 체제(상절 어두움)에서만 참인 **그 시점 값**이었다 —
+  //   상절이 밝아지면 하절 1.000과의 낙차가 줄어 0.389가 되고(실측), 병이 그대로인데 검사가 빨개졌다.
+  //   체제 무관한 성질은 **"눈에 보이는 단차가 남는다"**뿐이다 ⇒ 8비트 한 계단(1/255)의 4배를 임계로 쓴다.
+  const cut0 = !BAKE_POLY_ON ? 0 : Math.abs(
+    zoneAShadeAt(pG(DISC_Y_LO - 1e-3), up, zoneABakeSpec({ blendK: 0 }))
+    - zoneAShadeAt(pG(DISC_Y_LO + 1e-3), up, zoneABakeSpec({ blendK: 0 })))
+  T(`⛔blendK=0이 병을 그대로 재현한다(하드 컷 ${cut0.toFixed(3)} = 8비트 ${Math.round(cut0 * 255)}계단 — 현행 블렌드가 0으로 만드는 그 단차)`,
+    !BAKE_POLY_ON || cut0 > 4 / 255)
 
   //  ⑶ 국소성 — 블렌드는 개구 안 대역만 만진다
   const azF = D2.wB + D2.sweep / 2                                    // 살 한가운데(비개구)
@@ -1282,6 +1287,135 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
     /splitSoupByGradient\(attrs, shadeOf, BAKE_GRAD_TOL, BAKE_GRAD_MIN\)/.test(roomSrc198)
     && /zoneAInterior\(p, Z\.spire, n\) \? zoneAShadeAt\(p, n, Z\) : 1/.test(roomSrc198)
     && /BAKE_GRAD_ON && !g\.userData\.bakeGrad/.test(roomSrc198))
+}
+
+// ══════ S-6. ★206 상절 반사 소등 — 방위 이음선 제거 + 밝기 다이얼 ══════
+{
+  console.log('\n── S-6. ★206 상절 반사 소등 ──')
+  const SP6 = spireSpec(), D6 = discSpec192()
+  //  벽 = 첨탑 내벽(살 한가운데 바로 안쪽 · 법선 안쪽 수평) — 현도가 실증한 그 면이다.
+  const wallPt6 = (y, az) => {
+    const rOut = y <= SP6.yT ? wellWallR(y, { spec: SP6, forceSpire: true }) : SP6.rTopOut
+    const r = rOut - SP6.T / 2 - 1e-3
+    return [[r * Math.cos(az), y, r * Math.sin(az)], [-Math.cos(az), 0, -Math.sin(az)]]
+  }
+  const shadeIn6 = (p, n, Z) => (zoneAInterior(p, SP6, n) ? zoneAShadeAt(p, n, Z) : NaN)
+  //  ⚠blendK:0 — 이 절의 표적은 벽면이고 y101 부근은 ★193 블렌드 대역이라 켜 두면 대역 안 값이 섞인다.
+  const specOf = (b, g) => zoneABakeSpec({ bounceUpK: b, gammaUpK: g, blendK: 0 })
+  const spreadAt = (y, Z) => {
+    const v = []
+    for (let i = 0; i < 36; i++) { const [p, n] = wallPt6(y, i / 36 * 2 * Math.PI); const s6 = shadeIn6(p, n, Z); if (Number.isFinite(s6)) v.push(s6) }
+    return Math.max(...v) - Math.min(...v)
+  }
+  const YS6 = [102.5, 106, 112, 120, 130, 145, 160]
+  const profOf = (Z) => YS6.map((y) => shadeIn6(...wallPt6(y, D6.wB + D6.sweep / 2), Z))
+
+  T(`노브 위생 — BAKE_BOUNCE_UP(${BAKE_BOUNCE_UP}) ≥ 0 유한 · BAKE_GAMMA_UP(${BAKE_GAMMA_UP}) > 0 유한`,
+    Number.isFinite(BAKE_BOUNCE_UP) && BAKE_BOUNCE_UP >= 0 && Number.isFinite(BAKE_GAMMA_UP) && BAKE_GAMMA_UP > 0)
+
+  //  ★★이 절의 존재 이유 — 상절의 **비축대칭 공급지는 반사판(디스크 상면 C자)뿐**이다.
+  //   꼭지 원판·우물 안벽은 둘 다 축대칭이므로, 반사를 끄면 방위 산포가 **구조적으로 0**이 된다.
+  //   ⛔반증 = 반사를 되켜면 정확히 현도가 본 세로 이음선이 재현된다(틈 0.125 ↔ 살 0.737).
+  const spr0 = spreadAt(102.5, specOf(0, BAKE_GAMMA_UP))
+  const sprB = spreadAt(102.5, specOf(0.002, BAKE_GAMMA_UP))
+  //  ⚠**정확히 0은 아니다**(측정으로 정정): 공급지가 다각형 근사라 12·24주기 잔물결이 남는다.
+  //   실측 1.1e-3 = **8비트 한 계단(1/255 = 3.9e-3)의 3분의 1** — 화면에서 색이 갈릴 수 없는 크기다.
+  T(`★반사 소등 ⟹ 방위 이음선 소멸 — y102.5 36방위 산포 ${spr0.toExponential(2)} < 8비트 한 계단(${(1 / 255).toExponential(2)})`,
+    spr0 < 1 / 255)
+  T(`★공허 방지(병 재현) — 반사를 되켜면(0.002) 같은 자리 산포가 ${sprB.toFixed(3)}로 되살아난다(${Math.round(sprB / Math.max(spr0, 1e-12))}배)`,
+    sprB > 50 * spr0 && sprB > 0.2)
+
+  //  ★프로파일이 바로 선다 — 빛은 꼭지에서 내려오므로 **위로 갈수록 밝아야** 한다.
+  //   ⛔반사를 켜면 발치 근거리 폭격 탓에 역전(비단조)이 생긴다 — 그 성질도 함께 문다.
+  const pr0 = profOf(specOf(0, BAKE_GAMMA_UP))
+  const prB = profOf(specOf(0.002, BAKE_GAMMA_UP))
+  T(`★수직 단조 상승 — y102.5→160 (${pr0.map((v) => v.toFixed(2)).join('<')})`,
+    pr0.every((v, i) => i === 0 || v > pr0[i - 1]))
+  T(`★공허 방지 — 반사 체제(0.002)에서는 같은 프로파일이 비단조다(${prB.map((v) => v.toFixed(2)).join('/')})`,
+    !prB.every((v, i) => i === 0 || v > prB[i - 1]))
+
+  //  ★방 불변 — 상절 노브 둘을 어떻게 밀어도 하절(방)은 비트 동일이다(★196·★197 계승 · ★206 값에서 재확인)
+  const LOW6 = [[[0, ROOM_FLOOR_Y, 0], [0, 1, 0]], [[30, ROOM_FLOOR_Y, 0], [0, 1, 0]],
+                [[10, 95, 0], [-1, 0, 0]], [[0, 90, 20], [0, 1, 0]]]
+  const Za = specOf(0, 0.9), Zb = specOf(0.002, 3.0), Zc = specOf(0.25, 2.0)
+  const allLow = LOW6.every(([p]) => zoneASegOf(p, Za) === Za.lower)
+  T('★방 불변 — 하절 4표본이 (0,0.9)↔(0.002,3.0)↔(0.25,2.0)에서 비트 동일(표본이 실제로 하절이다)',
+    allLow && LOW6.every(([p, n]) => {
+      const v = zoneAShadeAt(p, n, Za)
+      return v === zoneAShadeAt(p, n, Zb) && v === zoneAShadeAt(p, n, Zc)
+    }))
+
+  //  ★퇴행 방지 — ★191·★192에서 현도가 얻은 자리들이 ★197 체제보다 어두워지지 않는다.
+  const rmG = (D6.rIn + D6.rOut) / 2, azF6 = D6.wB + D6.sweep / 2, aEnd6 = D6.wA + 0.01
+  const KEEP = [
+    ['나선 옆면·챌면', [10, 110, 0], [-1, 0, 0]],
+    ['걷는 살', [12 * Math.cos(azF6), DISC_Y_HI + 0.01, 12 * Math.sin(azF6)], [0, 1, 0]],
+    ['틈 끝면', [rmG * Math.cos(aEnd6), 100.4, rmG * Math.sin(aEnd6)], [-Math.sin(D6.wA), 0, Math.cos(D6.wA)]],
+    ['구멍 벽', [D6.rIn * Math.cos(azF6), 100.4, D6.rIn * Math.sin(azF6)], [-Math.cos(azF6), 0, -Math.sin(azF6)]],
+  ]
+  const now6 = zoneABakeSpec({ blendK: 0 })
+  const rep = KEEP.map(([l, p, n]) => `${l} ${shadeIn6(p, n, Zb).toFixed(3)}→${shadeIn6(p, n, now6).toFixed(3)}`)
+  T(`★퇴행 방지 — ★191·★192 판정점 넷이 ★197 체제보다 안 어둡다(${rep.join(' · ')})`,
+    KEEP.every(([, p, n]) => shadeIn6(p, n, now6) >= shadeIn6(p, n, Zb) - 1e-9))
+
+  //  ★다이얼이 방향을 갖는다 — 감마를 내리면 벽이 단조로 밝아진다(현도의 한 줄 사다리가 실제로 듣는다)
+  const dial = [2.0, 1.5, 1.2, 0.9, 0.7].map((g) => shadeIn6(...wallPt6(112, azF6), specOf(0, g)))
+  T(`★밝기 다이얼 — BAKE_GAMMA_UP 2.0→0.7에서 벽 y112가 단조 상승(${dial.map((v) => v.toFixed(3)).join('<')})`,
+    dial.every((v, i) => i === 0 || v > dial[i - 1]))
+
+  //  ★일관성(★190 어법) — 위 항들은 성질을 **명시 인자**로 물어 보존계에서도 green이다.
+  //   현행 노브가 실제로 그 체제 안에 있는지는 **함의**로 따로 문다(양 체제에서 참 · 배선이 틀리면 깨진다).
+  const sprNow = spreadAt(102.5, zoneABakeSpec({ blendK: 0 }))
+  T(`★현행 체제 일관성 — (BAKE_BOUNCE_UP ≤ 0) ⟺ (현행 방위 산포 ${sprNow.toExponential(2)} < 8비트 한 계단)`,
+    (BAKE_BOUNCE_UP <= 0) === (sprNow < 1 / 255))
+}
+
+// ══════ S-7. ★207 방위 허용오차 — 디스크 단면 줄무늬(★193 바코드의 방위판) ══════
+{
+  console.log('\n── S-7. ★207 방위 허용오차 ──')
+  const D7 = discSpec192(), S7 = spireSpec(), Z7 = zoneABakeSpec(), TAU7 = Math.PI * 2
+  //  ⚠**실기하 정점으로 잰다.** 합성 좌표(`[r·cos(wA), y, r·sin(wA)]`)는 atan2가 정확히 wA를 되돌려
+  //   병을 **재현하지 못했다**(2026.08.28 도구 자책 — 합성 프로브가 '교대 0회'라고 거짓 보고했다).
+  //   빌더가 낸 정점만이 ULP 흔들림을 갖는다.
+  let dg = buildDisc(); if (dg.index) dg = dg.toNonIndexed()
+  const DP = dg.attributes.position.array
+  const relOf7 = (p) => (((Math.atan2(p[2], p[0]) - D7.wA) % TAU7) + TAU7) % TAU7
+  const face = { A: [], B: [], IN: [], OUT: [] }
+  const relsA = []
+  for (let i = 0; i < DP.length / 3; i++) {
+    const p = [DP[i*3], DP[i*3+1], DP[i*3+2]]
+    if (p[1] < DISC_Y_LO - 1e-9 || p[1] > Z7.splitY) continue
+    const rel = relOf7(p), r = Math.hypot(p[0], p[2])
+    const dA = Math.min(rel, TAU7 - rel), dB = Math.abs(rel - D7.gap)
+    if (dA < 1e-4) { face.A.push(p); relsA.push(rel) }
+    else if (dB < 1e-4) face.B.push(p)
+    else if (Math.abs(r - D7.rOut) < 1e-4) face.OUT.push(p)
+    else if (Math.abs(r - D7.rIn) < 1e-4) face.IN.push(p)
+  }
+  //  ⑴ 배선 지문 — 반경 두 끝과 방위 두 끝 **넷 다** 허용오차를 갖는다(★193은 rIn 하나뿐이었다)
+  const lm7 = readFileSync(new URL('./lightingModel.js', import.meta.url), 'utf8')
+  T('discGapAt이 반경·방위 **네 경계** 전부에 허용오차를 갖는다(rIn·rOut·wA·wA+gap)',
+    /r >= D\.rIn \+ 1e-6 && r <= D\.rOut \+ 1e-6/.test(lm7)
+    && /if \(rel > TAU - 1e-6\) rel = 0/.test(lm7)
+    && /if \(rel <= D\.gap \+ 1e-6\) return true/.test(lm7))
+
+  //  ⑵ ★실효성(공허 방지) — 끝면 A 정점의 rel이 **경계 양쪽에 실재**한다.
+  //   즉 허용오차가 없었다면 같은 평면 위에서 rel≈0(안)과 rel≈2π(밖)로 갈렸을 것이다 = 병의 물증.
+  const nZero = relsA.filter((v) => v < 1e-6).length, nWrap = relsA.filter((v) => v > TAU7 - 1e-6).length
+  T(`★실효성 — 끝면A 정점 ${relsA.length}개의 rel이 경계 양쪽에 실재한다(rel≈0 ${nZero}개 · rel≈2π ${nWrap}개 — 허용오차가 없으면 여기서 갈린다)`,
+    face.A.length > 0 && nZero > 0 && nWrap > 0)
+
+  //  ⑶ ★결과 — 틈 경계 네 부재 **각각** 안에서 절 교대가 없다(교대 = 화면 줄무늬)
+  const segsOf = (arr) => new Set(arr.map((p) => (zoneASegOf(p, Z7) === Z7.upper ? 'U' : 'L')))
+  const rep7 = Object.entries(face).map(([k, v]) => `${k}:${v.length}/${[...segsOf(v)].join('')}`).join(' ')
+  T(`★절 배정 일관 — 끝면A·끝면B·구멍벽·바깥테두리 각각 안에서 교대 0 (${rep7})`,
+    Object.values(face).every((v) => v.length === 0 || segsOf(v).size === 1))
+
+  //  ⑷ 국소성 — 허용오차는 1e-6을 안 넘는다(틈 안/밖 판정이 안 번진다)
+  const at7 = (rel, r) => { const a = D7.wA + rel; return [r * Math.cos(a), 100.0, r * Math.sin(a)] }
+  T('국소성 — 틈 한가운데는 안 · 틈 밖 0.01rad은 밖 · rOut 밖 0.01m은 밖(허용오차가 1e-6을 안 넘는다)',
+    discOpenAt(at7(D7.gap / 2, 12)) && !discOpenAt(at7(D7.gap + 0.01, 12)) && !discOpenAt(at7(-0.01, 12))
+    && !discOpenAt(at7(D7.gap / 2, D7.rOut + 0.01)))
 }
 
 console.log(`\n전체 ${pass + fail}항 중 ${pass}항 통과 ${fail ? '❌ ' + fail + '항 실패' : '✅'}`)
