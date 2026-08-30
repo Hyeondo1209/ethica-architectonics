@@ -17,14 +17,16 @@ import {
   SHAFT_DROP_ON, SHAFT_HALO_K_UP, SHAFT_HALO_K_LO, DISC_HOLE_R, DISC_Y_LO, DISC_Y_HI, ROOM_WELL_RT,
   BAKE_N, BAKE_FLOOR, BAKE_GAMMA, BAKE_TIP_CAP_ON, BAKE_DISC_GAP_ON, BAKE_WRAP, BAKE_AMB, BAKE_BOUNCE, BAKE_TONE, BAKE_DISC_OPEN_SEG, BAKE_POLY_ON,
   BAKE_D_SEG, BAKE_D_GAMMA, SHAFT_EDGE_AXIAL, SHAFT_TOP_FADE,
+  SHAFT_CLEAR_ON, SHAFT_CLEAR_GAP, SPT_ON,   // ★209 빛기둥 ⊂ 내벽·테라스(허리 마디)
   BAKE_WELL, BAKE_WELL_BANDS, BAKE_WELL_SEG,   // ★192 우물 안벽 3차 광원
   BAKE_SEG_BLEND,   // ★193 절 이음 블렌드
   BAKE_WALL_FACE_ON,   // ★195 벽 살 부재(문틀·테두리) 안쪽 향 면
   BAKE_BOUNCE_UP,   // ★196 상절 전용 반사 세기(방 고정)
   BAKE_GAMMA_UP,   // ★197 상절 전용 톤 감마(방 고정)
   gatCap, ceilY, COR_CX, COR_R, CUP_R, GAT_CROWN_R, GAT_POSTS, GAT_POST_R, GAT_CONE_H, GAT_FACETS,   // ★188 D구획 = 드럼 홀 + 갓
-} from './constants.js'
+  SHAFT_HALO_LO_CLIP_ON, ROOM_SHELL_SEG_U, wallR } from './constants.js'   // ★209-d 하절 헤일로 절단
 import { spireSpec, wellWallR, wellInnerClear } from './spireGeometry.js'
+import { spireTerraceSpec } from './spireTerraceGeometry.js'   // ★209 테라스 구멍 = y127의 통과 구속(사본 금지)
 import { discSpec } from './discGeometry.js'   // ★180 하절 공급지에 디스크 트인 틈 합류
 import { pitSpec } from './defPitGeometry.js'
 
@@ -150,6 +152,42 @@ export function luxAt(pos, n, o = {}) {
 //   ⑤는 각뿔대 하면 반경 — 빛이 각뿔대 벽에 잘리며 좁아지는 꼴(현도 스케치).
 //  헤일로 = 같은 형상의 SHAFT_HALO_K배(스케치 실측: 어깨 21/10.7 · 바닥 50/26 — 둘 다 약 2.0).
 //   ⚠각뿔대 구간에는 넣지 않는다(r40이 각뿔대 하면 20을 뚫는다 · 스케치에도 노란색이 안 들어감).
+/** ★209 사슬을 구속에 맞춰 접는다 — 순수 함수(제자리 수정 · 검사가 합성 사례로 직접 문다).
+ *  chain = [[y, r], …] y 내림차순 · r 비감소. cons = [[y, 통과반경], …](순서 무관 — 여기서 정렬한다).
+ *  각 구속 높이에서 현재 사슬 반경이 (통과반경 − gap)을 넘으면 그 높이에 마디를 접어 넣는다.
+ *  ⚠**위→아래 순서**는 정확성이 아니라 **최소성**을 위한 것이다(2026.08.28 합성 사례로 실측 — 첫 주석은
+ *   "아래부터 접으면 관통이 남는다"고 적었는데 **틀렸다**: 어느 순서든 모든 구속은 만족된다.
+ *   접기는 그 높이의 반경을 한계로 **낮추기만** 하고, 이미 마디가 된 구속은 이후 접기로 안 올라간다).
+ *   실제 차이 = 아래부터 접으면 위 마디가 나중에 들어와 아래 마디를 **잉여**로 만든다(합성 사례 3마디 vs 4마디).
+ *   check_lux S-9이 그 최소성을 문다 — 관통이 아니라 마디 수로.
+ *  새 좌표는 전부 인자에서 파생 — 손 수치 0. */
+export function foldChainToClearance(chain, cons, gap) {
+  const rOn = (nd, y) => {
+    for (let i = 0; i < nd.length - 1; i++) {
+      const [yA, rA] = nd[i], [yB, rB] = nd[i + 1]
+      if (y <= yA && y >= yB) return rA + (rB - rA) * ((yA - y) / (yA - yB))
+    }
+    return null
+  }
+  let added = 0
+  for (const [yk, clr] of [...cons].sort((a, b) => b[0] - a[0])) {
+    if (!(yk < chain[0][0] && yk > chain[chain.length - 1][0])) continue
+    const lim = clr - gap
+    const r = rOn(chain, yk)
+    if (r === null || r <= lim) continue
+    //  ⚠구속 높이가 **이미 마디인** 경우 삽입하면 같은 y가 둘이 되어 사슬이 수직으로 점프한다
+    //   (★209-b에서 헤일로를 접다 적발 — 기둥 사슬에서는 우연히 안 겹쳐 잠복해 있었다).
+    //   그럴 땐 그 마디를 **끌어내린다**.
+    const dup = chain.findIndex((n) => Math.abs(n[0] - yk) < 1e-9)
+    if (dup >= 0) { chain[dup][1] = lim; added++; continue }
+    let at = chain.length - 1
+    for (let i = 0; i < chain.length - 1; i++) if (yk <= chain[i][0] && yk >= chain[i + 1][0]) { at = i + 1; break }
+    chain.splice(at, 0, [yk, lim])
+    added++
+  }
+  return added
+}
+
 export function shaftNodes() {
   const SP = spireSpec(), P = pitSpec()
   const spotY = ROOM_CYL_TOP - 6
@@ -178,10 +216,61 @@ export function shaftNodes() {
     [ROOM_FLOOR_Y, rAtD(ROOM_FLOOR_Y)],
   ]
   if (SHAFT_DROP_ON) lower.push([P.yBot, rAtD(P.yBot)])
+  //  ★★★209 상절 허리 마디 — 곧은 원뿔은 팔각 허리를 뚫는다(상수 주석의 실측 참조).
+  //   벽 클리어런스 정본 `wellInnerClear`의 꺾임점(y3·y2·y1)을 **위에서 아래로** 훑으며,
+  //   그 높이에서 현재 사슬이 한계(clear − 여유)를 넘으면 거기에 마디를 접어 넣는다.
+  //   ⚠위→아래 순서가 본질이다: 위 마디를 접으면 그 아래 기울기가 바뀌므로 다음 꺾임점은 갱신된 사슬로 재야 한다.
+  //   ⚠새 좌표는 전부 파생(꺾임점 y = spireSpec · 반경 = wellInnerClear − SHAFT_CLEAR_GAP) — 손 수치 0.
+  const upperRaw = upper.map((n) => [n[0], n[1]])   // ★209-b 접기 전 사슬(헤일로가 이걸 따른다)
+  if (SHAFT_CLEAR_ON) {
+    //  구속 목록 = [높이, 그 높이의 통과 반경].
+    //   ⓐ 벽 클리어런스 꺾임점(팔각 허리가 여기서 잡힌다) ⓑ 테라스 고리 판의 구멍(y125.5에서 벽보다 좁다).
+    //   ⚠ⓑ가 없으면 빛기둥이 테라스 판을 뚫는다(★209 실측 0.49 — 옛 사본이 가리고 있던 둘째 관통).
+    //   ⚠슬래브(두께가 있는 구속)는 **밑면 하나만** 넣는다: 반경은 아래로 갈수록 커지므로 밑면이 곧 최악점이고,
+    //    윗면까지 넣으면 기울기 0인 원기둥 절이 생겨 ★189 절 성질(전 구간 원뿔대)을 깬다.
+    const cons = [[SP.y3, wellInnerClear(SP.y3, SP)], [SP.y2, wellInnerClear(SP.y2, SP)], [SP.y1, wellInnerClear(SP.y1, SP)]]
+    if (SPT_ON) { const T = spireTerraceSpec({ spec: SP }); cons.push([T.yBot, T.A]) }
+    foldChainToClearance(upper, cons, SHAFT_CLEAR_GAP)
+  }
+  //  ★★209-b 헤일로는 **접기 전** 사슬을 따른다 (2026.08.28 현도 실증 `free:-14.06,128.6,-0.58,-268,-2.1`).
+  //   ⛔★209로 기둥이 가늘어지자 그 2배인 헤일로도 같이 가늘어져, **여태 전 구간 벽 밖이라 한 번도 안 그려지던**
+  //    상절 헤일로가 y127.6~136.9에서 벽 안으로 들어왔다. 벽(N각 근사)과 헤일로(40세그 원뿔)가 거의 나란히
+  //    스치며 교차해 테라스 걷는 면 0.55m 위에 **톱니 가로선**이 섰다.
+  //   ⚠"헤일로도 접으면 되지 않나"는 실측으로 기각됐다(현도 (나) 선택 → 재고 나서 반려): 2배 번짐은
+  //    상절 334표본 중 **297곳(89%)에서 벽 밖**이라, 접으면 배수가 2.0 → 1.0~1.6으로 무너져 번짐이 기둥에
+  //    들러붙는다. 허리(y157.16)는 벽 여유 6.653 − 기둥 6.153 = **0.5m**뿐이다. 사슬도 두 번 잘록해진다.
+  //   ⇒ 상절 헤일로는 원래대로 **우물 밖에 둔다**(화면 기여 0 — ★209 이전과 항등). check_lux S-9이 박는다.
+  const upperHalo = upperRaw
   //  헤일로 배수는 위아래가 다르다 — 스케치 실측: 어깨 21/10.6 ≈ 2.0 · 방 바닥 50/9.5 ≈ 5.2.
-  const haloUp = upper.map(([y, r]) => [y, r * SHAFT_HALO_K_UP])
+  const haloUp = upperHalo.map(([y, r]) => [y, r * SHAFT_HALO_K_UP])
   const haloLo = lower.filter((n) => n[0] >= ROOM_FLOOR_Y).map(([y, r]) => [y, r * SHAFT_HALO_K_LO])
-  return { tanW, tanD, apY, spotY, upper, lower, haloUp, haloLo }
+  //  ★★209-d 하절 헤일로 상단 절단 — 상수 주석의 실측 참조. 방 돔(타원면)을 뚫고 나가는 높이에서 자른다.
+  //   기준 = 다각형 **내접** 반경(면 중앙 — 셸 함몰만큼 자동으로 여유를 먹는다). 손 수치 0.
+  //   ⚠`haloLoSpan`으로 **원래 사슬 높이**를 함께 돌려준다: 페이드(uv 리맵)를 자른 사슬로 다시 재면
+  //    방 안 밝기가 바뀐다. Room.jsx가 이 span으로 uv를 쓴다.
+  const haloLoSpan = [haloLo[0][0], haloLo[haloLo.length - 1][0]]
+  if (SHAFT_HALO_LO_CLIP_ON && haloLo.length >= 2) {
+    const rOnLo = (y) => {
+      for (let i = 0; i < haloLo.length - 1; i++) {
+        const [yA, rA] = haloLo[i], [yB, rB] = haloLo[i + 1]
+        if (y <= yA && y >= yB) return rA + (rB - rA) * ((yA - y) / (yA - yB))
+      }
+      return null
+    }
+    const kIn = Math.cos(Math.PI / ROOM_SHELL_SEG_U)          // 다각형 내접 계수(파생)
+    const out = (y) => rOnLo(y) > wallR(y) * kIn
+    const yTopLo = haloLo[0][0], yBotLo = haloLo[haloLo.length - 1][0]
+    if (out(yTopLo) && !out(yBotLo)) {
+      let lo = yBotLo, hi = yTopLo
+      for (let i = 0; i < 80; i++) { const m = (lo + hi) / 2; if (out(m)) hi = m; else lo = m }
+      const yCut = (lo + hi) / 2
+      const rCut = rOnLo(yCut)                                 // ⚠자르기 **전** 사슬에서 읽는다
+      const keep = haloLo.filter((n) => n[0] < yCut)
+      haloLo.length = 0
+      haloLo.push([yCut, rCut], ...keep)
+    }
+  }
+  return { tanW, tanD, apY, spotY, upper, lower, haloUp, haloLo, haloLoSpan }
 }
 
 // ── ★176 베이크 1차 — 공급지 = 표본점들의 집합 (조명 헌장 Ⅱ) ──────────

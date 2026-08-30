@@ -57,6 +57,22 @@ import { RRIB_ON, RRIB_W, RRIB_T, RRIB_CLR, RRIB_HEAD, RRIB_HEAD_IN, ROOM_OCULUS
 import { WBASE_ON, WBASE_RB, WBASE_TILT, WBASE_H, WBASE_PHASE, WBASE_CLR } from './constants.js'
 import { beamSpec as _beamSpec } from './axiomSpiralGeometry.js'
 import { rootCrossSpec, buildRootCrosses } from './axiomSpiralGeometry.js'   // ★115 뿌리 십자
+import { shaftNodes } from './lightingModel.js'   // ★209 빛기둥 마디 **정본**(구 국소 사본 폐기 — 사본 금지 규율)
+
+//  ★209 빛기둥 반경 = `shaftNodes()` 정본에서 읽는다. 구판은 이 파일이 옛 공식
+//   `(WELL_RT−0.3) + ((SHAFT_TOP_R−0.3)−(WELL_RT−0.3))·(yT−y)/(yT−SHAFT_TOP_Y)` 의 **사본**을 두 곳에
+//   들고 있었다. ★175-e에서 빛기둥이 마디 사슬로 갈아엎어졌는데 검사가 안 따라가 y157.16에서
+//   3.19(검사) vs 7.02(실제)로 갈렸고, 그래서 벽 관통을 한 번도 못 물었다(현도 실증 2026.08.28).
+const SHAFT_RAT = (y) => {
+  const N = shaftNodes()
+  for (const nd of [N.upper, N.lower]) {
+    for (let i = 0; i < nd.length - 1; i++) {
+      const [yA, rA] = nd[i], [yB, rB] = nd[i + 1]
+      if (y <= yA && y >= yB) return rA + (rB - rA) * ((yA - y) / (yA - yB))
+    }
+  }
+  return null
+}
 import { ROOT_CROSS_ON, ROOT_CROSS_SIDE, ROOT_CROSS_BAR, ROOT_CROSS_RUN, ROOT_CROSS_INSET, ROOT_CROSS_BACK, ROOT_CROSS_TIP, SUP_WALL_CLR as _SWC, SUP_BEAM_DEPTH as _SBD, SUP_BEAM_W as _SBW, SUP_BEAM_ROOT_GROW as _SBRG } from './constants.js'
 
 let n = 0, fail = 0
@@ -2137,14 +2153,34 @@ console.log('\n── ★127 빛우물 첨탑(2026.08.14 현도 스케치 — �
     ok(C.RAD_TOP < S.y1 && C.ROOM_CEIL_Y < S.y1,
       `문 상단 ${C.RAD_TOP.toFixed(2)}·돔 정점 ${C.ROOM_CEIL_Y} < y1 ${S.y1.toFixed(1)}(자르개 ⊂ 원기둥 구간)`)
     //  ⑤ 샤프트 ⊂ 내벽 — 닫힌 식: 양쪽 다 구간별 선형이라 위반 최대는 경계점(격자 탐색 불요 — 규율 ⑪)
-    const shaftR = y => (C.ROOM_WELL_RT - 0.3)
-      + ((C.SHAFT_TOP_R - 0.3) - (C.ROOM_WELL_RT - 0.3)) * (S.yT - y) / (S.yT - C.SHAFT_TOP_Y)
+    //  ★209: 사본 폐기 — 정본 사슬로 잰다. 위반 최대는 **두 조각선의 꺾임점 합집합**에만 생긴다(둘 다 구간별 선형).
+    const SNu = shaftNodes().upper
+    const brk = [...new Set([...SNu.map(n => n[0]), S.y1 - S.ledgeH, S.y1, S.y2, S.y3, S.yT]
+      .filter(y => y <= SNu[0][0] && y >= SNu[SNu.length - 1][0] && y <= S.yT))]
     let worst = 1e9, wy = 0
-    for (const y of [C.SHAFT_TOP_Y, S.y1 - S.ledgeH, S.y1, S.y2, S.y3, S.yT]) {
-      const m = SG.wellInnerClear(y, S) - shaftR(y)
+    for (const y of brk) {
+      const r = SHAFT_RAT(y)
+      if (r === null) continue
+      const m = SG.wellInnerClear(y, S) - r
       if (m < worst) { worst = m; wy = y }
     }
-    ok(worst >= 0.05, `빛 샤프트 ⊂ 내벽: 경계점 전수 최소 여유 ${worst.toFixed(3)} @y${wy.toFixed(1)} ≥ 0.05(SPIRE_R_MID 하한이 여기)`)
+    //  ⚠꼭대기 개구(y=yT)는 **설계된 접점**이다(빛기둥이 그 구멍으로 나간다) — 위반 판정에서 뺀다.
+    let worstIn = 1e9, wyIn = 0
+    for (const y of brk) {
+      if (Math.abs(y - S.yT) < 1e-6) continue
+      const r = SHAFT_RAT(y)
+      if (r === null) continue
+      const m = SG.wellInnerClear(y, S) - r
+      if (m < worstIn) { worstIn = m; wyIn = y }
+    }
+    if (K.SHAFT_CLEAR_ON)
+      ok(worstIn >= K.SHAFT_CLEAR_GAP - 1e-6,
+        `★209 빛 샤프트 ⊂ 내벽: 꺾임점 전수 최소 여유 ${worstIn.toFixed(3)} @y${wyIn.toFixed(2)} ≥ 여유 노브 ${K.SHAFT_CLEAR_GAP}(허리 마디가 물린다)`)
+    else
+      ok(worstIn < 0,
+        `⛔보존계(SHAFT_CLEAR_ON=false) = 곧은 원뿔 복귀 — 벽 관통이 **되살아나야** 옛 체제다: 최소 여유 ${worstIn.toFixed(3)} @y${wyIn.toFixed(2)} < 0`)
+    ok(Math.abs(worst) < 1e-6 || worst < worstIn + 1e-9,
+      `꼭대기 개구는 설계된 접점: y${S.yT} 여유 ${(SG.wellInnerClear(S.yT, S) - SHAFT_RAT(S.yT)).toFixed(4)}(≈0 — 빛기둥이 그 구멍으로 나간다)`)
     //  ⑥ 방 내벽 나선 도착 클리어런스(RIN 14 · 폭 3.6 — 디스크로 내려서는 마지막 판들이 내벽 안)
     const spOut = C.ROOM_STAIR_RIN + C.ROOM_STAIR_WIDTH / 2
     ok(spOut < S.rCylIn - 0.2, `나선 도착 바깥끝 ${spOut.toFixed(1)} < 내벽 ${S.rCylIn}(여유 ${(S.rCylIn - spOut).toFixed(2)})`)
@@ -2476,10 +2512,15 @@ console.log('\n── ★128 첨탑 테라스(원기둥 안 고리 판 · 구멍
     ok(T.walk >= 1.5, `보행 폭 최악(모서리) ${T.walk.toFixed(2)} ≥ 1.5 · 면 방향 ${T.walkFace.toFixed(2)}`)
 
     //  ⑤ 빛 샤프트 ⊂ 구멍(테라스가 빛 원뿔을 비켜야 한다 — ★127 ⑤와 같은 닫힌 식)
-    const shaftR = y => (C.ROOM_WELL_RT - 0.3)
-      + ((C.SHAFT_TOP_R - 0.3) - (C.ROOM_WELL_RT - 0.3)) * (S.yT - y) / (S.yT - C.SHAFT_TOP_Y)
-    ok(T.A - shaftR(T.yTop) > 0.5,
-      `빛 샤프트 여유 ${(T.A - shaftR(T.yTop)).toFixed(2)} > 0.5(샤프트 r${shaftR(T.yTop).toFixed(2)} @y${T.yTop} — 구멍이 원뿔을 삼킴)`)
+    //  ★209: 여기도 같은 사본이었다 — 정본 사슬로 교체. 여유 리터럴 0.5도 상수(SHAFT_CLEAR_GAP)로 승격.
+    const shaftRT = SHAFT_RAT(T.yTop), shaftRB = SHAFT_RAT(T.yBot)
+    const mT = Math.min(T.A - shaftRT, T.A - shaftRB)     // 판 두께 전 구간(윗면·밑면 둘 다)
+    if (K.SHAFT_CLEAR_ON)
+      ok(mT >= K.SHAFT_CLEAR_GAP - 1e-9,
+        `★209 빛 샤프트 ⊂ 테라스 구멍: 판 두께 전 구간 최소 여유 ${mT.toFixed(3)} ≥ ${K.SHAFT_CLEAR_GAP}(r${shaftRT.toFixed(2)}/${shaftRB.toFixed(2)} @y${T.yTop}/${T.yBot})`)
+    else
+      ok(mT < 0,
+        `⛔보존계 = 곧은 원뿔 복귀 — 테라스 관통이 **되살아나야** 옛 체제다: 최소 여유 ${mT.toFixed(3)} < 0(구멍이 원뿔을 삼킨다)`)
 
     //  ⑥ 팔각 경계 규약: 모서리 = 아포템/cos22.5° · 면 중앙 = 아포템(정확히)
     for (const m of ['pit', 'tunnel']) {

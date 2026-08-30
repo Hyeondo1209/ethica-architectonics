@@ -12,13 +12,16 @@ import {
   ROOM_FLOOR_Y, RM_SPOT_I, RM_SPOT_DECAY, RM_SPOT_SPREAD_R, SHDW_CAST_SCOPE,
   ROOM_SHAFT_ON, SHAFT_FIT, SHAFT_WAIST_R, SHAFT_POOL_R, ROOM_OCULUS_R, ROOM_CEIL_Y, ROOM_CYL_TOP, RM_SPOT_SHADOW,
   ROOM_WELL_RT, RM_SPOT_SHDW_NEAR, RM_SPOT_SHDW_NBIAS,
-  SHAFT_DROP_ON, SHAFT_HALO_K_UP, SHAFT_HALO_K_LO, SHAFT_HALO_OP, RM_SHAFT_OP, ROOM_R,
+  SHAFT_HALO_ON, SHAFT_DROP_ON, SHAFT_HALO_K_UP, SHAFT_HALO_K_LO, SHAFT_HALO_OP, RM_SHAFT_OP, ROOM_R,
+  SHAFT_CLEAR_ON, SHAFT_CLEAR_GAP, SPT_ON, SPT_Y, SHAFT_HALO_UP_ON,
+  SHAFT_HALO_LO_CLIP_ON, ROOM_SHELL_SEG_U, wallR,   // ★209 빛기둥 ⊂ 내벽·테라스 · c 상절 헤일로 · d 하절 절단
+  FREEZE_A_ON, FREEZE_A_SIG,   // ★209-e 조명 확정 구역 A 동결(기하+조도+세기)
   DISC_HOLE_R, DISC_Y_LO, DISC_Y_HI, SPIRE_NOCAST,
   BAKE_A_ON, BAKE_N, BAKE_FLOOR, BAKE_GAMMA, BAKE_SPLIT_ON, BAKE_SPLIT_EPS, ROOM_CX, BAKE_TIP_CAP_ON,
   BAKE_DISC_GAP_ON, BAKE_WRAP, BAKE_AMB, BAKE_BOUNCE, BAKE_TONE, BAKE_STAIR_MIN, BAKE_INST_ON, BAKE_DISC_OPEN_SEG,
 } from './constants.js'
 import { shaftNodes, zoneDBakeSpec, zoneDShadeAt, zoneDInterior, cylinderBandPolys,
-  shaftSilhouetteFacing, shaftSlopes, shaftLenCurve, shaftAddAlpha, polysSolidAngle, polysIrradianceW } from './lightingModel.js'   // ★188 D구획 + ★189·★190·★208 빛기둥
+  shaftSilhouetteFacing, shaftSlopes, shaftLenCurve, shaftAddAlpha, polysSolidAngle, polysIrradianceW, foldChainToClearance } from './lightingModel.js'   // ★188 D구획 + ★189·★190·★208 빛기둥
 import { spireSpec } from './spireGeometry.js'
 const _SP = spireSpec(), SP_TIP = _SP.tipY, SP_HOLE = _SP.holeR
 import { luxAt, displayLum, selfTest, SHDW_TEXEL, SHDW_BIAS_WORLD,
@@ -30,7 +33,8 @@ import { COR_CX, COR_R, ceilY, gatCap, GAT_SLIT, GAT_CROWN_R, GAT_POSTS, BAKE_D_
 import { BAKE_WELL, BAKE_WELL_BANDS, BAKE_WELL_SEG, BAKE_POLY_ON, BAKE_SEG_BLEND, BAKE_WALL_FACE_ON, BAKE_BOUNCE_UP, BAKE_GAMMA_UP, BAKE_GRAD_ON, BAKE_GRAD_TOL, BAKE_GRAD_MIN } from './constants.js'   // ★192~★198
 import { wellWallBandPolys, polysIrradianceWtd, discOpenAt, discGapInteriorAt, splitSoupByGradient } from './lightingModel.js'   // ★192~★198
 import { buildDisc } from './discGeometry.js'   // ★207 실기하 정점(합성 좌표는 병을 재현 못 한다)
-import { wellInnerClear, wellWallR, buildSpire } from './spireGeometry.js'   // ★192 2경로 재유도 · ★195 벽 바깥반경 · ★198 표적 부재
+import { wellInnerClear, wellWallR, buildSpire } from './spireGeometry.js'
+import { spireTerraceSpec } from './spireTerraceGeometry.js'   // ★209 테라스 구멍 구속   // ★192 2경로 재유도 · ★195 벽 바깥반경 · ★198 표적 부재
 import { discSpec as discSpec192 } from './discGeometry.js'   // ★192 대역 하단 파생 검증
 import { incaBladesSpec } from './corridorStairsGeometry.js'   // ★188 실효성 항(홀 안 실부재 좌표)
 import { shellMid, shellNrm } from './roomShellGeometry.js'   // ★177 D절 — 벽 표본점(합성 화면 판정)
@@ -170,9 +174,19 @@ T(`하절 기울기 = 디스크 구멍이 정한 값(${SN.tanD.toFixed(5)}) — 
   Math.abs(tL[0] - SN.tanD) < 1e-9 && SN.tanD < SN.tanW)
 T(`마지막 마디 = 각뿔대 바닥(SHAFT_DROP_ON=${SHAFT_DROP_ON})`,
   !SHAFT_DROP_ON || SN.lower[SN.lower.length - 1][0] < ROOM_FLOOR_Y)
+//  ★209-b: 상절 헤일로는 **접기 전** 사슬(양 끝 + y185 = 마디 셋)의 배수다. 접힌 사슬을 따르면
+//   벽 안으로 들어와 테라스 위에 톱니선이 선다(현도 실증) — S-9절이 그 이유를 전부 문다.
+//  ★209-d: 하절 헤일로는 상단이 잘리므로 **마디 인덱스 대응이 깨진다**. 배수 어휘는 인덱스가 아니라
+//   "헤일로 마디가 기둥 사슬의 K배 원뿔 **위에** 있는가"로 문다 — 절단 전후 모두 성립하는 형태다.
+const ON_CONE = (halo, base, K) => {
+  const rOn = (nd, y) => { for (let i = 0; i < nd.length - 1; i++) {
+    const [yA, rA] = nd[i], [yB, rB] = nd[i + 1]
+    if (y <= yA + 1e-9 && y >= yB - 1e-9) return rA + (rB - rA) * ((yA - y) / (yA - yB)) } return null }
+  return halo.every((h) => { const r = rOn(base, h[0]); return r !== null && Math.abs(h[1] - r * K) < 1e-9 })
+}
+const RAW_UP = [SN.upper[0], SN.upper[1], SN.upper[SN.upper.length - 1]]
 T(`헤일로 배수가 절마다 다르다 (상 ${SHAFT_HALO_K_UP} · 하 ${SHAFT_HALO_K_LO}) — 스케치 실측`,
-  SN.haloUp.every((h, i) => Math.abs(h[1] - SN.upper[i][1] * SHAFT_HALO_K_UP) < 1e-9)
-  && SN.haloLo.every((h, i) => Math.abs(h[1] - SN.lower[i][1] * SHAFT_HALO_K_LO) < 1e-9))
+  ON_CONE(SN.haloUp, RAW_UP, SHAFT_HALO_K_UP) && ON_CONE(SN.haloLo, SN.lower, SHAFT_HALO_K_LO))
 T('헤일로 하절은 각뿔대에 들어가지 않는다', SN.haloLo.every((h) => h[0] >= ROOM_FLOOR_Y))
 T(`헤일로 바닥 반경(${SN.haloLo[SN.haloLo.length - 1][1].toFixed(1)}) < 방 반경(${ROOM_R})`,
   SN.haloLo[SN.haloLo.length - 1][1] < ROOM_R)
@@ -1504,8 +1518,287 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
   T('배선 — 헤일로 재질이 사본의 uOpacity만 SHAFT_HALO_OP로 덮어쓴다(하드코딩 아님)',
     /m\.uniforms\.uOpacity\.value = SHAFT_HALO_OP/.test(roomSrc208))
   T('★208은 기하·폭을 안 건드린다 — 헤일로 배수는 여전히 K_UP·K_LO 파생이다(세기 축만 움직였다)',
-    S8.haloLo.every((h, i) => Math.abs(h[1] - S8.lower[i][1] * SHAFT_HALO_K_LO) < 1e-9)
-    && S8.haloUp.every((h, i) => Math.abs(h[1] - S8.upper[i][1] * SHAFT_HALO_K_UP) < 1e-9))
+    ON_CONE(S8.haloLo, S8.lower, SHAFT_HALO_K_LO)
+    && ON_CONE(S8.haloUp, [S8.upper[0], S8.upper[1], S8.upper[S8.upper.length - 1]], SHAFT_HALO_K_UP))
+}
+
+// ══════ S-9. ★209 빛기둥 ⊂ 내벽·테라스 — 허리 마디 ══════
+{
+  console.log('\n── S-9. ★209 빛기둥 ⊂ 내벽·테라스(허리 마디) ──')
+  const S9 = shaftNodes()
+  const SP9 = spireSpec()
+  const T9 = spireTerraceSpec({ spec: SP9 })
+  const U = S9.upper
+  const rOn = (nd, y) => {
+    for (let i = 0; i < nd.length - 1; i++) {
+      const [yA, rA] = nd[i], [yB, rB] = nd[i + 1]
+      if (y <= yA && y >= yB) return rA + (rB - rA) * ((yA - y) / (yA - yB))
+    }
+    return null
+  }
+  //  통과 반경 = 벽 클리어런스와 테라스 구멍 중 **작은 쪽**(둘 다 그 높이의 구속이다)
+  const clearAt = (y) => Math.min(
+    y <= SP9.yT ? wellInnerClear(y, SP9) : Infinity,
+    (SPT_ON && y <= T9.yTop && y >= T9.yBot) ? T9.A : Infinity)
+  //  전 구간 최소 여유(꼭대기 개구 y=yT는 설계된 접점이라 제외 — 빛기둥이 그 구멍으로 나간다)
+  const scan = () => { let m = Infinity, my = 0
+    for (let y = U[U.length - 1][0]; y <= U[0][0]; y += 0.05) {
+      if (y > SP9.yT - 1e-9) continue
+      const r = rOn(U, y); if (r === null) continue
+      const d = clearAt(y) - r
+      if (d < m) { m = d; my = y }
+    }
+    return [m, my] }
+  const [minClr, minY] = scan()
+
+  //  ⑴ 도구 검증(공허 방지) — 재는 자가 실제로 음수를 낼 수 있는가
+  T('도구 — 구속 함수가 팔각 허리를 안다: clear(y2)=아포템 6.653 < 그 높이 벽 외접 내반경 7.201(면 중앙이 최소)',
+    Math.abs(clearAt(SP9.y2) - (SP9.rMidIn * Math.cos(Math.PI / 8))) < 1e-9
+    && clearAt(SP9.y2) < SP9.rMidIn - 1e-9)
+  T('도구 — 구속 함수가 테라스 구멍을 안다: 판 두께 안에서는 벽이 아니라 구멍이 최소',
+    !SPT_ON || (clearAt(T9.yTop) === T9.A && T9.A < wellInnerClear(T9.yTop, SP9) - 1e-9))
+  T('도구 — 곧은 원뿔(마디 제거)이면 같은 자로 **음수**가 나온다(자가 무디지 않다는 증거)',
+    (() => { const straight = [U[0], U[1], U[U.length - 1]]
+      let m = Infinity
+      for (let y = straight[2][0]; y <= SP9.yT - 1e-9; y += 0.05) {
+        const r = rOn(straight, y); if (r === null) continue
+        m = Math.min(m, clearAt(y) - r) }
+      return m < -0.2 })())
+
+  //  ⑵ 병 재현 — 현도가 본 증상 그 자체(곧은 원뿔의 팔각 허리 관통 · 면 중앙에서 최대 · 모서리에서 0)
+  T('⛔병 재현 — 곧은 원뿔은 y157.16에서 면 중앙 벽을 0.3 넘게 뚫는다(무늬의 정체)',
+    (() => { const straight = [U[0], U[1], U[U.length - 1]]
+      return rOn(straight, SP9.y2) - clearAt(SP9.y2) > 0.3 })())
+  T('⛔병 재현 — 관통은 **면 중앙에서 최대 · 모서리에서 0**(그래서 여덟 면마다 하나씩 선다)',
+    (() => { const straight = [U[0], U[1], U[U.length - 1]]
+      const r = rOn(straight, SP9.y2), ap = clearAt(SP9.y2), CO = Math.cos(Math.PI / 8)
+      const wallAz = (az) => ap / Math.cos(az - Math.PI / 8)
+      return r - wallAz(Math.PI / 8) > 0.35 && r - wallAz(0) < 0 && Math.abs(wallAz(0) - ap / CO) < 1e-9 })())
+
+  //  ⑶ 수리 — 체제 인지(보존계에서는 병이 되살아나야 한다)
+  if (SHAFT_CLEAR_ON) {
+    T(`★수리 — 상절 전 구간 **관통 0**(최소 여유 ${minClr.toFixed(3)} @y${minY.toFixed(2)} ≥ 0)`,
+      minClr >= -1e-9)
+    //  ⚠최소값이 꼭대기(y≈185)에 오는 것은 설계다 — 빛기둥이 개구 r2.5로 나가므로 거기서 여유가 0으로 수렴한다.
+    //   '여유 = 노브'가 성립해야 하는 곳은 **접힌 구속점**이지 사슬 전체가 아니다.
+    T(`★수리 — 접힌 구속점에서 여유가 정확히 노브(${SHAFT_CLEAR_GAP})다 · 꼭대기 개구는 설계된 접점(여유 ${(clearAt(SP9.yT - 0.03) - rOn(U, SP9.yT - 0.03)).toFixed(3)})`,
+      Math.abs((clearAt(SP9.y2) - rOn(U, SP9.y2)) - SHAFT_CLEAR_GAP) < 1e-9
+      && (!SPT_ON || Math.abs((clearAt(T9.yBot) - rOn(U, T9.yBot)) - SHAFT_CLEAR_GAP) < 1e-9)
+      && minY > SP9.yT - 0.5)
+    T('★수리 — 마디가 **정본에서 파생**된다: 허리 마디 r = wellInnerClear(y2) − 여유 (손 수치 0)',
+      U.some((n) => Math.abs(n[0] - SP9.y2) < 1e-9 && Math.abs(n[1] - (wellInnerClear(SP9.y2, SP9) - SHAFT_CLEAR_GAP)) < 1e-9))
+    T('★수리 — 테라스 구멍도 접힌다: **밑면 한 마디**만(반경이 아래로 커지므로 밑면이 최악점 · 윗면은 잉여)',
+      !SPT_ON || (U.some((n) => Math.abs(n[0] - T9.yBot) < 1e-9 && Math.abs(n[1] - (T9.A - SHAFT_CLEAR_GAP)) < 1e-9)
+        && !U.some((n) => Math.abs(n[0] - T9.yTop) < 1e-9)
+        && T9.A - rOn(U, T9.yTop) > SHAFT_CLEAR_GAP))
+  } else {
+    T('⛔보존계(SHAFT_CLEAR_ON=false) — 곧은 원뿔 복귀: 마디 3개뿐이고 관통이 되살아난다',
+      U.length === 3 && minClr < 0)
+  }
+
+  //  ⑷ 안 건드린 것 — 베이크는 하절만 쓴다(poolR = lower[1][1]) ⇒ ★209는 조도장에 무접촉이어야 한다
+  T('★베이크 무접촉 — 하절 사슬이 체제와 무관하게 항등(디스크 구멍 r · 바닥 반경 = 닫힌 식 tanD)',
+    Math.abs(S9.lower[0][1] - DISC_HOLE_R) < 1e-12
+    && Math.abs(S9.lower[1][1] - S9.tanD * (S9.spotY - ROOM_FLOOR_Y)) < 1e-12)
+  //  ★209-b 헤일로 — 접기 전 사슬을 따른다(현도 실증 2026.08.28 `free:-14.06,128.6,-0.58,-268,-2.1`)
+  {
+    const raw = [U[0], U[1], U[U.length - 1]]          // 접기 전 곧은 원뿔(마디 셋)
+    T('★헤일로 어휘 불변 — 상절 헤일로는 **접기 전** 사슬의 K_UP 배수다(마디 셋 · 접힌 사슬을 안 따른다)',
+      S9.haloUp.length === 3 && S9.haloUp.every((h, i) => Math.abs(h[0] - raw[i][0]) < 1e-9
+        && Math.abs(h[1] - raw[i][1] * SHAFT_HALO_K_UP) < 1e-9))
+    const visRuns = (nd) => { let out = 0
+      for (let y = nd[nd.length - 1][0]; y <= Math.min(nd[0][0], SP9.yT); y += 0.05)
+        if (rOn(nd, y) < clearAt(y)) out++
+      return out }
+    T('★상절 헤일로는 **전 구간 벽 밖** = 화면 기여 0(우물에 안 들어가는 크기다 — 그래서 여태 안 보였다)',
+      visRuns(S9.haloUp) === 0)
+    //  ⚠접힌 사슬을 **여기서 직접 만든다** — U를 그냥 쓰면 보존계(접기 소등)에서 이 항이 공허해진다
+    //   (실제로 그렇게 썼다가 보존계 스윕에서 붉어졌다 — 규율 13'의 실전례).
+    T('⛔병 재현 — 헤일로가 접힌 사슬을 따르면 벽 안으로 들어와 테라스 위에 톱니선이 선다',
+      (() => { const fold = [U[0], U[1], U[U.length - 1]].map((n) => [n[0], n[1]])
+        const cx = [[SP9.y3, wellInnerClear(SP9.y3, SP9)], [SP9.y2, wellInnerClear(SP9.y2, SP9)],
+          [SP9.y1, wellInnerClear(SP9.y1, SP9)]]
+        if (SPT_ON) cx.push([T9.yBot, T9.A])
+        foldChainToClearance(fold, cx, SHAFT_CLEAR_GAP)
+        const bad = fold.map(([y, r]) => [y, r * SHAFT_HALO_K_UP])
+        let cross = null
+        for (let y = bad[bad.length - 1][0]; y <= Math.min(bad[0][0], SP9.yT); y += 0.05)
+          if (rOn(bad, y) < clearAt(y)) { cross = y; break }
+        return cross !== null && cross > SPT_Y && cross < SPT_Y + 1.5 })())
+    T('⛔접을 수도 없다 — 2배 번짐은 상절 대부분에서 벽 밖이라, 접으면 배수가 기둥에 들러붙는다(허리 여유 0.5m뿐)',
+      (() => { let over = 0, n = 0
+        for (let y = U[U.length - 1][0]; y <= SP9.yT; y += 0.25) {
+          n++; if (rOn(U, y) * SHAFT_HALO_K_UP > clearAt(y)) over++ }
+        return over / n > 0.8
+          && (clearAt(SP9.y2) - rOn(U, SP9.y2)) <= SHAFT_CLEAR_GAP + 1e-9 })())
+  }
+  T('★사슬 위생 — y는 위에서 아래로 단조 감소 · r는 단조 증가(꺾이되 되돌지 않는다)',
+    U.every((n, i) => i === 0 || (n[0] < U[i - 1][0] - 1e-9 && n[1] >= U[i - 1][1] - 1e-9)))
+
+  //  ⑸ 접기 함수 자체 — 합성 사례로 **순서 의존**을 문다(현행 기하는 구속이 하나만 물려 순서가 안 드러난다:
+  //   반증 ④가 아무 항도 안 물었던 자리다 — 규율 11의 실전례. 그래서 순수 함수로 빼서 직접 잰다).
+  {
+    //  구속 둘이 걸리는 사슬: (y100,r0) → (y0,r20). A(y80, 통과 3) · B(y40, 통과 12.5), 여유 1.
+    //   위→아래로 접으면 A만 접히고 B는 이미 만족된다(3마디). 아래→위면 B를 먼저 접어 **잉여 마디**가 남는다(4마디).
+    const mk = () => [[100, 0], [0, 20]]
+    const consX = [[80, 3], [40, 12.5]]
+    const rOnX = (nd, y) => { for (let i = 0; i < nd.length - 1; i++) {
+      const [yA, rA] = nd[i], [yB, rB] = nd[i + 1]
+      if (y <= yA && y >= yB) return rA + (rB - rA) * ((yA - y) / (yA - yB)) } return null }
+    const good = mk(); foldChainToClearance(good, consX, 1)
+    //  ⛔순서를 뒤집은 사본(아래→위) — 이 파일 안에서만 쓰는 **의도된 오답**이다
+    const bad = mk()
+    for (const [yk, clr] of [...consX].sort((a, b) => a[0] - b[0])) {
+      const lim = clr - 1, r = rOnX(bad, yk)
+      if (r === null || r <= lim) continue
+      let at = bad.length - 1
+      for (let i = 0; i < bad.length - 1; i++) if (yk <= bad[i][0] && yk >= bad[i + 1][0]) { at = i + 1; break }
+      bad.splice(at, 0, [yk, lim])
+    }
+    const viol = (ch) => Math.max(...consX.map(([y, c]) => rOnX(ch, y) - (c - 1)))
+    T('접기 함수 — 어느 순서든 **구속은 다 만족된다**(정순·역순 둘 다 위반 0 — 첫 주석의 "관통이 남는다"는 오기였다)',
+      viol(good) <= 1e-9 && viol(bad) <= 1e-9)
+    T('★접기 함수 — 위→아래가 **최소 마디**다: 정순 3마디 vs 역순 4마디(역순은 잉여 마디를 남긴다)',
+      good.length === 3 && bad.length === 4)
+    T('접기 함수 — 구속이 이미 만족되면 마디를 안 넣는다(잉여 마디 금지)',
+      foldChainToClearance(mk(), [[80, 100]], 1) === 0)
+    T('⛔접기 함수 — 구속 높이가 **이미 마디**면 중복을 만들지 않고 그 마디를 끌어내린다(★209-b 적발)',
+      (() => { const ch = [[100, 0], [60, 15], [0, 20]]
+        foldChainToClearance(ch, [[60, 9]], 1)
+        return ch.length === 3 && Math.abs(ch[1][1] - 8) < 1e-9
+          && new Set(ch.map((n) => n[0])).size === 3 })())
+  }
+
+  //  ⑹ ★209-c 상절 헤일로 소등 — 첨탑 **바깥**으로 나오던 빛(현도 3차 실증)
+  {
+    const COS_O = Math.cos(Math.PI / 8)
+    //  첨탑 바깥 표면(면 중앙 기준 — 팔각 구간은 외접×cos22.5°가 최소)
+    const outFace = (y) => { const rO = y <= SP9.yT ? wellWallR(y, { spec: SP9, forceSpire: true }) : SP9.rTopOut
+      return (y > SP9.y1 && y <= SP9.y3) ? rO * COS_O : rO }
+    const protrude = (nd) => { let mx = -Infinity, n = 0, tot = 0
+      for (let y = nd[nd.length - 1][0]; y <= nd[0][0]; y += 0.25) {
+        const r = rOn(nd, y); if (r === null) continue
+        tot++; const d = r - outFace(y); if (d > 0) n++
+        if (d > mx) mx = d }
+      return { max: mx, frac: n / tot } }
+    const ph = protrude(S9.haloUp), ps = protrude(U)
+    T(`⛔병 재현 — 상절 헤일로는 첨탑 **바깥**으로 나온다(표본 ${(100 * ph.frac).toFixed(0)}% · 최대 ${ph.max.toFixed(2)}m): 탑을 빛으로 감쌌다`,
+      ph.frac > 0.8 && ph.max > 5)
+    T(`★대조군 — 기둥(상절)은 **한 번도 안 나온다**(최대 ${ps.max.toFixed(2)}m < 0) ⇒ 소등 대상은 헤일로뿐이다`,
+      ps.max < 0)
+    const roomSrc209 = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+    T('배선 — Room.jsx가 상절 헤일로를 SHAFT_HALO_UP_ON 뒤에 둔다(마운트 게이트)',
+      /SHAFT_HALO_ON && SHAFT_HALO_UP_ON \? \[build\('hu'/.test(roomSrc209))
+    T('★하절 번짐은 게이트 **밖**이다 — 방의 ★208 판정(SHAFT_HALO_OP=0.20)이 그대로 보존된다',
+      /\.\.\.\(SHAFT_HALO_ON \? \[build\('hl'/.test(roomSrc209)
+      && !/SHAFT_HALO_UP_ON[^\n]*'hl'/.test(roomSrc209))
+    //  ⚠현행 값을 직접 단언하면 보존계에서 붉어진다(규율 13' — 이 세션에서 두 번째로 밟았다).
+    //   게이트 항은 **양 체제에서 성립하는 것**만 문다: 스위치가 불리언이고 · 소등 시 그릴 것이 없고 ·
+    //   점등 시 그릴 것이 **실재**한다(마운트 게이트는 [325]가, 바깥 돌출은 [323]이 따로 문다).
+    T(`노브 위생 — SHAFT_HALO_UP_ON(현행 ${SHAFT_HALO_UP_ON})은 불리언 게이트다 · 상절 헤일로 마디는 체제와 무관하게 실재`,
+      typeof SHAFT_HALO_UP_ON === 'boolean' && S9.haloUp.length >= 2)
+  }
+
+  //  ⑺ ★209-d 하절 헤일로 상단 절단 — 방 밖으로 새던 번짐(현도 4차 실증)
+  {
+    const kIn = Math.cos(Math.PI / ROOM_SHELL_SEG_U)
+    const rLo = (nd, y) => { for (let i = 0; i < nd.length - 1; i++) {
+      const [yA, rA] = nd[i], [yB, rB] = nd[i + 1]
+      if (y <= yA + 1e-9 && y >= yB - 1e-9) return rA + (rB - rA) * ((yA - y) / (yA - yB)) } return null }
+    //  자르기 **전** 하절 헤일로 = 기둥(바닥 이상) × K_LO
+    const rawLo = S9.lower.filter((n) => n[0] >= ROOM_FLOOR_Y).map(([y, r]) => [y, r * SHAFT_HALO_K_LO])
+    const worstOut = (nd) => { let mx = -Infinity, my = 0
+      for (let y = nd[nd.length - 1][0]; y <= nd[0][0]; y += 0.05) {
+        const d = rLo(nd, y) - wallR(y) * kIn; if (d > mx) { mx = d; my = y } }
+      return { max: mx, y: my } }
+    const wRaw = worstOut(rawLo), wCut = worstOut(S9.haloLo)
+    T(`⛔병 재현 — 자르기 전 하절 헤일로는 방 돔을 뚫는다(최대 +${wRaw.max.toFixed(2)}m @y${wRaw.y.toFixed(1)}): 밖에서 보이던 그 경계`,
+      wRaw.max > 5)
+    T(`★대조군 — 하절 **기둥**은 전 구간 방 안이다(최대 ${(() => { let mx = -Infinity
+        for (let y = ROOM_FLOOR_Y; y <= S9.lower[0][0]; y += 0.05) mx = Math.max(mx, rLo(S9.lower, y) - wallR(y) * kIn)
+        return mx.toFixed(2) })()}m) ⇒ 자를 것은 헤일로뿐이다`,
+      (() => { let mx = -Infinity
+        for (let y = ROOM_FLOOR_Y; y <= S9.lower[0][0]; y += 0.05) mx = Math.max(mx, rLo(S9.lower, y) - wallR(y) * kIn)
+        return mx < 0 })())
+    if (SHAFT_HALO_LO_CLIP_ON) {
+      T(`★수리 — 잘린 하절 헤일로는 전 구간 방 셸 **안**이다(최대 ${wCut.max.toFixed(3)}m ≤ 0)`, wCut.max <= 1e-9)
+      T('★수리 — 자른 높이는 **파생**이다: 그 지점에서 헤일로 r = 내접 반경(교차점 · 손 수치 0)',
+        Math.abs(S9.haloLo[0][1] - wallR(S9.haloLo[0][0]) * kIn) < 1e-3)
+      T('★어휘 보존 — 잘린 윗마디도 **같은 5.2배 원뿔 위**에 있다(폭 규약 불변)',
+        ON_CONE(S9.haloLo, S9.lower, SHAFT_HALO_K_LO))
+      T('★방 안 불변 — 페이드 span은 **자르기 전** 사슬 높이다(자른 사슬로 재면 방 안 밝기가 바뀐다)',
+        S9.haloLoSpan[0] === rawLo[0][0] && S9.haloLoSpan[1] === rawLo[rawLo.length - 1][0])
+      T(`★방 안 불변 — 자른 윗끝 vY ${((S9.haloLo[0][0] - S9.haloLoSpan[1]) / (S9.haloLoSpan[0] - S9.haloLoSpan[1])).toFixed(3)} < 1−SHAFT_TOP_FADE ⇒ 상단 페이드 미발동(현행과 동일)`,
+        (S9.haloLo[0][0] - S9.haloLoSpan[1]) / (S9.haloLoSpan[0] - S9.haloLoSpan[1]) < 1 - SHAFT_TOP_FADE)
+    } else {
+      T('⛔보존계(SHAFT_HALO_LO_CLIP_ON=false) — 자르기 전 사슬 그대로 = 방 밖 유출이 되살아난다',
+        S9.haloLo.length === rawLo.length && wCut.max > 5)
+    }
+    const roomSrc209d = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+    T('배선 — Room.jsx가 하절 헤일로에 haloLoSpan을 넘긴다(페이드 보존)',
+      /build\('hl', SHAFT\.haloLo, haloMat, SHAFT\.haloLoSpan\)/.test(roomSrc209d))
+  }
+
+  //  ⑻ 노브 위생 · 배선
+  T(`노브 위생 — SHAFT_CLEAR_GAP(${SHAFT_CLEAR_GAP}) 유한·양수 · 허리 아포템(${clearAt(SP9.y2).toFixed(3)})보다 작다`,
+    Number.isFinite(SHAFT_CLEAR_GAP) && SHAFT_CLEAR_GAP > 0 && SHAFT_CLEAR_GAP < clearAt(SP9.y2))
+  const roomsSrc209 = readFileSync(new URL('./check_rooms.mjs', import.meta.url), 'utf8')
+  T('⛔사본 소멸 — check_rooms가 옛 빛기둥 공식을 더는 들고 있지 않다(★175-e 이후 죽어 있던 가드)',
+    !/\(C\.SHAFT_TOP_R - 0\.3\) - \(C\.ROOM_WELL_RT - 0\.3\)/.test(roomsSrc209)
+    && /import \{ shaftNodes \} from '\.\/lightingModel\.js'/.test(roomsSrc209))
+}
+
+// ══════ S-10. ★209-e 조명 확정 구역 A 동결 — 정의·공리의 방 + 첨탑 (현도 2026.08.28 선언) ══════
+{
+  console.log('\n── S-10. ★209-e 조명 확정 구역 A 동결(방 + 첨탑) ──')
+  const S10 = shaftNodes(), SP10 = spireSpec(), Z10 = zoneABakeSpec()
+  const q = (x) => Number(x).toFixed(6)
+  //  ⚠지문 재료는 **정본 함수만** 부른다(사본 금지 — 규율 33). 표본 좌표는 전부 파생이다.
+  const sigParts = () => {
+    const parts = []
+    for (const k of ['upper', 'lower', 'haloUp', 'haloLo'])
+      parts.push(k + ':' + S10[k].map((n) => q(n[0]) + '/' + q(n[1])).join(','))
+    parts.push('span:' + S10.haloLoSpan.map(q).join(','))
+    //  ⚠**세기 축도 넣는다.** 첫 판(★209-e 초안)은 사슬+조도장만 넣었는데, 반증에서 `SHAFT_HALO_OP`
+    //   0.20→0.25가 **안 물렸다** — 하필 ★208이 사고 낸 바로 그 축이다. 조도장은 베이크만 담고
+    //   셰이더 세기는 안 담는다. 기하·조도·세기 셋을 다 묶어야 '조명 확정'이라 부를 수 있다.
+    parts.push('op:' + [RM_SHAFT_OP, SHAFT_HALO_OP, SHAFT_HALO_K_UP, SHAFT_HALO_K_LO, SHAFT_TOP_FADE].map(q).join(',')
+      + '/' + String(SHAFT_EDGE_AXIAL) + String(SHAFT_HALO_ON) + String(SHAFT_DROP_ON))
+    const sh = (p, n) => q(zoneAInterior(p, SP10, n) ? zoneAShadeAt(p, n, Z10) : 1)
+    for (let i = 0; i < 24; i++) {
+      const az = i * Math.PI / 12, c = Math.cos(az), s2 = Math.sin(az), n = [-c, 0, -s2]
+      for (const y of [56, 70, 88, 96]) { const r = wallR(y) - 0.2; parts.push(sh([r * c, y, r * s2], n)) }
+      for (const y of [110, 130, 150, 165, 180]) { const r = wellInnerClear(y, SP10) - 0.2; parts.push(sh([r * c, y, r * s2], n)) }
+    }
+    for (let i = 0; i < 16; i++) {
+      const az = i * Math.PI / 8, c = Math.cos(az), s2 = Math.sin(az)
+      for (const r of [8, 20, 36, 52]) parts.push(sh([r * c, ROOM_FLOOR_Y, r * s2], [0, 1, 0]))
+    }
+    return parts
+  }
+  const parts = sigParts(), str = parts.join('|')
+  let h = 2166136261 >>> 0
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0 }
+
+  //  정본 체제 = 확정 선언 시점의 세 스위치. 여기서 벗어나면 **의도된 이탈**이므로 대조를 보류한다(규율 13').
+  const CANON = SHAFT_CLEAR_ON === true && SHAFT_HALO_UP_ON === false && SHAFT_HALO_LO_CLIP_ON === true
+  T(`동결 도구 — 지문 재료가 실재한다(사슬 4 + span + 조도장 표본, 총 ${parts.length}조각)`,
+    parts.length === 286 && str.length > 1000)
+  T('⛔동결 도구 — 지문이 무디지 않다: 사슬 한 마디를 1e-4 흔들면 값이 바뀐다',
+    (() => { const p2 = [...parts]; p2[0] = p2[0].replace(/\/([\d.]+)/, (m, d) => '/' + q(Number(d) + 1e-4))
+      let g = 2166136261 >>> 0; const t = p2.join('|')
+      for (let i = 0; i < t.length; i++) { g ^= t.charCodeAt(i); g = Math.imul(g, 16777619) >>> 0 }
+      return g !== h })())
+  if (FREEZE_A_ON && CANON) {
+    T(`★★동결 — 구획 A(방+첨탑) 조명 지문 ${h} = 확정값 ${FREEZE_A_SIG}` +
+      (h === FREEZE_A_SIG ? '' : '  ⛔**확정 낸 구역이 움직였다. 지문을 갱신하지 말고 현도에게 보고하라.**'),
+      h === FREEZE_A_SIG)
+  } else {
+    T(`동결 대조 보류 — 정본 체제 밖이다(FREEZE_A_ON=${FREEZE_A_ON} · 정본체제=${CANON}). 보존계 스윕은 의도된 이탈이다`,
+      true)
+  }
+  T('동결 위생 — FREEZE_A_SIG는 유한 정수이고, 확정 스위치 셋이 모두 불리언이다',
+    Number.isInteger(FREEZE_A_SIG) && [SHAFT_CLEAR_ON, SHAFT_HALO_UP_ON, SHAFT_HALO_LO_CLIP_ON].every((v) => typeof v === 'boolean'))
 }
 
 console.log(`\n전체 ${pass + fail}항 중 ${pass}항 통과 ${fail ? '❌ ' + fail + '항 실패' : '✅'}`)

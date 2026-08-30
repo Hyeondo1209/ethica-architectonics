@@ -33,8 +33,7 @@ import {
   RM_LGT_CORE_COL, RM_LGT_CORE_I, RM_LGT_SPOT_COL, RM_LGT_DAIS_COL, RM_LGT_DAIS_I,
   RM_LGT_WELL_COL, RM_LGT_WELL_I, RM_SPOT_SPREAD_R, RM_SPOT_PEN, RM_AXSP_MASS_COL, RM_AXSP_SLAB_COL, RM_AXSP_SUP_COL,
   RM_AXSP_VAULT_COL, RM_PLATE_COL, RM_SPIRE_COL, RM_DAIS_DARK_COL, RM_MARK_COL,
-  PAL_FLOOR, PAL_WALL,
-} from './constants'
+  PAL_FLOOR, PAL_WALL, SHAFT_HALO_UP_ON } from './constants'
 import { pitSpec, slotSpec, buildPitWalls, buildPitRim, buildPitFloor, buildHoledSlab,
   buildNiches, buildNicheStairs, buildPitSlot, buildSlotStairs, buildPitEaves } from './defPitGeometry'   // ★101 각뿔대 · ★102 감실(순수 기하 — 사본 금지)
 import { buildSpiralMass, buildSpiralColumns, buildSpiralBeams, buildRootCrosses } from './axiomSpiralGeometry'   // ★107 나선 매스 + 지지(순수 기하 — 사본 금지)
@@ -528,9 +527,13 @@ export function DefAxiomRoom({ stairKind }) {
   //   (현도 실증: "빛이 연결되는 부분에 미세하게 원형의 빛 경계" — 정확히 y52 마디 높이).
   //   ⇒ 각 세그먼트의 uv.y를 **사슬 전체에서의 높이 비율**로 다시 쓴다. 셰이더는 손대지 않는다.
   const SHAFT_CHAINS = useMemo(() => {
-    const build = (tag, nodes, mat) => {
+    //  ★209-d `spanY`(선택) = uv 리맵에 쓸 **원래** 사슬 높이. 하절 헤일로는 상단을 잘라내지만,
+    //   페이드를 자른 사슬로 다시 재면 방 안 밝기가 바뀐다 ⇒ 자르기 전 span으로 계산한다.
+    const build = (tag, nodes, mat, spanY = null) => {
       if (!nodes || nodes.length < 2) return null
-      const yTop = nodes[0][0], yBot = nodes[nodes.length - 1][0], span = yTop - yBot
+      const yTop = spanY ? spanY[0] : nodes[0][0]
+      const yBot = spanY ? spanY[1] : nodes[nodes.length - 1][0]
+      const span = yTop - yBot
       const segs = nodes.slice(0, -1).map(([yA, rA], i) => {
         const [yB, rB] = nodes[i + 1]
         const geo = new THREE.CylinderGeometry(rA, rB, yA - yB, 40, 1, true)
@@ -547,7 +550,10 @@ export function DefAxiomRoom({ stairKind }) {
     }
     return [
       build('u', SHAFT.upper, shaftMat), build('l', SHAFT.lower, shaftMat),
-      ...(SHAFT_HALO_ON ? [build('hu', SHAFT.haloUp, haloMat), build('hl', SHAFT.haloLo, haloMat)] : []),
+      //  ★209-c 상절 헤일로는 마운트하지 않는다 — 우물 안에선 전 구간 벽 밖이라 화면 기여 0이고,
+      //   첨탑 **바깥**으로는 최대 14m 돌출해 탑을 빛으로 감쌌다(현도 실증). 하절(방 번짐)은 게이트 밖.
+      ...(SHAFT_HALO_ON && SHAFT_HALO_UP_ON ? [build('hu', SHAFT.haloUp, haloMat)] : []),
+      ...(SHAFT_HALO_ON ? [build('hl', SHAFT.haloLo, haloMat, SHAFT.haloLoSpan)] : []),
     ].filter(Boolean)
   }, [SHAFT, shaftMat, haloMat])
 
