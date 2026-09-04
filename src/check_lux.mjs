@@ -45,7 +45,8 @@ import { buildBridgeDeckParts } from './bridgeDeckGeometry.js'   // ★210 실�
 import { BAKE_C_ON, BAKE_C_GAMMA, BAKE_C_DHALL, BRD_X0, BRD_COL_W, BRD_YW, BRD_TRP_CAPY, BAKE_FLOOR as BF11,
   BRD_LIGHT_ON, BRD_LIGHT_EAST_ON, BRD_LIGHT_Z1, BRD_LIGHT_OP, BRD_LIGHT_XF, BRD_LIGHT_GAP, BRD_DIM_ON, BRD_DIM_LO, BRD_DIM_HI, BRD_DIM_SLIT,
   BRD_LIGHT_SL_ON, BRD_LIGHT_SL_DX, BRD_LIGHT_SL_OP, BRD_LIGHT_SL_XF, BRD_LIGHT_BF, BRD_LIGHT_BG, BRD_SKIN_DIM, BRD_DIM_WEST_L, BRD_DIM_WEST_SEG, BRD_DIM_WEST_K, BRD_DOOR_L, BRD_DOOR_SPREAD, BRD_DOOR_OP, brdEndX,
-  BRD_DIM_WEST_G, BRD_DOOR_DX, BRD_DOOR_LIGHT_ON, BRD_WSINK, BRD_SFT_TOPSINK, SPD_LIP, FREEZE_C_ON, FREEZE_C_SIG } from './constants.js'   // ★210 + ★211 + ★211-d
+  BRD_DIM_WEST_G, BRD_DOOR_DX, BRD_DOOR_LIGHT_ON, BRD_WSINK, BRD_SFT_TOPSINK, SPD_LIP, FREEZE_C_ON, FREEZE_C_SIG,
+  SFT_DIM, SFT_GAMMA, SFT_LIGHT_OP, SFT_LIGHT_GAP, SFT_LIGHT_SL_DX, SFT_SAMP, SFT_LIGHT_ON, SFT_K, SFT_LIGHT_SL_OP, SFT_LIGHT_SIDES_ON, SFT_VTX_ON, SFT_DIM_ON, FREEZE_S_ON, FREEZE_S_SIG, BRD_DECK_BOT as BRD_DECK_BOT_L } from './constants.js'   // ★210 + ★211 + ★211-d
 const q6 = (x) => Number(x).toFixed(6)
 
 let pass = 0, fail = 0
@@ -2178,6 +2179,152 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
     T(`★★동결 — 구역 C(관) 조명 지문 ${h} = 확정값 ${FREEZE_C_SIG}` +
       (h === FREEZE_C_SIG ? '' : '  ⛔**확정 낸 구역이 움직였다. 지문을 갱신하지 말고 현도에게 보고하라.**'), h === FREEZE_C_SIG)
   } else console.log(`  (구역 C 동결 대조 보류 — FREEZE_C_ON=${FREEZE_C_ON} · 정본 체제=${CANON_C})`)
+}
+
+// ══════ S-14. ★213 월대샤프트 빛 — 공급지·공동·볼륨 껍질·조도(가림)·정점색 (2026.09.04 현도 그림 ⓐㄱ·ⓑㄱ) ══════
+{
+  console.log('\n── S-14. ★213 월대샤프트 빛(관에서 흘러내린 빛) ──')
+  const F = LM.sftLightSpec(), S = F.S
+  T('★213 공급지 = 데크 구멍의 열린 부분: x0 = ㄴ판 세로획 동단 · x1 = 우물 동벽 · z = 판 가로획 반대 변~판 가로획 남단(전부 파생)',
+    F.on && q6(F.hole.x0) === q6(S.land.xLeg) && q6(F.hole.x1) === q6(S.inX1) && q6(F.hole.y) === q6(S.y1) &&
+    q6(F.hole.z1 - F.hole.z0) === q6(S.inZ + S.land.zLeg) && q6(F.hole.z1 - F.hole.z0) !== q6(2 * S.inZ))
+  T('★213 공동 = 나선 중심선 사각 − 답면 폭/2(디딤 안쪽 변) — 실기하 디딤 발자국이 공동을 침범하지 않는다',
+    F.boxes.every((B) => B.x1 <= F.cav.x0 + 1e-9 || B.x0 >= F.cav.x1 - 1e-9 || B.z1 <= -F.cav.hz + 1e-9 || B.z0 >= F.cav.hz - 1e-9) &&
+    F.boxes.some((B) => Math.abs(B.x1 - F.cav.x0) < 1e-9) && F.boxes.some((B) => Math.abs(B.z0 - F.cav.hz) < 1e-9))
+  //  ⑵ 볼륨 ⊂ 껍질 — 실정점 전부: 공동 구간(y ≤ yNeck)은 공동−GAP 안 · 좁아지는 구간은 구멍−GAP 안. 디딤 안쪽 면·벽 안면과의 최소 이격 ≥ GAP.
+  const V = LM.sftLightTris(F) || { pos: [] }   //  보존계 SFT_LIGHT_ON=false면 볼륨 없음 — 양 체제에서 성립하는 것만 문다(규율 13')
+  if (!SFT_LIGHT_ON) console.log('  (볼륨 소등 체제 — 껍질·y범위·uv 항은 보류)')
+  let vN = 0, bad = 0, minSep = Infinity, ymin = Infinity, ymax = -Infinity
+  for (let i = 0; i < V.pos.length; i += 3) {
+    const x = V.pos[i], y = V.pos[i + 1], z = V.pos[i + 2]; vN++
+    ymin = Math.min(ymin, y); ymax = Math.max(ymax, y)
+    const R = y <= F.yNeck + 1e-9 ? { x0: F.cav.x0, x1: F.cav.x1, z0: -F.cav.hz, z1: F.cav.hz } : { x0: F.hole.x0, x1: F.hole.x1, z0: F.hole.z0, z1: F.hole.z1 }
+    const sep = Math.min(x - R.x0, R.x1 - x, z - R.z0, R.z1 - z)
+    minSep = Math.min(minSep, sep); if (sep < F.gap - 1e-6) bad++
+    //  디딤 상자 살 속에 정점이 있나(실기하 발자국)
+    for (const B of F.boxes) if (x > B.x0 + 1e-9 && x < B.x1 - 1e-9 && z > B.z0 + 1e-9 && z < B.z1 - 1e-9 && y > B.y0 + 1e-9 && y < B.y1 - 1e-9) bad++
+  }
+  //  ⚠기준을 F.gap 자체로 두면 GAP=0 치환에서 공허참(반증 실증 — ★207 병). 독립 기준 = 관 커튼 정본 GAP(BRD_LIGHT_GAP) **그리고** 엄격 양수(공면 금지 자체).
+  if (SFT_LIGHT_ON) {
+  T(`★★상주 — 볼륨 정점 ${vN}개 전부 껍질 안(공동−GAP · 구멍−GAP): 위반 0 · 최소 이격 ${q6(minSep)} ≥ 관 GAP ${BRD_LIGHT_GAP} > 0(공면 0) · 디딤 살 속 0`, bad === 0 && minSep >= BRD_LIGHT_GAP - 1e-6 && minSep > 1e-3)
+  //  ★213-b 옆면 소등 체제(SIDES_ON=false)면 상단은 첫 슬라이스(yNeck) — 구멍 평면 슬라이스는 데크 구멍과 공면이라 원래 없다
+  const yTopExp = SFT_LIGHT_SIDES_ON ? F.yTop : F.yNeck
+  T(`★213 볼륨 y 범위 = 월대 상면 ${q6(F.yBot)} ~ ${SFT_LIGHT_SIDES_ON ? '데크 보행면' : '첫 단(옆면 소등)'} ${q6(yTopExp)} (ⓐㄱ 바닥까지)`, q6(ymin) === q6(F.yBot) && q6(ymax) === q6(yTopExp))
+  T('★213 볼륨 uv.y = 공동 축 조도 톤 — 위로 단조 증가 · 첫 단 높이 1 · 바닥 < 0.1', (() => {
+    let prev = -1, mono = true
+    for (let y = F.yBot; y <= F.yTop + 1e-9; y += 0.5) { const t = LM.sftAxisT(y, F); if (t < prev - 1e-9) mono = false; prev = t }
+    return mono && Math.abs(LM.sftAxisT(F.yNeck, F) - 1) < 1e-9 && LM.sftAxisT(F.yBot, F) < 0.1 })())
+  }
+  //  ⑶ 조도·가림(실기하) — 기준점은 디딤 상단면 최대 · 가림이 하부를 실제로 깎는다 · 해석식과 가림 무시 표본이 일치(도구 자기검증)
+  const eRef = LM.sftERef(F)
+  const topC = (B) => [(B.x0 + B.x1) / 2, B.y1 + 1e-3, (B.z0 + B.z1) / 2]
+  const kMax = F.boxes.reduce((m, B) => (LM.sftIrradiance(topC(B), [0, 1, 0], F, { selfK: B.k }) > LM.sftIrradiance(topC(m), [0, 1, 0], F, { selfK: m.k }) ? B : m), F.boxes[0])
+  T(`★213 기준점 = 디딤 상단면 최대 조도(k${kMax.k} y${q6(kMax.y1)}) — 구멍 x대역 안(직하)의 단이고 eRef ${q6(eRef)} > 0`, eRef > 0 && kMax.x0 >= F.hole.x0 - 1e-9 && kMax.x1 <= F.hole.x1 + 1e-9)
+  const B1 = F.boxes[0], eTool = LM.sftIrradiance(topC(B1), [0, 1, 0], F, { occlude: false }), eAn = LM.polysIrradiance(topC(B1), [0, 1, 0], F.holePoly)
+  T(`도구 자기검증 — 가림 무시 표본합 ${q6(eTool)} ≈ 해석식 ${q6(eAn)} (상대오차 < 2%)`, Math.abs(eTool - eAn) / eAn < 0.02)
+  const low = F.boxes.filter((B) => B.k >= Math.round(S.n / 2))
+  const ratio = low.map((B) => LM.sftIrradiance(topC(B), [0, 1, 0], F, { selfK: B.k }) / LM.sftIrradiance(topC(B), [0, 1, 0], F, { selfK: B.k, occlude: false }))
+  T(`★★상주 — 가림 실효: 하반부 ${low.length}단 전부 가림 조도 < 해석식(비 최대 ${q6(Math.max(...ratio))}, 평균 ${q6(ratio.reduce((a, b) => a + b, 0) / ratio.length)} < 0.7)`,
+    ratio.every((r) => r < 1 - 1e-9) && ratio.reduce((a, b) => a + b, 0) / ratio.length < 0.7)
+  T('★213 하강 감쇠 — 첫 바퀴 최대 1 · 중간 단(k≈n/2) < 0.3 · 바닥 단(k=n) < 0.05 (상대 조도)',
+    (() => { const e = (k) => LM.sftIrradiance(topC(F.boxes[k - 1]), [0, 1, 0], F, { selfK: k }) / eRef; return e(Math.round(S.n / 2)) < 0.3 && e(S.n) < 0.05 })())
+  //  ⑷ 정점색(삼각형 중심 어법) — 실기하 빌더 삼각형으로: 판 상면 = 구멍과 공면 → E=0 → 정확히 SFT_DIM · 디딤 상면 ∈ [DIM,1] · 틀 바깥면 = 내부 밖
+  const parts = buildBridgeDeckParts()
+  const tri = (geo) => { const g = geo.index ? geo.toNonIndexed() : geo; const P = g.attributes.position, N = g.attributes.normal, out = []
+    for (let t = 0; t < P.count; t += 3) { const c = [0, 0, 0], n = [0, 0, 0]
+      for (let k = 0; k < 3; k++) { c[0] += P.getX(t + k) / 3; c[1] += P.getY(t + k) / 3; c[2] += P.getZ(t + k) / 3; n[0] += N.getX(t + k); n[1] += N.getY(t + k); n[2] += N.getZ(t + k) }
+      const L = Math.hypot(...n) || 1; out.push({ c, n: n.map((v) => v / L) }) } return out }
+  const spi = tri(parts.walk.find((w) => w.id === '월대나선').geo), lan = tri(parts.walk.find((w) => w.id === '샤프트참판').geo), frm = tri(parts.solid.find((w) => w.id === '월대샤프트').geo)
+  T(`★213 실기하 — 월대나선 ${spi.length} 삼각형 전부 sftInterior 안`, spi.every((t) => LM.sftInterior(t.c, F)))
+  const lanTop = lan.filter((t) => t.n[1] > 0.5)
+  T(`★213 실기하 — ㄴ판 상면 ${lanTop.length} 삼각형: 구멍과 공면 → 조도 0 → 셰이드 = SFT_DIM(${SFT_DIM}) 정확히 (데크 톤 연속)`,
+    lanTop.length > 0 && lanTop.every((t) => Math.abs(LM.sftShadeAt(t.c, t.n, F, LM.sftOwnerK(t.c, F)) - SFT_DIM) < 1e-12))
+  //  ★213-c: 우물 경계 평면 위 면은 중심이 우물 밖(문설주 안면 z4.05·4.60)이어도 '안' — 바깥면·상단·문틀 옆면만 밖
+  const frmIn = frm.filter((t) => LM.sftWellFace(t.c, F, t.n)), frmOut = frm.filter((t) => !LM.sftWellFace(t.c, F, t.n))
+  T(`★213 실기하 — 틀 바깥면·문틀 옆면·상단 ${frmOut.length} 삼각형은 내부 밖(D 승계 유지) · 우물 경계 평면 위 ${frmIn.length} 삼각형은 안`, frmOut.length > 0 && frmOut.every((t) => !LM.sftInterior(t.c, F, t.n)) && frmIn.length > 0 && frmIn.every((t) => LM.sftInterior(t.c, F, t.n)))
+  //  ★213-c 상주 — 동벽 문설주 안면(x=inX1 · 중심 |z|>inZ · 우물에 z3.5~3.9 띠로 노출) = SFT_DIM 정확히 = 인방 안면 = 데크 구멍벽(현도 "좌우 세로 줄" 소멸)
+  const jamb = frm.filter((t) => Math.abs(t.c[0] - S.inX1) < 1e-3 && t.n[0] < -0.5 && Math.abs(t.c[2]) > S.inZ)
+  T(`★★상주 ★213-c — 동벽 문설주 안면 ${jamb.length} 삼각형(중심 |z| ${jamb.map((t) => q6(Math.abs(t.c[2]))).join(',')}) 셰이드 전부 = SFT_DIM — 인방·데크 구멍벽과 동일값`,
+    jamb.length === 4 && jamb.every((t) => Math.abs(LM.sftShadeAt(t.c, t.n, F, null) - SFT_DIM) < 1e-12))
+  const spiTop = spi.filter((t) => t.n[1] > 0.5).map((t) => LM.sftShadeAt(t.c, t.n, F, LM.sftOwnerK(t.c, F)))
+  //  ★213-a: 응답 상한 K 승계 → 계단 최대 = 관 문턱(brdDimP 문턱 = LO + (1−LO)·K)과 **같은 값**(독립 함수 대조 — 자기 대조 아님)
+  const thr = LM.brdDimP([BRD_X0 + 0.5, BRD_YW + 1e-3, 0], [0, 1, 0])
+  //  ★213-c: 최대 = 바닥 + (관 문턱 − 바닥)/4 — 관 문턱(brdDimP · 독립 함수)의 1/4 응답
+  const cap = SFT_DIM + (thr - SFT_DIM) / 4
+  T(`★213-a/b/c 실기하 — 디딤 상면 ${spiTop.length} 삼각형 셰이드 ∈ [SFT_DIM, cap] · 최대 ${q6(Math.max(...spiTop))} = 바닥+(관 문턱−바닥)/4 = ${q6(cap)} · 흰 1.0 없음 · 최소 < 0.1`,
+    spiTop.every((v) => v >= SFT_DIM - 1e-12 && v <= cap + 1e-4) && Math.abs(Math.max(...spiTop) - cap) < 1e-4 && cap < 0.5 && Math.min(...spiTop) < 0.1)
+  //  ★213-c 정점별 확산 — 기준 단(k8) 상면 4정점 값이 서로 다르고(구배 존재) 전부 [DIM, cap] · 구멍 쪽 정점이 먼 쪽보다 밝다
+  { const B8 = F.boxes.find((b) => b.k === kMax.k), vs = [[B8.x0, B8.y1, B8.z0], [B8.x1, B8.y1, B8.z0], [B8.x1, B8.y1, B8.z1], [B8.x0, B8.y1, B8.z1]]
+    const cc = [(B8.x0 + B8.x1) / 2, B8.y1, (B8.z0 + B8.z1) / 2]   //  Room 어법: 정점을 중심 쪽으로 1e-3 물러서서(이웃 상자 경계 위 표본 사고 방지)
+    const vv = vs.map((v) => LM.sftShadeAt([v[0] + (cc[0] - v[0]) * 1e-3, v[1] + 1e-3, v[2] + (cc[2] - v[2]) * 1e-3], [0, 1, 0], F, B8.k))
+    const hx = (F.hole.x0 + F.hole.x1) / 2, hz = (F.hole.z0 + F.hole.z1) / 2
+    const near = vs.map((v, i) => [Math.hypot(v[0] - hx, v[2] - hz), vv[i]]).sort((a, b) => a[0] - b[0])
+    T(`★213-c 법선 조건 — 디딤 상면(법선 y)의 벽쪽 정점(z=${q6(B8.z0)})은 우물 경계면이 아니다(위치만 보면 오판 → 벽쪽 모서리 검게 갈림)`,
+      !LM.sftWellFace([B8.x0 + 1e-3, B8.y1 + 1e-3, B8.z0], F, [0, 1, 0]) && LM.sftWellFace([B8.x0 + 1e-3, B8.y1 + 1e-3, B8.z0], F, [0, 0, 1]))
+    T(`★213-c 정점별 확산 — k${B8.k} 상면 4정점 ${vv.map(q6).join('/')} : 구배 ${q6(Math.max(...vv) - Math.min(...vv))} > 0.01 · 구멍 중심에 가까운 정점(${q6(near[0][0])}m)이 먼 정점(${q6(near[3][0])}m)보다 밝다 · 전부 ≤ cap`,
+      Math.max(...vv) - Math.min(...vv) > 0.01 && near[0][1] > near[3][1] && vv.every((v) => v <= cap + 1e-4 && v >= SFT_DIM)) }
+  //  ★213-a 지글 규명·상주 — 데크 구멍벽(수직)과 틀 안면(수직)이 y125.5~126.5에서 공면(실측 1m). 두 부재의 그 면 셰이드가 **전부 동일**(= SFT_DIM)이어야 파이팅 불가시.
+  const deckT = tri(parts.walk.find((w) => w.id === '데크판').geo)
+  const onWell = (t) => Math.abs(t.n[1]) < 0.3 && LM.sftWellFace(t.c, F, t.n)
+  const dWall = deckT.filter((t) => onWell(t) && t.c[1] > BRD_DECK_BOT_L - 1e-3), fWall = frm.filter(onWell)
+  const dV = dWall.map((t) => LM.sftShadeAt(t.c, t.n, F, null)), fV = fWall.map((t) => LM.sftShadeAt(t.c, t.n, F, null))
+  T(`★★상주 ★213-a — 공면 대역(데크 구멍벽 ${dWall.length} · 틀 안면 ${fWall.length} 삼각형) 셰이드 전부 = SFT_DIM(${SFT_DIM}) · 두 부재 차 0(파이팅 불가시 · 데크 톤 연속)`,
+    dWall.length >= 8 && fWall.length >= 8 && [...dV, ...fV].every((v) => Math.abs(v - SFT_DIM) < 1e-12))
+  T('★213-a/b/c 노브 — K = BRD_DIM_WEST_K/4(관 문 빛 상한의 1/4 · 사다리 두 단 하향) · 슬라이스 세기 = BRD_LIGHT_SL_OP(관 슬라이스 승계 — 커튼 아님)',
+    SFT_K === BRD_DIM_WEST_K / 4 && SFT_LIGHT_SL_OP === BRD_LIGHT_SL_OP && SFT_LIGHT_SL_OP < SFT_LIGHT_OP)
+  //  ★213-b 위에서 내려다본 슬라이스 누적(정면 · 톤 가중) — 관 슬라이스 세기로 1 미만(흰 포화 아님). OP를 커튼(0.30)으로 치환하면 0.78 → 문다.
+  { const V2 = LM.sftLightTris(F, { part: 'slices' }) || { pos: [] }
+    if (V2.pos.length) { const ysl = [...new Set(Array.from({ length: V2.pos.length / 3 }, (_, i) => V2.pos[i * 3 + 1]))]
+      const acc = ysl.reduce((a, y) => a + SFT_LIGHT_SL_OP * LM.sftAxisT(y, F), 0)
+      T(`★213-b 슬라이스 ${ysl.length}장 정면 누적 알파(세기×톤 합) ${q6(acc)} < 0.3 — 위에서 본 공동이 흰 씻김이 아니다`, acc < 0.3) } }
+
+  //  ⑸ 노브 파생 항등(손 수치 0)
+  T('★213 노브 전부 파생 — DIM=BRD_DIM_LO · GAMMA=BRD_DIM_WEST_G · OP=BRD_LIGHT_OP · GAP=BRD_LIGHT_GAP · SL_DX=BRD_LIGHT_SL_DX · SAMP=BAKE_N',
+    SFT_DIM === BRD_DIM_LO && SFT_GAMMA === BRD_DIM_WEST_G && SFT_LIGHT_OP === BRD_LIGHT_OP && SFT_LIGHT_GAP === BRD_LIGHT_GAP && SFT_LIGHT_SL_DX === BRD_LIGHT_SL_DX && SFT_SAMP === BAKE_N)
+  //  ⑹ 배선 — Room.jsx: 구획 4 판정이 D 승계보다 먼저 · 셰이드는 삼각형 중심 · 볼륨 마운트(문자열 검사는 보조 — 값은 위 실기하 항이 문다)
+  const room = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+  T('★213 배선(보조) — Room.jsx regionOf가 sftInterior를 drumHallCarry보다 먼저 물고, region 4 = sftShadeAt(삼각형 중심), 볼륨 메시 마운트',
+    /sftF\.on && sftInterior\(p, sftF, nn\) \? 4 : \(bakeCD && drumHallCarry/.test(room) && /region === 4 && !SFT_VTX_ON \? sftShadeAt\(\[c3\.x - ROOM_CX, c3\.y, c3\.z\]/.test(room) && /geometry=\{sftLight\} material=\{sftLightMat\}/.test(room))
+  T('★213-b 배선(보조) — Room.jsx 슬라이스 메시가 별도 재질(SL_OP)로 마운트 · 옆면은 part:sides', /part: 'slices'/.test(room) && /uOpacity\.value = SFT_LIGHT_SL_OP/.test(room) && /part: 'sides'/.test(room))
+  { const blk = room.slice(room.indexOf('const sftLightMat = useMemo'), room.indexOf('const sftSliceMat = useMemo'))
+    T('★213-c 배선(보조) — Room.jsx 구획 4 정점별 표본(SFT_VTX_ON · 중심 쪽 1e-3 후퇴) · 볼륨 uTopFade 관 커튼 승계(sftLightMat 블록에 0 강제 없음)',
+      /SFT_VTX_ON \? sftShadeAt\(\[v\.x - ROOM_CX \+ \(c3\.x - v\.x\) \* 1e-3/.test(room) && blk.length > 50 && !/uTopFade\.value = 0/.test(blk) && /uBotGain\.value = 0\.0/.test(blk)) }
+}
+
+// ══════ S-15. ★213-e 조명 확정 구역 S(월대샤프트) 동결 — 공급지·공동·내부 판정·정점색 표본·노브 (2026.09.05 현도 "고정해놓자") ══════
+{
+  console.log('\n── S-15. ★213-e 구역 S(월대샤프트) 동결 ──')
+  const q15 = (x) => Number(x).toFixed(6)
+  const sigS = (jitter = 0) => {
+    const F = LM.sftLightSpec(), S = F.S, parts = []
+    //  ⑴ 기하 — 공급지·공동·내부 상자(첫 값에 jitter) · 가림 상자 수 · 목·바닥
+    parts.push('hole:' + [F.hole.x0 + jitter, F.hole.x1, F.hole.z0, F.hole.z1, F.hole.y].map(q15).join(','))
+    parts.push('cav:' + [F.cav.x0, F.cav.x1, F.cav.hz].map(q15).join(',') + '/in:' + [S.inX0, S.inX1, S.inZ, S.hw, S.y0, S.y1, S.slab].map(q15).join(','))
+    parts.push('occl:' + F.occl.length + '/neck:' + q15(F.yNeck) + '/bot:' + q15(F.yBot))
+    //  ⑵ 조도·정점색 — 기준점 · 디딤 상단면 표본(6단 · 중심+구석 정점 후퇴 어법) · 벽/문설주/판 상면 = DIM · 축 톤
+    parts.push('eref:' + q15(LM.sftERef(F)))
+    const tops = [1, 8, 18, 30, 42, 73].map((k) => { const B = F.boxes[k - 1], cc = [(B.x0 + B.x1) / 2, B.y1, (B.z0 + B.z1) / 2]
+      const vs = [cc, [B.x0, B.y1, B.z0], [B.x1, B.y1, B.z1]]
+      return vs.map((v) => q15(LM.sftShadeAt([v[0] + (cc[0] - v[0]) * 1e-3, v[1] + 1e-3, v[2] + (cc[2] - v[2]) * 1e-3], [0, 1, 0], F, k))).join('/') }).join(',')
+    parts.push('tops:' + tops)
+    parts.push('faces:' + [[S.inX0, 126, 0, 1, 0, 0], [S.inX1, 110, 4.3, -1, 0, 0], [123.8, 114, -S.inZ, 0, 0, 1], [122.3, S.y1, 2, 0, 1, 0]]
+      .map((a) => q15(LM.sftShadeAt([a[0], a[1], a[2]], [a[3], a[4], a[5]], F, null))).join(','))
+    parts.push('axis:' + [101.3, 110, 120, 126.65].map((y) => q15(LM.sftAxisT(y, F))).join(','))
+    parts.push('inside:' + [[123.8, 114, 0, 0, 1, 0], [S.inX1, 110, 4.3, -1, 0, 0], [S.x0, 110, 0, -1, 0, 0], [123.8, 126.5, 4.5, 0, 1, 0]].map((a) => LM.sftInterior([a[0], a[1], a[2]], F, [a[3], a[4], a[5]]) ? 1 : 0).join(''))
+    //  ⑶ 노브·게이트
+    parts.push('knob:' + [SFT_DIM, SFT_GAMMA, SFT_K, SFT_LIGHT_OP, SFT_LIGHT_SL_OP, SFT_LIGHT_GAP, SFT_LIGHT_SL_DX, SFT_SAMP].map(q15).join(',')
+      + '/' + [SFT_LIGHT_ON, SFT_DIM_ON, SFT_VTX_ON, SFT_LIGHT_SIDES_ON].map(String).join(''))
+    return parts
+  }
+  const fnv = (parts) => { const str = parts.join('|'); let h = 2166136261 >>> 0; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0 } return h }
+  const parts = sigS(), h = fnv(parts)
+  T(`동결 도구 — S 지문 재료가 실재한다(기하·조도·노브 ${parts.length}조각 · ${parts.join('|').length}자)`, parts.length === 9 && parts.join('|').length > 400)
+  T('⛔동결 도구 — S 지문이 무디지 않다: 공급지 x0를 1e-4 흔들면 값이 바뀐다', fnv(sigS(1e-4)) !== h)
+  const CANON_S = SFT_LIGHT_ON === false && SFT_DIM_ON === true && SFT_VTX_ON === true
+  if (FREEZE_S_ON && CANON_S) {
+    T(`★★동결 — 구역 S(월대샤프트) 조명 지문 ${h} = 확정값 ${FREEZE_S_SIG}` +
+      (h === FREEZE_S_SIG ? '' : '  ⛔**확정 낸 구역이 움직였다. 지문을 갱신하지 말고 현도에게 보고하라.**'), h === FREEZE_S_SIG)
+  } else console.log(`  (구역 S 동결 대조 보류 — FREEZE_S_ON=${FREEZE_S_ON} · 정본 체제=${CANON_S}) · 현재 지문 ${h}`)
 }
 
 console.log(`\n전체 ${pass + fail}항 중 ${pass}항 통과 ${fail ? '❌ ' + fail + '항 실패' : '✅'}`)

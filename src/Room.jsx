@@ -7,11 +7,13 @@ import { Brush, Evaluator, HOLLOW_SUBTRACTION } from 'three-bvh-csg'
 import { GivenMonolith } from './Steles'
 import { buildDisc } from './discGeometry.js'
 import { shaftNodes, zoneABakeSpec, zoneAShadeAt, zoneAInterior, splitSoupAtBoundary, splitSoupByGradient,
-  zoneCBakeSpec, zoneCInterior, zoneCShadeAt, drumHallCarry, zoneDBakeSpec, zoneDShadeAt, brdLightSpec, brdDimAt, brdDimP, brdWestStations, brdWestSkinTris, brdDoorLightTris } from './lightingModel.js'   // ★175-e 빛기둥 마디 정본 + ★176 베이크 + ★178 경계 분할 + ★210 C구획(관) — 사본 금지
+  zoneCBakeSpec, zoneCInterior, zoneCShadeAt, drumHallCarry, zoneDBakeSpec, zoneDShadeAt, brdLightSpec, brdDimAt, brdDimP, brdWestStations, brdWestSkinTris, brdDoorLightTris,
+  sftLightSpec, sftInterior, sftShadeAt, sftOwnerK, sftLightTris } from './lightingModel.js'   // ★213 월대샤프트 빛   // ★175-e 빛기둥 마디 정본 + ★176 베이크 + ★178 경계 분할 + ★210 C구획(관) — 사본 금지
 import { BAKE_A_ON, BAKE_N, BAKE_FLOOR, BAKE_SPLIT_ON, BAKE_SPLIT_EPS, BAKE_STAIR_MIN, BAKE_INST_ON, BAKE_GRAD_ON, BAKE_GRAD_TOL, BAKE_GRAD_MIN,
   BAKE_C_ON, BAKE_C_GAMMA, BAKE_C_DHALL,
   BRD_LIGHT_ON, BRD_LIGHT_EAST_ON, BRD_LIGHT_OP, BRD_LIGHT_XF, BRD_DIM_ON, BRD_DIM_LO, BRD_DIM_HI,
-  BRD_LIGHT_SL_ON, BRD_LIGHT_SL_DX, BRD_LIGHT_SL_OP, BRD_LIGHT_SL_XF, BRD_LIGHT_BF, BRD_LIGHT_BG, BRD_X0, BRD_SKIN_DIM, BRD_DOOR_OP } from './constants.js'   // ★211-i 슬라이스 + ★211-j + ★211-l   // ★211 관 빛 커튼 + ★211-d 감광   // ★176 베이크 + ★178 분할 + ★184 부재 하한 + ★185 인스턴스 + ★210 C구획
+  BRD_LIGHT_SL_ON, BRD_LIGHT_SL_DX, BRD_LIGHT_SL_OP, BRD_LIGHT_SL_XF, BRD_LIGHT_BF, BRD_LIGHT_BG, BRD_X0, BRD_SKIN_DIM, BRD_DOOR_OP,
+  SFT_LIGHT_ON, SFT_DIM_ON, SFT_LIGHT_OP, SFT_LIGHT_SL_OP, SFT_LIGHT_XF, SFT_VTX_ON } from './constants.js'   // ★213 월대샤프트 빛 + ★213-b·c   // ★211-i 슬라이스 + ★211-j + ★211-l   // ★211 관 빛 커튼 + ★211-d 감광   // ★176 베이크 + ★178 분할 + ★184 부재 하한 + ★185 인스턴스 + ★210 C구획
 import {
   ROOM_CX, ROOM_FLOOR_Y, ROOM_R, ROOM_CEIL_Y, ROOM_HEIGHT, ROOM_OCULUS,
   ACH_INT_ON, ACH_INT_MUL, ACH_INT_R, ACH_INT_Y0, ACH_INT_Y1, ACH_INT_FEATHER, ACH_INT_SHELL_Q0, ACH_INT_FACE_W,   // ★174 방 암실
@@ -360,7 +362,10 @@ export function DefAxiomRoom({ stairKind }) {
       if (bakeCD && drumHallCarry(p)) return zoneDShadeAt(p, nn, bakeCD)
       return 1
     }
-    const regionOf = (p, nn) => (zoneCInterior(p, bakeC, nn) ? 0 : (bakeCD && drumHallCarry(p) ? 1 : 2))
+    //  ★213 샤프트 내부(우물 사각 × 월대~데크)는 D 승계보다 **먼저** 잡는다(4) — 정점색 = 어둠의 바닥 + 구멍 조도(가림 포함).
+    //   틀 바깥면·문틀은 sftInterior 밖 → D 승계 그대로. SFT_DIM_ON=false면 구 체제(D 승계) 복귀.
+    const sftF = SFT_DIM_ON ? sftLightSpec() : { on: false }
+    const regionOf = (p, nn) => (zoneCInterior(p, bakeC, nn) ? 0 : (sftF.on && sftInterior(p, sftF, nn) ? 4 : (bakeCD && drumHallCarry(p) ? 1 : 2)))
     darkRef.current.traverse((o) => {
       if (!o.isMesh || !o.geometry || o.userData.bakeSeenC) return
       o.userData.bakeSeenC = true
@@ -432,11 +437,16 @@ export function DefAxiomRoom({ stairKind }) {
           //  ★212-e 데크판 상면(법선 위)은 **정의상 관 내부 바닥** — 삼각형 중심 판정에 맡기면 전이 분할이 만든
           //   쐐기 조각·구멍 둘레 띠(z3.9~5.15, 노출부 있음)가 '밖'=흰으로 튄다(현도 사진). 밑면·구멍 벽은 기존 판정.
           const region = o.userData.brdSkin ? 3 : (o.userData.brdFloor && nm.y > 0.5) ? 0 : regionOf([c3.x - ROOM_CX, c3.y, c3.z], [nm.x, nm.y, nm.z])
+          //  ★213 샤프트 내부 = 삼각형 **중심**에서 한 번(가림 광선 표본 — 상자 정점이라 구배 불가 = 얼룩 불가). 자기 디딤 상자는 가림 제외.
+          //  ★213-c 정점별(SFT_VTX_ON): 자기 디딤 번호는 삼각형 중심에서 정하고, 값은 정점마다 잰다 — 디딤 상면 안에 구배(현도 "빛이 퍼져야").
+          const sftK = region === 4 ? sftOwnerK([c3.x - ROOM_CX, c3.y, c3.z], sftF) : null
+          const sftS = region === 4 && !SFT_VTX_ON ? sftShadeAt([c3.x - ROOM_CX, c3.y, c3.z], [nm.x, nm.y, nm.z], sftF, sftK) : 1
           for (let k = 0; k < 3; k++) {
             v.fromBufferAttribute(P, t + k).applyMatrix4(o.matrixWorld)
             //  삼각형 단위로 정한 체제 안에서 정점별 값: C내부 = y 램프 · D승계 = D 셰이드 · 스킨 = 상수 · 밖 = 1
             const s = region === 3 ? brdDimP([v.x - ROOM_CX, v.y, v.z], [nm.x, nm.y, nm.z], BRD_SKIN_DIM) : region === 0 ? brdDimP([v.x - ROOM_CX, v.y, v.z], [nm.x, nm.y, nm.z])
-              : region === 1 ? zoneDShadeAt([v.x - ROOM_CX, v.y, v.z], [nm.x, nm.y, nm.z], bakeCD) : 1
+              //  정점은 삼각형 중심 쪽으로 1e-3 물러선 점에서 잰다 — 공유 모서리 정점이 이웃 상자 경계 위에 놓여 전부 가려지는 표본 사고 방지
+              : region === 4 ? (SFT_VTX_ON ? sftShadeAt([v.x - ROOM_CX + (c3.x - v.x) * 1e-3, v.y + (c3.y - v.y) * 1e-3, v.z + (c3.z - v.z) * 1e-3], [nm.x, nm.y, nm.z], sftF, sftK) : sftS) : region === 1 ? zoneDShadeAt([v.x - ROOM_CX, v.y, v.z], [nm.x, nm.y, nm.z], bakeCD) : 1
             if (s < 1) touched = true
             col[(t + k) * 3] = col[(t + k) * 3 + 1] = col[(t + k) * 3 + 2] = s
           }
@@ -772,6 +782,28 @@ export function DefAxiomRoom({ stairKind }) {
     m.uniforms.uBotFeather.value = 0.35; m.uniforms.uBotGain.value = 0.15; m.uniforms.uTopFade.value = 0.02
     return m
   }, [brdLightMat])
+  //  ★★★213 월대샤프트 볼륨 = 관 커튼 재질 사본. 세로 세기는 **uv.y가 통째로 담는다**(sftAxisT = 공동 축 조도 톤) →
+  //   uBotGain=0(len ∝ vY) · uTopFade=0(구멍 평면이 광원 — 위에서 끊지 않음) · 하단 깃털·둘레 페이드는 관 승계.
+  const sftLightMat = useMemo(() => {
+    const m = brdLightMat.clone(); m.uniforms = THREE.UniformsUtils.clone(brdLightMat.uniforms)
+    m.uniforms.uOpacity.value = SFT_LIGHT_OP; m.uniforms.uXFeather.value = SFT_LIGHT_XF
+    //  ★213-c 상단 페이드 = 관 커튼 값 **승계**(clone이 그대로 가진다 · ≈0.155 = 위 15%에서 녹음) — 초판 0(칼 경계)은 구멍 테두리에서
+    //   비스듬한 상단 판이 밝은 사각으로 섰다(현도 "공동을 채우는 빛의 경계가 너무 잘 느껴져").
+    m.uniforms.uBotGain.value = 0.0
+    return m
+  }, [brdLightMat])
+  //  ★213-b 슬라이스는 관 어법대로 **슬라이스 세기**(SL_OP 0.03 — 커튼의 1/10). 초판이 커튼 세기를 잘못 승계해 위에서 14장 누적 0.78.
+  const sftSliceMat = useMemo(() => {
+    const m = sftLightMat.clone(); m.uniforms = THREE.UniformsUtils.clone(sftLightMat.uniforms)
+    m.uniforms.uOpacity.value = SFT_LIGHT_SL_OP
+    return m
+  }, [sftLightMat])
+  const mkGeo = (d) => { if (!d || !d.pos.length) return null; const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(d.pos), 3))
+    g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(d.uv), 2))
+    g.computeVertexNormals(); return g }
+  const sftLight = useMemo(() => (SFT_LIGHT_ON ? mkGeo(sftLightTris(undefined, { part: 'sides' })) : null), [])
+  const sftSlices = useMemo(() => (SFT_LIGHT_ON ? mkGeo(sftLightTris(undefined, { part: 'slices' })) : null), [])
   const brdDoorLight = useMemo(() => {
     const d = brdDoorLightTris(); if (!d) return null
     const g = new THREE.BufferGeometry()
@@ -1011,6 +1043,9 @@ export function DefAxiomRoom({ stairKind }) {
       ))}
       {BRD_SLICES && <mesh geometry={BRD_SLICES} material={brdSliceMat} />}
       {brdDoorLight && <mesh geometry={brdDoorLight} material={brdDoorMat} />}
+      {/* ★213 월대샤프트 빛 볼륨 — 구멍→공동→월대(ⓐㄱ). 옆면 4장 + 횡단 슬라이스. 기하 정본 sftLightTris(사본 0) */}
+      {sftLight && <mesh name="1p12접속통로/샤프트빛" geometry={sftLight} material={sftLightMat} userData={{ walkable: false }} />}
+      {sftSlices && <mesh name="1p12접속통로/샤프트빛슬라이스" geometry={sftSlices} material={sftSliceMat} userData={{ walkable: false }} />}
       {ROOM_SHAFT_ON && (<>
         {/* ★175-e 현도 스케치: 갓 꼭지에서 시작해 각뿔대 바닥까지 관통하는 기둥 + 그 2배 폭의 헤일로.
             마디는 lightingModel.shaftNodes()가 기하에서 유도한다(사본 금지 — check_lux가 같은 함수를 문다).

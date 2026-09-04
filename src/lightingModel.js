@@ -29,7 +29,10 @@ import {
   BRD_TRP_C0Y, BRD_TRP_CAPY,
   BRD_ROOF_BOT, BRD_LIGHT_Z1, BRD_LIGHT_GAP, BRD_DIM_LO, BRD_DIM_HI, BRD_DIM_SLIT, brdEndX,
   SPD_HW, SPD_H, SPD_Y0, BRD_WCUT, BRD_TRP_ON, BRD_DIM_WEST_L, BRD_DIM_WEST_SEG, BRD_DIM_WEST_G, BRD_DIM_WEST_K,
-  BRD_DOOR_LIGHT_ON, BRD_DOOR_L, BRD_DOOR_SPREAD, BRD_DOOR_DX } from './constants.js'   // ★210 C구획 + ★211 빛 커튼
+  BRD_DOOR_LIGHT_ON, BRD_DOOR_L, BRD_DOOR_SPREAD, BRD_DOOR_DX,
+  SFT_DIM, SFT_GAMMA, SFT_K, SFT_LIGHT_GAP, SFT_LIGHT_SL_DX, SFT_SAMP, SFT_LIGHT_ON, SFT_LIGHT_SIDES_ON } from './constants.js'   // ★213 월대샤프트 빛
+import { shaftSpec, shaftStepFoot } from './bridgeDeckGeometry.js'   // ★213 샤프트 실기하 정본(사본 0)
+import { woldaeSpec } from './corridorStairsGeometry.js'   // ★210 C구획 + ★211 빛 커튼
 import { trapColumnSpec, slitLinkSpec, bridgeTrapSpec, spireCutX } from './bridgeTrapGeometry.js'   // ★210 슬릿 실기하(빌더와 같은 spec — 사본 금지)
 import { spireSpec, wellWallR, wellInnerClear } from './spireGeometry.js'
 import { spireTerraceSpec } from './spireTerraceGeometry.js'   // ★209 테라스 구멍 = y127의 통과 구속(사본 금지)
@@ -1296,3 +1299,145 @@ export function selfTest() {
   push('displayLum(0.18) ≈ 0.50 (중간 회색 — 누수 판정 기준)', Math.abs(displayLum(0.18) - 0.50) < 0.03)
   return ok
 }
+
+// ── ★★★213 월대샤프트 빛 — 관에서 흘러내린 빛 (2026.09.04 현도 그림 · constants ★213 절이 정본 서술) ─────
+//  ★공급지 = 데크 구멍의 열린 부분(ㄴ판 여집합) · 공동 = 나선 중심선 사각 − 답면 폭/2(디딤 안쪽 변) · 전부 shaftSpec 파생.
+//  ★조도 = 구멍 사각형 램버트 **표본 합**(축당 SFT_SAMP) + **가림**(디딤 AABB·ㄴ판 — 실기하 발자국 shaftStepFoot 공용).
+//   ⚠해석식(polysIrradiance)은 가림을 모른다 — 우물은 위 디딤이 아래 디딤의 구멍을 절반 이상 가리므로(선실측
+//    k36 가림비 0.53 · k70 0.14) 해석식만 쓰면 하부가 3~7배 과대. 검사 [S-14]가 해석식 대비 가림 실효를 문다.
+//  ★기준점 eRef = 디딤 상단면 중심 조도의 **최대**(선실측 k8 — 구멍 바로 아래 동변) → shade 1. 손 수치 0.
+export function sftLightSpec() {
+  const S = shaftSpec(), W = woldaeSpec()
+  if (!S.on || !S.land) return { on: false, S }
+  const L = S.land, zs = L.zSign
+  //  구멍(열린 부분) = 우물 사각 − ㄴ판(세로획이 x0~xLeg 전폭 · 가로획이 zLeg~zFar 전장) → 남는 사각 하나
+  const hole = { x0: L.xLeg, x1: S.inX1, z0: zs > 0 ? -S.inZ : -L.zLeg, z1: zs > 0 ? L.zLeg : S.inZ, y: S.y1 }
+  const holePoly = [{ n: [0, -1, 0], v: [[hole.x0, hole.y, hole.z0], [hole.x1, hole.y, hole.z0], [hole.x1, hole.y, hole.z1], [hole.x0, hole.y, hole.z1]] }]
+  const cav = { x0: S.mx0 + S.w / 2, x1: S.mx1 - S.w / 2, hz: S.mz - S.w / 2 }
+  const boxes = S.steps.map((st) => { const [x0, x1, z0, z1] = shaftStepFoot(S, st); return { k: st.k, x0, x1, z0, z1, y0: st.yTop - S.slab, y1: st.yTop } })
+  const landBox = { k: 0, x0: L.x0, x1: L.x1, z0: zs > 0 ? L.zLeg : -L.zFar, z1: zs > 0 ? L.zFar : -L.zLeg, y0: L.yBot, y1: L.yTop }
+  const legBox = { k: -1, x0: L.x0, x1: L.xLeg, z0: zs > 0 ? 0 : -L.zFar, z1: zs > 0 ? L.zFar : 0, y0: L.yBot, y1: L.yTop }
+  const yNeck = S.steps[0].yTop          // 구멍 → 공동으로 좁아지는 끝 = 첫 단 상면(그 위엔 공동을 침범하는 디딤이 없다)
+  const yBot = W.yTop                    // ⓐㄱ 바닥 = 월대 상면
+  //  볼륨 반폭 프로파일(y → 사각) — 구멍−GAP(y1) ↔ 공동−GAP(yNeck 이하). 두 사각 모두 실면과 GAP 이격(공면 금지).
+  const g = SFT_LIGHT_GAP
+  const rectAt = (y) => {
+    const t = y <= yNeck ? 1 : Math.min(1, Math.max(0, (S.y1 - y) / (S.y1 - yNeck)))
+    const lerp = (a, b) => a + (b - a) * t
+    return { x0: lerp(hole.x0 + g, cav.x0 + g), x1: lerp(hole.x1 - g, cav.x1 - g), z0: lerp(hole.z0 + g, -cav.hz + g), z1: lerp(hole.z1 - g, cav.hz - g) }
+  }
+  return { on: true, S, hole, holePoly, cav, boxes, occl: [...boxes, landBox, legBox], yNeck, yBot, yTop: S.y1, rectAt, gap: g }
+}
+/** 샤프트 '내부' 판정 — 우물 사각(안면 포함 · 허용 1e-3) × (월대 상면 − 디딤 두께)~데크 보행면. 틀 바깥면·문틀은 밖(D 승계 유지).
+ *  ⚠하한이 월대 상면이 아니라 그보다 디딤 두께 아래인 이유(실기하 실증): 끝 단 k=n의 상면이 월대 상면과 같아(y1 − rise·n = y0)
+ *   그 판(밑면·옆면 10 삼각형)이 월대 살 속에 묻힌다 — 안 보이는 면이지만 같은 부재의 삼각형을 두 구획으로 가르지 않는다. */
+export function sftInterior(p, F = sftLightSpec(), n = null) {
+  if (!F.on) return false
+  const S = F.S, e = 1e-3
+  const yIn = p[1] >= S.y0 - S.slab - e && p[1] <= S.y1 + e
+  if (!yIn) return false
+  if (p[0] >= S.inX0 - e && p[0] <= S.inX1 + e && Math.abs(p[2]) <= S.inZ + e) return true
+  //  ★213-c 우물 경계 평면 위의 면은 삼각형 중심이 우물 밖(문설주 안면 z3.5~5.15 · 중심 4.3)이어도 안면이다 —
+  //   동벽 = 문설주 둘+인방이라 문설주 안면이 z3.5~3.9 0.4m 띠로 우물에 노출된다(현도 09.05 "좌우 세로 줄 · 반대면엔 없음").
+  return sftWellFace(p, F, n)
+}
+function segHitsBox(a, b, B) {   // 선분 a→b가 AABB를 지나나(슬랩 클리핑)
+  let t0 = 0, t1 = 1
+  for (let i = 0; i < 3; i++) {
+    const lo = [B.x0, B.y0, B.z0][i], hi = [B.x1, B.y1, B.z1][i], d = b[i] - a[i]
+    if (Math.abs(d) < 1e-12) { if (a[i] < lo || a[i] > hi) return false; continue }
+    let ta = (lo - a[i]) / d, tb = (hi - a[i]) / d; if (ta > tb) [ta, tb] = [tb, ta]
+    t0 = Math.max(t0, ta); t1 = Math.min(t1, tb); if (t0 > t1) return false
+  }
+  return true
+}
+/** 구멍 램버트 조도(표본 합 · 가림 포함). selfK = 자기 디딤 번호(자기 상자는 가림에서 제외). occlude=false면 해석식과 같은 값(검사용). */
+export function sftIrradiance(p, n, F = sftLightSpec(), { selfK = null, occlude = true } = {}) {
+  if (!F.on) return 0
+  const H = F.hole, NS = SFT_SAMP, dA = (H.x1 - H.x0) * (H.z1 - H.z0) / (NS * NS)
+  let E = 0
+  for (let i = 0; i < NS; i++) for (let j = 0; j < NS; j++) {
+    const s = [H.x0 + ((i + 0.5) / NS) * (H.x1 - H.x0), H.y - 1e-3, H.z0 + ((j + 0.5) / NS) * (H.z1 - H.z0)]
+    const d = [s[0] - p[0], s[1] - p[1], s[2] - p[2]], L2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2], L = Math.sqrt(L2)
+    const cp = (d[0] * n[0] + d[1] * n[1] + d[2] * n[2]) / L, cs = d[1] / L
+    if (cp <= 0 || cs <= 0) continue
+    if (occlude) { let blocked = false; for (const B of F.occl) { if (B.k === selfK) continue; if (segHitsBox(p, s, B)) { blocked = true; break } } if (blocked) continue }
+    E += (cp * cs) / L2 * dA
+  }
+  return E
+}
+let _sftERef = null
+/** 기준 조도 = 디딤 상단면 중심의 최대(가림 포함). 파생 — 손 수치 0. */
+export function sftERef(F = sftLightSpec()) {
+  if (_sftERef !== null) return _sftERef
+  let m = 0
+  for (const B of F.boxes) m = Math.max(m, sftIrradiance([(B.x0 + B.x1) / 2, B.y1 + 1e-3, (B.z0 + B.z1) / 2], [0, 1, 0], F, { selfK: B.k }))
+  _sftERef = m
+  return m
+}
+/** ★213-a 우물 경계 평면(x=inX0/inX1 · |z|=inZ) 위의 면인가 — 틀 안면·데크 구멍벽(공면 1m 대역)·판 옆면이 여기 든다. */
+export function sftWellFace(p, F = sftLightSpec(), n = null) {
+  const S = F.S, e = 1e-3
+  //  ★213-c 법선 조건: 평면 위에 있어도 **그 평면을 향하는 면**만(|n·평면법선| > 0.5) — 디딤 상면(법선 y)의 벽쪽 정점이 벽 값으로
+  //   떨어지지 않게(실측: k8 상면 z=−3.90 정점이 DIM으로 잡혀 벽쪽 모서리가 검게 갈렸다). n 없으면 위치만 본다(검사 호환).
+  //  x 평면은 틀 폭(|z| ≤ hw) 전체 — 문설주·남북벽 안면이 같은 평면에 있다 · z 평면은 틀 길이(x0~x1) 전체
+  const nx = !n || Math.abs(n[0]) > 0.5, nz = !n || Math.abs(n[2]) > 0.5
+  if (nx && (Math.abs(p[0] - S.inX0) < e || Math.abs(p[0] - S.inX1) < e) && Math.abs(p[2]) <= S.hw + e) return true
+  return nz && Math.abs(Math.abs(p[2]) - S.inZ) < e && p[0] >= S.x0 - e && p[0] <= S.x1 + e
+}
+/** 우물 안 면의 셰이드 ∈ [SFT_DIM, SFT_DIM + (1−SFT_DIM)·SFT_K] — 관 문 빛과 같은 식(brdWestGain 형): 바닥 + (1−바닥)·K·(E/eRef)^G.
+ *  ★213-a: 우물 경계 평면 위의 면 = 어둠의 바닥 정확히(공면 두 부재 동일값 → 파이팅 불가시 · 데크와 톤 연속). 삼각형 중심에서 한 번. */
+export function sftShadeAt(p, n, F = sftLightSpec(), selfK = null) {
+  if (sftWellFace(p, F, n)) return SFT_DIM
+  const e = sftIrradiance(p, n, F, { selfK }) / sftERef(F)
+  return SFT_DIM + (1 - SFT_DIM) * SFT_K * Math.pow(Math.min(1, Math.max(0, e)), SFT_GAMMA)
+}
+/** 삼각형 중심이 어느 디딤 상자에 속하나(옆면·밑면 정점이 자기 상자에 가려지지 않게 자기 번호를 돌려준다) */
+export function sftOwnerK(c, F = sftLightSpec()) {
+  const e = 1e-4
+  for (const B of F.boxes) if (c[0] >= B.x0 - e && c[0] <= B.x1 + e && c[2] >= B.z0 - e && c[2] <= B.z1 + e && c[1] >= B.y0 - e && c[1] <= B.y1 + e) return B.k
+  return null
+}
+/** 볼륨 세로 좌표 uv.y(y) = 공동 축상 조도(해석식 · 가림 없음)의 톤 응답, 첫 단 높이에서 1로 정규화. 단조 증가(위로). */
+export function sftAxisT(y, F = sftLightSpec()) {
+  const c = [(F.cav.x0 + F.cav.x1) / 2, Math.min(y, F.yTop - 1e-3), 0]
+  const eN = polysIrradiance([c[0], F.yNeck, 0], [0, 1, 0], F.holePoly)
+  const e = polysIrradiance(c, [0, 1, 0], F.holePoly) / eN
+  return Math.pow(Math.min(1, Math.max(0, e)), SFT_GAMMA)
+}
+/** 볼륨 메시(옆면 4장 + 횡단 슬라이스) — pos·uv 평면 배열. uv.x = 둘레 페이드용(변에서의 거리 비율 · 중심 1), uv.y = sftAxisT. */
+export function sftLightTris(F = sftLightSpec(), { part = 'all' } = {}) {   //  ★213-b part: 'sides' | 'slices' | 'all'(검사용)
+  if (!F.on || !SFT_LIGHT_ON) return null
+  const pos = [], uv = []
+  const doSides = part !== 'slices' && SFT_LIGHT_SIDES_ON, doSlices = part !== 'sides'
+  const ys = [F.yTop, F.yNeck]                                   // 좁아지는 구간(사다리꼴) 경계
+  for (let y = F.yNeck - SFT_LIGHT_SL_DX; y > F.yBot + 1e-6; y -= SFT_LIGHT_SL_DX) ys.push(y)
+  ys.push(F.yBot)
+  const push = (x, y, z, ux) => { pos.push(x, y, z); uv.push(ux, sftAxisT(y, F)) }
+  //  옆면: 인접한 두 높이의 사각을 잇는 4개 쿼드. ux = 그 변 위 위치의 양끝 최소거리 비율(0 끝 · 1 중앙)
+  for (let i = 0; doSides && i + 1 < ys.length; i++) {
+    const A = F.rectAt(ys[i]), B = F.rectAt(ys[i + 1]), ya = ys[i], yb = ys[i + 1]
+    const sides = [
+      [[A.x0, A.z0], [A.x1, A.z0], [B.x1, B.z0], [B.x0, B.z0]],   // 남
+      [[A.x1, A.z0], [A.x1, A.z1], [B.x1, B.z1], [B.x1, B.z0]],   // 동
+      [[A.x1, A.z1], [A.x0, A.z1], [B.x0, B.z1], [B.x1, B.z1]],   // 북
+      [[A.x0, A.z1], [A.x0, A.z0], [B.x0, B.z0], [B.x0, B.z1]],   // 서
+    ]
+    for (const [a, b, c, d] of sides) {
+      //  변 중앙에 정점을 두어 uv.x가 끝 0 → 중앙 1 → 끝 0(★211-l 교훈: 양끝 0만 있으면 보간이 통째로 0)
+      const m0 = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], m1 = [(c[0] + d[0]) / 2, (c[1] + d[1]) / 2]
+      push(a[0], ya, a[1], 0); push(m0[0], ya, m0[1], 1); push(m1[0], yb, m1[1], 1)
+      push(a[0], ya, a[1], 0); push(m1[0], yb, m1[1], 1); push(d[0], yb, d[1], 0)
+      push(m0[0], ya, m0[1], 1); push(b[0], ya, b[1], 0); push(c[0], yb, c[1], 0)
+      push(m0[0], ya, m0[1], 1); push(c[0], yb, c[1], 0); push(m1[0], yb, m1[1], 1)
+    }
+  }
+  //  횡단 슬라이스: 각 높이의 사각을 중심 팬(중심 ux=1 · 둘레 0). 구멍 평면(yTop) 자체는 제외(데크 구멍과 공면).
+  for (const y of (doSlices ? ys.slice(1) : [])) {
+    const R = F.rectAt(y), cx = (R.x0 + R.x1) / 2, cz = (R.z0 + R.z1) / 2
+    const ring = [[R.x0, R.z0], [R.x1, R.z0], [R.x1, R.z1], [R.x0, R.z1]]
+    for (let k = 0; k < 4; k++) { const a = ring[k], b = ring[(k + 1) % 4]; push(cx, y, cz, 1); push(a[0], y, a[1], 0); push(b[0], y, b[1], 0) }
+  }
+  return { pos, uv, ys }
+}
+
