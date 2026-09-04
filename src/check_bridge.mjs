@@ -7,6 +7,7 @@
 //  ⚠규율: 모든 항은 **치환으로 falsify 가능**해야 한다. 그럴듯한 값을 다시 적는 항(=항진명제)은 금지.
 //   그래서 이웃 부재(SPT·DRG·월대·드럼 천장)의 **정본을 따로 임포트해 맞대**는 방식으로 짰다.
 // ════════════════════════════════════════════════════════════════════
+import * as THREE from 'three'   // ★212 실기하 레이
 import {
   BRD_ON, BRD_HW, BRD_PIER_HW, BRD_STAIR_HW, BRD_SPI_W, BRD_T, BRD_CLEAR,
   BRD_PORT_W, BRD_SIDE, BRD_SPI_DROP, BRD_STAIR_DEG,
@@ -45,14 +46,14 @@ import { gatEaveSpec, buildGatEave, gatCutSpec, gatPlane } from './gatEaveGeomet
 const drumCeilYAt = (x, z) => gatPlane()(x, Math.abs(z))
 import { bridgeSpec, bridgeColTop } from './bridgeComplexGeometry.js'
 import { EYE, STEP_UP } from './waypoints.js'
-import { spireSpec, wellWallR, SPIRE_BODY_SEG, spireDoorSpec, buildSpireDoorFrame } from './spireGeometry.js'
+import { spireSpec, wellWallR, SPIRE_BODY_SEG, spireDoorSpec, buildSpireDoorFrame, buildSpire } from './spireGeometry.js'
 import { buildBridgeComplex } from './bridgeComplexGeometry.js'
 import { BRG_ON, BRG_MODE, BRG_KEEP } from './constants.js'
 import { BRD_VLT_ON, BRD_VLT_N, BRD_VLT_COL, BRD_VLT_SEG, BRD_BAND_SEGS, SPIRE_T,
   BRD_TRP_ON, BRD_TRP_H, BRD_TRP_O, BRD_TRP_F, BRD_TRP_D, BRD_TRP_V, BRD_TRP_M, BRD_TRP_OVH,
   BRD_TRP_O2, BRD_TRP_JZ, BRD_TRP_JY, BRD_TRP_AY, BRD_TRP_SLOPE, BRD_TRP_TIPZ, BRD_TRP_TIPY,
   BRD_TRP_SLIT, BRD_TRP_STUB, BRD_TRP_C0Z, BRD_TRP_C0Y, BRD_TRP_CAPY, BRD_TRP_NOTCH_TOP, SPIRE_SINK,
-  BRD_TRP_PNL, BRD_TRP_PNL_N, BRD_TRP_PNL_R, BRD_TRP_PNL_G, BRD_TRP_PNL_DP, SP_FR_W, BRD_WCUT, BRD_BAND_ON,
+  BRD_TRP_PNL, BRD_TRP_PNL_N, BRD_TRP_PNL_R, BRD_TRP_PNL_G, BRD_TRP_PNL_DP, SP_FR_W, BRD_WCUT, BRD_BAND_ON, BRD_WSINK, SPD_LIP, SPD_Y0, BRD_SFT_TOPSINK,
   UPF_ON, SPD_ON, BRD_COL_ON, BRD_COL_W, BRD_COL_CLR, BRD_COL_CURVE, BRD_COL_SECT, BRD_COL_R, BRD_COL_TH0,
   BRD_END_ON, BRD_END_X1, BRD_END_Y1, BRD_END_K, brdEndX, brdSlantX, brdProwX, brdCrossZ,
   BRD_CAP_CUT_ON, BRD_CAP_LAP, BRD_CAP_WALL, BRD_CAP_NOTCH_OUT, BRD_CAP_SEAL, BRD_CAP_SEAL_Y,
@@ -766,11 +767,15 @@ if (BRD_ON && BRD_SFT_ON) {
       ok(near(D.y0, S2.y0, GEO), `문턱 = 월대 상면 ${S2.y0} — 무단차`)
     }
     //  ★해석 부피 — 벽 넷에서 개구를 뺀 값. 문 폭·높이 어느 쪽을 틀어도 갈린다(falsify 가능)
-    const H2 = S2.y1 - S2.y0, tW = S2.t
+    //  ★212-f 벽 상단 침강(BRD_SFT_TOPSINK) — 벽 높이 = (y1 − TOPSINK) − y0. 인방 위 높이도 같은 상단 기준.
+    const yT2 = S2.y1 - BRD_SFT_TOPSINK
+    const H2 = yT2 - S2.y0, tW = S2.t
     const vW = tW * H2 * 2 * S2.hw                                  // 서벽
-    const vE = D ? tW * H2 * 2 * (S2.hw - D.hz) + tW * (S2.y1 - D.y1) * 2 * D.hz
+    const vE = D ? tW * H2 * 2 * (S2.hw - D.hz) + tW * (yT2 - D.y1) * 2 * D.hz
                  : tW * H2 * 2 * S2.hw                              // 동벽(문설주 둘 + 인방)
     const vNS = 2 * (S2.inX1 - S2.inX0) * H2 * (S2.hw - S2.inZ)      // 남·북벽
+    ok(BRD_SFT_TOPSINK > 0 && yT2 < BRD_YW - 1e-6 && yT2 > BRD_DECK_BOT + 1e-6,
+      )
     ok(near(signedVolume(buildShaftFrame()), vW + vE + vNS, 1e-2),
       `틀 부피 ${signedVolume(buildShaftFrame()).toFixed(2)} = 해석 ${(vW + vE + vNS).toFixed(2)}`)
   }
@@ -1554,6 +1559,73 @@ if (BRD_TRP_ON) {
   //  ── E. 서단 접합 — ★151이면 면추종 절단, 아니면 대역 ⓚ′ ──
   if (BRD_WCUT) {
     const SP = spireSpec()
+    //  ★212 E-0. **실기하** 컷면 침강 — E-1은 spireCutX 함수만 재서 컷면이 공면이든 살 속이든 무반응(공허 사촌).
+    //   현도 2026.09.04 "접합부 틈·지글지글" = 실측 컷면 완전 공면(z-파이팅). 서단 조각 실정점 중 컷면 정점이
+    //   ⓐ파생대로 spireCutX − BRD_WSINK에 있고 ⓑ첨탑 메시에 레이를 쏘아 **살 속**(앞에 외벽·뒤에 내벽)임을 문는다.
+    {
+      const spireMesh = new THREE.Mesh(buildSpire(), new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }))
+      spireMesh.updateMatrixWorld()
+      const rc = new THREE.Raycaster(); rc.far = 8
+      let nCut = 0, badDerive = 0, inWall = 0, coplanar = 0, through = 0, minFront = 9, minBack = 9
+      for (const p of buildBridgeTrapParts().solid.filter((q2) => q2.id.startsWith('서단'))) {
+        const P = p.geo.attributes.position
+        for (let i = 0; i < P.count; i++) {
+          const x = P.getX(i), y = P.getY(i), z = P.getZ(i)
+          const xc = spireCutX(y, z, SP) - BRD_WSINK
+          if (!isFinite(xc) || Math.abs(x - xc) > 2e-3) continue      // 컷면 정점만(Float32 허용)
+          nCut++
+          rc.set(new THREE.Vector3(x, y, z), new THREE.Vector3(1, 0, 0)); const hf = rc.intersectObject(spireMesh, false)
+          rc.set(new THREE.Vector3(x, y, z), new THREE.Vector3(-1, 0, 0)); const hb = rc.intersectObject(spireMesh, false)
+          const f = hf.length ? hf[0].distance : null, b = hb.length ? hb[0].distance : null
+          if (f !== null && f < 1e-3) coplanar++
+          else if (f !== null && f < 1.5 && b !== null && b > 0.05) { inWall++; minFront = Math.min(minFront, f); minBack = Math.min(minBack, b) }
+          else through++
+        }
+      }
+      ok(BRD_WSINK > 0 && BRD_WSINK < SP.T, `★212 BRD_WSINK(${BRD_WSINK}) ∈ (0, 첨탑 벽 두께 ${SP.T})`)
+      ok(nCut > 1000, `★212 컷면 정점이 실기하에 있다(${nCut}개 = spireCutX − WSINK 위)`)
+      ok(coplanar === 0 && through === 0 && inWall === nCut,
+        `★212 ★상주 컷면 정점 전부 첨탑 **살 속** — 공면 ${coplanar} · 관통/틈 ${through} · 살 속 ${inWall}/${nCut} (외벽까지 ≥${minFront.toFixed(3)} · 내벽까지 ≥${minBack.toFixed(3)})`)
+    }
+    //  ★212-b E-0′ ★상주 — 서단 연장체 삼각형 배향(현도 2026.09.04 '외부에서 틈' = 뒤집힌 법선이 어둡게 렌더된 것).
+    //   sec 자체의 안변(0→1)·바깥변(3→2)으로 분류해 법선 부호를 문는다(innerWallZ 기준 분류는 스커트 대역에서
+    //   빗면 하단 안면을 바깥면으로 오분류 — 실증). 캡은 x 부호.
+    {
+      let bad = 0, cnt = 0
+      const lineZ = (p0, p1, y) => p0[0] + (p1[0] - p0[0]) * (y - p0[1]) / ((p1[1] - p0[1]) || 1)
+      for (const s of trapSpec().secs) {
+        const Q = s.quad, part = buildBridgeTrapParts().solid.find((w) => w.id === '서단' + s.id); if (!part) continue
+        const g = part.geo.toNonIndexed(); const P = g.attributes.position, N = g.attributes.normal
+        for (let t = 0; t < P.count; t += 3) {
+          const c = [0, 0, 0], n = [0, 0, 0]
+          for (let k = 0; k < 3; k++) { c[0] += P.getX(t + k) / 3; c[1] += P.getY(t + k) / 3; c[2] += P.getZ(t + k) / 3; n[0] += N.getX(t + k); n[1] += N.getY(t + k); n[2] += N.getZ(t + k) }
+          if (Math.abs(n[0]) > 0.8 * 3) { cnt++; if ((c[0] > BRD_X0 - 0.1) ? n[0] < 0 : n[0] > 0) bad++; continue }   // ★212-h 동캡 = BRD_X0
+          const az = Math.abs(c[2]), sg = Math.sign(c[2] || 1), nz = n[2] * sg; if (Math.abs(n[2]) < 0.3 * 3) continue
+          const zi = Math.abs(lineZ(Q[0], Q[1], c[1])), zo = Math.abs(lineZ(Q[3], Q[2], c[1]))
+          if (Math.abs(az - zi) < 0.06) { cnt++; if (nz > 0) bad++ } else if (Math.abs(az - zo) < 0.06) { cnt++; if (nz < 0) bad++ }
+        }
+      }
+      ok(cnt > 3000 && bad === 0, `★212-b ★상주 서단 연장체 배향 — 안면·바깥면·캡 삼각형 ${cnt} 중 뒤집힘 ${bad}`)
+    }
+    //  ★212-d ★상주 문틀 립 — 문설주·인방 안쪽면이 첨탑 문 컷면과 공면이면 z-파이팅(현도 사진). 안쪽면 정점에서
+    //   개구 중심 쪽으로 레이를 쏘아 첨탑 컷면이 1e-3 안에 있으면 공면.
+    {
+      const spireMesh2 = new THREE.Mesh(buildSpire(), new THREE.MeshBasicMaterial({ side: THREE.DoubleSide })); spireMesh2.updateMatrixWorld()
+      const fr = buildSpireDoorFrame(); const Pf = fr.attributes.position, Nf = fr.attributes.normal
+      const rc2 = new THREE.Raycaster(); rc2.far = 1; let nIn = 0, co = 0
+      for (let i = 0; i < Pf.count; i++) {
+        const nz = Nf.getZ(i), ny = Nf.getY(i), z = Pf.getZ(i), y = Pf.getY(i), x = Pf.getX(i)
+        if (Math.abs(nz) > 0.9 && Math.abs(z) < SPD_HW - 1e-6 && Math.abs(z) > SPD_HW - 0.1) { nIn++; rc2.set(new THREE.Vector3(x, y, z), new THREE.Vector3(0, 0, Math.sign(z))); const h = rc2.intersectObject(spireMesh2, false); if (h.length && h[0].distance < 1e-3) co++ }
+        if (ny < -0.9 && y < SPD_Y0 + SPD_H - 1e-6 && y > SPD_Y0 + SPD_H - 0.1) { nIn++; rc2.set(new THREE.Vector3(x, y, z), new THREE.Vector3(0, 1, 0)); const h = rc2.intersectObject(spireMesh2, false); if (h.length && h[0].distance < 1e-3) co++ }
+      }
+      ok(SPD_LIP > 0 && SPD_LIP < 0.1 && nIn >= 16 && co === 0, `★212-d ★상주 문틀 립(${SPD_LIP}) — 안쪽면 정점 ${nIn} 중 컷면 공면 ${co}`)
+    }
+    //  ★212-h ★상주 — 서단 연장체 x최대 = BRD_X0(본체와 겹침 0 · 맞닿음). 겹침 구간 안면 공면 파이팅 봉인.
+    {
+      let mx = -1e9
+      for (const p of buildBridgeTrapParts().solid.filter((q2) => q2.id.startsWith('서단'))) { const P = p.geo.attributes.position; for (let i = 0; i < P.count; i++) mx = Math.max(mx, P.getX(i)) }
+      ok(Math.abs(mx - BRD_X0) < 1e-6, `★212-h ★상주 서단 연장체 동캡 = BRD_X0(겹침 ${(mx - BRD_X0).toFixed(3)} — 본체 안면과 공면 파이팅 금지)`)
+    }
     //  E-1. 격자점이 **첨탑 다각형 위에 정확히** 있나 — 방위로 역산한 독립 재계산(사본 아님)
     let worst = 0
     for (const { q: Q, n: nH } of trapWestPieces()) {
@@ -1737,7 +1809,8 @@ if (BRD_TRP_ON) {
       }
       return v
     })()
-    const exact = D.bands.reduce((acc, b) => acc + (b.r1 - b.r0) * (2 * D.fw * D.h + (2 * (D.hw + D.fw)) * D.fw), 0)
+    //  ★212-d 립 반영: 문설주 폭 fw+LIP · 높이 h−LIP(y0~y1−LIP) · 인방 높이 fw+LIP(y1−LIP~y1+fw) · 폭 2(hw+fw)
+    const exact = D.bands.reduce((acc, b) => acc + (b.r1 - b.r0) * (2 * (D.fw + SPD_LIP) * (D.h - SPD_LIP) + (2 * (D.hw + D.fw)) * (D.fw + SPD_LIP)), 0)
     //  ⚠Float32 위치 정밀도 — 1e-6은 못 잰다(프로젝트 규율: 1e-3 톨러런스)
     ok(Math.abs(vol - exact) < 1e-3, `문틀 부피 ${vol.toFixed(4)} = 문설주2+인방 해석 ${exact.toFixed(4)}(정확식)`)
   } else ok(buildSpireDoorFrame() === null, `문 소등 — SPD_ON=false`)

@@ -6,8 +6,12 @@ import * as THREE from 'three'
 import { Brush, Evaluator, HOLLOW_SUBTRACTION } from 'three-bvh-csg'
 import { GivenMonolith } from './Steles'
 import { buildDisc } from './discGeometry.js'
-import { shaftNodes, zoneABakeSpec, zoneAShadeAt, zoneAInterior, splitSoupAtBoundary, splitSoupByGradient } from './lightingModel.js'   // ★175-e 빛기둥 마디 정본 + ★176 베이크 + ★178 경계 분할(사본 금지)
-import { BAKE_A_ON, BAKE_N, BAKE_FLOOR, BAKE_SPLIT_ON, BAKE_SPLIT_EPS, BAKE_STAIR_MIN, BAKE_INST_ON, BAKE_GRAD_ON, BAKE_GRAD_TOL, BAKE_GRAD_MIN } from './constants.js'   // ★176 베이크 + ★178 분할 + ★184 부재 하한 + ★185 인스턴스
+import { shaftNodes, zoneABakeSpec, zoneAShadeAt, zoneAInterior, splitSoupAtBoundary, splitSoupByGradient,
+  zoneCBakeSpec, zoneCInterior, zoneCShadeAt, drumHallCarry, zoneDBakeSpec, zoneDShadeAt, brdLightSpec, brdDimAt, brdDimP, brdWestStations, brdWestSkinTris, brdDoorLightTris } from './lightingModel.js'   // ★175-e 빛기둥 마디 정본 + ★176 베이크 + ★178 경계 분할 + ★210 C구획(관) — 사본 금지
+import { BAKE_A_ON, BAKE_N, BAKE_FLOOR, BAKE_SPLIT_ON, BAKE_SPLIT_EPS, BAKE_STAIR_MIN, BAKE_INST_ON, BAKE_GRAD_ON, BAKE_GRAD_TOL, BAKE_GRAD_MIN,
+  BAKE_C_ON, BAKE_C_GAMMA, BAKE_C_DHALL,
+  BRD_LIGHT_ON, BRD_LIGHT_EAST_ON, BRD_LIGHT_OP, BRD_LIGHT_XF, BRD_DIM_ON, BRD_DIM_LO, BRD_DIM_HI,
+  BRD_LIGHT_SL_ON, BRD_LIGHT_SL_DX, BRD_LIGHT_SL_OP, BRD_LIGHT_SL_XF, BRD_LIGHT_BF, BRD_LIGHT_BG, BRD_X0, BRD_SKIN_DIM, BRD_DOOR_OP } from './constants.js'   // ★211-i 슬라이스 + ★211-j + ★211-l   // ★211 관 빛 커튼 + ★211-d 감광   // ★176 베이크 + ★178 분할 + ★184 부재 하한 + ★185 인스턴스 + ★210 C구획
 import {
   ROOM_CX, ROOM_FLOOR_Y, ROOM_R, ROOM_CEIL_Y, ROOM_HEIGHT, ROOM_OCULUS,
   ACH_INT_ON, ACH_INT_MUL, ACH_INT_R, ACH_INT_Y0, ACH_INT_Y1, ACH_INT_FEATHER, ACH_INT_SHELL_Q0, ACH_INT_FACE_W,   // ★174 방 암실
@@ -196,9 +200,11 @@ export function DefAxiomRoom({ stairKind }) {
   //   ⑴걸침 선판정(무접촉이면 기하 원형 보존 — index·groups 그대로) ⑵toNonIndexed ⑶속성 수프 → 분할 → 재장착.
   //   새 정점 = 부모 변 중점뿐(위치 이동 0) → 보행 레이캐스트 무해(표면 동일 · boundingSphere 재계산).
   //   ⚠interleaved 속성은 건너뛴다(수프 마샬링 불가 — 스미어 존치가 크래시보다 낫다).
-  const splitGeoAtZone = (g, matrixWorld, Z) => {
+  //  ★210 일반화: 구획 분류를 콜백(zoneOf — 방 로컬 p → bool)으로 받는다. A 호출부는 같은 함수·같은 식을
+  //   넘기므로 수학·결과 비트 동일(사본 0 — [340] 동결 지문이 그 불변을 문다). C 패스가 같은 기계를 쓴다.
+  const splitGeoAtZone = (g, matrixWorld, zoneOf) => {
     const w = new THREE.Vector3()
-    const inside = (x, y, z) => { w.set(x, y, z).applyMatrix4(matrixWorld); return zoneAInterior([w.x - ROOM_CX, w.y, w.z], Z.spire) }
+    const inside = (x, y, z) => { w.set(x, y, z).applyMatrix4(matrixWorld); return zoneOf([w.x - ROOM_CX, w.y, w.z]) }
     const posA = g.attributes.position, idx = g.index
     const flagAt = (i) => inside(posA.getX(i), posA.getY(i), posA.getZ(i))
     const nCorner = idx ? idx.count : posA.count
@@ -222,7 +228,8 @@ export function DefAxiomRoom({ stairKind }) {
 
   //  ★198 조도 구배 분할 — 급변 구간에 정점을 넣는다(★178과 같은 4분할 · 위치 이동 0).
   //   ⚠판정은 굽기와 **같은 식**이어야 한다: 월드 변환 + 법선 + zoneAInterior/zoneAShadeAt(사본 금지).
-  const splitGeoByGradient = (g, matrixWorld, Z) => {
+  //  ★210 일반화: 셰이드를 콜백(shadeAt — 방 로컬 p·법선 n → shade)으로 받는다(★178 래퍼와 같은 사유).
+  const splitGeoByGradient = (g, matrixWorld, shadeAt) => {
     if (Object.values(g.attributes).some((a) => a.isInterleavedBufferAttribute)) return 0
     if (!g.attributes.normal) return 0
     const w = new THREE.Vector3(), nw = new THREE.Vector3()
@@ -230,8 +237,7 @@ export function DefAxiomRoom({ stairKind }) {
     const shadeOf = (c) => {
       w.set(c.position[0], c.position[1], c.position[2]).applyMatrix4(matrixWorld)
       nw.set(c.normal[0], c.normal[1], c.normal[2]).applyMatrix3(nMat2).normalize()
-      const p = [w.x - ROOM_CX, w.y, w.z], n = [nw.x, nw.y, nw.z]
-      return zoneAInterior(p, Z.spire, n) ? zoneAShadeAt(p, n, Z) : 1
+      return shadeAt([w.x - ROOM_CX, w.y, w.z], [nw.x, nw.y, nw.z])
     }
     const src = g.index ? g.toNonIndexed() : g
     const attrs = {}
@@ -259,7 +265,11 @@ export function DefAxiomRoom({ stairKind }) {
     const v = new THREE.Vector3(), nm = new THREE.Vector3(), nMat = new THREE.Matrix3()
     darkRef.current.traverse((o) => {
       if (!o.isMesh || !o.geometry || o.userData.bakeSeen) return
-      o.userData.bakeSeen = true                                // 판정 결과와 무관하게 재방문 안 함
+      o.userData.bakeSeen = true
+      //  ★211-k 관 부재(brd 태그)는 A 패스 밖 — 서단 조각(x11.9~22.7)이 첨탑 반경 안이라 A가 먼저 구워
+      //   bakedA로 C를 막았다(실측: 서단빗면 정점 9792 중 1578 A내부). 관 부재의 정본 = C 패스.
+      //   ⚠A 결과(방·첨탑 메시)는 무변 — [340] 지문이 문는 것은 A 조도 함수이고, 여기서는 순회 대상만 뺀다.
+      if (o.userData.brd) return                                // 판정 결과와 무관하게 재방문 안 함
       //  ★185 인스턴스 부재(낱장 디딤판 등)는 정점색을 쓸 수 없다 — 기하가 모든 인스턴스에 공유되기 때문.
       //   → **인스턴스 단위 색**(setColorAt)으로 굽는다. 표본점 = 그 인스턴스의 밟는 면 중심(윗면 법선).
       //   ⚠구 순회는 isInstancedMesh를 통째로 건너뛰었다 — 방 8각 나선(현도가 디스크 틈으로 올라오는 계단)이
@@ -294,9 +304,9 @@ export function DefAxiomRoom({ stairKind }) {
       if (g.userData.bakedA || !g.attributes.position || !g.attributes.normal) return
       o.updateWorldMatrix(true, false)
       //  ★178: 굽기 전에 경계를 걸친 삼각형을 이분(스미어 소거). 재방문은 표식으로 0. 공유 기하는 첫 메시가 처리.
-      if (BAKE_SPLIT_ON && !g.userData.bakeSplit) { g.userData.bakeSplit = true; const t0 = performance.now(); nSplitTri += splitGeoAtZone(g, o.matrixWorld, bakeZ); msSplit += performance.now() - t0 }
+      if (BAKE_SPLIT_ON && !g.userData.bakeSplit) { g.userData.bakeSplit = true; const t0 = performance.now(); nSplitTri += splitGeoAtZone(g, o.matrixWorld, (p) => zoneAInterior(p, bakeZ.spire)); msSplit += performance.now() - t0 }
       //  ★198 조도 구배 분할(경계 분할 뒤에 — 경계는 이미 정점 해상도로 근사됐다)
-      if (BAKE_GRAD_ON && !g.userData.bakeGrad) { g.userData.bakeGrad = true; const t1 = performance.now(); nGradTri += splitGeoByGradient(g, o.matrixWorld, bakeZ); msGrad += performance.now() - t1 }
+      if (BAKE_GRAD_ON && !g.userData.bakeGrad) { g.userData.bakeGrad = true; const t1 = performance.now(); nGradTri += splitGeoByGradient(g, o.matrixWorld, (p, n) => (zoneAInterior(p, bakeZ.spire, n) ? zoneAShadeAt(p, n, bakeZ) : 1)); msGrad += performance.now() - t1 }
       nMat.getNormalMatrix(o.matrixWorld)
       const P = g.attributes.position, N = g.attributes.normal
       const col = new Float32Array(P.count * 3)
@@ -322,6 +332,130 @@ export function DefAxiomRoom({ stairKind }) {
       n++
     })
     if (n) { console.info(`[BAKE_A] 정점색 베이크 메시 ${n}개 (N=${BAKE_N} · floor=${BAKE_FLOOR} · 경계분할 +${nSplitTri}tri ${msSplit.toFixed(0)}ms · 구배분할 +${nGradTri}tri ${msGrad.toFixed(0)}ms)`); invalidate() }
+  })
+
+  // ── ★210 C구획(관 = 테라스→드럼) 베이크 — A 패스와 같은 순회, 자체 표식(bakeSeenC·bakedC) ──
+  //  ⚠수학 정본 = lightingModel(zoneCBakeSpec·zoneCInterior·zoneCShadeAt·drumHallCarry — 사본 금지).
+  //  ⚠A 무접촉: A가 만진 기하(bakedA)는 건너뛴다. useFrame 등록순으로 A 패스가 먼저 돌므로
+  //   같은 프레임에 이미 표식돼 있다. 관 부재는 A 판정에서 전 정점 밖이라 A가 색을 안 만졌다(실측).
+  //  ⚠분류 순서: C 내부 → (BAKE_C_DHALL) 드럼 홀 승계(월대샤프트·나선·관의 드럼 안 밑면 = D 셰이드) → 1.
+  //  ⚠경계·구배 분할(★178·★198)을 **C에도 건다** — '면 단위로 떨어져 불요'라던 초판 선언은 실측이 뒤집었다:
+  //   데크 상면은 사각형 몇 장(모서리 정점뿐)이고 침강 규율로 모서리(|z|=5.15)가 스커트 살 속
+  //   (innerWallZ(127)=4.443)이라, 분할 없이는 **모든 실정점이 '밖'이 되어 데크가 통째로 안 구워진다**.
+  //   분할이 경계(|z|=innerZ)에 정점을 세우고 구배 분할이 x방향 조도 변화(동단 어두움·마개 리듬)를 새긴다.
+  //  ★211-d 감광 겸용: 이 패스는 이제 두 체제를 섬긴다 — ⓐBAKE_C_ON(베이크 — ★210-r로 소등 중)
+  //  ⓑBRD_DIM_ON(**상수** 감광 — 구배가 없어 ★210-r의 얼룩 병이 없다). 내부 판정은 같은 zoneCInterior
+  //  (밖에서 본 외피 불변 — 안팎 원칙). 구배 분할은 베이크 체제에서만 건다(상수엔 구배가 없다).
+  const bakeC = useMemo(() => (BAKE_C_ON || BRD_DIM_ON ? zoneCBakeSpec() : null), [])
+  const bakeCD = useMemo(() => ((BAKE_C_ON || BRD_DIM_ON) && BAKE_C_DHALL ? zoneDBakeSpec() : null), [])
+  useFrame(() => {
+    if ((!BAKE_C_ON && !BRD_DIM_ON) || !bakeC || !darkRef.current) return
+    let n = 0
+    const tmpCol = new THREE.Color()
+    const v = new THREE.Vector3(), nm = new THREE.Vector3(), nMat = new THREE.Matrix3()
+    //  ★211-f: 감광 체제의 값은 정점 y의 **선형 램프**(brdDimAt) — classify는 '어느 체제인가'만 돌려주고
+    //   (0=C내부 · 1=D승계 · 2=밖), 값은 호출부가 정점별로 매긴다(선형 → 삼각분할 무관하게 보간 일치).
+    const classify = (p, nn) => {
+      if (zoneCInterior(p, bakeC, nn)) return BAKE_C_ON ? zoneCShadeAt(p, nn, bakeC) : brdDimP(p, nn)
+      if (bakeCD && drumHallCarry(p)) return zoneDShadeAt(p, nn, bakeCD)
+      return 1
+    }
+    const regionOf = (p, nn) => (zoneCInterior(p, bakeC, nn) ? 0 : (bakeCD && drumHallCarry(p) ? 1 : 2))
+    darkRef.current.traverse((o) => {
+      if (!o.isMesh || !o.geometry || o.userData.bakeSeenC) return
+      o.userData.bakeSeenC = true
+      //  ★185 계승: 인스턴스 부재는 인스턴스 단위 색(표본 = 밟는 면 중심). 현행 관 구간에 인스턴스 부재는
+      //   없다(실측 — 전부 낱개 로프트)이나, ★185의 '통째 건너뜀' 사고를 반복하지 않기 위해 경로를 둔다.
+      if (o.isInstancedMesh) {
+        if (!BAKE_INST_ON || !o.instanceMatrix) return
+        const mats0 = [].concat(o.material)
+        if (!mats0.every((m) => m && m.isMeshStandardMaterial)) return
+        o.geometry.computeBoundingBox()
+        const bb = o.geometry.boundingBox
+        const top = new THREE.Vector3((bb.min.x + bb.max.x) / 2, bb.max.y, (bb.min.z + bb.max.z) / 2)
+        const im = new THREE.Matrix4(), wp = new THREE.Vector3()
+        let nInst = 0
+        o.updateWorldMatrix(true, false)
+        for (let i = 0; i < o.count; i++) {
+          o.getMatrixAt(i, im)
+          wp.copy(top).applyMatrix4(im).applyMatrix4(o.matrixWorld)
+          const s = classify([wp.x - ROOM_CX, wp.y, wp.z], [0, 1, 0])
+          if (s < 1) { nInst++; o.setColorAt(i, tmpCol.setScalar(s)) }
+        }
+        if (!nInst) return
+        if (o.instanceColor) o.instanceColor.needsUpdate = true
+        n++
+        return
+      }
+      const mats = [].concat(o.material)
+      if (!mats.length || !mats.every((m) => m && m.isMeshStandardMaterial)) return
+      const g = o.geometry
+      if (g.userData.bakedC || !g.attributes.position || !g.attributes.normal) return
+      o.updateWorldMatrix(true, false)
+      //  ⛔★211-m: ★211-l의 '첨탑 외벽 A-밖 정점 덧칠'은 **실패**(현도 사진) — 첨탑 외벽 삼각형이 관 단면보다 커서
+      //   단면 안에 정점이 거의 없고(큰 면 흰색 유지) 경계 정점 몇 개만 어두워져 보간 얼룩. 정점색으로는 불가.
+      //   ⇒ 회귀. 대체 = 관 서단 스킨(brdWestSkin — 첨탑 곡면을 spireCutX로 따르는 관 톤 판, 문 개구 제외).
+      if (g.userData.bakedA) return
+      //  ★178·★198 — C 분류로 분할은 **베이크 체제 전용**(★211-e): 감광(상수)에서는 분할이 만드는
+      //   T-정션 보간 불연속만 남고 얻는 게 없다. 감광은 아래에서 **삼각형 단위 균일색**으로 칠한다.
+      const zoneOfC = (p) => zoneCInterior(p, bakeC) || (!!bakeCD && drumHallCarry(p))
+      if (BAKE_C_ON && BAKE_SPLIT_ON && !g.userData.bakeSplitC) { g.userData.bakeSplitC = true; splitGeoAtZone(g, o.matrixWorld, zoneOfC) }
+      if (BAKE_C_ON && BAKE_GRAD_ON && !g.userData.bakeGradC) { g.userData.bakeGradC = true; splitGeoByGradient(g, o.matrixWorld, classify) }
+      nMat.getNormalMatrix(o.matrixWorld)
+      let P = g.attributes.position, N = g.attributes.normal
+      let col = new Float32Array(P.count * 3)
+      let touched = false
+      let gT = g
+      if (!BAKE_C_ON && BRD_DIM_ON) {
+        //  ★211-h(현도 사진 실증 — 데크만 흰색): 관 부품은 **전부 인덱스 지오메트리**라 구판의 `!g.index` 전제가
+        //   거짓이었고 삼각형 단위 경로가 한 번도 안 돌았다(정점 단위 폴백 → 데크 상면 침강 모서리 12/16이 '밖').
+        //   ⇒ 인덱스를 **풀어**(toNonIndexed — 면마다 정점 독립) 삼각형 단위 균일색을 실제로 건다.
+        if (g.index) { gT = g.toNonIndexed(); gT.userData = { ...g.userData }; o.geometry = gT }
+        //  ★212-d 서단 전이 분할 — 전이 구간 x 스테이션마다 같은 평면으로 자른다(T-정션 없음). 스킨(x ≤ X0)은 제외.
+        if (o.userData.brd && !o.userData.brdSkin && !gT.userData.westSplit) {
+          gT.userData.westSplit = true
+          for (const xk of brdWestStations()) splitGeoAtZone(gT, o.matrixWorld, (p) => p[0] < xk)
+        }
+        P = gT.attributes.position; N = gT.attributes.normal; col = new Float32Array(P.count * 3)
+        if (!N) return
+        const c3 = new THREE.Vector3()
+        for (let t = 0; t < P.count; t += 3) {
+          c3.set(0, 0, 0); nm.set(0, 0, 0)
+          for (let k = 0; k < 3; k++) {
+            v.fromBufferAttribute(P, t + k); c3.add(v)
+            nm.add(v.fromBufferAttribute(N, t + k))
+          }
+          c3.multiplyScalar(1 / 3).applyMatrix4(o.matrixWorld)
+          nm.applyMatrix3(nMat).normalize()
+          //  ★211-n 서단 스킨은 **정의상 전부 관 내부**(법선 비의존) — 로컬 실측에서 가장자리 111 삼각형의 법선이
+          //   −x로 나와 x면 구제에서 탈락(흰 톱니). 재현(+x)과의 어긋남은 미규명 — 판정 우회로 무효화. 값 = 상수.
+          //  ★212-e 데크판 상면(법선 위)은 **정의상 관 내부 바닥** — 삼각형 중심 판정에 맡기면 전이 분할이 만든
+          //   쐐기 조각·구멍 둘레 띠(z3.9~5.15, 노출부 있음)가 '밖'=흰으로 튄다(현도 사진). 밑면·구멍 벽은 기존 판정.
+          const region = o.userData.brdSkin ? 3 : (o.userData.brdFloor && nm.y > 0.5) ? 0 : regionOf([c3.x - ROOM_CX, c3.y, c3.z], [nm.x, nm.y, nm.z])
+          for (let k = 0; k < 3; k++) {
+            v.fromBufferAttribute(P, t + k).applyMatrix4(o.matrixWorld)
+            //  삼각형 단위로 정한 체제 안에서 정점별 값: C내부 = y 램프 · D승계 = D 셰이드 · 스킨 = 상수 · 밖 = 1
+            const s = region === 3 ? brdDimP([v.x - ROOM_CX, v.y, v.z], [nm.x, nm.y, nm.z], BRD_SKIN_DIM) : region === 0 ? brdDimP([v.x - ROOM_CX, v.y, v.z], [nm.x, nm.y, nm.z])
+              : region === 1 ? zoneDShadeAt([v.x - ROOM_CX, v.y, v.z], [nm.x, nm.y, nm.z], bakeCD) : 1
+            if (s < 1) touched = true
+            col[(t + k) * 3] = col[(t + k) * 3 + 1] = col[(t + k) * 3 + 2] = s
+          }
+        }
+      } else
+      for (let i = 0; i < P.count; i++) {
+        v.fromBufferAttribute(P, i).applyMatrix4(o.matrixWorld)
+        nm.fromBufferAttribute(N, i).applyMatrix3(nMat).normalize()
+        const s = classify([v.x - ROOM_CX, v.y, v.z], [nm.x, nm.y, nm.z])
+        if (s < 1) touched = true
+        col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = s
+      }
+      if (!touched) return
+      gT.setAttribute('color', new THREE.BufferAttribute(col, 3))
+      gT.userData.bakedC = true; g.userData.bakedC = true
+      mats.forEach((m) => { m.vertexColors = true; m.needsUpdate = true })
+      n++
+    })
+    if (n) { console.info(`[BAKE_C] 관 구간 ${BAKE_C_ON ? '베이크 γ=' + BAKE_C_GAMMA : '감광 램프 ' + BRD_DIM_LO + '→' + BRD_DIM_HI} — 메시 ${n}개 (드럼승계=${!!bakeCD})`); invalidate() }
   })
 
   // 나선 치수 — 꼭대기 칸 윗면 = 디스크 고리 윗면(49.3). 낱장 디딤판이 중심 반지름 RIN(=14, 고리 6~18 위)에 내려서고, 거기서 고리를 밟아 슬롯으로 나감.
@@ -557,6 +691,158 @@ export function DefAxiomRoom({ stairKind }) {
     ].filter(Boolean)
   }, [SHAFT, shaftMat, haloMat])
 
+  // ── ★211 관 빛 커튼 — 현도 단면 스케치 정식화. 기하 정본 = brdLightSpec(사본 0) ──
+  //  각 커튼 = 프로파일 z(y)의 프리즘(x구간 압출) 옆면(±z 두 장 × 절점 구간) — A 어법대로 캡 없음.
+  //  동단판 = 같은 프로파일을 x 스테이션별로 yCap(x)까지 잘라 로프트. uv.y = (y−데크)/(top−데크) 전역
+  //  비율(첨탑 사슬의 uv 리맵과 같은 사유 — 페이드가 조각 경계에서 점프하지 않게).
+  //  재질 = shaftMat 사본 · uAxial=0(프리즘 — 축 기준 반경방향이 성립하지 않는다) · uOpacity=BRD_LIGHT_OP.
+  //  ★211-e 끝단 깃털: 커튼 x끝(마개 경계)이 칼경계로 선다(현도 사진 — 프리즘 평면은 곡면과 달리 실루엣이
+  //   저절로 안 꺼진다). clone 뒤 셰이더 **문자열 치환**으로 vX(=uv.x, 양끝 최소거리 m)와 깃털 항을 주입한다 —
+  //   원본 shaftMat 텍스트는 무변(첨탑 무접촉 · Dome eth 틴트의 주입 어법과 같은 계열).
+  const slitTopY = (L) => L.slitBand[1]                      //  ★211-j 커튼 상단 페이드 시작 = 슬릿 상단(파생)
+  const brdLightMat = useMemo(() => {
+    const m = shaftMat.clone(); m.uniforms = THREE.UniformsUtils.clone(shaftMat.uniforms)
+    m.uniforms.uOpacity.value = BRD_LIGHT_OP; m.uniforms.uAxial.value = 0.0
+    m.uniforms.uXFeather = { value: BRD_LIGHT_XF }
+    //  ★211-j 하단 깃털·세기·상단 페이드를 관 전용 uniform으로(원문 상수 0.18 / 0.30+0.70 치환).
+    m.uniforms.uBotFeather = { value: BRD_LIGHT_BF }
+    m.uniforms.uBotGain = { value: BRD_LIGHT_BG }
+    { const L = brdLightSpec(); m.uniforms.uTopFade.value = (L.top - slitTopY(L)) / (L.top - L.yBase) }   //  ≈0.155(파생)
+    m.vertexShader = m.vertexShader
+      .replace('varying float vY;', 'varying float vY; varying float vX;')
+      .replace('vV = -mv.xyz; vY = uv.y;', 'vV = -mv.xyz; vY = uv.y; vX = uv.x;')
+    m.fragmentShader = m.fragmentShader
+      .replace('varying float vY;', 'varying float vY; varying float vX;')
+      .replace('uniform float uTopFade;', 'uniform float uTopFade; uniform float uXFeather; uniform float uBotFeather; uniform float uBotGain;')
+      .replace('float len = smoothstep(0.0, 0.18, vY) * (0.30 + 0.70 * vY) * top;',
+               'float xf = uXFeather > 0.0 ? smoothstep(0.0, uXFeather, vX) : 1.0;\n        float len = xf * smoothstep(0.0, uBotFeather, vY) * (uBotGain + (1.0 - uBotGain) * vY) * top;')
+    return m
+  }, [shaftMat])
+  //  ★211-i 슬라이스 재질 = 커튼 재질 사본(같은 셰이더) — uXFeather를 **비율**(둘레 페이드)로, 세기 SL_OP.
+  const brdSliceMat = useMemo(() => {
+    const m = brdLightMat.clone(); m.uniforms = THREE.UniformsUtils.clone(brdLightMat.uniforms)
+    m.uniforms.uOpacity.value = BRD_LIGHT_SL_OP; m.uniforms.uXFeather.value = BRD_LIGHT_SL_XF
+    //  ★211-l: 판 꼭대기(갓 공동 부분)가 관 축+위 시선에서 정면 성분을 얻어 2m 간격 흰 삼각형 열(동단 톱니)로
+    //   보였다(실증 — 근거리 넓고 원거리 촘촘한 사진 패턴). 판도 커튼과 같이 슬릿 상단부터 녹인다(파생값 상속).
+    return m
+  }, [brdLightMat])
+  //  ★211-i 횡단면 슬라이스 — 커튼 실루엣(prof)을 x=const 평면에 팬으로 채운 판. uv.x = 1−|z|/zAt(y)(중심 1·둘레 0).
+  const BRD_SLICES = useMemo(() => {
+    if (!BRD_LIGHT_ON || !BRD_LIGHT_SL_ON) return null
+    const L = brdLightSpec()
+    const uvY = (y) => (y - L.yBase) / (L.top - L.yBase)
+    //  둘레(한쪽): prof 절점 아래→위, 반대쪽은 위→아래 — 닫힌 폴리곤. 팬 중심 = (x, 중간 높이, 0).
+    const ring = [...L.prof.map(([y, z]) => [y, z]), ...[...L.prof].reverse().map(([y, z]) => [y, -z])]
+    const yc = (L.yBase + L.top) / 2
+    const pos = [], uv = []
+    const pushV = (x, y, z) => { pos.push(x, y, z); uv.push(z === 0 && Math.abs(y - yc) < 1e-9 ? 1 : 0, uvY(y)) }
+    for (const [a, b] of L.curtains) {
+      const n = Math.max(1, Math.round((b - a) / BRD_LIGHT_SL_DX))
+      for (let i = 0; i <= n; i++) {
+        const x = a + ((b - a) * i) / n
+        for (let k = 0; k < ring.length; k++) {
+          const [y0r, z0r] = ring[k], [y1r, z1r] = ring[(k + 1) % ring.length]
+          pushV(x, yc, 0); pushV(x, y0r, z0r); pushV(x, y1r, z1r)
+        }
+      }
+    }
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3))
+    g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uv), 2))
+    g.computeVertexNormals()
+    return g
+  }, [])
+  //  ★211-m 관 서단 스킨 — 관은 첨탑 벽에 박혀 있어 관 안에서 서쪽을 보면 **첨탑 외벽**이 관 단면 형상으로 관
+  //   끝을 막는다(문만 뚫림). 첨탑은 A 소유(밝은 외벽 재질·A 판정 밖)라 관 톤과 어긋났다. 그 노출 영역(관 내부
+  //   공기 단면 − 문 개구)에 첨탑 곡면을 **그대로 따르는**(spireCutX — ★151 면추종 컷의 정본 함수 · 사본 0)
+  //   관 재질 판을 0.03 앞에 붙인다. 형태 변화 0 · 재질·감광만 관 문법(brd 태그 → C 패스 삼각형 단위 램프).
+  const brdWestSkin = useMemo(() => {
+    const pos = brdWestSkinTris()
+    if (!pos) return null
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3))
+    g.computeVertexNormals()
+    return g
+  }, [])
+  //  ★212-h 문 빛 장치 — 재질 = 커튼 재질 사본(세기 DOOR_OP · 둘레 페이드 비율 SL_XF · 상단 페이드 = 끝단 녹임 큼).
+  //   셰이더의 vY(uv.y)는 여기서 '개구로부터의 거리 비율'(1 = 개구) — 하단 깃털(uBotFeather)이 끝단을 0으로 녹인다.
+  const brdDoorMat = useMemo(() => {
+    const m = brdLightMat.clone(); m.uniforms = THREE.UniformsUtils.clone(brdLightMat.uniforms)
+    m.uniforms.uOpacity.value = BRD_DOOR_OP; m.uniforms.uXFeather.value = BRD_LIGHT_SL_XF
+    m.uniforms.uBotFeather.value = 0.35; m.uniforms.uBotGain.value = 0.15; m.uniforms.uTopFade.value = 0.02
+    return m
+  }, [brdLightMat])
+  const brdDoorLight = useMemo(() => {
+    const d = brdDoorLightTris(); if (!d) return null
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(d.pos), 3))
+    g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(d.uv), 2))
+    g.computeVertexNormals(); return g
+  }, [])
+  const BRD_CURTAINS = useMemo(() => {
+    if (!BRD_LIGHT_ON) return []
+    const L = brdLightSpec()
+    const uvY = (y) => (y - L.yBase) / (L.top - L.yBase)
+    const geos = []
+    //  ⑴ 커튼 6장 — 옆면 스트립: y절점 4개 × ±z. x는 1세그(직선).
+    for (const [a, b] of L.curtains) {
+      const pos = [], uv = []
+      const dEnd = (x) => Math.min(x - a, b - x)               //  ★211-e 양끝 최소거리(m) — 깃털 파라미터
+      //  ⛔★211-l 숨은 버그: 옆면 quad의 정점이 x=a·x=b 두 끝뿐이면 uv.x가 양 끝 0 → 삼각형 내부 보간 전부 0
+      //   → xf=0 → **커튼 옆면이 통째로 투명**이었다(★211-e 이후 빛을 낸 건 슬라이스뿐 — 실증). 끝단 깃털 구간에
+      //   정점을 세워 [a, a+XF, b−XF, b] 4 스테이션으로 나눈다(중앙 구간 uv.x=XF → 포화 1 · 끝 구간 선형 페이드).
+      const xf = Math.min(BRD_LIGHT_XF, (b - a) / 2 - 1e-3)
+      const xs = xf > 0 ? [a, a + xf, b - xf, b] : [a, b]
+      for (const side of [1, -1]) for (let i = 0; i < L.prof.length - 1; i++) {
+        const [ya, za] = L.prof[i], [yb, zb] = L.prof[i + 1]
+        for (let s = 0; s < xs.length - 1; s++) {
+          const x0 = xs[s], x1 = xs[s + 1]
+          const q = [[x0, ya, side * za], [x1, ya, side * za], [x1, yb, side * zb], [x0, yb, side * zb]]
+          pos.push(...q[0], ...q[1], ...q[2], ...q[0], ...q[2], ...q[3])
+          const pick = [q[0], q[1], q[2], q[0], q[2], q[3]]
+          const u = [uvY(ya), uvY(ya), uvY(yb), uvY(ya), uvY(yb), uvY(yb)]
+          for (let k = 0; k < 6; k++) uv.push(dEnd(pick[k][0]), u[k])
+        }
+      }
+      geos.push({ pos, uv })
+    }
+    //  ⑵ 동단판(게이트) — x 스테이션 로프트: 상한 yCap(x)까지의 프로파일 링을 이웃끼리 잇는다.
+    if (BRD_LIGHT_EAST_ON) {
+      const NST = 12
+      const st = []
+      for (let i = 0; i <= NST; i++) {
+        const x = L.east.x0 + ((L.east.x1 - L.east.x0) * i) / NST
+        const yTop = Math.max(L.yBase, Math.min(L.east.yCap(x), L.top))
+        //  스테이션 단면(한쪽): y절점(데크→yTop) — 프로파일 절점 중 yTop 이하 + 상단 절단점
+        const ys = [L.yBase, ...L.prof.map(([y]) => y).filter((y) => y > L.yBase && y < yTop - 1e-9), yTop]
+        st.push({ x, ys })
+      }
+      const pos = [], uv = []
+      for (const side of [1, -1]) for (let i = 0; i < NST; i++) {
+        const A = st[i], B = st[i + 1]
+        const n = Math.max(A.ys.length, B.ys.length)
+        const yA = (k) => A.ys[Math.min(k, A.ys.length - 1)], yB = (k) => B.ys[Math.min(k, B.ys.length - 1)]
+        const dEndE = (x) => Math.min(x - L.east.x0, L.east.x1 - x)
+        for (let k = 0; k < n - 1; k++) {
+          const q = [[A.x, yA(k), side * L.zAt(yA(k))], [B.x, yB(k), side * L.zAt(yB(k))],
+                     [B.x, yB(k + 1), side * L.zAt(yB(k + 1))], [A.x, yA(k + 1), side * L.zAt(yA(k + 1))]]
+          pos.push(...q[0], ...q[1], ...q[2], ...q[0], ...q[2], ...q[3])
+          const u = [uvY(yA(k)), uvY(yB(k)), uvY(yB(k + 1)), uvY(yA(k)), uvY(yB(k + 1)), uvY(yA(k + 1))]
+          const px = [A.x, B.x, B.x, A.x, B.x, A.x]
+          for (let k2 = 0; k2 < 6; k2++) uv.push(dEndE(px[k2]), u[k2])
+        }
+      }
+      geos.push({ pos, uv })
+    }
+    return geos.map(({ pos, uv }) => {
+      const g = new THREE.BufferGeometry()
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3))
+      g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uv), 2))
+      g.computeVertexNormals()
+      return g
+    })
+  }, [])
+
   // ── ★101 정의 각뿔대(2026.08.02 현도 그림) — 기하는 전부 defPitGeometry가 만든다(사본 금지) ──
   //  판 = 팔각 구멍 뚫린 고리 · 각뿔대 = 옆벽 껍질 + 바닥 슬래브. 셋 다 노브(깊이·상면·하면) 자동 추종.
   const PIT = useMemo(() => pitSpec(), [])
@@ -718,6 +1004,13 @@ export function DefAxiomRoom({ stairKind }) {
           두 절의 이음(디스크 높이)에서 하절 상단이 다시 밝아지는 건 의도 — 아래에서 보면 '구멍에서 빛이 나온다'로 읽힘 */}
       {/*  ★★★113 소등(현도 2026.08.05) — 이 둘은 빛이 아니라 **빛처럼 보이는 물체**다(가짜 볼륨).
            `ROOM_SHAFT_ON=true` 한 줄로 복원된다 — 셰이더·상수·기하 전부 보존. */}
+      {/* ★211 관 빛 커튼(+동단판) — 게이트 = BRD_LIGHT_ON(useMemo가 빈 배열 반환). 첨탑 빛(ROOM_SHAFT_ON)과 **독립**.
+          기하 정본 = brdLightSpec · 재질 = 첨탑 셰이더 사본(uAxial=0 · uOpacity=BRD_LIGHT_OP). 월드 좌표 그대로(관은 원점계). */}
+      {BRD_CURTAINS.map((g, i) => (
+        <mesh key={`bcur${i}`} geometry={g} material={brdLightMat} />
+      ))}
+      {BRD_SLICES && <mesh geometry={BRD_SLICES} material={brdSliceMat} />}
+      {brdDoorLight && <mesh geometry={brdDoorLight} material={brdDoorMat} />}
       {ROOM_SHAFT_ON && (<>
         {/* ★175-e 현도 스케치: 갓 꼭지에서 시작해 각뿔대 바닥까지 관통하는 기둥 + 그 2배 폭의 헤일로.
             마디는 lightingModel.shaftNodes()가 기하에서 유도한다(사본 금지 — check_lux가 같은 함수를 문다).
@@ -822,18 +1115,18 @@ export function DefAxiomRoom({ stairKind }) {
           측벽은 -a에서 민짜(`BRD_SIDE='solid'`) — -b에서 양면 아케이드 8베이로 교체(한 줄).
           재질 = ★130 통로 가족(길 연속 — walk/solid 두 톤). */}
       {bridgeDeckParts && bridgeDeckParts.walk.map(({ id, geo }) => (
-        <mesh key={'brd-' + id} name={'1p12접속통로/' + id} geometry={geo} userData={{ walkable: true }}>
+        <mesh key={'brd-' + id} name={'1p12접속통로/' + id} geometry={geo} userData={{ walkable: true, brd: true, brdFloor: id === '데크판' }}>
           <meshStandardMaterial color={PAL_FLOOR} roughness={0.9} side={THREE.FrontSide} />
         </mesh>
       ))}
       {bridgeDeckParts && bridgeDeckParts.solid.map(({ id, geo }) => (
-        <mesh key={'brds-' + id} name={'1p12접속통로/' + id} geometry={geo} userData={{ walkable: false }}>
+        <mesh key={'brds-' + id} name={'1p12접속통로/' + id} geometry={geo} userData={{ walkable: false, brd: true }}>
           <meshStandardMaterial color={PAL_WALL} roughness={0.9} side={THREE.FrontSide} />
         </mesh>
       ))}
       {/* ★★★148 관 사변형 리브 볼트 + 벽앞 기둥 + 첨탑 대역 ⓚ′ — 재질 = ★130 통로 가족 solid 톤 */}
       {bridgeVaultParts && bridgeVaultParts.solid.map(({ id, geo }) => (
-        <mesh key={'brdv-' + id} name={'1p12접속통로/' + id} geometry={geo} userData={{ walkable: false }}>
+        <mesh key={'brdv-' + id} name={'1p12접속통로/' + id} geometry={geo} userData={{ walkable: false, brd: true }}>
           <meshStandardMaterial color={PAL_WALL} roughness={0.9} side={THREE.FrontSide} />
         </mesh>
       ))}
@@ -844,8 +1137,14 @@ export function DefAxiomRoom({ stairKind }) {
         </mesh>
       )}
       {/* ★★★150 사다리꼴 관 — 같은 재질 가족 */}
+      {/* ★211-m 관 서단 스킨 — 첨탑 외벽의 관 노출 영역을 관 톤으로(brd 태그 · C 램프) */}
+      {brdWestSkin && (
+        <mesh name={'1p12접속통로/서단스킨'} geometry={brdWestSkin} userData={{ walkable: false, brd: true, brdSkin: true }}>
+          <meshStandardMaterial color={PAL_WALL} roughness={0.9} side={THREE.DoubleSide} />
+        </mesh>
+      )}
       {bridgeTrapParts && bridgeTrapParts.solid.map(({ id, geo }) => (
-        <mesh key={'brdt-' + id} name={'1p12접속통로/' + id} geometry={geo} userData={{ walkable: false }}>
+        <mesh key={'brdt-' + id} name={'1p12접속통로/' + id} geometry={geo} userData={{ walkable: false, brd: true }}>
           <meshStandardMaterial color={PAL_WALL} roughness={0.9} side={THREE.FrontSide} />
         </mesh>
       ))}

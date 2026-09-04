@@ -32,7 +32,7 @@ import {
   BRA_ON, BRA_H, BRA_T, BRA_HW, BRA_WT, BRA_SEG, BRA_SPAN_ON, BRA_MASS, BRD_ARC_FLR,
   BRD_SPI_ON, BRD_STAIR_ON, BRD_VLT_ON,
   BRD_VLT_OPEN, BRD_VLT_CAP_X, BRD_VLT_CAP_K, BRD_VLT_SEG, brdVaultTopY, BRD_TRP_ON, BRD_TRP_NOTCH_TOP, BRD_TRP_NOTCH_BANDS,
-  BRD_SFT_ON, BRD_SFT_W, BRD_SFT_TURNS, COR_CYL_X0, ROOM_STAIR_RISE, ROOM_STAIR_SLAB,
+  BRD_SFT_ON, BRD_SFT_W, BRD_SFT_TURNS, COR_CYL_X0, ROOM_STAIR_RISE, ROOM_STAIR_SLAB, BRD_SFT_TOPSINK,
   BRD_SFT_HAND, BRD_SFT_LAND_ON, BRD_SFT_LAND_Z,
   BRD_EAST, BRD_EAST_X, BRD_CEIL_LAP, BRD_SFT_DOOR_ON, DESC_HW,
 } from './constants.js'
@@ -761,16 +761,17 @@ export function buildShaftFrame() {
   if (!BRD_ON || !BRD_SFT_ON) return null
   const S = shaftSpec()
   const D = S.door
+  const yT = S.y1 - BRD_SFT_TOPSINK   //  ★212-f 벽 상단 = 데크 살 속(공면 파이팅 봉인 · 나선·참판 높이 불변)
   return quadGeo((q) => {
-    box(q, S.x0, S.inX0, S.y0, S.y1, -S.hw, S.hw)                 // 서벽
-    if (!D) box(q, S.inX1, S.x1, S.y0, S.y1, -S.hw, S.hw)         // 동벽(통짜 — 구 체제)
+    box(q, S.x0, S.inX0, S.y0, yT, -S.hw, S.hw)                 // 서벽
+    if (!D) box(q, S.inX1, S.x1, S.y0, yT, -S.hw, S.hw)         // 동벽(통짜 — 구 체제)
     else {                                                        // ★147-f ③ 동벽 = 문설주 둘 + 인방
-      box(q, S.inX1, S.x1, S.y0, S.y1, -S.hw, -D.hz)              //   남 문설주
-      box(q, S.inX1, S.x1, S.y0, S.y1, D.hz, S.hw)                //   북 문설주
-      box(q, S.inX1, S.x1, D.y1, S.y1, -D.hz, D.hz)               //   인방 위
+      box(q, S.inX1, S.x1, S.y0, yT, -S.hw, -D.hz)              //   남 문설주
+      box(q, S.inX1, S.x1, S.y0, yT, D.hz, S.hw)                //   북 문설주
+      box(q, S.inX1, S.x1, D.y1, yT, -D.hz, D.hz)               //   인방 위
     }
-    box(q, S.inX0, S.inX1, S.y0, S.y1, -S.hw, -S.inZ)             // 남벽
-    box(q, S.inX0, S.inX1, S.y0, S.y1, S.inZ, S.hw)               // 북벽
+    box(q, S.inX0, S.inX1, S.y0, yT, -S.hw, -S.inZ)             // 남벽
+    box(q, S.inX0, S.inX1, S.y0, yT, S.inZ, S.hw)               // 북벽
   })
 }
 

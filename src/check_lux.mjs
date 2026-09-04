@@ -39,6 +39,13 @@ import { discSpec as discSpec192 } from './discGeometry.js'   // ★192 대역 �
 import { incaBladesSpec } from './corridorStairsGeometry.js'   // ★188 실효성 항(홀 안 실부재 좌표)
 import { shellMid, shellNrm } from './roomShellGeometry.js'   // ★177 D절 — 벽 표본점(합성 화면 판정)
 import { readFileSync } from 'fs'
+import * as LM from './lightingModel.js'   // ★210 S-11절(C구획 함수 일괄)
+import { trapColumnSpec, slitLinkSpec, buildBridgeTrapParts, spireCutX } from './bridgeTrapGeometry.js'   // ★210 슬릿 실기하 + ★211-m
+import { buildBridgeDeckParts } from './bridgeDeckGeometry.js'   // ★210 실기하 정점(★207 교훈)
+import { BAKE_C_ON, BAKE_C_GAMMA, BAKE_C_DHALL, BRD_X0, BRD_COL_W, BRD_YW, BRD_TRP_CAPY, BAKE_FLOOR as BF11,
+  BRD_LIGHT_ON, BRD_LIGHT_EAST_ON, BRD_LIGHT_Z1, BRD_LIGHT_OP, BRD_LIGHT_XF, BRD_LIGHT_GAP, BRD_DIM_ON, BRD_DIM_LO, BRD_DIM_HI, BRD_DIM_SLIT,
+  BRD_LIGHT_SL_ON, BRD_LIGHT_SL_DX, BRD_LIGHT_SL_OP, BRD_LIGHT_SL_XF, BRD_LIGHT_BF, BRD_LIGHT_BG, BRD_SKIN_DIM, BRD_DIM_WEST_L, BRD_DIM_WEST_SEG, BRD_DIM_WEST_K, BRD_DOOR_L, BRD_DOOR_SPREAD, BRD_DOOR_OP, brdEndX } from './constants.js'   // ★210 + ★211 + ★211-d
+const q6 = (x) => Number(x).toFixed(6)
 
 let pass = 0, fail = 0
 const T = (name, cond, note = '') => {
@@ -1297,9 +1304,10 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
 
   //  배선(공허 방지) — Room.jsx가 굽기와 **같은 식**으로 판정하고 실제로 호출한다
   const roomSrc198 = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
-  T('Room.jsx가 splitSoupByGradient를 호출하고 판정에 zoneAInterior/zoneAShadeAt을 그대로 쓴다(사본 금지)',
+  //  ⚠★210에서 래퍼가 콜백 일반화됐다 — A의 판정식 리터럴은 이제 **호출부**에 있다(같은 함수·같은 식·사본 0).
+  T('Room.jsx가 splitSoupByGradient를 호출하고 A 호출부가 zoneAInterior/zoneAShadeAt 그 식을 넘긴다(사본 금지)',
     /splitSoupByGradient\(attrs, shadeOf, BAKE_GRAD_TOL, BAKE_GRAD_MIN\)/.test(roomSrc198)
-    && /zoneAInterior\(p, Z\.spire, n\) \? zoneAShadeAt\(p, n, Z\) : 1/.test(roomSrc198)
+    && /zoneAInterior\(p, bakeZ\.spire, n\) \? zoneAShadeAt\(p, n, bakeZ\) : 1/.test(roomSrc198)
     && /BAKE_GRAD_ON && !g\.userData\.bakeGrad/.test(roomSrc198))
 }
 
@@ -1799,6 +1807,326 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
   }
   T('동결 위생 — FREEZE_A_SIG는 유한 정수이고, 확정 스위치 셋이 모두 불리언이다',
     Number.isInteger(FREEZE_A_SIG) && [SHAFT_CLEAR_ON, SHAFT_HALO_UP_ON, SHAFT_HALO_LO_CLIP_ON].every((v) => typeof v === 'boolean'))
+}
+
+// ══════ S-11. ★210 C구획(관 = 테라스→드럼) 베이크 — 슬릿 공급지 ══════
+//  ⚠구획 A 무접촉은 S-10 동결 지문([위 항])이 이미 문다 — 여기서 중복하지 않는다.
+{
+  console.log('\n── S-11. ★210 C구획(관) 베이크 — 갓 밑 레터박스 슬릿 ──')
+  const { slitOpenSpec, slitOpenPolys, supplySlitSamples, zoneCBakeSpec, zoneCInterior, zoneCShadeAt, drumHallCarry } = LM
+  const K11 = trapColumnSpec(), L11 = slitLinkSpec(K11)
+  const S11 = slitOpenSpec(K11, L11)
+  const C11 = zoneCBakeSpec()
+
+  //  ⑴ 파생 위생 — 열린 구간의 모든 경계가 실기하(관 서단·기둥 마개 변·잇기 서단)와 일치한다(손 수치 0)
+  const edges = new Set([q6(BRD_X0), q6(L11.x0)])
+  for (const xc of K11.xs) { edges.add(q6(xc - BRD_COL_W / 2)); edges.add(q6(xc + BRD_COL_W / 2)) }
+  T('⑴ 파생 — 열린 구간 경계 전부가 서단·마개 변·잇기 서단 중 하나다(손 수치 0)',
+    S11.opens.every(([a, b]) => edges.has(q6(a)) && edges.has(q6(b)) && b > a + 1e-9))
+  T(`⑴′ 파생 — 구간 중점 어디에도 마개가 없다(구간 ${S11.opens.length}개 · 총장 ${S11.total.toFixed(1)})`,
+    S11.opens.every(([a, b]) => { const m = (a + b) / 2
+      return m < L11.x0 && K11.xs.every((xc) => Math.abs(m - xc) > BRD_COL_W / 2) }))
+  //  ⑴″ 공허 방지(치환 반증 상주형): 마개를 소거한 가짜 spec(통짜 한 구간)과 총장이 **달라야** 한다 —
+  //   같다면 마개 항이 아무 일도 안 하는 것(★185 '살 구간을 틈이라 부른' 계열의 병).
+  T('⑴″ 실효 — 마개 소거 가정과 총장이 다르다(마개가 실제로 구간을 줄인다)',
+    Math.abs(S11.total - (L11.x0 - BRD_X0)) > 1)
+
+  //  ⑵ 공급 폴리 위생 — 전부 평면(z 단일값)·법선이 관 안(z=0)을 향한다·y대역 = 슬릿
+  const P11 = slitOpenPolys(S11)
+  T('⑵ 폴리 — 장마다 평면(z 상수)이고 법선이 안쪽(z·n < 0)이며 y대역 = 슬릿',
+    P11.length === S11.opens.length * 2 && P11.every((pl) => {
+      const z0 = pl.v[0][2]
+      return pl.v.every((vv) => Math.abs(vv[2] - z0) < 1e-12) && pl.n[2] * z0 < 0 &&
+        pl.v.every((vv) => vv[1] >= S11.slit.y0 - 1e-9 && vv[1] <= S11.slit.y1 + 1e-9)
+    }))
+  T('⑵′ 표본(보존계 경로) — 전 표본이 슬릿 면 위·법선 안쪽·구간 안',
+    supplySlitSamples(S11).every((s) => Math.abs(Math.abs(s.p[2]) - S11.slit.zIn) < 1e-9 &&
+      s.n[2] * s.p[2] < 0 && S11.opens.some(([a, b]) => s.p[0] >= a - 1e-9 && s.p[0] <= b + 1e-9)))
+
+  //  ⑶ 대칭 — 공급이 ±z 미러이므로 조도장도 미러여야 한다(도구 자기검증)
+  T('⑶ 대칭 — E(x,y,+d·n₊) = E(x,y,−d·n₋) (3점)',
+    [[80, 135, 3.05], [50, 130, 2.0], [120, 140, 1.0]].every(([x, y, d]) => {
+      const a = C11.eAt([x, y, d], [0, 0, -1], C11.seg), b = C11.eAt([x, y, -d], [0, 0, 1], C11.seg)
+      return Math.abs(a - b) <= 1e-9 * Math.max(1, a)
+    }))
+
+  //  ⑷ 기준점 성질 — eRef가 내부 대표점(데크·벽·마개면)보다 크다(정규화 상한 → 포화 없음)
+  T(`⑷ 기준점 — eRef(${C11.seg.eRef.toFixed(3)}) > 데크·벽·마개면 E`,
+    [[[80, 127, 0], [0, 1, 0]], [[80, 135, 3.05], [0, 0, -1]], [[K11.xs[2], (S11.slit.y0 + S11.slit.y1) / 2, S11.slit.zIn - 0.1], [0, 0, -1]]]
+      .every(([p, nn]) => C11.eAt(p, nn, C11.seg) < C11.seg.eRef))
+  T('⑷′ 셰이드 범위 — 표본 전부 [BAKE_FLOOR, 1] 안',
+    [[[26, 127, 0], [0, 1, 0]], [[80, 127, 0], [0, 1, 0]], [[142, 127, 0], [0, 1, 0]],
+     [[80, 144.5, 0], [0, -1, 0]], [[80, 135, -3.05], [0, 0, 1]]]
+      .every(([p, nn]) => { const s = zoneCShadeAt(p, nn, C11); return s >= BAKE_FLOOR - 1e-12 && s <= 1 + 1e-12 }))
+
+  //  ⑸ 내부 판정 — **실기하 정점**으로(★207 교훈: 합성 좌표는 병을 재현 못 한다).
+  //   빌더 기하에서 조건으로 정점을 뽑아 법선과 함께 판정한다.
+  {
+    const pick = (geo, cond) => {
+      const P = geo.attributes.position, N = geo.attributes.normal
+      for (let i = 0; i < P.count; i++) {
+        const p = [P.getX(i), P.getY(i), P.getZ(i)], nn = [N.getX(i), N.getY(i), N.getZ(i)]
+        if (cond(p, nn)) return { p, n: nn }
+      }
+      return null
+    }
+    const deckGeo = buildBridgeDeckParts().walk.find((w) => w.id === '데크판').geo
+    const trapParts = buildBridgeTrapParts().solid
+    const slope = trapParts.find((w) => w.id === '빗면').geo
+    const plug = trapParts.find((w) => w.id === '슬릿마개').geo
+    const gable = trapParts.find((w) => w.id === '갓빗판').geo
+    //  ⚠데크판은 상자 로프트라 상면 정점이 모서리(|z|=5.15 — 침강으로 스커트 살 속)와 구멍 둘레 띠
+    //   (x121.5·126.1, |z|=3.9 — 보행 노출부)뿐이다. '안' 표적은 노출부 실정점, '밖' 표적은 침강 모서리.
+    const vDeckTop = pick(deckGeo, (p, nn) => Math.abs(p[1] - BRD_YW) < 1e-6 && nn[1] > 0.99 && Math.abs(p[2]) < 4.4)
+    const vDeckBur = pick(deckGeo, (p, nn) => Math.abs(p[1] - BRD_YW) < 1e-6 && nn[1] > 0.99 && Math.abs(p[2]) > 5)
+    const vDeckBot = pick(deckGeo, (p, nn) => p[1] < BRD_YW - 1 && nn[1] < -0.99)
+    const vSlopeOut = pick(slope, (p, nn) => nn[2] * Math.sign(p[2] || 1) > 0.5 && Math.abs(p[2]) > 4 && p[1] > 130 && p[1] < 141)
+    const vPlugIn = pick(plug, (p, nn) => Math.abs(Math.abs(p[2]) - S11.slit.zIn) < 1e-6 && nn[2] * Math.sign(p[2] || 1) < -0.5)
+    const vGableUnder = pick(gable, (p, nn) => nn[1] < -0.3 && Math.abs(p[2]) < S11.slit.zOut && p[1] > S11.slit.y1 && p[1] < BRD_TRP_CAPY)
+    const vGableTop = pick(gable, (p, nn) => nn[1] > 0.3 && p[1] < BRD_TRP_CAPY - 1e-3)
+    T('⑸ 실기하 — 데크 상면 노출부 정점(구멍 둘레 |z|=3.9) = 안 / 데크 밑면 = 밖',
+      !!vDeckTop && !!vDeckBot && zoneCInterior(vDeckTop.p, C11, vDeckTop.n) && !zoneCInterior(vDeckBot.p, C11, vDeckBot.n))
+    T('⑸ᵃ 실기하 — 데크 상면 침강 모서리(|z|=5.15 > innerWallZ(127)=4.443, 스커트 살 속) = 밖 — 분할(★178)이 경계에 정점을 세워 노출부를 굽는다',
+      !!vDeckBur && !zoneCInterior(vDeckBur.p, C11, vDeckBur.n))
+    T('⑸′ 실기하 — 빗면 바깥면 정점 = 밖(밖에서 본 관 인상 불변 — 안팎 제1 원칙)',
+      !!vSlopeOut && !zoneCInterior(vSlopeOut.p, C11, vSlopeOut.n))
+    T('⑸″ 실기하 — 슬릿마개 정면(관 안을 보는 면) = 안(살 대역 법선 구제가 실제로 작동)',
+      !!vPlugIn && zoneCInterior(vPlugIn.p, C11, vPlugIn.n))
+    T('⑸‴ 실기하 — 갓빗판 밑면(공동 천장) = 안 / 갓빗판 윗면 = 밖',
+      !!vGableUnder && !!vGableTop && zoneCInterior(vGableUnder.p, C11, vGableUnder.n) && !zoneCInterior(vGableTop.p, C11, vGableTop.n))
+    //  ⑸⁗ 구제의 법선 실효성 — **살 대역 안**(zIn < |z| ≤ zOut) 정점이어야 반증이 문다: 마개 정면(|z|=zIn)은
+    //   안면 경계 위라 위치만으로 안이다(법선 무관). 표적 = 채널 천장(토막위 밑면)의 바깥쪽 정점.
+    const stubTop = trapParts.find((w) => w.id === '토막위').geo
+    const vChanRoof = pick(stubTop, (p, nn) => nn[1] < -0.99 && Math.abs(p[2]) > S11.slit.zIn + 0.5 &&
+      p[1] >= S11.slit.y0 && p[1] <= S11.slit.y1 + 1e-3)
+    T('⑸⁗ 구제 — 채널 천장(살 대역) 정점: 실법선(아래보기)이면 안, 바깥 향 법선을 끼우면 밖(구제가 법선을 실제로 본다)',
+      !!vChanRoof && zoneCInterior(vChanRoof.p, C11, vChanRoof.n) &&
+      !zoneCInterior(vChanRoof.p, C11, [0, 0, Math.sign(vChanRoof.p[2] || 1)]))
+  }
+
+  //  ⑹ 드럼 승계 대역 — 월대(홀 안)는 참·서측 데크와 홀 밖은 거짓·상한 = 데크 상면
+  T('⑹ 승계 — 월대 안 참 · 서측(x80) 거짓 · 데크 상면 위(y127.1) 거짓',
+    drumHallCarry([123, 101.4, 0]) && !drumHallCarry([80, 120, 0]) && !drumHallCarry([123, 127.2, 0]))
+
+  //  ⑺ D 무접촉 — C 스펙 생성이 D 기준점을 흔들지 않는다(생성 순서 무관)
+  T('⑺ D 무접촉 — zoneDBakeSpec eRef가 C 스펙 생성 전후 동일',
+    (() => { const a = zoneDBakeSpec().seg.eRef; zoneCBakeSpec(); const b = zoneDBakeSpec().seg.eRef
+      return Math.abs(a - b) < 1e-12 })())
+
+  //  ⑻ 게이트 위생 — 보존계 스위치가 실재하는 불리언(양 체제 성립형 — 값은 스윕이 문다, 규율 13')
+  T('⑻ 게이트 — BAKE_C_ON·BAKE_C_DHALL 불리언 · BAKE_C_GAMMA 유한 양수',
+    typeof BAKE_C_ON === 'boolean' && typeof BAKE_C_DHALL === 'boolean' &&
+    Number.isFinite(BAKE_C_GAMMA) && BAKE_C_GAMMA > 0)
+}
+
+// ══════ S-12. ★211 관 빛 커튼 — 현도 단면 스케치 정식화 ══════
+{
+  console.log('\n── S-12. ★211 관 빛 커튼 ──')
+  const L12 = LM.brdLightSpec()
+  const S12 = LM.slitOpenSpec()
+  T('⑴ 파생 — 커튼 x구간 = 슬릿 열린 구간 그 자체(같은 함수 재사용 — 마개 리듬 = 빛의 리듬)',
+    L12.curtains.length === S12.opens.length &&
+    L12.curtains.every((c, i) => c[0] === S12.opens[i][0] && c[1] === S12.opens[i][1]))
+  //  ★211-r 개정: 프로파일이 fold로 접혀 절점 수 가변 — 성질 기반으로 문는다(스케치 실측 정본).
+  T('⑵ 프로파일 — 절점 y 단조 증가 · 시작 = (데크, Z1) · 끝 = (마루 밑면, 갓빗판 안변 − GAP)',
+    L12.prof.every((p, i) => i === 0 || p[0] > L12.prof[i - 1][0]) &&
+    Math.abs(L12.prof[0][0] - BRD_YW) < 1e-9 && Math.abs(L12.prof[0][1] - BRD_LIGHT_Z1) < 1e-9 &&
+    Math.abs(L12.top - 147.3158163265306) < 1e-9 &&
+    Math.abs(L12.prof[L12.prof.length - 1][1] - (L12.wall(L12.top - 1e-9) - BRD_LIGHT_GAP)) < 2e-3)
+  //  ★211-e 개정: 슬릿 **하단** = 채널 입구(열린 공기) → zIn 정확. **상단**은 토막위 벽 옆 → GAP 이격 허용
+  //   (zIn 초과만 금지 — 초과 = ★211-r의 살 뚫는 병).
+  T('⑵′ 프로파일 — 슬릿 하단(입구) = zIn 정확 · 상단 ≤ zIn(이격 허용 · 초과 금지)',
+    Math.abs(L12.zAt(S12.slit.y0) - S12.slit.zIn) < 1e-9 &&
+    L12.zAt(S12.slit.y1) <= S12.slit.zIn + 1e-9 &&
+    L12.zAt(S12.slit.y1) >= S12.slit.zIn - BRD_LIGHT_GAP - 1e-3)
+  //  ★★상주 — 껍질 준수(★209의 병 4번째 반복을 잡은 뒤 세운 봉인): 커튼이 벽 안면을 넘지 않는다.
+  //   조밀 스캔 0.02 — 성긴 격자가 안면 실절점(빗면 위끝 z1.389)을 놓친 실증이 있어 간격을 못 넓힌다.
+  T('⑵″ ★상주 — 커튼 ⊂ 벽 안면(전 y 조밀 스캔 · 슬릿 채널 대역 제외 · 접촉 허용)',
+    (() => { for (let y = BRD_YW + 0.02; y <= L12.top - 1e-3; y += 0.02) {
+        if (y >= L12.slitBand[0] - 1e-9 && y <= L12.slitBand[1] + 1e-9) continue
+        const w = L12.wall(y); if (w === Infinity) continue
+        if (L12.zAt(y) > w + 1e-6) return false }
+      return true })())
+  T('⑶ 동단판 — yCap 단조 감소 · x0에서 슬릿 상단 · 무릎에서 슬릿 하단 · 동단에서 데크',
+    (() => { let prev = Infinity
+      for (let i = 0; i <= 24; i++) { const x = L12.east.x0 + ((L12.east.x1 - L12.east.x0) * i) / 24
+        const y = L12.east.yCap(x); if (y > prev + 1e-9) return false; prev = y }
+      return Math.abs(L12.east.yCap(L12.east.x0) - S12.slit.y1) < 1e-9 &&
+        Math.abs(L12.east.yCap(L12.east.xKnee) - S12.slit.y0) < 1e-9 &&
+        Math.abs(L12.east.yCap(L12.east.x1) - BRD_YW) < 1e-6 })())
+  //  ⑶′ 공허 봉합(치환 반증이 잡은 구멍): ⑶은 spec 내부 일관성만 물어서 무릎이 통째로 오염돼도
+  //   자기일관으로 통과했다. 무릎을 **외부 진리**(빌더의 동단마개 빗면 brdEndX)와 독립 대조한다 —
+  //   동단판 사선이 실제 마개 빗면과 평행하다는 것이 이 항의 물리적 내용이다.
+  T('⑶′ 무릎 = brdEndX(슬릿 하단) — 빌더 빗면과 독립 대조(spec 오염 시 여기서 깨진다)',
+    Math.abs(L12.east.xKnee - brdEndX(S12.slit.y0)) < 1e-9 &&
+    Math.abs(L12.east.x1 - 145) < 1e-9)
+  T('⑷ 게이트 위생 — BRD_LIGHT_ON·BRD_LIGHT_EAST_ON 불리언 · Z1·OP 유한 양수',
+    typeof BRD_LIGHT_ON === 'boolean' && typeof BRD_LIGHT_EAST_ON === 'boolean' &&
+    Number.isFinite(BRD_LIGHT_Z1) && BRD_LIGHT_Z1 > 0 && Number.isFinite(BRD_LIGHT_OP) && BRD_LIGHT_OP > 0)
+  //  ★211-e: OP는 첨탑에서 **분리**됐다(관은 배경이 밝아 더 필요 — 현도 "빛이 빛으로 안 느껴짐").
+  //   승계 항의 옛 의도(표류 방지)는 소멸 — 대신 분리 방향(관 ≥ 첨탑)과 깃털·이격 위생을 문다.
+  T('⑸ ★211-e — OP ≥ 첨탑(분리 방향) · XF ≥ 0 · GAP > 0(⛔0 = 벽 공면 z-파이팅 얼룩 — 현도 사진 실증)',
+    BRD_LIGHT_OP >= RM_SHAFT_OP - 1e-12 && BRD_LIGHT_XF >= 0 && BRD_LIGHT_GAP > 0)
+  //  ★211-j: 치환 원문이 len 한 줄 전체(하단 깃털 0.18·세기 0.30+0.70·top)로 확장 — 원문·주입부 동시 실재를 문는다.
+  T('⑸ᵃ ★211-j 배선 — 셰이더 치환: 원문(len 한 줄)과 주입부(uXFeather·uBotFeather·uBotGain) 동시 실재 · 커튼 uTopFade = 파생',
+    (() => { const src = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+      const c = (t) => src.split(t).length - 1
+      return c('float len = smoothstep(0.0, 0.18, vY) * (0.30 + 0.70 * vY) * top;') >= 2 &&
+        c('uBotFeather') >= 3 && c('uBotGain') >= 3 && c('uXFeather') >= 3 &&
+        /uTopFade\.value = \(L\.top - slitTopY\(L\)\) \/ \(L\.top - L\.yBase\)/.test(src) &&
+        /uv\.push\(dEnd\(pick\[k\]\[0\]\), u\[k\]\)/.test(src) })())
+  T('⑸ᵃ′ ★211-j 노브 — BF ∈ (0, 0.18)(첨탑보다 짧은 깃털 = 바닥까지 닿는다) · BG ∈ [0.3, 1)',
+    BRD_LIGHT_BF > 0 && BRD_LIGHT_BF < 0.18 && BRD_LIGHT_BG >= 0.3 && BRD_LIGHT_BG < 1)
+  //  ★211-h: 구판 '[soup 전제]'는 거짓 — 관 부품은 전부 인덱스(실기하로 문는다). 배선 = toNonIndexed 후 삼각형 단위.
+  T('⑸ᵇ ★211-h 사실 — 관 부품(데크판·빗면·기둥몸)은 인덱스 지오메트리다(구판 soup 전제의 반증 — 상주)',
+    (() => { const ids = ['데크판']; const D = buildBridgeDeckParts(); const T2 = buildBridgeTrapParts()
+      const deck = D.walk.find((w) => w.id === '데크판').geo, slope = T2.solid.find((w) => w.id === '빗면').geo
+      return !!deck.index && !!slope.index })())
+  //  ★211-h 결과 재현(배선 문자열만으론 공허 — 이번에 배움): 데크판을 실제로 풀어 삼각형 단위로 판정했을 때
+  //   보행 노출 상면 삼각형(중심 |z| < 안면)은 전부 '안', 밑면·측면은 전부 '밖', 스커트 안면 정점은 '안'.
+  T('⑸ᵇ′ ★211-h 재현 — 데크판 비인덱스 삼각형: 노출 상면 전부 안 · 밑면/측면 전부 밖 · 스커트 안면 정점 안',
+    (() => { const C2 = LM.zoneCBakeSpec()
+      const g = buildBridgeDeckParts().walk.find((w) => w.id === '데크판').geo.toNonIndexed()
+      const P = g.attributes.position, N = g.attributes.normal
+      let ok = true
+      for (let t = 0; t < P.count; t += 3) {
+        const c = [0, 0, 0], n = [0, 0, 0]
+        for (let k = 0; k < 3; k++) { c[0] += P.getX(t + k) / 3; c[1] += P.getY(t + k) / 3; c[2] += P.getZ(t + k) / 3; n[0] += N.getX(t + k); n[1] += N.getY(t + k); n[2] += N.getZ(t + k) }
+        const ins = LM.zoneCInterior(c, C2, n)
+        if (n[1] > 0.9 * 3) { if (Math.abs(c[2]) < C2.open.innerWallZ(c[1]) && !ins) ok = false }   // 노출 상면 → 안
+        else if (ins) ok = false                                                                     // 밑면·측면 → 밖
+      }
+      const skirt = buildBridgeTrapParts().solid.find((w) => w.id === '스커트').geo
+      const Ps = skirt.attributes.position, Ns = skirt.attributes.normal
+      let skirtIn = null
+      for (let i = 0; i < Ps.count; i++) { const z = Ps.getZ(i), y = Ps.getY(i)
+        if (y > 127.05 && y < 127.5 && Ns.getZ(i) * Math.sign(z || 1) < -0.5) { skirtIn = LM.zoneCInterior([Ps.getX(i), y, z], C2, [Ns.getX(i), Ns.getY(i), Ns.getZ(i)]); break } }
+      return ok && skirtIn === true })())
+  //  ★211-k ★상주 — 벽 안면 삼각형(안쪽향 · y≥127 · 노출부 |z|≤안면)은 전부 '안'. 안면이 innerWallZ의 정의면이라
+  //   삼각형 중심이 경계 위에서 안/밖 교대하던 병(흰 톱니 = V자 선)의 봉인. 서단 조각·동단마개까지.
+  T('⑸ᵈ ★211-k ★상주 — 빗면·서단빗면·동단마개 안쪽향 노출 삼각형 중 밖 = 0(흰 톱니 봉인)',
+    (() => { const C2 = LM.zoneCBakeSpec(); const K2 = trapColumnSpec(); const parts = buildBridgeTrapParts().solid
+      for (const id of ['빗면', '서단빗면', '동단마개', '토막아래']) {
+        const g = parts.find((w) => w.id === id).geo.toNonIndexed(); const P = g.attributes.position, N = g.attributes.normal
+        for (let t = 0; t < P.count; t += 3) {
+          const c = [0, 0, 0], n = [0, 0, 0]
+          for (let k = 0; k < 3; k++) { c[0] += P.getX(t + k) / 3; c[1] += P.getY(t + k) / 3; c[2] += P.getZ(t + k) / 3; n[0] += N.getX(t + k); n[1] += N.getY(t + k); n[2] += N.getZ(t + k) }
+          if (c[1] < BRD_YW) continue
+          //  ⚠필터 = 살 대역(안면~안면+두께): '노출부 |z|≤iw'로 좁히면 경계 바로 밖의 문제 삼각형이 빠져 공허(반증 실증)
+          const iw = K2.innerWallZ(c[1]); if (iw === Infinity || Math.abs(c[2]) > iw + 1.25) continue
+          if (n[2] * Math.sign(c[2] || 1) >= -0.9) continue   // 합산 법선(크기≈3): z성분 확실히 안쪽
+          if (!LM.zoneCInterior(c, C2, n)) return false } }
+      return true })())
+  T('⑸ᵉ ★211-k 배선 — 관 마운트 4곳 brd 태그 · A 패스가 brd를 건너뛴다(서단 조각 bakedA 선점 봉인) · 동단판 off',
+    (() => { const src = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+      return (src.match(/name=\{'1p12접속통로\/' \+ id\} geometry=\{geo\} userData=\{\{ walkable: (true|false), brd: true[^}]*\}\}/g) || []).length === 4 &&
+        /o\.userData\.bakeSeen = true[\s\S]{0,400}if \(o\.userData\.brd\) return/.test(src) && BRD_LIGHT_EAST_ON === false })())
+  //  ★211-l 상주 — 관 안을 향한 x면(동단마개 안면 · 서단 x+ 단면) 살 대역 삼각형 = 안.
+  T('⑸ᶠ ★211-l ★상주 — 동단마개 안면(−x 향) 삼각형 밖 = 0 · 서단빗면 x+ 단면(살 대역) 밖 = 0',
+    (() => { const C2 = LM.zoneCBakeSpec(); const K2 = trapColumnSpec(); const parts = buildBridgeTrapParts().solid
+      const xc = (BRD_X0 + 145) / 2
+      for (const id of ['동단마개', '서단빗면', '서단스커트']) {
+        const g = parts.find((w) => w.id === id).geo.toNonIndexed(); const P = g.attributes.position, N = g.attributes.normal
+        for (let t = 0; t < P.count; t += 3) {
+          const c = [0, 0, 0], n = [0, 0, 0]
+          for (let k = 0; k < 3; k++) { c[0] += P.getX(t + k) / 3; c[1] += P.getY(t + k) / 3; c[2] += P.getZ(t + k) / 3; n[0] += N.getX(t + k); n[1] += N.getY(t + k); n[2] += N.getZ(t + k) }
+          const L2 = Math.hypot(...n) || 1; n[0] /= L2; n[1] /= L2; n[2] /= L2
+          if (c[1] < BRD_YW || n[0] * Math.sign(xc - c[0]) < 0.5) continue
+          const iw = K2.innerWallZ(c[1]); if (iw === Infinity || Math.abs(c[2]) > iw + 1.25) continue
+          if (!LM.zoneCInterior(c, C2, n)) return false } }
+      return true })())
+  T('⑸ᵍ ★211-l/m 배선 — 커튼 옆면 끝단 세분([a,a+XF,b−XF,b]) · 판 topFade 파생 상속 · 덧칠 회귀(bakedA는 return) · 서단 스킨 마운트(brd)',
+    (() => { const src = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+      return /const xs = xf > 0 \? \[a, a \+ xf, b - xf, b\] : \[a, b\]/.test(src) &&
+        !/uTopFade\.value = shaftMat\.uniforms\.uTopFade\.value/.test(src) &&
+        !/if \(Cc\.getX\(i\) < 0\.999\) continue/.test(src) && /if \(g\.userData\.bakedA\) return/.test(src) &&
+        /brdWestSkinTris\(\)/.test(src) && /name=\{'1p12접속통로\/서단스킨'\} geometry=\{brdWestSkin\} userData=\{\{ walkable: false, brd: true, brdSkin: true \}\}/.test(src) &&
+        /o\.userData\.brdSkin \? 3 : \(o\.userData\.brdFloor && nm\.y > 0\.5\) \? 0 : regionOf/.test(src) && /region === 3 \? brdDimP\(\[v\.x - ROOM_CX, v\.y, v\.z\], \[nm\.x, nm\.y, nm\.z\], BRD_SKIN_DIM\)/.test(src) && BRD_SKIN_DIM > 0 && BRD_SKIN_DIM < 0.35 + 1e-9 })())
+  //  ★211-m 재현 — 스킨 소프(정본 함수)를 실제로 만들어 문는다: 전 삼각형 C 안 · 문 개구 침범 0 · 첨탑 면추종(x = spireCutX+0.03).
+  T('⑸ʰ ★211-m 재현 — 서단 스킨: 전 삼각형 C 안 · 문 개구(반폭 1.65·높이 5.95) 침범 0 · 첨탑 곡면 추종',
+    (() => { const pos = LM.brdWestSkinTris(); if (!pos || pos.length < 9) return false
+      const C2 = LM.zoneCBakeSpec(); const nT = pos.length / 9
+      for (let t = 0; t < nT; t++) { const c = [0, 0, 0]
+        for (let k = 0; k < 3; k++) { c[0] += pos[t * 9 + k * 3] / 3; c[1] += pos[t * 9 + k * 3 + 1] / 3; c[2] += pos[t * 9 + k * 3 + 2] / 3 }
+        if (c[1] < BRD_YW + 5.95 && Math.abs(c[2]) < 1.65) return false
+        //  ★211-n: 법선을 가정([1,0,0])하지 않고 정점 순서에서 실제로 계산(구판은 공허 — 실법선이 −x였다)
+        const a = pos.slice(t * 9, t * 9 + 3), b = pos.slice(t * 9 + 3, t * 9 + 6), d = pos.slice(t * 9 + 6, t * 9 + 9)
+        const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], ad = [d[0] - a[0], d[1] - a[1], d[2] - a[2]]
+        const nn = [ab[1] * ad[2] - ab[2] * ad[1], ab[2] * ad[0] - ab[0] * ad[2], ab[0] * ad[1] - ab[1] * ad[0]]
+        const Ln = Math.hypot(...nn) || 1; nn[0] /= Ln; nn[1] /= Ln; nn[2] /= Ln
+        if (nn[0] < -0.1) return false   // 첨탑 쪽(−x)을 향하면 안 된다(첨탑 단차 y138 근방 8 삼각형은 거의 수평 — 허용)
+        if (!LM.zoneCInterior(c, C2, nn)) return false
+        if (Math.abs(pos[t * 9] - (spireCutX(pos[t * 9 + 1], pos[t * 9 + 2]) + 0.03)) > 1e-6) return false }
+      return true })())
+  //  ★212-c ★상주 — 갓 외피 불변: 갓빗판 바깥 경사·갓마루 옆·토막위 바깥면 삼각형 안 = 0 · 공동 천장·안벽 밖 = 0.
+  //   (현도 사진: 외부 갓의 삼각형 무늬 = 구 공동 규칙이 살 대역 전체를 삼켜 외피 quad의 한 삼각형만 감광된 교대.)
+  T('⑸ⁱ ★212-c ★상주 — 갓 외피(갓빗판 바깥·갓마루 옆·토막위 바깥) 안 판정 0 · 공동 내면(천장·안벽) 밖 판정 0',
+    (() => { const C2 = LM.zoneCBakeSpec(); const parts = buildBridgeTrapParts().solid
+      for (const id of ['갓빗판', '갓마루', '토막위']) {
+        const g = parts.find((w) => w.id === id).geo.toNonIndexed(); const P = g.attributes.position, N = g.attributes.normal
+        for (let t = 0; t < P.count; t += 3) {
+          const c = [0, 0, 0], n = [0, 0, 0]
+          for (let k = 0; k < 3; k++) { c[0] += P.getX(t + k) / 3; c[1] += P.getY(t + k) / 3; c[2] += P.getZ(t + k) / 3; n[0] += N.getX(t + k); n[1] += N.getY(t + k); n[2] += N.getZ(t + k) }
+          const L2 = Math.hypot(...n) || 1; n[0] /= L2; n[1] /= L2; n[2] /= L2; const sg = Math.sign(c[2] || 1)
+          const ins = LM.zoneCInterior(c, C2, n)
+          if ((n[1] > 0.5 || n[2] * sg > 0.5) && ins) return false
+          if ((n[1] < -0.5 || n[2] * sg < -0.5) && Math.abs(c[2]) <= 2.78 && !ins) return false } }
+      return true })())
+  //  ★212-g 서단 전이 = 문 개구 램버트 — 문턱 1 · 데크 x 단조 감소 · 스킨(개구 평면) 0 · 스테이션 파생 · 배선
+  T('⑸ʲ ★212-g 문 빛 — gain 문턱=K · 데크 x 단조 감소 · 스킨(개구와 같은 평면)=0 · 갓밑 < 측벽 < 데크 · 스테이션 = X0+k·SEG',
+    (() => { const g0 = LM.brdWestGain([BRD_X0 + 0.5, BRD_YW + 1e-3, 0], [0, 1, 0])
+      let p = 2, mono = true; for (let x = BRD_X0 + 0.5; x <= BRD_X0 + 30; x += 0.5) { const g = LM.brdWestGain([x, BRD_YW + 1e-3, 0], [0, 1, 0]); if (g > p + 1e-12) mono = false; p = g }
+      const skin = LM.brdWestGain([BRD_X0 - 0.3, 130, 3], [1, 0, 0]), side = LM.brdWestGain([BRD_X0 + 1, 132, 4.5], [0, 0, -1]), cap = LM.brdWestGain([BRD_X0 + 2, 146, 0], [0, -1, 0])
+      const st = LM.brdWestStations()
+      return Math.abs(g0 - BRD_DIM_WEST_K) < 1e-9 && mono && skin < 1e-9 && cap < side && side < g0 &&
+        st.length >= 2 && st.every((x, i) => Math.abs(x - (BRD_X0 + (i + 1) * BRD_DIM_WEST_SEG)) < 1e-9 || Math.abs(x - (BRD_X0 + BRD_DIM_WEST_L)) < 1e-9) })())
+  T('⑸ᵏ ★212-g 배선 — Room: 전이 스테이션 균등 분할(brd·비스킨) + 합성 brdDimP(정점 위치·면 법선 · classify 모두)',
+    (() => { const src = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+      return /for \(const xk of brdWestStations\(\)\) splitGeoAtZone\(gT, o\.matrixWorld, \(p\) => p\[0\] < xk\)/.test(src) &&
+        /region === 3 \? brdDimP\(\[v\.x - ROOM_CX, v\.y, v\.z\], \[nm\.x, nm\.y, nm\.z\], BRD_SKIN_DIM\) : region === 0 \? brdDimP\(/.test(src) &&
+        /BAKE_C_ON \? zoneCShadeAt\(p, nn, bakeC\) : brdDimP\(p, nn\)/.test(src) })())
+  //  ★212-h 문 빛 장치 — 소프 재현: 개구에서 시작(x=X0 · 반폭 hw · y0~y1) · DOOR_L까지 · 끝단 반폭 hw·SPREAD · 벽 안면 안 · 판 uv.x 중심 1 둘레 0
+  T('⑸ᵐ ★212-h 문 빛 장치 — 소프 범위(x X0~X0+L · y 데크~개구 상단 · |z| ≤ hw·SPREAD < 안면) · 판 uv · 마운트',
+    (() => { const d = LM.brdDoorLightTris(); if (!d || d.pos.length < 9) return false
+      let minX = 9e9, maxX = -9e9, minY = 9e9, maxY = -9e9, maxZ = 0
+      for (let i = 0; i < d.pos.length; i += 3) { minX = Math.min(minX, d.pos[i]); maxX = Math.max(maxX, d.pos[i]); minY = Math.min(minY, d.pos[i + 1]); maxY = Math.max(maxY, d.pos[i + 1]); maxZ = Math.max(maxZ, Math.abs(d.pos[i + 2])) }
+      const K2 = trapColumnSpec(); let iwMin = 9; for (let y = 127.5; y <= 133; y += 0.5) iwMin = Math.min(iwMin, K2.innerWallZ(y))
+      const src = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+      return Math.abs(minX - BRD_X0) < 1e-9 && Math.abs(maxX - (BRD_X0 + BRD_DOOR_L)) < 1e-9 && Math.abs(minY - BRD_YW) < 1e-9 &&
+        maxY <= BRD_YW + 5.95 + 1e-9 && Math.abs(maxZ - 1.65 * BRD_DOOR_SPREAD) < 1e-9 && maxZ < iwMin &&
+        d.uv.some((v, i) => i % 2 === 0 && v === 1) && d.uv.some((v, i) => i % 2 === 0 && v === 0) &&
+        /brdDoorLight && <mesh geometry=\{brdDoorLight\} material=\{brdDoorMat\}/.test(src) && BRD_DOOR_OP > 0 })())
+  T('⑸ᶜ ★211-h 배선 — 감광은 인덱스를 풀어(toNonIndexed) 삼각형 단위 균일색 · 지오메트리 교체 · 분할은 베이크 전용',
+    (() => { const src = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+      return /if \(g\.index\) \{ gT = g\.toNonIndexed\(\)/.test(src) && /o\.geometry = gT/.test(src) &&
+        /gT\.setAttribute\('color'/.test(src) && !/!g\.index && P\.count % 3 === 0/.test(src) &&
+        /BAKE_C_ON && BAKE_SPLIT_ON && !g\.userData\.bakeSplitC/.test(src) })())
+  //  ★211-f: 감광 = y 선형 램프(데크 LO → 슬릿 하단 HI). 물리 방향(입구가 가장 밝다)을 문는다.
+  //  ★211-i: 연속 램프 — 데크 LO → 슬릿 하단 HI → 슬릿 상단 SLIT(정점) → 마루 밑 HI. 점프 0(형광등 봉인).
+  T('⑸′ ★211-i 램프 — 게이트 불리언 · 0<LO<HI<SLIT≤1 · 데크=LO · 슬릿 하단=HI · 슬릿 상단=SLIT(최대) · 마루밑=HI · 연속(점프 없음)',
+    typeof BRD_DIM_ON === 'boolean' && BRD_DIM_LO > 0 && BRD_DIM_LO < BRD_DIM_HI && BRD_DIM_HI < BRD_DIM_SLIT && BRD_DIM_SLIT <= 1 &&
+    Math.abs(LM.brdDimAt(BRD_YW) - BRD_DIM_LO) < 1e-12 &&
+    Math.abs(LM.brdDimAt(S12.slit.y0) - BRD_DIM_HI) < 1e-9 &&
+    Math.abs(LM.brdDimAt(S12.slit.y1) - BRD_DIM_SLIT) < 1e-9 &&
+    Math.abs(LM.brdDimAt(147.3158163265306) - BRD_DIM_HI) < 1e-9 &&
+    (() => { let p = LM.brdDimAt(BRD_YW), mx = 0
+      for (let y = BRD_YW; y <= 147.3; y += 0.02) { const d = LM.brdDimAt(y); mx = Math.max(mx, Math.abs(d - p)); p = d }
+      return mx < 0.02 })())   // 0.02 걸음당 변화 < 0.02 = 연속(구판은 y0에서 0.75 점프)
+  T('⑸‴ ★211-i 슬라이스 — 게이트 불리언 · DX>0 · SL_OP·SL_XF ∈ (0,1) · Room이 커튼 구간마다 x=const 팬을 세운다',
+    typeof BRD_LIGHT_SL_ON === 'boolean' && BRD_LIGHT_SL_DX > 0 && BRD_LIGHT_SL_OP > 0 && BRD_LIGHT_SL_OP < 1 &&
+    BRD_LIGHT_SL_XF > 0 && BRD_LIGHT_SL_XF < 1 &&
+    (() => { const src = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+      return /BRD_SLICES && <mesh geometry=\{BRD_SLICES\} material=\{brdSliceMat\}/.test(src) &&
+        /uniforms\.uXFeather\.value = BRD_LIGHT_SL_XF/.test(src) && /Math\.round\(\(b - a\) \/ BRD_LIGHT_SL_DX\)/.test(src) })())
+  T('⑸″ ★211-f 배선 — Room이 정점별 brdDimAt(y)를 삼각형 단위 체제 안에서 매긴다 + 구배 분할은 베이크 전용',
+    (() => { const src = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+      return /region === 0 \? brdDimP\(/.test(src) && /BAKE_C_ON \? zoneCShadeAt\(p, nn, bakeC\) : brdDimP\(p, nn\)/.test(src) &&
+        /BAKE_C_ON && BAKE_GRAD_ON && !g\.userData\.bakeGradC/.test(src) })())
+  T('⑹ 배선 — Room이 brdLightSpec을 읽고(사본 0) 독립 게이트로 마운트한다',
+    (() => { const src = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
+      return /brdLightSpec\(\)/.test(src) && /BRD_CURTAINS\.map/.test(src) &&
+        /uniforms\.uAxial\.value = 0\.0/.test(src) &&
+        !/ROOM_SHAFT_ON && \(<>[\s\S]{0,400}BRD_CURTAINS/.test(src) })())
 }
 
 console.log(`\n전체 ${pass + fail}항 중 ${pass}항 통과 ${fail ? '❌ ' + fail + '항 실패' : '✅'}`)

@@ -40,7 +40,7 @@ import {
   SPIRE_FIN_HOLE_R, SPIRE_FIN_CAP_T, SPIRE_MOLD_ON, SPIRE_M1_OCT, SPIRE_M1_OV, SPIRE_M1_H, SPIRE_M3_OV, SPIRE_M3_H,
   SPW_ON, SPW_D, SPW_Y0, SPW_H, SPW_J1, SPW_TOP_F, SPW_TOP_MOLD,
   LNK_ON, LNK_DOOR_ON, LNK_ASSIGN, LNK_DOOR_H, LNK_DOOR_HW, LNK_DOOR_MARG, SPT_R, SPT_Y,
-  SPD_ON, SPD_HW, SPD_H, SPD_FW, SPD_PROJ, SPD_SIDE, SPD_EMB, SPD_MARG, SPD_Y0, SPD_Y1,
+  SPD_ON, SPD_HW, SPD_H, SPD_FW, SPD_PROJ, SPD_SIDE, SPD_EMB, SPD_MARG, SPD_Y0, SPD_Y1, SPD_LIP,
   SPIRE_PORTAL_ON, SP_FR_SPAN, SP_FR_W, SP_FR_SPRING, SP_FR_APEX, SP_FR_POINT,
   SP_FR_PROJ_TOP, SP_FR_PROJ_FOOT, SP_FR_PROJ_P, SP_FR_TILT, SP_FR_EMB, SP_FR_CLR,
   SP_FR_MESH, SP_FR_MESH_GAP, SP_FR_MESH_PROJ, SP_FR_MESH_TIP, SP_FR_MESH_TIP_P,
@@ -547,10 +547,12 @@ export function buildSpireDoorFrame(S = spireSpec()) {
     q(P[0],P[1],P[5],P[4]); q(P[3],P[7],P[6],P[2])
     q(P[0],P[4],P[7],P[3]); q(P[1],P[2],P[6],P[5])
   }
+  //  ★212-d 립: 안쪽면을 개구 안으로 SPD_LIP 돌출(컷면과의 공면 z-파이팅 봉인 — 개구 컷 자체는 불변)
+  const hwL = D.hw - SPD_LIP, y1L = D.y1 - SPD_LIP
   for (const b of D.bands) {
-    box(b.r0, b.r1, D.y0, D.y1, D.hw, D.hw + D.fw)                 // 문설주 +z
-    box(b.r0, b.r1, D.y0, D.y1, -(D.hw + D.fw), -D.hw)             // 문설주 −z
-    box(b.r0, b.r1, D.y1, D.y1 + D.fw, -(D.hw + D.fw), D.hw + D.fw) // 인방
+    box(b.r0, b.r1, D.y0, y1L, hwL, D.hw + D.fw)                    // 문설주 +z
+    box(b.r0, b.r1, D.y0, y1L, -(D.hw + D.fw), -hwL)                // 문설주 −z
+    box(b.r0, b.r1, y1L, D.y1 + D.fw, -(D.hw + D.fw), D.hw + D.fw)  // 인방
   }
   const g = new THREE.BufferGeometry()
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))

@@ -24,7 +24,13 @@ import {
   BAKE_BOUNCE_UP,   // ★196 상절 전용 반사 세기(방 고정)
   BAKE_GAMMA_UP,   // ★197 상절 전용 톤 감마(방 고정)
   gatCap, ceilY, COR_CX, COR_R, CUP_R, GAT_CROWN_R, GAT_POSTS, GAT_POST_R, GAT_CONE_H, GAT_FACETS,   // ★188 D구획 = 드럼 홀 + 갓
-  SHAFT_HALO_LO_CLIP_ON, ROOM_SHELL_SEG_U, wallR } from './constants.js'   // ★209-d 하절 헤일로 절단
+  SHAFT_HALO_LO_CLIP_ON, ROOM_SHELL_SEG_U, wallR,   // ★209-d 하절 헤일로 절단
+  BAKE_C_GAMMA, BRD_X0, BRD_EAST_X, BRD_HW, BRD_T, BRD_YW, BRD_DECK_BOT, BRD_COL_W,
+  BRD_TRP_C0Y, BRD_TRP_CAPY,
+  BRD_ROOF_BOT, BRD_LIGHT_Z1, BRD_LIGHT_GAP, BRD_DIM_LO, BRD_DIM_HI, BRD_DIM_SLIT, brdEndX,
+  SPD_HW, SPD_H, SPD_Y0, BRD_WCUT, BRD_TRP_ON, BRD_DIM_WEST_L, BRD_DIM_WEST_SEG, BRD_DIM_WEST_G, BRD_DIM_WEST_K,
+  BRD_DOOR_LIGHT_ON, BRD_DOOR_L, BRD_DOOR_SPREAD, BRD_DOOR_DX } from './constants.js'   // ★210 C구획 + ★211 빛 커튼
+import { trapColumnSpec, slitLinkSpec, bridgeTrapSpec, spireCutX } from './bridgeTrapGeometry.js'   // ★210 슬릿 실기하(빌더와 같은 spec — 사본 금지)
 import { spireSpec, wellWallR, wellInnerClear } from './spireGeometry.js'
 import { spireTerraceSpec } from './spireTerraceGeometry.js'   // ★209 테라스 구멍 = y127의 통과 구속(사본 금지)
 import { discSpec } from './discGeometry.js'   // ★180 하절 공급지에 디스크 트인 틈 합류
@@ -847,6 +853,300 @@ export function zoneDShadeAt(pos, n, D = zoneDBakeSpec()) {
   //   D의 개구는 홀 바닥에서 202 위에 있어 역제곱만으로 163배가 벌어진다. 한 감마로 둘을 덮을 수 없다.
   //   FLOOR·TONE·BOUNCE·POLY_ON은 여전히 공유한다 — 갈라야 했던 것은 **압축률 하나뿐**이다.
   return BAKE_FLOOR + (1 - BAKE_FLOOR) * toneCurve(E / D.seg.eRef, BAKE_TONE, BAKE_D_GAMMA)
+}
+
+// ── ★210 C구획(관 = 테라스→드럼 접속 통로) 베이크 — 공급지 = 갓 밑 레터박스 슬릿 ─────
+//  ⚠공급지 근거 = **광선 전수 실측**(2026.08.30 _probe_brd_aperture — 표본 15점 × 2520발 미스 0 +
+//   조밀 스캔 0.2°×0.4° 미스 0): 관 내부에서 하늘이 보이는 방향은 없다. 유일한 하늘 개구 =
+//   토막아래/토막위 사이 **수평 레터박스 슬릿**(y ∈ [AY+STUB, +SLIT] · 깊이 = 벽 두께 · 양측 미러).
+//   기둥 위치(슬릿마개 — 폭 BRD_COL_W)와 동단(슬릿잇기 x ≥ L.x0)만 막혀 있다.
+//  ★발광면 = 슬릿 **안쪽 입**(z = ±zIn 수직 사각형 · 법선 안쪽 수평) — D의 원통 띠와 같은 문법(측면 유입)
+//   이되 **평면이라 현 근사가 없다**(폴리곤 램버트가 정확식 — seg 노브 불요).
+//  ⚠1차 근사 선언 = 채널 각도 제한 무시(constants ★210 주석이 정본).
+//  ⚠열린 구간 파생 = 빌더와 **같은 spec**(trapColumnSpec·slitLinkSpec — 사본 금지·손 수치 0).
+
+/** 슬릿 열린 구간 — 기둥 마개(xc ± W/2)와 동단 잇기(x ≥ L.x0)를 제외한 x 구간들. 전부 파생 */
+export function slitOpenSpec(K = trapColumnSpec(), L = slitLinkSpec(K)) {
+  const opens = []
+  let cur = BRD_X0
+  for (const xc of K.xs) {
+    const a = xc - BRD_COL_W / 2, b = xc + BRD_COL_W / 2
+    if (a > cur + 1e-9) opens.push([cur, Math.min(a, L.x0)])
+    cur = Math.max(cur, b)
+    if (cur >= L.x0) break
+  }
+  if (cur < L.x0) opens.push([cur, L.x0])
+  return { opens, slit: K.slit, innerWallZ: K.innerWallZ, K, A: K.A || bridgeTrapSpec(),
+           total: opens.reduce((t, [a, b]) => t + (b - a), 0) }
+}
+/** 슬릿 안쪽 입 → 평면 사각형(구간 × 양측). 법선 = 안쪽 수평(빛은 관 안으로 들어온다) */
+export function slitOpenPolys(S = slitOpenSpec()) {
+  const out = []
+  const { y0, y1, zIn } = S.slit
+  for (const side of [1, -1]) for (const [a, b] of S.opens) {
+    const z = side * zIn
+    out.push({ n: [0, 0, -side],
+               v: side > 0 ? [[a, y0, z], [b, y0, z], [b, y1, z], [a, y1, z]]
+                           : [[a, y0, z], [a, y1, z], [b, y1, z], [b, y0, z]] })
+  }
+  return out
+}
+/** 슬릿 점 표본(보존계 BAKE_POLY_ON=false 경로) — 구간별 표본 수 ∝ 길이(밀도 = 가중치, D와 같은 규율) */
+export function supplySlitSamples(S = slitOpenSpec(), n = BAKE_N) {
+  const out = []
+  const { y0, y1, zIn } = S.slit
+  for (const side of [1, -1]) for (const [a, b] of S.opens) {
+    const k = Math.max(1, Math.round((n * (b - a)) / (2 * S.total)))
+    for (let i = 0; i < k; i++) {
+      const u = (i + 0.5) / k, v = (i * 0.7548776662466927) % 1     // R2 저불일치(D 생성기와 같은 상수)
+      out.push({ p: [a + u * (b - a), y0 + v * (y1 - y0), side * zIn], n: [0, 0, -side] })
+    }
+  }
+  return out
+}
+/** C구획 베이크 명세 — 단일 절(개구 가족이 슬릿 하나뿐 — D와 같은 사유).
+ *  기준점 = 갓 밑 공동(가장 긴 열린 구간 중점 · 슬릿 상단과 토막위 상단의 중간 · 아래보기) —
+ *   빛이 관에 들어서서 처음 씻는 자리(D의 '문턱' 어법). 실측상 내부 최대역이라 포화가 없다. */
+export function zoneCBakeSpec() {
+  const S = slitOpenSpec()
+  const polys = slitOpenPolys(S)
+  const samples = supplySlitSamples(S)
+  //  반사 공급지 = 데크 전폭 사각형(1차 근사 선언 — constants ★210) · 세기 BAKE_BOUNCE(A·D와 공유)
+  const EPS_Y = 1e-3
+  const bouncePolys = [{ n: [0, 1, 0],
+    v: [[BRD_X0, BRD_YW + EPS_Y, -BRD_HW], [BRD_EAST_X, BRD_YW + EPS_Y, -BRD_HW],
+        [BRD_EAST_X, BRD_YW + EPS_Y, BRD_HW], [BRD_X0, BRD_YW + EPS_Y, BRD_HW]] }]
+  const bounce = []
+  { const NB = Math.max(4, BAKE_N), L = BRD_EAST_X - BRD_X0
+    for (let i = 0; i < NB; i++) {
+      const u = (i + 0.5) / NB, v = (i * 0.7548776662466927) % 1
+      bounce.push({ p: [BRD_X0 + u * L, BRD_YW + EPS_Y, (v * 2 - 1) * BRD_HW], n: [0, 1, 0] })
+    } }
+  const eAt = (p, n, seg) => BAKE_POLY_ON
+    ? polysIrradianceW(p, n, seg.polys) + BAKE_BOUNCE * polysIrradiance(p, n, seg.bouncePolys)
+    : bakeIrradianceAt(p, n, seg.samples) + BAKE_BOUNCE * bakeIrradianceAt(p, n, seg.bounce)
+  const seg = { samples, bounce, polys, bouncePolys }
+  const longest = S.opens.reduce((m, o) => (o[1] - o[0] > m[1] - m[0] ? o : m))
+  const refP = [(longest[0] + longest[1]) / 2, (S.slit.y1 + BRD_TRP_C0Y) / 2, 0]
+  seg.eRef = eAt(refP, [0, -1, 0], seg)
+  return { open: S, seg, eAt, refP }
+}
+/** C구획 '내부' 판정(월드 좌표 — 관은 원점계) — A의 규약 계승: 경계 = 안면 포함 · 벽 살 대역은 법선 구제.
+ *   ① 몸통(데크 상면 ~ 슬릿 상단): |z| ≤ 안쪽 면(슬릿 대역은 zIn) ② 슬릿 채널(살 대역): 법선이 바깥(±z)을
+ *   향하지 않는 면만 — 채널 천장·바닥·마개 정면·잇기 서면 구제(★195 wallFaceInward와 같은 형식)
+ *   ③ 갓 공동(슬릿 상단~마루 중심선): |z| ≤ zOut + 법선이 위를 향하지 않는 면만 — 갓 윗면(밖) 제외 */
+export function zoneCInterior(p, B = zoneCBakeSpec(), n = null) {
+  if (p[0] > BRD_EAST_X + 1e-4) return false
+  if (p[1] < BRD_YW - 1e-4) return false
+  const { y0, y1, zIn, zOut } = B.open.slit
+  const az = Math.abs(p[2])
+  if (p[1] <= y1 + 1e-4) {
+    //  ★211-h: 구판 min(innerWallZ, zOut+T)는 ∞ 대비 상한이 데크·스커트 대역(안면 4.44~6.3)을 4.025로
+    //   좁게 잘라 데크 가장자리 띠·스커트 안면을 '밖'으로 만들었다(실기하 재현으로 적발). ∞일 때만 폴백.
+    const w = B.open.innerWallZ(p[1])
+    const iw = p[1] >= y0 - 1e-4 ? zIn : (w === Infinity ? zOut + BRD_T : w)
+    if (az <= iw + 1e-4) return true
+    //  ② 슬릿 채널 구제 — 살 대역 [zIn, zOut] · 슬릿 y대역 안 · 법선의 z성분이 바깥을 향하지 않는다
+    if (n && p[1] >= y0 - 1e-3 && az <= zOut + 1e-3 && n[2] * Math.sign(p[2] || 1) <= 1e-6) return true
+    //  ②′ ★211-k 안면 구제(전 y대역) — 벽 안면은 innerWallZ의 **정의면 자체**라 삼각형 중심이 정확히 경계 위에
+    //   놓여 수치 오차로 안/밖이 교대했다(실측: 빗면 안쪽향 삼각형 1612 중 1240 '밖' → 흰 톱니 = V자 선의
+    //   진짜 원인). 살 대역(안면~바깥면 BRD_T) 안이고 법선이 **확실히 안쪽**(수평 성분 < −0.3)이면 안.
+    //   스커트 상면(법선 위, z성분 0)·바깥면(z성분 +)은 걸리지 않는다 — 외피 불변.
+    if (n && az <= iw + BRD_T + 1e-3 && n[2] * Math.sign(p[2] || 1) < -0.3) return true
+    //  ②″ ★211-l 관 안을 향한 x면 — 서단 조각의 x+ 단면(관이 첨탑 벽에서 끝나는 마감면 · 관 안에서 서쪽을 보면
+    //   프로파일 형상 그대로 보인다)과 동단마개 안면. 살 대역 안이고 법선의 x성분이 관 중앙 쪽이면 안.
+    //   (실증: 서단스커트 안쪽향 삼각형 중 550이 '밖' — 법선 (−0.97,0,−0.23)·(+x 단면) 계열.)
+    if (n && az <= iw + BRD_T + 1e-3 && n[0] * Math.sign((BRD_X0 + BRD_EAST_X) / 2 - p[0]) > 0.3) return true
+    return false
+  }
+  //  ★211-n 갓 공동: '위 향 면 제외'의 문턱을 1e-6 → 0.6으로 — 갓 윗면(n[1]≈0.94)·마루 윗면(1.0)은 여전히 밖이고,
+  //   첨탑 경사(스킨 법선 y성분 0.42)는 안. 구판 문턱은 스킨 갓 대역 260 삼각형을 흰 톱니로 만들었다.
+  if (p[1] <= BRD_TRP_CAPY + 1e-4) {
+    //  ★212-c 갓 공동 — 구판 'az ≤ zOut && n[1] ≤ 0.6'은 살 대역 전체를 삼켜 갓빗판 **바깥 경사면**(n=(0,.35,.94))·
+    //   갓마루 옆면·토막위 바깥면을 '안'으로 감광시켰다(현도 사진: 외부 갓의 삼각형 무늬 = quad 두 삼각형 중
+    //   중심 z가 zOut 안쪽인 것만 걸린 교대). ⇒ ①공동 공기·안면 = |z| ≤ trapCavityZ(y)(토막위 zIn·갓빗판 안변)
+    //   ②살 대역(≤ zOut)은 **천장(아래 향) 또는 안쪽 벽(안 향) 면만** 구제 — 위·바깥 향 면은 밖(외피 불변).
+    const cz = trapCavityZ(p[1], B.open.A, B.open.K)
+    if (cz !== null && az <= cz + 1e-4) return true
+    if (n && az <= zOut + 1e-3 && (n[1] < -0.3 || n[2] * Math.sign(p[2] || 1) < -0.3)) return true
+    //  관 안을 향한 x면(서단 스킨·동단마개의 공동 부분) — 첫 대역 규칙 ②″와 같은 사유
+    if (n && az <= zOut + 1e-3 && n[0] * Math.sign((BRD_X0 + BRD_EAST_X) / 2 - p[0]) > 0.3) return true
+    return false
+  }
+  return false
+}
+/** C구획 정점 셰이드 ∈ [BAKE_FLOOR, 1] — 톤·바닥·반사는 A·D와 같은 노브, 감마만 전용(BAKE_C_GAMMA) */
+export function zoneCShadeAt(pos, n, B = zoneCBakeSpec()) {
+  const E = B.eAt(pos, n, B.seg)
+  return BAKE_FLOOR + (1 - BAKE_FLOOR) * toneCurve(E / B.seg.eRef, BAKE_TONE, BAKE_C_GAMMA)
+}
+/** 드럼 홀 승계 대역(월대샤프트·월대나선·관의 드럼 안 밑면 — 드럼 벽 안 · 데크 상면 이하) —
+ *  게이트는 Room이 BAKE_C_DHALL로 건다. ⚠상한 = BRD_YW(데크 **상면**): 샤프트 벽의 데크 두께 대역
+ *  (y 125.5~127, 하강 구멍 안쪽 면)이 무구획 백색 띠로 남지 않게. 데크 상면 정점은 판정 순서상
+ *  B가 먼저 가져가므로(내부 판정 → 승계 순) 충돌 없음 — 경계선 = 구멍 테두리(자연 주름). */
+export function drumHallCarry(p) {
+  const r = Math.hypot(p[0] - COR_CX, p[2])
+  return r <= COR_R && p[1] <= BRD_YW + 1e-4 && p[1] >= -CUP_R
+}
+
+/** ── ★211 관 빛 커튼 기하 정본(전부 파생 · 손 수치 0) ──
+ *  ★211-r 개정(현도 둘째 스케치 — 초록 경계 픽셀 실측): 첫 구현은 슬릿 절점을 zOut으로 잡아 빗면 살을
+ *  뚫었다(최대 +1.36 — ★209의 병 4번째 반복). 스케치 확정 형상:
+ *   프로파일(z(y) 절점 — 아래→위): (Z1=2.8, 데크) → (zIn, 슬릿 하단) → (zIn, 토막위 상단 C0Y)
+ *   → (갓빗판 안변@마루밑=1.116, 마루 밑면). 슬릿 하단까지 직선 확산(실측 오차 ±0.05) · 갓 공동에서 수렴.
+ *  ★껍질 준수 = foldChainToClearance **재사용**(★209 어법 — 사본 0): 구속 = 벽 안면 실측
+ *   (스커트·빗면 대역 innerWallZ + 갓 공동 갓빗판 안변) · 여유 = BRD_LIGHT_GAP(0 — 접촉 허용).
+ *   슬릿 대역(y0~y1)은 채널 개구라 구속 없음. 검사 [★커튼⊂안면]이 상주로 문다.
+ *  커튼 x구간 = slitOpenSpec 재사용(마개 리듬 = 빛의 리듬). 동단판 yCap은 ★211 그대로. */
+/** ★212-c 갓 공동 안면 z(y) — 토막위 대역(슬릿 상단~C0Y)은 zIn, 그 위는 갓빗판 안변(빌더 spec 파생).
+ *  zoneCInterior와 brdLightSpec.wall이 **같이** 쓴다(사본 0). y ≤ 슬릿 상단이면 null(다른 규칙 담당). */
+export function trapCavityZ(y, A = bridgeTrapSpec(), K = trapColumnSpec(A)) {
+  const { y1, zIn } = K.slit
+  if (y <= y1 + 1e-9) return null
+  if (y <= BRD_TRP_C0Y + 1e-9) return zIn
+  const gq = A.secs.find((s2) => s2.id === '갓빗판').quad
+  return gq[0][0] + ((gq[1][0] - gq[0][0]) * (y - gq[0][1])) / (gq[1][1] - gq[0][1])
+}
+export function brdLightSpec() {
+  const S = slitOpenSpec()
+  const { y0, y1, zIn } = S.slit
+  const A = bridgeTrapSpec()
+  //  갓빗판 안변(관 안쪽 변 — quad[0]→quad[1]) : 갓 공동의 벽 안면. 전부 빌더 spec에서 파생.
+  const gq = A.secs.find((s2) => s2.id === '갓빗판').quad
+  const gableInnerZ = (y) => gq[0][0] + ((gq[1][0] - gq[0][0]) * (y - gq[0][1])) / (gq[1][1] - gq[0][1])
+  const top = BRD_ROOF_BOT
+  //  ★211-e: 꼭대기 절점 자체를 안변 − GAP으로 — fold 구속은 격자·꼭짓점 y에만 걸려 top 절점(원값)이
+  //   접점보다 넓게 잔존하는 사각이 있었다(실증: 147.32에서 +0.054 역전). 절점 정의가 이격을 품는다.
+  const zTop = gableInnerZ(top) - BRD_LIGHT_GAP
+  const K = trapColumnSpec(A)
+  const prof0 = [[BRD_YW, BRD_LIGHT_Z1], [y0, zIn], [BRD_TRP_C0Y, zIn], [top, zTop]]   // [y, z]
+  //  fold: [y,z]는 [y,r] 사슬과 동형 — ★209 함수를 그대로 쓴다. 사슬은 내림차순 요구라 뒤집어 넣는다.
+  const wall = (y) => {
+    if (y >= y0 - 1e-9 && y <= y1 + 1e-9) return Infinity            // 슬릿 채널(개구)
+    const cz = trapCavityZ(y, A, K); if (cz !== null) return cz       // 토막위 안면·갓 공동(★212-c 공용 정본)
+    const w = K.innerWallZ(y)                                         // 스커트·빗면
+    return w === Infinity ? Infinity : w
+  }
+  const cons = []
+  for (let y = BRD_YW + 0.1; y <= top - 1e-6; y += 0.2) { const w = wall(y); if (w !== Infinity) cons.push([y, w]) }
+  //  ⚠격자(0.2)만으로는 안면의 **실절점**(예: 빗면 안변 위끝 z1.389@y142.249)을 놓친다 — 첫 검증에서
+  //   +0.114 잔존 침범으로 실증. 벽 단면 quad 꼭짓점 y를 전부 구속에 추가한다(파생 — 손 수치 0).
+  for (const s2 of A.secs) for (const [, qy] of s2.quad) {
+    if (qy > BRD_YW + 1e-6 && qy < top - 1e-6) { const w = wall(qy); if (w !== Infinity) cons.push([qy, w]) }
+  }
+  const chain = [...prof0].reverse().map(([y, z]) => [y, z])
+  foldChainToClearance(chain, cons, BRD_LIGHT_GAP)
+  const prof = [...chain].reverse()
+  const zAt = (y) => {
+    const yc = Math.min(Math.max(y, prof[0][0]), prof[prof.length - 1][0])
+    for (let i = 0; i < prof.length - 1; i++) {
+      const [ya, za] = prof[i], [yb, zb] = prof[i + 1]
+      if (yc >= ya - 1e-9 && yc <= yb + 1e-9) { const t = (yc - ya) / (yb - ya || 1); return za + t * (zb - za) }
+    }
+    return prof[prof.length - 1][1]
+  }
+  const xKnee = brdEndX(y0)
+  const east = {
+    x0: slitLinkSpec().x0, x1: BRD_EAST_X, xKnee,
+    yCap: (x) => (x <= xKnee
+      ? y1 + ((x - slitLinkSpec().x0) / (xKnee - slitLinkSpec().x0)) * (y0 - y1)
+      : y0 + ((x - xKnee) / (BRD_EAST_X - xKnee)) * (BRD_YW - y0)),
+  }
+  return { curtains: S.opens, prof, zAt, top, yBase: BRD_YW, east, wall, slitBand: [y0, y1] }
+}
+
+/** ★211-f 관 내부 감광 램프 — y 선형: 데크 BRD_DIM_LO → 슬릿 하단 BRD_DIM_HI(그 위 = HI 유지).
+ *  파생: 램프 구간 = [BRD_YW, 슬릿 하단 y0](slitOpenSpec 재사용 — 사본 0). */
+export function brdDimAt(y, S = slitOpenSpec()) {
+  const { y0, y1 } = S.slit
+  const top = BRD_ROOF_BOT
+  const lerp = (a, b, u) => a + (b - a) * Math.min(1, Math.max(0, u))
+  if (y < y0) return lerp(BRD_DIM_LO, BRD_DIM_HI, (y - BRD_YW) / (y0 - BRD_YW))     // 데크 → 슬릿 하단
+  if (y < y1) return lerp(BRD_DIM_HI, BRD_DIM_SLIT, (y - y0) / (y1 - y0))         // 슬릿 채널: 상단이 정점
+  return lerp(BRD_DIM_SLIT, BRD_DIM_HI, (y - y1) / (top - y1))                    // 갓 공동: 위로 갈수록 HI로
+}
+
+/** ★211-m 관 서단 스킨 정점 소프(비인덱스 삼각형 · [x,y,z]×3 평면 배열) — 관은 첨탑 벽에 박혀 있어 관 안에서
+ *  서쪽을 보면 첨탑 외벽이 관 단면 형상으로 관 끝을 막는다(문만 뚫림). 첨탑은 A 소유라 관 톤과 어긋났고 정점색
+ *  덧칠은 실패(★211-l — 첨탑 삼각형이 단면보다 크다). ⇒ 노출 영역(관 내부 공기 단면 − 문 개구)에 첨탑 곡면을
+ *  spireCutX(★151 면추종 정본)로 그대로 따르는 판을 EPS 앞에. 살 대역으로 OVER 겹침(틈 방지 — 서단 조각이 가림).
+ *  Room이 BufferGeometry로 감싸고 check가 같은 소프로 재현한다(사본 0). */
+/** ★212-g 문 개구 광원 — 관 서단(x=BRD_X0)의 첨탑 문 개구 사각형(SPD 파생) · 법선 +x(관 안 향) */
+export function brdDoorPoly() {
+  const y0 = SPD_Y0, y1 = SPD_Y0 + SPD_H, hw = SPD_HW, x = BRD_X0
+  return [{ n: [1, 0, 0], v: [[x, y0, -hw], [x, y0, hw], [x, y1, hw], [x, y1, -hw]] }]
+}
+let _doorERef = null
+/** 문 빛 gain(p, n) ∈ [0, K] — 개구 램버트 조도 E를 데크 문턱 eRef로 정규화, 지수 WEST_G. 개구와 같은 평면·뒤쪽 = 0 */
+export function brdWestGain(p, n) {
+  const door = brdDoorPoly()
+  if (_doorERef === null) _doorERef = polysIrradiance([BRD_X0 + 0.5, BRD_YW + 1e-3, 0], [0, 1, 0], door)
+  const e = polysIrradiance(p, n, door)
+  return BRD_DIM_WEST_K * Math.pow(Math.min(1, Math.max(0, e / _doorERef)), BRD_DIM_WEST_G)
+}
+/** 감광 합성: base(y 램프 또는 스킨 상수) → 문 빛으로 풀린다. s = base + (1 − base)·gain(p, n) */
+export function brdDimP(p, n, base = brdDimAt(p[1])) { return base + (1 - base) * brdWestGain(p, n) }
+/** 전이 구간 x 스테이션(분할 평면) — BRD_X0 + k·SEG, k = 1..L/SEG */
+export function brdWestStations() {
+  const out = []; for (let x = BRD_X0 + BRD_DIM_WEST_SEG; x < BRD_X0 + BRD_DIM_WEST_L - 1e-9; x += BRD_DIM_WEST_SEG) out.push(x)
+  out.push(BRD_X0 + BRD_DIM_WEST_L); return out
+}
+
+/** ★212-h 문 빛 장치 소프 — 개구 사각형(x=X0 · z±hw · y0~y1)에서 관 안쪽 DOOR_L까지: 하단 y0(데크) 고정, 상단 y1 → y0
+ *  (빛이 바닥에 내려앉는다), 반폭 hw → hw·SPREAD. x=const 판(DX 간격 · 팬 · uv.x = 중심 1 → 둘레 0 = 둘레 페이드)
+ *  + 옆면 두 장·윗면(옆 시점). uv.y = 개구에서의 거리 비율(1 = 개구, 0 = 끝) — 셰이더 세로 페이드가 끝단을 녹인다.
+ *  반환 { pos, uv } (Room이 BufferGeometry로 감싼다 · check가 같은 소프 재현). */
+export function brdDoorLightTris() {
+  if (!BRD_DOOR_LIGHT_ON) return null
+  const x0 = BRD_X0, L = BRD_DOOR_L, y0 = SPD_Y0, y1 = SPD_Y0 + SPD_H, hw0 = SPD_HW, hw1 = SPD_HW * BRD_DOOR_SPREAD
+  const at = (t) => ({ x: x0 + L * t, hw: hw0 + (hw1 - hw0) * t, yt: y1 + (y0 + 0.02 - y1) * t })   // t ∈ [0,1]
+  const pos = [], uv = []
+  const push = (p, u, v) => { pos.push(p[0], p[1], p[2]); uv.push(u, v) }
+  const n = Math.max(1, Math.round(L / BRD_DOOR_DX))
+  //  ⑴ x=const 판(팬) — 사각 단면 4변, 중심 (x, (y0+yt)/2, 0)
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, s = at(t), v = 1 - t, c = [s.x, (y0 + s.yt) / 2, 0]
+    const ring = [[s.x, y0, -s.hw], [s.x, y0, s.hw], [s.x, s.yt, s.hw], [s.x, s.yt, -s.hw]]
+    for (let k = 0; k < 4; k++) { push(c, 1, v); push(ring[k], 0, v); push(ring[(k + 1) % 4], 0, v) }
+  }
+  //  ⑵ 옆면(±z)·윗면 — 세그마다 quad, uv.x = 1(둘레 페이드 없음 — 세로 페이드만)
+  for (let i = 0; i < n; i++) {
+    const a = at(i / n), b = at((i + 1) / n), va = 1 - i / n, vb = 1 - (i + 1) / n
+    for (const sg of [1, -1]) {
+      const q = [[a.x, y0, sg * a.hw], [b.x, y0, sg * b.hw], [b.x, b.yt, sg * b.hw], [a.x, a.yt, sg * a.hw]]
+      push(q[0], 1, va); push(q[1], 1, vb); push(q[2], 1, vb); push(q[0], 1, va); push(q[2], 1, vb); push(q[3], 1, va)
+    }
+    const qt = [[a.x, a.yt, -a.hw], [b.x, b.yt, -b.hw], [b.x, b.yt, b.hw], [a.x, a.yt, a.hw]]
+    push(qt[0], 1, va); push(qt[1], 1, vb); push(qt[2], 1, vb); push(qt[0], 1, va); push(qt[2], 1, vb); push(qt[3], 1, va)
+  }
+  return { pos, uv }
+}
+
+export function brdWestSkinTris() {
+  if (!BRD_WCUT || !BRD_TRP_ON) return null
+  const L = brdLightSpec(); const S = spireSpec()
+  const EPS = 0.03, OVER = 0.1, dy = 0.25, NZ = 10   //  ★211-n OVER 0.3→0.1(살 대역 외곽 최소화)
+  const wAt = (y) => { const w = L.wall(y); return (w === Infinity ? L.zAt(y) : w) + OVER }
+  const doorHW = SPD_HW, doorTop = BRD_YW + SPD_H
+  const pos = []
+  //  ⚠★211-n 감기 방향: (a,b,c)=(ya,z0)(ya,z1)(yb,z1)은 법선 −x(첨탑 쪽)였다 — 관 안을 향한 x면 구제(n[0]>0.3)에
+  //   안 걸려 살 대역 외곽 111 삼각형이 '밖'=흰 톱니(현도 사진). 반대로 감아 법선을 +x(관 안)로.
+  const quad = (a, b, c, d) => { pos.push(...a, ...c, ...b, ...a, ...d, ...c) }
+  const pt = (y, z) => [spireCutX(y, z, S) + EPS, y, z]
+  const strip = (ya, yb, z0a, z1a, z0b, z1b) => {
+    for (let k = 0; k < NZ; k++) {
+      const ta = k / NZ, tb = (k + 1) / NZ
+      quad(pt(ya, z0a + (z1a - z0a) * ta), pt(ya, z0a + (z1a - z0a) * tb), pt(yb, z0b + (z1b - z0b) * tb), pt(yb, z0b + (z1b - z0b) * ta))
+    }
+  }
+  const ys = []; for (let y = BRD_YW; y < L.top - 1e-6; y += dy) ys.push(y); ys.push(L.top)
+  if (!ys.some((y) => Math.abs(y - doorTop) < 1e-9)) { ys.push(doorTop); ys.sort((a, b) => a - b) }
+  for (let i = 0; i < ys.length - 1; i++) {
+    const ya = ys[i], yb = ys[i + 1], wa = wAt(ya), wb = wAt(yb)
+    if (yb <= doorTop + 1e-9) { strip(ya, yb, -wa, -doorHW, -wb, -doorHW); strip(ya, yb, doorHW, wa, doorHW, wb) }
+    else strip(ya, yb, -wa, wa, -wb, wb)
+  }
+  return pos
 }
 
 // ── ★178 경계 분할(2026.08.27 현도 ⓒ) ────────────────────────

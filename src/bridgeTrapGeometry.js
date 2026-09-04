@@ -15,7 +15,7 @@ import {
   BRD_TRP_CAPY, BRD_TRP_M, BRD_TRP_OVH,
   BRD_TRP_PNL, BRD_TRP_PNL_N, BRD_TRP_PNL_R, BRD_TRP_PNL_G, BRD_TRP_PNL_DP, BRD_TRP_PNL_FW, BRD_TRP_D,
   BRD_COL_ON, BRD_COL_W, BRD_COL_CLR, BRD_COL_CURVE, BRD_COL_SECT, BRD_COL_R, BRD_COL_TH0,
-  BRD_X0, BRD_EAST_X, BRD_HW, BRD_T, BRD_YW, SPIRE_SINK, BRD_BAND_ON, BRD_WCUT,
+  BRD_X0, BRD_EAST_X, BRD_HW, BRD_T, BRD_YW, SPIRE_SINK, BRD_WSINK, BRD_BAND_ON, BRD_WCUT,
   BRD_END_ON, BRD_END_X1, BRD_END_Y1, BRD_END_K, brdEndX, BRD_CEIL_LAP, BRD_DECK_BOT,
   BRD_PROW_ON, BRD_PROW_X0, BRD_PROW_Z0, BRD_PROW_Z1, BRD_PROW_K, brdSlantX, brdProwX, brdCrossZ,
   BRD_CAP_CUT_ON, BRD_CAP_LAP, BRD_CAP_WALL, BRD_PORTAL_ON, SP_FR_W, BRD_SLIT_LINK,
@@ -357,7 +357,10 @@ export function trapWestPieces(A = bridgeTrapSpec()) {
 
 export function buildTrapWestCap(A = bridgeTrapSpec()) {
   if (!BRD_WCUT || !BRD_TRP_ON) return null
-  const S = spireSpec(), xE = BRD_X0 + SPIRE_SINK
+  //  ★212-h 동캡 = BRD_X0 **맞닿음**(구 xE = X0 + SPIRE_SINK 겹침): 본체와 겹친 x22.2~22.7에서 안면이 정확히 공면이라
+  //   정점색(전이·램프)이 두 부재에서 달라진 뒤 z-파이팅 톱니가 드러났다(현도 사진 · 프로브: 서단스커트=본체 스커트 d 동일).
+  //   두 캡(본체 서캡·서단 동캡)은 서로의 살 속에서 맞닿아 어느 각도에서도 살이 보이고 틈이 없다.
+  const S = spireSpec(), xE = BRD_X0
   const pieces = trapWestPieces(A)
   const out = []
   for (const s of A.secs) {
@@ -369,7 +372,7 @@ export function buildTrapWestCap(A = bridgeTrapSpec()) {
           const b = [Q[3][0] + (Q[2][0] - Q[3][0]) * u, Q[3][1] + (Q[2][1] - Q[3][1]) * u]
           return [a[0] + (b[0] - a[0]) * v, a[1] + (b[1] - a[1]) * v]
         }
-        const W = (u, v) => { const [z, y] = C(u, v); return [spireCutX(y, z, S, nH), y, z] }
+        const W = (u, v) => { const [z, y] = C(u, v); return [spireCutX(y, z, S, nH) - BRD_WSINK, y, z] }   //  ★212 살 속 침강
         const E = (u, v) => { const [z, y] = C(u, v); return [xE, y, z] }
         //  ① 서 캡(면추종 격자)
         for (let i = 0; i < WCUT_NU; i++) for (let j = 0; j < WCUT_NV; j++) {
@@ -398,9 +401,63 @@ export function buildTrapWestCap(A = bridgeTrapSpec()) {
       }
       for (const pc of pieces) if (pc.id === s.id) put(pc.q, pc.n)
     })
+    //  ★212-b 후처리 배향 — 격자 캡·옆면의 감기가 sec 회전(전부 CW) × 미러(z 반전 → CCW) × 변 위치에 따라
+    //   뒤집혀 있었다(실측: 서단빗면 안면 112·바깥면 120, 서단스커트 바깥면 106 삼각형 법선 반대 — 본체는 0).
+    //   뒤집힌 법선은 조명을 거꾸로 받아 어둡게 렌더(현도 사진 '틈') + 안면 구제 탈락. 삼각형마다 규칙으로 배향:
+    //   컷면(x ≈ spireCutX−WSINK) → −x · 동캡(x = xE) → +x · 옆면 → 그 미러 sec 사각형(볼록)의 2D 중심 기준 바깥.
+    orientWestCap(geo, pieces.filter((pc) => pc.id === s.id), xE, S)
     out.push({ id: '서단' + s.id, geo })
   }
   return out
+}
+
+//  ★212-b 서단 연장체 삼각형 배향(인덱스 지오메트리 — 인덱스 순서만 뒤집는다 · 정점 불변)
+function orientWestCap(geo, pcs, xE, S) {
+  const P = geo.getAttribute('position'), I = geo.index
+  const cen = (Q) => [(Q[0][0] + Q[1][0] + Q[2][0] + Q[3][0]) / 4, (Q[0][1] + Q[1][1] + Q[2][1] + Q[3][1]) / 4]
+  let flipped = 0
+  for (let k = 0; k < I.count; k += 3) {
+    const i0 = I.getX(k), i1 = I.getX(k + 1), i2 = I.getX(k + 2)
+    const a = [P.getX(i0), P.getY(i0), P.getZ(i0)], b = [P.getX(i1), P.getY(i1), P.getZ(i1)], c = [P.getX(i2), P.getY(i2), P.getZ(i2)]
+    const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
+    const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
+    const m = [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3, (a[2] + b[2] + c[2]) / 3]
+    let want   // 원하는 법선 방향(대략)
+    const nl = Math.hypot(n[0], n[1], n[2]) || 1
+    if (Math.abs(m[0] - xE) < 1e-4) want = [1, 0, 0]
+    //  컷면은 곡면 격자라 삼각형 중심이 곡면에서 현 오차(~1e-2)만큼 벗어난다 — 허용 5e-2 + x 지배 법선도 컷면
+    else if (Math.abs(m[0] - (spireCutX(m[1], m[2], S) - BRD_WSINK)) < 5e-2 || (Math.abs(n[0]) / nl > 0.7 && m[0] < xE - 0.2)) want = [-1, 0, 0]
+    else {
+      //  옆면 — 얇고 긴 sec 사각형에서 '중심 기준'은 y 성분에 지배돼 z 부호가 요동(실증: 바깥면 오판 248).
+      //   ⇒ 삼각형 중심(z,y)에서 가장 가까운 **변**의 2D 바깥 법선(회전 방향은 signed area로 — 미러 자동 반영).
+      //  조각 선택 — 빗면 등은 z방향 여러 조각(★151 pieces)이라 '같은 z 부호의 첫 조각'은 오판(바깥면 144 실증).
+      //   삼각형 중심(z,y)까지의 최소 변 거리가 가장 작은 조각을 고른다.
+      let pc = pcs[0], pbest = Infinity
+      for (const p of pcs) {
+        const Qp = p.q
+        for (let i = 0; i < 4; i++) {
+          const [z0, y0] = Qp[i], [z1, y1] = Qp[(i + 1) % 4], dz = z1 - z0, dy = y1 - y0, L2 = dz * dz + dy * dy || 1
+          const tt = Math.max(0, Math.min(1, ((m[2] - z0) * dz + (m[1] - y0) * dy) / L2))
+          const d = Math.hypot(m[2] - (z0 + tt * dz), m[1] - (y0 + tt * dy))
+          if (d < pbest) { pbest = d; pc = p }
+        }
+      }
+      const Q = pc.q
+      let area = 0; for (let i = 0; i < 4; i++) { const [z0, y0] = Q[i], [z1, y1] = Q[(i + 1) % 4]; area += z0 * y1 - z1 * y0 }
+      let best = Infinity, nz2 = 0, ny2 = 0
+      for (let i = 0; i < 4; i++) {
+        const [z0, y0] = Q[i], [z1, y1] = Q[(i + 1) % 4], dz = z1 - z0, dy = y1 - y0, L2 = dz * dz + dy * dy || 1
+        const tt = Math.max(0, Math.min(1, ((m[2] - z0) * dz + (m[1] - y0) * dy) / L2))
+        const d = Math.hypot(m[2] - (z0 + tt * dz), m[1] - (y0 + tt * dy))
+        if (d < best) { best = d; if (area > 0) { nz2 = dy; ny2 = -dz } else { nz2 = -dy; ny2 = dz } }
+      }
+      want = [0, ny2, nz2]
+    }
+    if (n[0] * want[0] + n[1] * want[1] + n[2] * want[2] < 0) { I.setX(k + 1, i2); I.setX(k + 2, i1); flipped++ }
+  }
+  I.needsUpdate = true
+  geo.computeVertexNormals()
+  return flipped
 }
 
 
