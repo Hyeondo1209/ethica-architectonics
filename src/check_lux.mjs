@@ -44,7 +44,8 @@ import { trapColumnSpec, slitLinkSpec, buildBridgeTrapParts, spireCutX } from '.
 import { buildBridgeDeckParts } from './bridgeDeckGeometry.js'   // ★210 실기하 정점(★207 교훈)
 import { BAKE_C_ON, BAKE_C_GAMMA, BAKE_C_DHALL, BRD_X0, BRD_COL_W, BRD_YW, BRD_TRP_CAPY, BAKE_FLOOR as BF11,
   BRD_LIGHT_ON, BRD_LIGHT_EAST_ON, BRD_LIGHT_Z1, BRD_LIGHT_OP, BRD_LIGHT_XF, BRD_LIGHT_GAP, BRD_DIM_ON, BRD_DIM_LO, BRD_DIM_HI, BRD_DIM_SLIT,
-  BRD_LIGHT_SL_ON, BRD_LIGHT_SL_DX, BRD_LIGHT_SL_OP, BRD_LIGHT_SL_XF, BRD_LIGHT_BF, BRD_LIGHT_BG, BRD_SKIN_DIM, BRD_DIM_WEST_L, BRD_DIM_WEST_SEG, BRD_DIM_WEST_K, BRD_DOOR_L, BRD_DOOR_SPREAD, BRD_DOOR_OP, brdEndX } from './constants.js'   // ★210 + ★211 + ★211-d
+  BRD_LIGHT_SL_ON, BRD_LIGHT_SL_DX, BRD_LIGHT_SL_OP, BRD_LIGHT_SL_XF, BRD_LIGHT_BF, BRD_LIGHT_BG, BRD_SKIN_DIM, BRD_DIM_WEST_L, BRD_DIM_WEST_SEG, BRD_DIM_WEST_K, BRD_DOOR_L, BRD_DOOR_SPREAD, BRD_DOOR_OP, brdEndX,
+  BRD_DIM_WEST_G, BRD_DOOR_DX, BRD_DOOR_LIGHT_ON, BRD_WSINK, BRD_SFT_TOPSINK, SPD_LIP, FREEZE_C_ON, FREEZE_C_SIG } from './constants.js'   // ★210 + ★211 + ★211-d
 const q6 = (x) => Number(x).toFixed(6)
 
 let pass = 0, fail = 0
@@ -1965,8 +1966,9 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
     Number.isFinite(BRD_LIGHT_Z1) && BRD_LIGHT_Z1 > 0 && Number.isFinite(BRD_LIGHT_OP) && BRD_LIGHT_OP > 0)
   //  ★211-e: OP는 첨탑에서 **분리**됐다(관은 배경이 밝아 더 필요 — 현도 "빛이 빛으로 안 느껴짐").
   //   승계 항의 옛 의도(표류 방지)는 소멸 — 대신 분리 방향(관 ≥ 첨탑)과 깃털·이격 위생을 문다.
-  T('⑸ ★211-e — OP ≥ 첨탑(분리 방향) · XF ≥ 0 · GAP > 0(⛔0 = 벽 공면 z-파이팅 얼룩 — 현도 사진 실증)',
-    BRD_LIGHT_OP >= RM_SHAFT_OP - 1e-12 && BRD_LIGHT_XF >= 0 && BRD_LIGHT_GAP > 0)
+  //  ★212-j: 'OP ≥ 첨탑' 조건 폐기 — 현도 판정(0.30 < 첨탑 0.34)이 정본. 값 자체는 C 동결 지문(S-13)이 문다.
+  T('⑸ ★211-e — OP > 0 · XF ≥ 0 · GAP > 0(⛔0 = 벽 공면 z-파이팅 얼룩 — 현도 사진 실증)',
+    BRD_LIGHT_OP > 0 && BRD_LIGHT_XF >= 0 && BRD_LIGHT_GAP > 0)
   //  ★211-j: 치환 원문이 len 한 줄 전체(하단 깃털 0.18·세기 0.30+0.70·top)로 확장 — 원문·주입부 동시 실재를 문는다.
   T('⑸ᵃ ★211-j 배선 — 셰이더 치환: 원문(len 한 줄)과 주입부(uXFeather·uBotFeather·uBotGain) 동시 실재 · 커튼 uTopFade = 파생',
     (() => { const src = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf8')
@@ -2127,6 +2129,55 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
       return /brdLightSpec\(\)/.test(src) && /BRD_CURTAINS\.map/.test(src) &&
         /uniforms\.uAxial\.value = 0\.0/.test(src) &&
         !/ROOM_SHAFT_ON && \(<>[\s\S]{0,400}BRD_CURTAINS/.test(src) })())
+}
+
+// ══════ S-13. ★212-j 조명 확정 구역 C(관) 동결 — 기하 + 조도 + 세기 ══════
+{
+  console.log('\n── S-13. ★212-j 구역 C(관) 동결 ──')
+  const q13 = (x) => Number(x).toFixed(6)
+  const sigC = (jitter = 0) => {
+    const parts = []
+    const L = LM.brdLightSpec(), S = LM.slitOpenSpec(), C3 = LM.zoneCBakeSpec()
+    //  ⑴ 기하 — 커튼 프로파일(접힌 절점 전부 · 첫 절점에 jitter) · 구간 · top · 동단 yCap 표본 · 슬라이스 스테이션 수
+    parts.push('prof:' + L.prof.map(([y, z], i) => q13(y) + '/' + q13(z + (i === 1 ? jitter : 0))).join(','))
+    parts.push('cur:' + L.curtains.map(([a, b]) => q13(a) + '-' + q13(b)).join(','))
+    parts.push('top:' + q13(L.top) + '/z1:' + q13(BRD_LIGHT_Z1) + '/gap:' + q13(BRD_LIGHT_GAP))
+    parts.push('east:' + [136.07, 138, 140.3, 143, 145].map((x) => q13(L.east.yCap(x))).join(',') + '/' + String(BRD_LIGHT_EAST_ON))
+    let nSl = 0; for (const [a, b] of L.curtains) nSl += Math.max(1, Math.round((b - a) / BRD_LIGHT_SL_DX)) + 1
+    parts.push('sl:' + nSl + '/' + q13(BRD_LIGHT_SL_DX) + '/' + q13(BRD_LIGHT_SL_XF) + '/' + String(BRD_LIGHT_SL_ON))
+    const skin = LM.brdWestSkinTris(), door = LM.brdDoorLightTris()
+    parts.push('skin:' + (skin ? skin.length + '/' + [0, 300, 900, skin.length - 3].map((i) => q13(skin[i])).join(',') : 'off'))
+    parts.push('door:' + (door ? door.pos.length + '/' + [0, 30, 90, door.pos.length - 3].map((i) => q13(door.pos[i])).join(',') + '/' + q13(BRD_DOOR_L) + '/' + q13(BRD_DOOR_SPREAD) + '/' + q13(BRD_DOOR_DX) : 'off'))
+    parts.push('sink:' + [BRD_WSINK, BRD_SFT_TOPSINK, SPD_LIP].map(q13).join(','))
+    //  ⑵ 조도 — 감광 램프 · 문 램버트 gain · 스킨 상수 · 내부 판정 실기하 표본(빗면 안면·갓빗판 바깥·데크·스커트 상면)
+    parts.push('ramp:' + [127, 129, 131, 133, 135, 137, 139, 141, 142.8, 143.5, 144.175, 145.5, 147].map((y) => q13(LM.brdDimAt(y))).join(','))
+    parts.push('gain:' + [[22.7, 127.001, 0, 0, 1, 0], [26, 127.001, 0, 0, 1, 0], [30, 127.001, 0, 0, 1, 0], [23, 132, 4.5, 0, 0, -1], [24, 146, 0, 0, -1, 0], [21.9, 130, 3, 1, 0, 0]]
+      .map((a) => q13(LM.brdWestGain([a[0], a[1], a[2]], [a[3], a[4], a[5]]))).join(',') + '/skin:' + q13(BRD_SKIN_DIM))
+    parts.push('cav:' + [144.5, 145, 146, 147].map((y) => q13(LM.trapCavityZ(y))).join(','))
+    const parts2 = buildBridgeTrapParts().solid
+    for (const id of ['빗면', '갓빗판', '스커트']) {
+      const g = parts2.find((w) => w.id === id).geo.toNonIndexed(); const P = g.attributes.position, N = g.attributes.normal
+      let ins = 0, tot = 0
+      for (let t = 0; t < P.count; t += 3 * 7) { const c = [0, 0, 0], n = [0, 0, 0]
+        for (let k = 0; k < 3; k++) { c[0] += P.getX(t + k) / 3; c[1] += P.getY(t + k) / 3; c[2] += P.getZ(t + k) / 3; n[0] += N.getX(t + k); n[1] += N.getY(t + k); n[2] += N.getZ(t + k) }
+        tot++; if (LM.zoneCInterior(c, C3, n)) ins++ }
+      parts.push('in:' + id + ':' + ins + '/' + tot)
+    }
+    //  ⑶ 세기·게이트
+    parts.push('op:' + [BRD_LIGHT_OP, BRD_LIGHT_SL_OP, BRD_DOOR_OP, BRD_LIGHT_XF, BRD_LIGHT_BF, BRD_LIGHT_BG, BRD_DIM_LO, BRD_DIM_HI, BRD_DIM_SLIT, BRD_DIM_WEST_G, BRD_DIM_WEST_K, BRD_DIM_WEST_L, BRD_DIM_WEST_SEG].map(q13).join(',')
+      + '/' + [BAKE_C_ON, BAKE_C_DHALL, BRD_DIM_ON, BRD_LIGHT_ON, BRD_DOOR_LIGHT_ON].map(String).join(''))
+    return parts
+  }
+  const fnv = (parts) => { const str = parts.join('|'); let h = 2166136261 >>> 0; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0 } return h }
+  const parts = sigC(), h = fnv(parts)
+  T(`동결 도구 — C 지문 재료가 실재한다(기하·조도·세기 ${parts.length}조각 · ${parts.join('|').length}자)`, parts.length === 15 && parts.join('|').length > 800)
+  T('⛔동결 도구 — C 지문이 무디지 않다: 프로파일 절점 하나를 1e-4 흔들면 값이 바뀐다', fnv(sigC(1e-4)) !== h)
+  //  정본 체제 = 확정 선언 시점의 스위치. 벗어나면 **의도된 이탈**이므로 대조를 보류한다(규율 13').
+  const CANON_C = BAKE_C_ON === false && BRD_DIM_ON === true && BRD_LIGHT_ON === true && BRD_LIGHT_SL_ON === true && BRD_DOOR_LIGHT_ON === true && BRD_LIGHT_EAST_ON === false
+  if (FREEZE_C_ON && CANON_C) {
+    T(`★★동결 — 구역 C(관) 조명 지문 ${h} = 확정값 ${FREEZE_C_SIG}` +
+      (h === FREEZE_C_SIG ? '' : '  ⛔**확정 낸 구역이 움직였다. 지문을 갱신하지 말고 현도에게 보고하라.**'), h === FREEZE_C_SIG)
+  } else console.log(`  (구역 C 동결 대조 보류 — FREEZE_C_ON=${FREEZE_C_ON} · 정본 체제=${CANON_C})`)
 }
 
 console.log(`\n전체 ${pass + fail}항 중 ${pass}항 통과 ${fail ? '❌ ' + fail + '항 실패' : '✅'}`)
