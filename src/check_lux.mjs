@@ -40,6 +40,7 @@ import { incaBladesSpec } from './corridorStairsGeometry.js'   // ★188 실효�
 import { shellMid, shellNrm } from './roomShellGeometry.js'   // ★177 D절 — 벽 표본점(합성 화면 판정)
 import { readFileSync } from 'fs'
 import * as LM from './lightingModel.js'   // ★210 S-11절(C구획 함수 일괄)
+import * as GC from './gatEaveGeometry.js'   // ★214-j 갓 절단 평면
 import { trapColumnSpec, slitLinkSpec, buildBridgeTrapParts, spireCutX } from './bridgeTrapGeometry.js'   // ★210 슬릿 실기하 + ★211-m
 import { buildBridgeDeckParts } from './bridgeDeckGeometry.js'   // ★210 실기하 정점(★207 교훈)
 import { BAKE_C_ON, BAKE_C_GAMMA, BAKE_C_DHALL, BRD_X0, BRD_COL_W, BRD_YW, BRD_TRP_CAPY, BAKE_FLOOR as BF11,
@@ -2325,6 +2326,112 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
     T(`★★동결 — 구역 S(월대샤프트) 조명 지문 ${h} = 확정값 ${FREEZE_S_SIG}` +
       (h === FREEZE_S_SIG ? '' : '  ⛔**확정 낸 구역이 움직였다. 지문을 갱신하지 말고 현도에게 보고하라.**'), h === FREEZE_S_SIG)
   } else console.log(`  (구역 S 동결 대조 보류 — FREEZE_S_ON=${FREEZE_S_ON} · 정본 체제=${CANON_S}) · 현재 지문 ${h}`)
+}
+
+// ══════ S-16. ★214 D구획 갓 치마 커튼 — 명세·가림·정점색·리본·배선 (2026.09.06 현도 스케치 ⓑ 연속 치마 · 동쪽 18° 기움) ══════
+{
+  console.log('\n── S-16. ★214 갓 치마 커튼(D구획) ──')
+  const K = await import('./constants.js')
+  const sp = LM.dskirtSpec()
+  const nArc = sp.slit.arcs.length
+  T(`명세 — 가닥 수 = 트인 구간(${nArc}) × DSK_PER_ARC(${K.DSK_PER_ARC}) = ${sp.strands.length}`, sp.strands.length === nArc * K.DSK_PER_ARC && sp.strands.length === 48)
+  T('명세 — 모든 뿌리가 크라운 밑동 링 위(r = R−INSET · y = baseY)', sp.strands.every((s) => Math.abs(Math.hypot(s.o[0] - COR_CX, s.o[2]) - (GAT_CROWN_R - K.DSK_ROOT_INSET)) < 1e-9 && Math.abs(s.o[1] - gatCap().baseY) < 1e-9))
+  T('명세 — 모든 가닥이 자기 트인 구간 안에 머문다(기둥 자리 침범 0)', sp.strands.every((s) => sp.slit.arcs.some((a) => s.phi >= a.a0 - 1e-9 && s.phi <= a.a0 + a.da + 1e-9)))
+  //  동쪽 기울기: 가닥 방향의 수평 성분에서 방사 퍼짐을 빼면 전 가닥 공통 +x 기울기 tan(LEAN)이 남는다(파생 검증)
+  const leanRes = sp.strands.map((s) => { const c = Math.cos(s.phi), sn = Math.sin(s.phi), sc = -s.d[1]; const hx = s.d[0] / sc, hz = s.d[2] / sc; const sp2 = Math.tan((s.spreadDeg * Math.PI) / 180); return [hx - sp2 * c, hz - sp2 * sn] })
+  T(`명세 — 동쪽 기울기: 퍼짐을 뺀 수평 성분 = (tan ${K.DSK_LEAN_DEG}°, 0) 전 가닥 공통(x 오차<1e-9 · z 오차<1e-9)`, leanRes.every(([x, z]) => Math.abs(x - Math.tan((K.DSK_LEAN_DEG * Math.PI) / 180)) < 1e-9 && Math.abs(z) < 1e-9))
+  T(`명세 — 퍼짐이 [${K.DSK_SPREAD_IN}°, ${K.DSK_SPREAD_OUT}°] 안에 있고 양끝 근처를 모두 쓴다(최소<−3 · 최대>12)`, sp.strands.every((s) => s.spreadDeg >= K.DSK_SPREAD_IN - 1e-9 && s.spreadDeg <= K.DSK_SPREAD_OUT + 1e-9) && Math.min(...sp.strands.map((s) => s.spreadDeg)) < -3 && Math.max(...sp.strands.map((s) => s.spreadDeg)) > 12)
+  //  규칙성 제거(현도 "너무 규칙적이면 어색"): 이웃 방위 간격의 변동계수가 0이 아니다 — 치환 반증: 균등 배치를 흉내 내면 변동계수 0
+  const gaps = sp.strands.slice(1).map((s, i) => s.phi - sp.strands[i].phi).filter((g) => g < (2 * Math.PI) / GAT_POSTS)   // 구간 안 간격만(기둥 넘는 간격 제외)
+  const cv = (arr) => { const m = arr.reduce((a, b) => a + b, 0) / arr.length; return Math.sqrt(arr.reduce((a, b) => a + (b - m) ** 2, 0) / arr.length) / m }
+  const evenGaps = Array(gaps.length).fill(gaps.reduce((a, b) => a + b, 0) / gaps.length)
+  T(`명세 — 둘레 리듬은 따르되 균등이 아니다(구간 안 간격 변동계수 ${cv(gaps).toFixed(3)} > 0.1 · 균등 대조군 ${cv(evenGaps).toFixed(3)})`, cv(gaps) > 0.1 && cv(evenGaps) < 1e-12)
+  T('명세 — 리본 폭 = 겹침 배율 × 구간 호길이/가닥 수(★214-a 2 = 이웃과 절반씩 겹치는 연속 치마) · 접선 ⟂ 반경', sp.strands.every((s) => { const a = sp.slit.arcs.find((q) => s.phi >= q.a0 - 1e-9 && s.phi <= q.a0 + q.da + 1e-9); return Math.abs(s.w - (K.DSK_OVERLAP * GAT_CROWN_R * a.da) / K.DSK_PER_ARC) < 1e-9 && Math.abs(s.tau[0] * Math.cos(s.phi) + s.tau[2] * Math.sin(s.phi)) < 1e-9 }))
+  T(`명세 — 무가림 최대 낙차 lmax = baseY − DSK_HEM_Y = ${sp.lmax.toFixed(2)} · tMax = lmax/|d.y|`, Math.abs(sp.lmax - (gatCap().baseY - K.DSK_HEM_Y)) < 1e-9 && sp.strands.every((s) => Math.abs(s.tMax * -s.d[1] - sp.lmax) < 1e-6))
+  //  ⑵ 가림 — 해석 광선(고리판 평면 y0 · 사발 반구 · 드럼 벽·창): 가닥은 첫 충돌에서 끝나고, 무가림이면 tMax
+  const ray = (o, d, near) => {
+    let best = null; const cand = (t) => { if (t != null && t > near && (best == null || t < best)) best = t }
+    if (d[1] < 0) { const t = -o[1] / d[1]; const r = Math.hypot(o[0] + d[0] * t - COR_CX, o[2] + d[2] * t); if (r >= K.CUP_R && r <= COR_R) cand(t) }
+    { const ox = o[0] - COR_CX, oy = o[1], oz = o[2]; const b = ox * d[0] + oy * d[1] + oz * d[2], c = ox * ox + oy * oy + oz * oz - K.CUP_R ** 2; const disc = b * b - c; if (disc > 0) { const t = -b + Math.sqrt(disc); if (o[1] + d[1] * t <= 0) cand(t) } }
+    return best
+  }
+  const st = LM.dskirtResolve(sp, ray)
+  T('가림 — 광선 함수 없이(null) 풀면 전 가닥 tMax(끝 = 무가림)', LM.dskirtResolve(sp, null).every((s) => !s.hit && Math.abs(s.tEnd - s.tMax) < 1e-9))
+  T(`가림 — 해석 바닥·사발에 ${st.filter((s) => s.hit).length}/48 가닥이 걸리고, 걸린 가닥 끝은 y ≤ 0 · 걸리지 않은 가닥 끝은 y = DSK_HEM_Y`, st.filter((s) => s.hit).length > 0 && st.every((s) => s.hit ? s.o[1] + s.d[1] * s.tEnd <= 1e-6 : Math.abs(s.o[1] + s.d[1] * s.tEnd - K.DSK_HEM_Y) < 1e-6))
+  T('⛔가림 치환 반증 — 가짜 광선(항상 1m 충돌)을 주면 전 가닥이 1m에서 끊긴다(가림이 실제로 끝을 지배한다)', LM.dskirtResolve(sp, () => 1).every((s) => s.hit && Math.abs(s.tEnd - 1) < 1e-9))
+  T('가림 — 근거리 무시(DSK_RAY_NEAR)보다 가까운 충돌은 버린다(뿌리에 물린 크라운 통·양태 밑동)', LM.dskirtResolve(sp, (o, d, near) => (near > 1 ? null : 0.5)).every((s) => !s.hit) && K.DSK_RAY_NEAR > 1)
+  //  ⑶ 정점색 — 응답식·기준점·단조성
+  const sm = LM.dskirtSamples(st), eR = LM.dskirtERef(sp, sm)
+  T(`표본 — 가닥당 DSK_SAMP(${K.DSK_SAMP}) → ${sm.length}점 · 가중 = fade·dt(끝 표본이 뿌리 표본보다 가볍다)`, sm.length === 48 * K.DSK_SAMP && sm[0].w > sm[K.DSK_SAMP - 1].w && sm.every((q) => q.w > 0))
+  const ref = LM.dskirtRefPoint(sp)
+  T(`★214-k 기준점 = 잉카 넥서스 판(축상 · INCA_CUT_Y ${K.INCA_CUT_Y}) · eRef = ${eR.toExponential(2)} > 0 · 그 점 = 상한(백색)`, ref[0] === COR_CX && ref[1] === K.INCA_CUT_Y && ref[2] === 0 && eR > 0)
+  T('★214-k 빔 로브 — 표본은 진행 방향으로만: 커튼 위 천장(하향 법선 · 표본이 아래)은 DIM · 축상 문턱(baseY 직하 · 위 향)도 DIM · 제단은 상한(치환 반증: 로브 0이면 천장이 밝다)',
+    Math.abs(LM.dskirtShadeAt([COR_CX, ceilY(COR_CX) - 0.1, 0], [0, -1, 0], sm, eR) - K.DSK_DIM) < 1e-6 && Math.abs(LM.dskirtShadeAt([COR_CX, gatCap().baseY - 4, 0], [0, 1, 0], sm, eR) - K.DSK_DIM) < 1e-6 && K.DSK_LOBE >= 2
+    && sm.every((q) => q.d) && (() => { let e0 = 0; for (const q of sm) { const dx = q.p[0] - COR_CX, dy = q.p[1] - (ceilY(COR_CX) - 0.1), dz = q.p[2], d2 = dx * dx + dy * dy + dz * dz; if (-dy / Math.sqrt(d2) > 0) e0 += q.w * (-dy / Math.sqrt(d2)) / d2 } return e0 > 0 })())
+  const shF = LM.dskirtShadeAt([COR_CX, 0.01, 0], [0, 1, 0], sm, eR), shFar = LM.dskirtShadeAt([COR_CX - COR_R + 0.5, 0.01, 0], [0, 1, 0], sm, eR), shRef = LM.dskirtShadeAt(ref, [0, 1, 0], sm, eR)
+  T(`정점색 — 응답 범위 [DSK_DIM ${K.DSK_DIM}, DIM+(1−DIM)·K ${(K.DSK_DIM + (1 - K.DSK_DIM) * K.DSK_K).toFixed(3)}] · 기준점(제단) = 상한 · 바닥중앙 ${shF.toFixed(3)} > 서쪽 바닥 ${shFar.toFixed(3)} > DIM`, Math.abs(shRef - (K.DSK_DIM + (1 - K.DSK_DIM) * K.DSK_K)) < 1e-9 && shF > shFar && shFar > K.DSK_DIM && shF < shRef)
+  T('정점색 — 아래를 보는 법선은 위쪽 커튼을 못 받는다(cos 게이트): 사발 바닥(y=−CUP_R · 전 표본이 위) 하향 법선 = DIM', Math.abs(LM.dskirtShadeAt([COR_CX, -K.CUP_R + 0.01, 0], [0, -1, 0], sm, eR) - K.DSK_DIM) < 1e-12 && sm.every((q) => q.p[1] > -K.CUP_R))
+  T(`정점색 — 노브 승계: DIM=BRD_DIM_LO · GAMMA=A BAKE_GAMMA(★214-k) · K=1(★214-k) · OP=관 커튼/2(겹침 2 보정) · XF=1(전폭 깃털) · DY=BRD_LIGHT_SL_DX · TOPF=SHAFT_TOP_FADE · ★214-a COLOR=RM_SHAFT_COL(백색 어휘) · OVERLAP=2`,
+    K.DSK_DIM === K.BRD_DIM_LO && K.DSK_GAMMA === K.BAKE_GAMMA && K.DSK_K === 1 && K.DSK_OP === K.RM_SHAFT_OP / K.DSK_LAYERS && K.DSK_XF === 0 && K.DSK_DY === K.BRD_LIGHT_SL_DX && K.DSK_TOPF === K.SHAFT_TOP_FADE && K.DSK_COLOR === K.RM_SHAFT_COL && K.DSK_OVERLAP === 2)
+  //  ⑶′ ★214-n 두 모델의 이음
+  T('★214-n 이음 — 크라운 통 안(리드 밑·통 안벽·기둥 안면) = ★188 슬릿 모델 값(커튼 모델은 DIM) · 밑동 아래 18m 대역 = max 블렌드(경계 직하 = 슬릿값) · 대역 밖 = 커튼값',
+    (() => { const D188 = LM.zoneDBakeSpec(), g = gatCap(); const lid = [COR_CX + 10, g.lidY - 0.01, 0], nL = [0, -1, 0]
+      const mix = LM.dskirtShadeMix(lid, nL, sm, eR, sp, D188), sl = LM.zoneDShadeAt(lid, nL, D188), sk = LM.dskirtShadeAt(lid, nL, sm, eR)
+      const pb = [COR_CX + 30, g.baseY - 0.5, 0], nB = [0, -1, 0]; const mb = LM.dskirtShadeMix(pb, nB, sm, eR, sp, D188)
+      const pf = [COR_CX, 20, 0], nF = [0, 1, 0]
+      return K.DSK_CROWN_ON && Math.abs(mix - sl) < 1e-12 && Math.abs(sk - K.DSK_DIM) < 1e-6 && sl > 0.5 && mb >= Math.max(LM.dskirtShadeAt(pb, nB, sm, eR), LM.zoneDShadeAt(pb, nB, D188) * (1 - 0.5 / K.GAT_CONE_H)) - 1e-12
+        && Math.abs(LM.dskirtShadeMix(pf, nF, sm, eR, sp, D188) - LM.dskirtShadeAt(pf, nF, sm, eR)) < 1e-12 && /add\(c2\)   \/\/ ★214-d 제외 → ★214-n/.test(readFileSync(new URL('./Corridor.jsx', import.meta.url), 'utf-8')) })())
+  //  ⑶″ ★214-q 재분할
+  T('★214-q 재분할 — 40×30 사각형(삼각형 2) → 변 ≤ DSK_TESS_EDGE(4) · 면적 보존 · 법선 복제 · 치환 반증: maxEdge 100이면 원본 그대로',
+    (() => { const P = [0,0,0, 40,0,0, 40,30,0,  0,0,0, 40,30,0, 0,30,0], N = Array(6).fill([0,0,1]).flat()
+      const T = LM.tessellateTris(P, N, K.DSK_TESS_EDGE), area = (p) => { let a = 0; for (let i = 0; i < p.length; i += 9) { const ax = p[i+3]-p[i], ay = p[i+4]-p[i+1], bx = p[i+6]-p[i], by = p[i+7]-p[i+1]; a += Math.abs(ax*by - ay*bx) / 2 } return a }
+      let maxE = 0; for (let i = 0; i < T.pos.length; i += 9) for (const [u, v] of [[0,1],[1,2],[2,0]]) maxE = Math.max(maxE, Math.hypot(T.pos[i+u*3]-T.pos[i+v*3], T.pos[i+u*3+1]-T.pos[i+v*3+1], T.pos[i+u*3+2]-T.pos[i+v*3+2]))
+      const same = LM.tessellateTris(P, N, 100)
+      return T.pos.length > P.length * 16 && maxE <= K.DSK_TESS_EDGE + 1e-9 && Math.abs(area(T.pos) - 1200) < 1e-6 && T.nrm.every((x, i) => x === [0,0,1][i % 3]) && same.pos.length === P.length && K.DSK_TESS_EDGE === 2 * K.DSK_DY })())
+  //  ⑷ 홀 '안' 판정 — zoneDInterior 결함 둘의 정정 + 셀라 포함
+  T('안 판정 — 동쪽 상부 쐐기(y>baseY · 천장 아래 · r>26)가 안이다(zoneDInterior는 밖 — 결함 정정)', LM.dskirtInterior([COR_CX + 76, gatCap().baseY + 3, 0], sp) && !zoneDInterior([COR_CX + 76, gatCap().baseY + 3, 0]) && gatCap().baseY + 3 < ceilY(COR_CX + 76))
+  T('안 판정 — 양태 분기가 드럼 밖까지 뻗지 않는다: 관 자리(x110 · y130)는 밖(zoneDInterior는 안 — 결함 정정)', !LM.dskirtInterior([110, 130, 0], sp) && zoneDInterior([110, 130, 0]))
+  T('안 판정 — 바닥중앙·사발·벽 안면·크라운 통 안 = 안 · 리드 위·드럼 밖·사발 밑 = 밖(★214-a: 통 안은 리드 밑면까지)', LM.dskirtInterior([COR_CX, 0, 0], sp) && LM.dskirtInterior([COR_CX, -K.CUP_R + 1, 0], sp) && LM.dskirtInterior([COR_CX + COR_R - 0.1, 50, 0], sp) && LM.dskirtInterior([COR_CX + 10, gatCap().baseY + 5, 0], sp)
+    && !LM.dskirtInterior([COR_CX, gatCap().lidY + 1, 0], sp) && !LM.dskirtInterior([COR_CX, 50, -COR_R - 5], sp) && !LM.dskirtInterior([COR_CX, -K.CUP_R - 1, 0], sp))   // 드럼 밖은 북쪽(동쪽 x>288은 셀라 주머니라 안)
+  T(`안 판정 — 동창 너머 셀라 안(x300 · y50)은 DSK_CELLA_IN(${K.DSK_CELLA_IN})대로 · ★214-b 주머니 상한 = FR_FLOOR_Y(${K.FR_FLOOR_Y}): 아치 개구(x290 y150) 안 · 프리즈 방 안(x295 y180 · 드럼 밖) 밖 · 신전 서면 껍질(x${K.TEMPLE_X0.toFixed(1)} y180) 안`,
+    LM.dskirtInterior([300, 50, 0], sp) === K.DSK_CELLA_IN && LM.dskirtInterior([290, 150, 0], sp) === K.DSK_TEMPLE_IN && !LM.dskirtInterior([295, 180, 0], sp) && LM.dskirtInterior([K.TEMPLE_X0, 180, 0], sp) === K.DSK_TEMPLE_IN && !LM.dskirtInterior([300, K.FR_FLOOR_Y + 5, 0], sp))
+  //  ⑸ 가닥 메시(★214-l 튜브)
+  const R3 = LM.dskirtTris(st)
+  const nTri = R3.pos.length / 9
+  T(`튜브 — 삼각형 ${nTri} = Σ 2·SEG(${K.DSK_TUBE_SEG})·ceil(tEnd/DY) · uv.y ∈ [0,1] · 정점은 가닥 축에서 w/2(반지름 = 리본 폭 승계)`, nTri === st.reduce((a, s) => a + 2 * K.DSK_TUBE_SEG * Math.max(1, Math.ceil(s.tEnd / K.DSK_DY)), 0) && R3.uv.every((u, i) => (i % 2 ? u >= -1e-9 && u <= 1 + 1e-9 : true))
+    && (() => { const s0 = st[0]; const q = [R3.pos[0] - s0.o[0], R3.pos[1] - s0.o[1], R3.pos[2] - s0.o[2]]; const along = q[0] * s0.d[0] + q[1] * s0.d[1] + q[2] * s0.d[2]; const perp = Math.hypot(q[0] - along * s0.d[0], q[1] - along * s0.d[1], q[2] - along * s0.d[2]); return Math.abs(perp - s0.w / 2) < 1e-6 })())
+  T('튜브 — 후광 통 = 반지름 ×DSK_HALO_K(방 빛기둥 SHAFT_HALO_K_UP 승계) · 법선은 방사(정점−축 방향과 일치 · 실루엣 판정) · OP·HALO_OP·XF 승계', (() => { const H = LM.dskirtTris(st, { radiusK: K.DSK_HALO_K }); const s0 = st[0]
+    const q = [H.pos[0] - s0.o[0], H.pos[1] - s0.o[1], H.pos[2] - s0.o[2]]; const along = q[0] * s0.d[0] + q[1] * s0.d[1] + q[2] * s0.d[2]; const pv = [q[0] - along * s0.d[0], q[1] - along * s0.d[1], q[2] - along * s0.d[2]]; const pl = Math.hypot(...pv)
+    return Math.abs(pl - (s0.w / 2) * K.DSK_HALO_K) < 1e-6 && Math.abs((pv[0] * H.nrm[0] + pv[1] * H.nrm[1] + pv[2] * H.nrm[2]) / pl - 1) < 1e-6 && K.DSK_HALO_K === K.SHAFT_HALO_K_UP && K.DSK_LAYERS === 2 * 2 * K.DSK_OVERLAP && K.DSK_OP === K.RM_SHAFT_OP / K.DSK_LAYERS && K.DSK_HALO_OP === K.SHAFT_HALO_OP / (K.DSK_LAYERS * K.DSK_HALO_K) && K.DSK_XF === 0 })())
+  T('튜브 — 끊긴 가닥의 uv.y 최대 = tEnd/tMax < 1(소멸 곡선은 전 길이 기준) · 무가림 가닥은 1', (() => { let ok2 = true, i = 0; for (const s of st) { const n = Math.max(1, Math.ceil(s.tEnd / K.DSK_DY)); const cnt = n * K.DSK_TUBE_SEG * 6; const uvMax = R3.uv[(i + cnt - 1) * 2 + 1]; ok2 = ok2 && Math.abs(uvMax - s.tEnd / s.tMax) < 1e-9 && (s.hit ? uvMax < 1 : Math.abs(uvMax - 1) < 1e-9); i += cnt } return ok2 })())
+  //  ⑹ 배선
+  const C_ceil = ceilY
+  const corS = readFileSync(new URL('./Corridor.jsx', import.meta.url), 'utf-8'), domeS = readFileSync(new URL('./Dome.jsx', import.meta.url), 'utf-8'), roomS = readFileSync(new URL('./Room.jsx', import.meta.url), 'utf-8')
+  T('배선 — Corridor: 수학 정본 임포트(dskirtSpec·Resolve·Samples·ERef·ShadeAt·Interior·Tris — 사본 0) · DrumSkirt 마운트(hallRef=dRef)',
+    /import \{ dskirtSpec, dskirtResolve, dskirtSamples, dskirtERef, dskirtShadeAt, dskirtShadeMix, dskirtInterior, dskirtTris, tessellateTris \} from '\.\/lightingModel\.js'/.test(corS) && /<DrumSkirt hallRef=\{dRef\} \/>/.test(corS))
+  T('배선 — 가림 = 장면 Raycaster(리본 자신·빛 볼륨·ShaderMaterial·투명 제외) · near = DSK_RAY_NEAR(주입) · 끝 = dskirtResolve', /!o\.userData\.lightVolume\) \{ const m = \[\]\.concat\(o\.material\)\[0\]; if \(m && !m\.isShaderMaterial && !m\.transparent\)/.test(corS) && /rc\.near = near/.test(corS) && /dskirtResolve\(spec, raycast\)/.test(corS))
+  T('배선 — ★214-h 조각 판정: 모드 0 안면(facing) · 모드 1 **위치**(크라운·주머니·반구·드럼∧지붕 높이맵 텍스처) · 모드 2 리드 · 높이맵 = 실제 드럼 천장 메시 광선(DSK_ROOF_N×M) · 미스 = 리드 밑 · onBeforeCompile 체인(리브 틴트 보존)',
+    /vDskIn = dot\(normal, uDskAxis - position\) > 0\.0 \? 1\.0 : 0\.0/.test(corS) && /if \(uDskMode < 0\.5\) dskIn = \(\(vDskIn > 0\.5\) == gl_FrontFacing\)/.test(corS)
+    && /texture2D\(uDskRoof, vec2\(atan\(d\.y, d\.x\) \/ 6\.283185307 \+ 0\.5, r \/ uDskA\.z\)\)\.r/.test(corS) && /getObjectByName\('드럼 천장'\)/.test(corS)
+    && /roofData\[j \* RN \+ i\] = hs\.length \? hs\[0\]\.point\.y : spec\.slit\.y1/.test(corS) && /const prev = m\.onBeforeCompile; m\.onBeforeCompile = \(sh, r\) => \{ if \(prev\) prev\(sh, r\); patch\(sh\) \}/.test(corS)
+    && /else if \(posMode\) sh = DSK_DIM/.test(corS) && /if \(dskIn\) diffuseColor\.rgb \*= vColor\.rgb/.test(corS) && /if \(shell && nm\.x \* \(DSK_AXIS_X - v\.x\)[^\n]*nm\.negate\(\)/.test(corS)
+    && LM.dskirtInterior([COR_CX, -1, 70], sp) === false && LM.dskirtInterior([COR_CX, -30, 30], sp) && /geometry=\{bowl\} userData=\{\{ walkable: false, hallBake: true, bakeShell: true \}\}/.test(domeS)
+    && /<mesh geometry=\{geo\} userData=\{\{ bakeShell: true, dskTess: true \}\}>\{\/\* ★214-q 재분할 · ★214-g 셀라/.test(corS) && K.DSK_ROOF_N >= 256 && K.DSK_ROOF_M >= 32 && K.DSK_FRAG_E > 0 && K.DSK_FRAG_E < 1)
+  T('배선 — 리본 셰이더 소멸 = pow(1−uv.y, uPow)(dskirtFade와 같은 식) · uPow=DSK_FADE_POW · 가산 혼합·깊이쓰기 없음', /float len = pow\(max\(0\.0, 1\.0 - vUv\.y\), uPow\)/.test(corS) && /uPow: \{ value: DSK_FADE_POW \}/.test(corS) && /blending: THREE\.AdditiveBlending, side: THREE\.DoubleSide,\n    uniforms: \{ uColor: \{ value: new THREE\.Color\(DSK_COLOR\) \}/.test(corS))
+  T('⛔킬스위치 — DSK_ON: ★188 베이크 useFrame 첫 줄 복귀 · DrumSkirt null · Room 승계 면 dispatch', /useFrame\(\(\) => \{\n    if \(DSK_ON\) return/.test(corS) && /if \(!DSK_ON\) return null/.test(corS) && /return DSK_ON \? DSK_DIM : zoneDShadeAt\(p, nn, bakeCD\)/.test(roomS) && /\(DSK_ON \? DSK_DIM : zoneDShadeAt\(\[v\.x - ROOM_CX/.test(roomS))
+  T('배선 — Dome DrumCup 3메시(사발·스트랩·고리판)에 hallBake 태그(★188 순회 밖이던 홀 바닥이 정점색 대상이 된다)', (domeS.match(/geometry=\{(bowl|straps|ring)\} userData=\{\{ walkable: (false|true), hallBake: true(, bakeShell: true)? \}\}/g) || []).length === 3)
+  T('★214-b/c 배선 — Dome: 리브 다섯+판 그룹 hallBake · 가운데 리브(#0) hallBake · 리브 계단 그룹 hallBake · Corridor: 그룹 태그 순회 + 인스턴스 색', (domeS.match(/hallBake: true/g) || []).length === 6 && /export function ExplorationRib[\s\S]{0,4000}<mesh geometry=\{geo\} userData=\{\{ hallBake: true \}\}/.test(domeS) && /o\.userData\.hallBake\) o\.traverse/.test(corS) && /o\.setColorAt\(i, c\.setScalar\(sh\)\)/.test(corS))
+  T('★214-d — 크라운 통 = shell · 기둥 16기 = 위치 판정(★214-n) · 리드 = lid 태그 · 리드 패치(모드 2) · 위치 패치(모드 1) · 부재 안 판정은 벽 반경(facet=false → x290 y50 밖 · 천장 셸만 88.3)',
+    /add\(g2, false, 'shell'\)/.test(corS) && /add\(lid, false, 'lid'\)/.test(corS) && /dskPatchFor\(2, spec\.slit\.y1/.test(corS) && /dskPatchFor\(1, 0, U\)/.test(corS)
+    && !LM.dskirtInterior([COR_CX, 50, -86], sp, false) && LM.dskirtInterior([COR_CX, C_ceil(COR_CX) + 0.5, -86], sp, true) && !LM.dskirtInterior([COR_CX, 50, -86], sp))
+  T('★214-j 배선 — Room: 관(brd) 재질에 조각 판정 체인(드럼 원통 안 ∧ gatCut 평면 아래 ∧ 바깥면 → DSK_DIM · 아니면 vColor) · 삼각형 분류는 ★213 그대로(dskHallBrd 소거) · drumHallCarry 무변',
+    /const dskBrdChain = useMemo/.test(roomS) && /if \(dskR <= uDskBrd\.y \+ uDskBrd\.w && vDskBW\.y <= dskRoof \+ uDskBrd\.w && dskOut\) diffuseColor\.rgb \*= uDskBrd\.z; else diffuseColor\.rgb \*= vColor\.rgb/.test(roomS)
+    && /if \(DSK_ON && o\.userData\.brd && !m\.userData\.dskBrd\) \{ m\.userData\.dskBrd = true; dskBrdChain\(m\) \}/.test(roomS) && !/dskHallBrd/.test(roomS) && /import \{ gatCutSpec \} from '\.\/gatEaveGeometry\.js'/.test(roomS)
+    && !LM.drumHallCarry([123, 127.2, 0]) && (() => { const gc = GC.gatCutSpec(), x0 = COR_CX - COR_R, a = gc.surf(x0, 0), b = gc.surf(x0 + 1, 0) - a, c = gc.surf(x0, 1) - a
+      return [[125, 3], [140, -6], [146, 0]].every(([x, z]) => Math.abs(a + b * (x - x0) + c * Math.abs(z) - gc.surf(x, z)) < 1e-6) })())   // 평면식이 gcut.surf와 관 자리에서 일치(치환 반증: 곡면이면 실패)
+  T('배선 — 두께0 셸 3종 태그 유지(bakeShell) — 패치 대상 식별', (corS.match(/userData=\{\{ bakeShell: true \}\}/g) || []).length >= 5)
+  T('★214-a — 리드 밑 발광 디스크는 DSK_GLOW_ON 게이트(false = 소등) · 크라운 통 안 판정이 리드 밑면(y1)까지 올라간다(밑면 백색 원판 차단)',
+    /if \(DSK_GLOW_ON\) \{ gl\.translate/.test(corS) && K.DSK_GLOW_ON === false && LM.dskirtInterior([COR_CX, gatCap().lidY - 0.01, 0], sp) && !LM.dskirtInterior([COR_CX, gatCap().lidY + K.GAT_LID_T + 0.5, 0], sp))
 }
 
 console.log(`\n전체 ${pass + fail}항 중 ${pass}항 통과 ${fail ? '❌ ' + fail + '항 실패' : '✅'}`)

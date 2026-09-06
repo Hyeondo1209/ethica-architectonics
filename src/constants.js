@@ -5816,3 +5816,52 @@ export const SP_FR_FOOT_SINK = ROOM_SHELL_GAP  // 0.1370 — 발이 돔 표면 �
 //  ★178 분할 허용 최장변(파생 — ★170 전례로 파일 말미: ROOM_SHELL_*가 위에서 정의된 뒤여야 한다):
 //   경계의 물리적 실체 = 방 껍질 벽. 걸친 삼각형의 스미어 폭 상한을 그 벽 두께로 잡는다. 손 수치 0.
 export const BAKE_SPLIT_EPS = ROOM_SHELL_T_OUT + ROOM_SHELL_T_IN   // 0.487
+
+// ═══════ ★214 D구획(드럼 통로·홀) 빛 — 갓 치마 커튼(2026.09.06 현도 스케치 ⓑ 연속 치마 · 동쪽 18° 기움) ═══════
+//  체제 = "어둠 + 커튼": 공간 자체는 A(정의·공리의 방)처럼 어둡고, 유일한 빛은 크라운 밑동 링에 매달려 내려오는
+//   치마꼴 커튼(48가닥 리본). 가닥은 실기하에 닿으면 거기서 끝난다(현도: "뚫고 지나가게 하지 마 절대" — 런타임 광선).
+//   막히지 않으면 최대 길이까지 직진 후 그라데이션 소멸. 커튼 밝기는 잉카·피어·넥서스·벽·바닥 정점색에 실제로 얹힌다.
+//  ⛔DSK_ON=false = ★188 링 슬릿 베이크 체제 그대로 복귀(보존계 한 줄 — 커튼 없음 · 셸 제외 · zoneDShadeAt).
+//  ⚠스케치 실측값(현도 zy·xy 단면 스케치, 1213px = 380px×3.19 · 2px/m)은 '손 수치'가 아니라 **그림에서 읽은 값**이다:
+//   좌측선 12° = LEAN−5 · 우측선 32° = LEAN+14 → LEAN 18 · 바깥 가닥 끝 (r58,y58) → 퍼짐 +14 · 단 중앙 y≈−10(사발 속).
+export const DSK_ON          = true
+export const DSK_LEAN_DEG    = 18                 // 치마 전체의 +x(동) 기울기 — 스케치 좌·우측선 평균
+export const DSK_SPREAD_IN   = -5                 // 안쪽 가닥 방사 퍼짐(°) — zy 스케치 안쪽 가닥 ≈ 수직
+export const DSK_SPREAD_OUT  = 14                 // 바깥 가닥 방사 퍼짐(°) — zy 스케치 (r58,y58)
+export const DSK_PER_ARC     = 3                  // 기둥 사이 트인 구간(GAT_POSTS=16)당 가닥 수 → 48가닥
+export const DSK_JITTER      = 0.35               // 구간 안 위치·퍼짐의 R2 저불일치 흔들림(0 = 균등 · 현도 "너무 규칙적이면 어색")
+export const DSK_HEM_Y       = -10                // 무가림 최대 도달 y(사발 속) — 스케치 단 중앙
+export const DSK_FADE_POW    = 1.5                // 길이 방향 소멸 지수 ((1−t/tMax)^POW) — 판정 노브
+export const DSK_DIM         = BRD_DIM_LO         // 어둠의 바닥 = 관 데크·월대샤프트 승계(0.04) — 세 구역 한 어둠
+export const DSK_GAMMA       = BAKE_GAMMA         // ★214-k 조도 응답 지수 = **A(정의·공리의 방) 베이크 승계(2.0)** — 관 G(0.7)는 대비를 짓눌러 '칠한 느낌'(현도 09.06). 어둠은 색이 아니라 대비
+export const DSK_K           = 1                  // ★214-k 응답 상한 = 1(백색) — 빛이 닿는 곳(제단)은 하얗고 나머지는 꺼진다. c의 0.25는 '희미'의 원인(현도 09.06). 기준점이 제단이라 상한 = 제단
+export const DSK_LOBE        = 4                  // ★214-k 빔 로브 지수: 표본이 **가닥 진행 방향**으로만 빛을 낸다(cos^4). 0 = 전방위 점광(초판 — 천장이 가장 밝아져 빛이 '떠 있게' 보임)
+export const DSK_SAMP        = BAKE_N             // 가닥당 점광 표본 수(16) → 768발/정점
+export const DSK_HALO_K      = SHAFT_HALO_K_UP    // ★214-l 후광 통 반지름 배율 = 방 빛기둥 상부 후광 승계(2.0)
+export const DSK_TUBE_SEG    = 12                 // ★214-l 튜브 둘레 분할(48가닥 × 2겹이라 방 빛기둥 40보다 성기게)
+export const DSK_XF          = 0                  // ★214-l 튜브에선 폭 깃털 없음(0 = 끔) — 부드러운 가장자리는 실루엣(facing^1.6 · 방 빛기둥 어법)이 맡는다. a의 1은 리본 시절
+export const DSK_TOPF        = SHAFT_TOP_FADE     // 뿌리(크라운 밑동) 쪽 페이드 비율 = 첨탑 승계(★190 어법)
+export const DSK_DY          = BRD_LIGHT_SL_DX    // 리본 길이 분할 간격 = 관 슬라이스 간격(2m)
+export const DSK_ROOT_INSET  = GAT_POST_R / 2     // 뿌리 = 링 안쪽으로 0.6(통 벽 자기충돌 회피)
+export const DSK_RAY_NEAR    = GAT_LID_T          // 광선 근거리 무시(3.5) — 뿌리에 물린 크라운 통·양태 밑동 제외
+export const DSK_COLOR       = RM_SHAFT_COL       // ★214-a 커튼 색 = 방 빛기둥·관 커튼과 같은 **백색** 어휘(현도 09.06 "노란빛 아니라 백색") — 초판 INTAKE_GLOW(누런)은 오류
+export const DSK_OVERLAP     = 2                  // ★214-a 리본 폭 배율(1 = 이웃과 맞닿음 · 2 = 절반씩 겹침) — 가닥이 낱낱이 보이는 것을 완화(현도)
+//  ★214-m 겹수 보정(현도 09.06 "빛 너머가 아예 안 보일 정도"): 방 빛기둥은 통 **하나**인데 치마는 48통이 링에 겹쳐 선다. 시선 하나가 지나는 가산 겹수 =
+//   앞뒷면 2(DoubleSide · |facing|) × 치마 앞판·뒷판 2 × 겹침 배율(DSK_OVERLAP) = 8. 세기를 겹수로 나눠 **누적이 빛기둥 하나와 같게** 한다(파생 · 손 수치 0).
+export const DSK_LAYERS      = 2 * 2 * DSK_OVERLAP
+export const DSK_OP          = RM_SHAFT_OP / DSK_LAYERS                  // ★214-l→m 가닥 세기 = 빛기둥 0.34 / 8 ≈ 0.043 (l의 0.34 원값은 8겹 누적 → 백색 포화)
+export const DSK_HALO_OP     = SHAFT_HALO_OP / (DSK_LAYERS * DSK_HALO_K) // ★214-l→m 후광 세기 = 0.20 / 16 ≈ 0.013 (후광은 반지름 배율만큼 더 겹친다)
+export const DSK_GLOW_ON     = false              // ★214-a ⛔리드 밑 발광 디스크(구 '임시 발광면 — P2 진짜 빛으로 승격' 자리) 소등 — 갓 안에서 밝은 원판으로 보임(현도)
+export const DSK_SHELL_IN    = true               // 두께0 셸(드럼 벽·천장)은 **안면만** 정점색(gl_FrontFacing 판정 — 밖은 무변)
+export const DSK_ROOF_N      = 512                // ★214-h 지붕 높이맵 방위 분할(실측 '드럼 천장' 메시 광선 → 조각 판정 텍스처)
+export const DSK_ROOF_M      = 64                 // ★214-h 지붕 높이맵 반경 분할(0~COR_R)
+export const DSK_FRAG_E      = GAT_POST_R / 4     // ★214-h 조각 판정 여유(0.3) — 지붕 삼각형 뒤틀림·텍스처 보간 오차 흡수
+export const DSK_BRD_FRONT_OUT = true             // ★214-j 관 껍질 앞면 = 바깥(orientGeo 규율 9). 감김이 반대로 보이면 false 한 줄
+export const DSK_CROWN_ON    = true               // ★214-n 크라운 통 안(r≤26 · y≥밑동)은 **★188 링 슬릿 모델**로 칠한다 — 거기선 슬릿(하늘)이 직접 광원이고 커튼은 그 아래서 시작한다
+                                                  //  (현도 09.06 "갓 안 윗면이 새까맣고 기둥은 새하얗다 — 물리적으로 어색"). 밑동 아래 양태 깔때기는 GAT_CONE_H 대역에서 두 모델을 max 블렌드.
+export const GAT_FACET_SUB   = 6                  // ★214-o 양태 패싯(f≠0) 격자 분할 — 정점색 보간의 대각선 접힘 제거(f=0 24×12의 1/4 · 면 형상 무변)
+export const DSK_TESS_EDGE   = 2 * DSK_DY         // ★214-q 큰 면(셀라·신전 CSG 솔리드)의 정점색용 재분할 — 변 길이 4m 이하로 쪼갠다(정점색은 정점에서만 계산 → 큰 삼각형은 대각선 무늬)
+export const DSK_CELLA_IN    = true               // 동창 너머 셀라 안도 홀과 한 어둠으로 본다(현도 09.06 "그대로 둬보자")
+export const DSK_TEMPLE_IN   = true               // ★214-b 동창 너머 밀폐부 확장(현도 09.06 사진 "리브 다섯·주위 구조가 밝다 — 밀폐부 면은 어두워야"): 셀라 주머니를
+                                                  //  프리즈 방 바닥(FR_FLOOR_Y 166)까지 올리고(신전 하단 띠·아치 개구·리브 다섯·리브 계단), 그 위는 신전 **서면 껍질**(x ≤ TEMPLE_X0)만.
+                                                  //  ⚠1p7 프리즈 방 **안**(y>166 · x>TEMPLE_X0)은 무접촉 — 그 방 조명은 별도 과제.

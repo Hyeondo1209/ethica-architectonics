@@ -3,6 +3,7 @@
 import { useRef, useMemo, useLayoutEffect, useEffect } from 'react'
 import { useThree, useFrame } from '@react-three/fiber'   // ★174-c4 순서 무관 패치
 import * as THREE from 'three'
+import { gatCutSpec } from './gatEaveGeometry.js'   // ★214-j 다리 대역 갓 절단 평면(관 위 실제 지붕)
 import { Brush, Evaluator, HOLLOW_SUBTRACTION } from 'three-bvh-csg'
 import { GivenMonolith } from './Steles'
 import { buildDisc } from './discGeometry.js'
@@ -10,7 +11,7 @@ import { shaftNodes, zoneABakeSpec, zoneAShadeAt, zoneAInterior, splitSoupAtBoun
   zoneCBakeSpec, zoneCInterior, zoneCShadeAt, drumHallCarry, zoneDBakeSpec, zoneDShadeAt, brdLightSpec, brdDimAt, brdDimP, brdWestStations, brdWestSkinTris, brdDoorLightTris,
   sftLightSpec, sftInterior, sftShadeAt, sftOwnerK, sftLightTris } from './lightingModel.js'   // ★213 월대샤프트 빛   // ★175-e 빛기둥 마디 정본 + ★176 베이크 + ★178 경계 분할 + ★210 C구획(관) — 사본 금지
 import { BAKE_A_ON, BAKE_N, BAKE_FLOOR, BAKE_SPLIT_ON, BAKE_SPLIT_EPS, BAKE_STAIR_MIN, BAKE_INST_ON, BAKE_GRAD_ON, BAKE_GRAD_TOL, BAKE_GRAD_MIN,
-  BAKE_C_ON, BAKE_C_GAMMA, BAKE_C_DHALL,
+  BAKE_C_ON, BAKE_C_GAMMA, BAKE_C_DHALL, DSK_ON, DSK_DIM, DSK_FRAG_E, DSK_BRD_FRONT_OUT, COR_CX, COR_R,   // ★214 D 승계 면 dispatch · ★214-j 드럼 안 관 외피 조각 판정
   BRD_LIGHT_ON, BRD_LIGHT_EAST_ON, BRD_LIGHT_OP, BRD_LIGHT_XF, BRD_DIM_ON, BRD_DIM_LO, BRD_DIM_HI,
   BRD_LIGHT_SL_ON, BRD_LIGHT_SL_DX, BRD_LIGHT_SL_OP, BRD_LIGHT_SL_XF, BRD_LIGHT_BF, BRD_LIGHT_BG, BRD_X0, BRD_SKIN_DIM, BRD_DOOR_OP,
   SFT_LIGHT_ON, SFT_DIM_ON, SFT_LIGHT_OP, SFT_LIGHT_SL_OP, SFT_LIGHT_XF, SFT_VTX_ON } from './constants.js'   // ★213 월대샤프트 빛 + ★213-b·c   // ★211-i 슬라이스 + ★211-j + ★211-l   // ★211 관 빛 커튼 + ★211-d 감광   // ★176 베이크 + ★178 분할 + ★184 부재 하한 + ★185 인스턴스 + ★210 C구획
@@ -350,6 +351,33 @@ export function DefAxiomRoom({ stairKind }) {
   //  (밖에서 본 외피 불변 — 안팎 원칙). 구배 분할은 베이크 체제에서만 건다(상수엔 구배가 없다).
   const bakeC = useMemo(() => (BAKE_C_ON || BRD_DIM_ON ? zoneCBakeSpec() : null), [])
   const bakeCD = useMemo(() => ((BAKE_C_ON || BRD_DIM_ON) && BAKE_C_DHALL ? zoneDBakeSpec() : null), [])
+  //  ★214-j 관 외피의 드럼 안 조각 = 어둠(조각 판정 · 삼각형 색은 무변 — C 동결 시각 보존). 관 껍질은 두께0 한 겹이라 안(C 감광)·밖(홀)이
+  //   같은 삼각형이다 → 정점색으로는 못 가른다(★214-i가 정점색을 바꿔 C 안까지 어두워질 뻔한 이유 · 정정). 규칙: 조각이 **드럼 원통 안 ∧ 다리 대역
+  //   갓 절단 평면(gatCutSpec.surf — 노치 주변 실제 지붕) 아래 ∧ 바깥면**(orientGeo 규율 9: 빌더 출력 법선 = 바깥 → gl_FrontFacing = 밖)이면 vColor 대신 DSK_DIM.
+  //   ⛔DSK_BRD_FRONT_OUT=false면 앞뒷면 반전(감김이 반대로 나오면 한 줄). 지붕 위(노치 밖으로 나온 갓마루)는 밖 = 원색.
+  const dskBrdChain = useMemo(() => {
+    if (!DSK_ON) return () => {}
+    const gc = gatCutSpec(), x0 = COR_CX - COR_R
+    const a = gc.surf(x0, 0), b = gc.surf(x0 + 1, 0) - a, c = gc.surf(x0, 1) - a   // 평면 y = a + b·(x−x0) + c·|z| (z≥0 판 · 거울 대칭)
+    return (m) => {
+      const prev = m.onBeforeCompile
+      m.onBeforeCompile = (sh, r) => {
+        if (prev) prev(sh, r)
+        sh.uniforms.uDskBrd = { value: new THREE.Vector4(COR_CX, COR_R, DSK_DIM, DSK_FRAG_E) }
+        sh.uniforms.uDskBrdPl = { value: new THREE.Vector4(a, b, c, x0) }
+        sh.uniforms.uDskBrdFO = { value: DSK_BRD_FRONT_OUT ? 1.0 : 0.0 }
+        sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vDskBW;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvDskBW = (modelMatrix * vec4(position, 1.0)).xyz;')
+        sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec4 uDskBrd; uniform vec4 uDskBrdPl; uniform float uDskBrdFO; varying vec3 vDskBW;')
+          .replace('#include <color_fragment>', `#ifdef USE_COLOR
+  float dskR = length(vDskBW.xz - vec2(uDskBrd.x, 0.0));
+  float dskRoof = uDskBrdPl.x + uDskBrdPl.y * (vDskBW.x - uDskBrdPl.w) + uDskBrdPl.z * abs(vDskBW.z);
+  bool dskOut = (uDskBrdFO > 0.5) == gl_FrontFacing;
+  if (dskR <= uDskBrd.y + uDskBrd.w && vDskBW.y <= dskRoof + uDskBrd.w && dskOut) diffuseColor.rgb *= uDskBrd.z; else diffuseColor.rgb *= vColor.rgb;
+#endif`)
+      }
+      const pk = m.customProgramCacheKey; m.customProgramCacheKey = () => (pk ? pk.call(m) : '') + '|dskbrd'
+    }
+  }, [])
   useFrame(() => {
     if ((!BAKE_C_ON && !BRD_DIM_ON) || !bakeC || !darkRef.current) return
     let n = 0
@@ -359,7 +387,7 @@ export function DefAxiomRoom({ stairKind }) {
     //   (0=C내부 · 1=D승계 · 2=밖), 값은 호출부가 정점별로 매긴다(선형 → 삼각분할 무관하게 보간 일치).
     const classify = (p, nn) => {
       if (zoneCInterior(p, bakeC, nn)) return BAKE_C_ON ? zoneCShadeAt(p, nn, bakeC) : brdDimP(p, nn)
-      if (bakeCD && drumHallCarry(p)) return zoneDShadeAt(p, nn, bakeCD)
+      if (bakeCD && drumHallCarry(p)) return DSK_ON ? DSK_DIM : zoneDShadeAt(p, nn, bakeCD)
       return 1
     }
     //  ★213 샤프트 내부(우물 사각 × 월대~데크)는 D 승계보다 **먼저** 잡는다(4) — 정점색 = 어둠의 바닥 + 구멍 조도(가림 포함).
@@ -446,7 +474,7 @@ export function DefAxiomRoom({ stairKind }) {
             //  삼각형 단위로 정한 체제 안에서 정점별 값: C내부 = y 램프 · D승계 = D 셰이드 · 스킨 = 상수 · 밖 = 1
             const s = region === 3 ? brdDimP([v.x - ROOM_CX, v.y, v.z], [nm.x, nm.y, nm.z], BRD_SKIN_DIM) : region === 0 ? brdDimP([v.x - ROOM_CX, v.y, v.z], [nm.x, nm.y, nm.z])
               //  정점은 삼각형 중심 쪽으로 1e-3 물러선 점에서 잰다 — 공유 모서리 정점이 이웃 상자 경계 위에 놓여 전부 가려지는 표본 사고 방지
-              : region === 4 ? (SFT_VTX_ON ? sftShadeAt([v.x - ROOM_CX + (c3.x - v.x) * 1e-3, v.y + (c3.y - v.y) * 1e-3, v.z + (c3.z - v.z) * 1e-3], [nm.x, nm.y, nm.z], sftF, sftK) : sftS) : region === 1 ? zoneDShadeAt([v.x - ROOM_CX, v.y, v.z], [nm.x, nm.y, nm.z], bakeCD) : 1
+              : region === 4 ? (SFT_VTX_ON ? sftShadeAt([v.x - ROOM_CX + (c3.x - v.x) * 1e-3, v.y + (c3.y - v.y) * 1e-3, v.z + (c3.z - v.z) * 1e-3], [nm.x, nm.y, nm.z], sftF, sftK) : sftS) : region === 1 ? (DSK_ON ? DSK_DIM : zoneDShadeAt([v.x - ROOM_CX, v.y, v.z], [nm.x, nm.y, nm.z], bakeCD)) : 1
             if (s < 1) touched = true
             col[(t + k) * 3] = col[(t + k) * 3 + 1] = col[(t + k) * 3 + 2] = s
           }
@@ -462,7 +490,7 @@ export function DefAxiomRoom({ stairKind }) {
       if (!touched) return
       gT.setAttribute('color', new THREE.BufferAttribute(col, 3))
       gT.userData.bakedC = true; g.userData.bakedC = true
-      mats.forEach((m) => { m.vertexColors = true; m.needsUpdate = true })
+      mats.forEach((m) => { m.vertexColors = true; if (DSK_ON && o.userData.brd && !m.userData.dskBrd) { m.userData.dskBrd = true; dskBrdChain(m) } m.needsUpdate = true })
       n++
     })
     if (n) { console.info(`[BAKE_C] 관 구간 ${BAKE_C_ON ? '베이크 γ=' + BAKE_C_GAMMA : '감광 램프 ' + BRD_DIM_LO + '→' + BRD_DIM_HI} — 메시 ${n}개 (드럼승계=${!!bakeCD})`); invalidate() }

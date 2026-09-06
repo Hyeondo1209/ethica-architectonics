@@ -1441,3 +1441,156 @@ export function sftLightTris(F = sftLightSpec(), { part = 'all' } = {}) {   //  
   return { pos, uv, ys }
 }
 
+
+// ══════ ★214 D구획(드럼 통로·홀) 빛 — 갓 치마 커튼 (2026.09.06 현도 스케치 ⓑ · 동쪽 18° 기움) ══════
+//  ⚠구조: 명세(dskirtSpec) → 가림 해결(dskirtResolve — 광선 함수 주입: 브라우저는 Raycaster, 검사는 해석 광선) →
+//   점광 표본(dskirtSamples) → 정점색(dskirtShadeAt) / 리본 메시(dskirtTris). 수학 정본은 여기 하나(사본 금지).
+//  ⚠1차 근사 선언: ⓐ정점색 조도에는 가림이 없다(가닥 자체는 가림에서 끝나지만, 끝나기 전 구간이 부재 뒤를 비출 수 있다)
+//   ⓑ가림은 가닥 중심선 한 발로 판정한다(리본 폭은 무시) ⓒ리본은 뿌리 접선 방향 고정 폭(연속 치마 — 아래로 벌어지며 틈이 생긴다 = 주름).
+import { DSK_CROWN_ON, DSK_TUBE_SEG, DSK_ON, DSK_LEAN_DEG, DSK_SPREAD_IN, DSK_SPREAD_OUT, DSK_PER_ARC, DSK_JITTER, DSK_HEM_Y, DSK_FADE_POW, DSK_DIM, DSK_GAMMA, DSK_K, DSK_LOBE, INCA_CUT_Y,
+  DSK_SAMP, DSK_DY, DSK_ROOT_INSET, DSK_RAY_NEAR, DSK_CELLA_IN, DSK_OVERLAP, DSK_TEMPLE_IN, CELLA_XW, CELLA_X1, CELLA_ZHW, CELLA_T, CELLA_ROOF_Y0, FR_FLOOR_Y, FR_SILL_LIFT, TEMPLE_X0 } from './constants.js'
+
+const R2A = 0.7548776662466927, R2B = 0.5698402909980532        // R2 저불일치 상수(부채꼴 생성기·★188과 같은 상수)
+/** 커튼 명세 — 뿌리 링·기울기·48가닥(방위 φ · 퍼짐 · 출발점 o · 단위 방향 d). 전부 파생. */
+export function dskirtSpec() {
+  const S = gatSlitSpec(), g = gatCap()
+  const lean = Math.tan((DSK_LEAN_DEG * Math.PI) / 180)
+  const rootR = S.R - DSK_ROOT_INSET, rootY = S.baseY
+  const lmax = rootY - DSK_HEM_Y                                  // 무가림 최대 수직 낙차
+  const strands = []
+  let k = 0
+  for (const arc of S.arcs) {
+    for (let i = 0; i < DSK_PER_ARC; i++) {
+      const j1 = ((k * R2A) % 1) - 0.5, j2 = (k * R2B) % 1        // 위치 흔들림(−0.5~0.5) · 퍼짐 배분(0~1)
+      const u = (0.5 + i + DSK_JITTER * j1) / DSK_PER_ARC          // 구간 안 위치(균등 중심 ± 흔들림) — 구간 밖으로 안 나감(|j1|≤0.5·JITTER<1)
+      const spreadDeg = DSK_SPREAD_IN + (DSK_SPREAD_OUT - DSK_SPREAD_IN) * (DSK_JITTER > 0 ? j2 : i / Math.max(1, DSK_PER_ARC - 1))
+      const phi = arc.a0 + u * arc.da, c = Math.cos(phi), sn = Math.sin(phi)
+      const sp = Math.tan((spreadDeg * Math.PI) / 180)
+      const dx = sp * c + lean, dy = -1, dz = sp * sn, L = Math.hypot(dx, dy, dz)
+      strands.push({ k, phi, spreadDeg, w: (DSK_OVERLAP * S.R * arc.da) / DSK_PER_ARC,   // 리본 폭 = 구간 호길이/가닥 수 × 겹침 배율(★214-a: 2 = 이웃과 절반씩 겹쳐 낱가닥 완화)
+        o: [S.cx + rootR * c, rootY, rootR * sn], d: [dx / L, dy / L, dz / L], tMax: lmax / (-dy / L), tau: [-sn, 0, c] })
+      k++
+    }
+  }
+  return { on: DSK_ON, slit: S, gat: g, lean, rootR, rootY, lmax, strands }
+}
+/** 가림 해결 — raycast(o, d, near) → 첫 충돌 거리 | null. 가닥 끝 = min(충돌, tMax). 광선 함수는 호출자가 준다(사본 0). */
+export function dskirtResolve(spec, raycast) {
+  return spec.strands.map((s) => {
+    const h = raycast ? raycast(s.o, s.d, DSK_RAY_NEAR) : null
+    const hit = h != null && h < s.tMax
+    return { ...s, tEnd: hit ? h : s.tMax, hit }
+  })
+}
+/** 길이 방향 세기 = (1 − t/tMax)^POW — 리본 셰이더·정점색·검사가 같은 식을 쓴다 */
+export const dskirtFade = (t, tMax) => Math.pow(Math.max(0, 1 - t / tMax), DSK_FADE_POW)
+/** 점광 표본 — 가닥마다 DSK_SAMP개, 가중 = fade(t)·(tEnd/n). 가림이 짧게 끊은 가닥은 표본도 짧다. */
+export function dskirtSamples(strands, n = DSK_SAMP) {
+  const out = []
+  for (const s of strands) {
+    const dt = s.tEnd / n
+    for (let i = 0; i < n; i++) { const t = (i + 0.5) * dt
+      out.push({ p: [s.o[0] + s.d[0] * t, s.o[1] + s.d[1] * t, s.o[2] + s.d[2] * t], w: dskirtFade(t, s.tMax) * dt, d: s.d }) }   // ★214-k d: 빔 방향
+  }
+  return out
+}
+/** 정점 조도(가림 없음 — 1차 근사 ⓐ): Σ w · max(0, cosθ) · beam / d²
+ *  ★214-k beam = max(0, d̂·(p−s)/|p−s|)^DSK_LOBE — 표본은 **가닥 진행 방향**(아래·동쪽)으로만 빛을 낸다. 전방위(초판)면 커튼 바로 위 천장이
+ *  가장 밝아 빛이 '떠 있게' 읽혔다(현도: "떨어지는 느낌이 아니라 희미"). 실측: 천장 0.23→0.04 · 제단 0.18→1.0(기준점) · 서벽 0.11→0.04. */
+export function dskirtIrradianceAt(p, nrm, samples) {
+  let e = 0
+  for (const s of samples) {
+    const dx = s.p[0] - p[0], dy = s.p[1] - p[1], dz = s.p[2] - p[2], d2 = dx * dx + dy * dy + dz * dz
+    if (d2 < 1e-6) continue
+    const dl = Math.sqrt(d2), cos = (nrm[0] * dx + nrm[1] * dy + nrm[2] * dz) / dl
+    if (cos <= 0) continue
+    let beam = 1
+    if (DSK_LOBE > 0 && s.d) { const a = -(s.d[0] * dx + s.d[1] * dy + s.d[2] * dz) / dl; if (a <= 0) continue; beam = Math.pow(a, DSK_LOBE) }
+    e += (s.w * cos * beam) / d2
+  }
+  return e
+}
+/** 기준점(정규화 1의 자리) — ★214 초판: 치마가 축을 가로지르는 y≈114(허공) → ★214-k: 잉카 넥서스 판. ⚠★188의 '문턱' 어법은 여기서 틀린다(문턱 조도 0). */
+export function dskirtRefPoint(spec) { return [COR_CX, INCA_CUT_Y, 0] }   // ★214-k 기준점 = **잉카 넥서스 판(축상 · INCA_CUT_Y 38)** · 위 향 — "커튼이 잉카 제단을 밝힌다"(현도)를 정규화에 박는다: 제단 = 1(백색). 초판(축 가로지름 y≈114)은 허공이라 제단이 늘 어중간했다
+export function dskirtERef(spec, samples) { return dskirtIrradianceAt(dskirtRefPoint(spec), [0, 1, 0], samples) }
+/** 정점색 ∈ [DSK_DIM, DSK_DIM + (1−DSK_DIM)·DSK_K] — S ★213과 같은 응답식(어둠 바닥 + 상한 있는 거듭제곱) */
+export function dskirtShadeAt(p, nrm, samples, eRef) {
+  const e = dskirtIrradianceAt(p, nrm, samples) / eRef
+  return DSK_DIM + (1 - DSK_DIM) * DSK_K * Math.pow(Math.min(1, Math.max(0, e)), DSK_GAMMA)
+}
+/** ★214-n 두 모델의 이음 — 크라운 통 안 = ★188 슬릿 모델(zoneDShadeAt) · 밑동 아래 GAT_CONE_H 대역 = max(커튼, 슬릿×t) · 그 밖 = 커튼.
+ *  근거(실측): 커튼 표본은 밑동에서 아래로만 발광(빔)하므로 통 안은 DIM(새까맣고) 기둥은 제외(새하얗다) — 통 안의 실제 광원은 슬릿이다.
+ *  ★188 모델은 통 안에서 리드 밑 0.87~0.97 · 통 안벽 0.73~0.80 · 기둥 안면 0.95(실측). */
+export function dskirtShadeMix(p, nrm, samples, eRef, spec, D188) {
+  const sk = dskirtShadeAt(p, nrm, samples, eRef)
+  if (!DSK_CROWN_ON || !D188) return sk
+  const S = spec.slit, r = Math.hypot(p[0] - S.cx, p[2])
+  if (r <= S.R + 1e-3 && p[1] >= S.baseY - 1e-3) return zoneDShadeAt(p, nrm, D188)
+  const t = (p[1] - (S.baseY - GAT_CONE_H)) / GAT_CONE_H
+  return t > 0 ? Math.max(sk, zoneDShadeAt(p, nrm, D188) * Math.min(1, t)) : sk
+}
+/** ★214-q 정점색용 재분할 — 비색인 삼각형 배열(pos, nrm)에서 변이 maxEdge보다 긴 삼각형을 가운데점으로 4분할(재귀). 면 형상 무변 · 법선은 그대로 복제.
+ *  큰 CSG 면(신전 서면 50×34m = 삼각형 2장)에 정점색을 얹으면 세 귀 값의 선형 보간이라 대각선 띠가 생긴다(현도 09.06 사진 — 양태 패싯이 아니라 신전 서면). */
+export function tessellateTris(pos, nrm, maxEdge) {
+  const outP = [], outN = []
+  const emit = (a, b, c, na, nb, nc, depth) => {
+    const L = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2])
+    if (depth < 8 && Math.max(L(a, b), L(b, c), L(c, a)) > maxEdge) {
+      const m = (p, q) => [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2, (p[2] + q[2]) / 2]
+      const ab = m(a, b), bc = m(b, c), ca = m(c, a), nab = m(na, nb), nbc = m(nb, nc), nca = m(nc, na)
+      emit(a, ab, ca, na, nab, nca, depth + 1); emit(ab, b, bc, nab, nb, nbc, depth + 1); emit(ca, bc, c, nca, nbc, nc, depth + 1); emit(ab, bc, ca, nab, nbc, nca, depth + 1)
+    } else { for (const p of [a, b, c]) outP.push(p[0], p[1], p[2]); for (const n of [na, nb, nc]) outN.push(n[0], n[1], n[2]) }
+  }
+  for (let i = 0; i < pos.length; i += 9) {
+    const g = (k) => [pos[i + k * 3], pos[i + k * 3 + 1], pos[i + k * 3 + 2]], h = (k) => [nrm[i + k * 3], nrm[i + k * 3 + 1], nrm[i + k * 3 + 2]]
+    emit(g(0), g(1), g(2), h(0), h(1), h(2), 0)
+  }
+  return { pos: outP, nrm: outN }
+}
+/** 홀 '안' 판정(정점색 대상) — zoneDInterior와 다른 점 셋(전부 실측에서 나온 정정):
+ *   ⓐ천장 = 빗면 평면 ceilY(x) **와** 갓 양태 곡면(외곽 다각형 ceilY(x_out) ↔ 크라운 밑동 baseY 반경 보간) 중 **높은 쪽** 아래.
+ *     ★188의 '양태 = 림에서 위로 18' 어법은 기운 천장에서 틀린다(동쪽 림 202 > baseY 192.4 — 양태가 **내려간다**).
+ *   ⓑ동쪽 상부 쐐기·양태 분기의 무한 반경 결함 소멸(원통 r≤COR_R로 닫힌다) ⓒ동창 너머 셀라 안 포함(DSK_CELLA_IN).
+ *  ⚠zoneDInterior는 ★188 검사가 물고 있어 손대지 않는다(보존계). ⚠E=1e-3: 정점은 Float32(r=84.000004 같은 값 — 1e-6이면 벽 전체가 밖). */
+export function dskirtInterior(p, spec = dskirtSpec(), facet = false) {   // facet=true(천장 셸)만 외접 다각형 반경(88.3)까지 — 그 외는 벽 반경(84) · ★214-d
+  const S = spec.slit, E = 1e-3, r = Math.hypot(p[0] - S.cx, p[2])
+  if (DSK_CELLA_IN && p[0] >= CELLA_XW - E && p[0] <= CELLA_X1 + CELLA_T + E && Math.abs(p[2]) <= CELLA_ZHW + CELLA_T + E && p[1] >= -1) {   // ★214-c 셀라 **솔리드 전체**(벽 두께 포함 — 뒷벽 바깥면 정점이 백색으로 남아 옆면이 그라데이션 되던 것)
+    if (p[1] <= (DSK_TEMPLE_IN ? FR_FLOOR_Y + FR_SILL_LIFT : CELLA_ROOF_Y0) + E) return true   // 셀라 주머니(★214-b: 프리즈 방 바닥까지 — 신전 하단 띠·아치·리브 다섯) · ★214-c 리브 절단 캡 상면 = 바닥 +LIFT(0.02)
+    if (DSK_TEMPLE_IN && p[0] <= TEMPLE_X0 + E && p[1] <= S.y1 + E) return true         // 그 위는 신전 서면 껍질(x ≤ TEMPLE_X0)만 — 1p7 방 안 무접촉
+  }
+  if (p[1] < -CUP_R - E) return false
+  if (p[1] < -E) return Math.hypot(r, p[1]) <= CUP_R + E                       // ★214-e 바닥(y0) 아래는 **사발 반구 안**만 — 스트랩·피어 하단(반구 밖)은 외부(현도 사진: 드럼 아래가 검게)
+  if (r <= S.R + E) return p[1] <= S.y1 + E                                   // 크라운 통 안 — 리드 밑면(y1=lidY)까지(★214-a: 리드 밑면이 백색 원판으로 보이던 것 — 발광 디스크 소등만으론 부족)
+  const rOut = COR_R / Math.cos(Math.PI / GAT_FACETS), sIn = (r - S.R) / (rOut - S.R)
+  if (r > (facet ? rOut : COR_R) + E) return false                               // ⚠천장 패싯만 양태 외접 다각형(88.3)까지(★214-d: 부재에 88.3을 쓰면 드럼 밖 4m 띠의 리브가 얼룩진다) — 천장 패싯 모서리 정점(r 84~88)이 밖으로 떨어지면 서쪽 천장에 밝은 조각이 남는다(셀프 렌더 적발)
+  const yOut = ceilY(S.cx + (rOut * (p[0] - S.cx)) / r)                       // 같은 방위의 외곽 다각형 높이(ceilY는 x만의 함수)
+  const ySurf = S.baseY + sIn * (yOut - S.baseY)                                // 양태 곡면(반경 선형 보간)
+  //  패싯(평면 다각형) ↔ 반경 보간(원뿔)의 최대 편차 = 외접 여분(rOut−COR_R)/(rOut−R) × 림·밑동 최대 낙차 — 그만큼 여유(파생 · 손 수치 0)
+  const eSurf = ((rOut - COR_R) / (rOut - S.R)) * Math.max(Math.abs(ceilY(S.cx + rOut) - S.baseY), Math.abs(ceilY(S.cx - rOut) - S.baseY))
+  return p[1] <= Math.max(ceilY(p[0]), ySurf) + eSurf + E
+}
+/** ★214-l 가닥 메시 = **관(튜브)** — 방 빛기둥(★A shaftMat: 원통 + 실루엣 facing + 후광 통)의 어법 승계. 초판 리본(평면 띠)은 옆에서 보면 사라지고 정면에선
+ *  판이라 '만져질 듯한' 몸이 없었다(현도 09.06). 튜브 반지름 = w/2(리본 폭 승계) × radiusK(후광은 SHAFT_HALO_K_UP 배).
+ *  uv.x = 둘레(0~1) · uv.y = t/tMax(길이 소멸 — 가닥이 끊겨도 소멸 곡선은 전 길이 기준) · 법선 = 방사(실루엣 판정용 · 방 빛기둥의 uAxial 어법). */
+export function dskirtTris(strands, { radiusK = 1, sides = DSK_TUBE_SEG } = {}) {
+  const pos = [], uv = [], nrm = []
+  for (const s of strands) {
+    const n = Math.max(1, Math.ceil(s.tEnd / DSK_DY)), rad = (s.w / 2) * radiusK
+    const dt0 = s.tau[0] * s.d[0] + s.tau[1] * s.d[1] + s.tau[2] * s.d[2]                                   // 링 접선은 d에 정확히 수직이 아니다(기울기·퍼짐) → 직교화
+    let t1 = [s.tau[0] - dt0 * s.d[0], s.tau[1] - dt0 * s.d[1], s.tau[2] - dt0 * s.d[2]]; const tl = Math.hypot(...t1); t1 = [t1[0] / tl, t1[1] / tl, t1[2] / tl]
+    const b1 = [s.d[1] * t1[2] - s.d[2] * t1[1], s.d[2] * t1[0] - s.d[0] * t1[2], s.d[0] * t1[1] - s.d[1] * t1[0]]   // 종법선 = d × t1(둘 다 단위·d에 수직 → 정원 단면)
+    const ring = (t, k) => { const a = (k / sides) * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a)
+      const nn = [t1[0] * ca + b1[0] * sa, t1[1] * ca + b1[1] * sa, t1[2] * ca + b1[2] * sa]
+      return { p: [s.o[0] + s.d[0] * t + nn[0] * rad, s.o[1] + s.d[1] * t + nn[1] * rad, s.o[2] + s.d[2] * t + nn[2] * rad], n: nn } }
+    const push = (q, ux, t) => { pos.push(q.p[0], q.p[1], q.p[2]); uv.push(ux, t / s.tMax); nrm.push(q.n[0], q.n[1], q.n[2]) }
+    for (let i = 0; i < n; i++) {
+      const ta = (i * s.tEnd) / n, tb = ((i + 1) * s.tEnd) / n
+      for (let k = 0; k < sides; k++) {
+        const a0 = ring(ta, k), a1 = ring(ta, k + 1), b0 = ring(tb, k), b3 = ring(tb, k + 1), u0 = k / sides, u1 = (k + 1) / sides
+        push(a0, u0, ta); push(a1, u1, ta); push(b3, u1, tb)
+        push(a0, u0, ta); push(b3, u1, tb); push(b0, u0, tb)
+      }
+    }
+  }
+  return { pos, uv, nrm }
+}

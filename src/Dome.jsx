@@ -100,17 +100,17 @@ export function DrumCup() {
   const bowl = buildCupBowl(), straps = buildCupStraps(), ring = buildCupRing()
   return (
     <>
-      <mesh geometry={bowl} userData={{ walkable: false }}>
+      <mesh geometry={bowl} userData={{ walkable: false, hallBake: true, bakeShell: true }}>{/* ★214-e 사발 = 두께0 반구 셸 → 안면만 */}{/* ★214 홀 정점색 대상(Corridor DrumSkirt가 장면에서 찾는다) */}
         <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
       </mesh>
-      <mesh geometry={straps} userData={{ walkable: false }}>
+      <mesh geometry={straps} userData={{ walkable: false, hallBake: true }}>
         <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
       </mesh>
       {/*  ★★93 고리판(2026.07.31 현도) — 반구 입(63) ↔ 드럼 벽(84) 동심 틈을 100% 덮는다.
            ⚠이건 **밟는 면이다**(하판 반구·기둥과 달리 walkable) — 바닥이 생겼다는 선언.
            ⚠닫힌 솔리드라 DoubleSide 불필요(FrontSide) — 밑면·안쪽 띠까지 자기 면을 갖고 있다. */}
       {ring && (
-        <mesh geometry={ring} userData={{ walkable: true }}>
+        <mesh geometry={ring} userData={{ walkable: true, hallBake: true }}>
           <meshStandardMaterial {...SHELL_MAT} />
         </mesh>
       )}
@@ -303,7 +303,7 @@ export function ExplorationRib() {
   }, [])
   //  ⚠캡 없음 — 위 ribCutBrush 주석 ★★ 참조. #0의 보어는 나선이 지나는 길이라 막으면 뚫고 못 간다.
   return (
-    <mesh geometry={geo}>
+    <mesh geometry={geo} userData={{ hallBake: true }}>{/* ★214-c 동창 가운데 리브(#0) — 홀 안 구간 정점색 */}
       <meshStandardMaterial {...RIB_MAT} side={THREE.DoubleSide} onBeforeCompile={ribTintOBC} />
     </mesh>
   )
@@ -372,9 +372,9 @@ export function HallDoorRibs() {
   //   ⚠아랫캡은 유지 — 'floor' 모드에서 그건 리브 부재가 아니라 **바닥 관통 구멍의 마개**다(R6 [128]).
   const cuts = useMemo(() => (RIB_CUT_ON ? ribCutSpec().filter(v => v.k !== 0) : []), [])
   return (
-    <group>
+    <group userData={{ hallBake: true }}>{/* ★214-c 그룹 태그: 리브 다섯 + RibCutCaps(리브가 서는 판) 전부 홀 정점색 대상 */}
       {cut.map((g, i) => (
-        <mesh key={i} geometry={g}>
+        <mesh key={i} geometry={g}>{/* ★214-b 동창 리브 다섯 — 홀 안 구간만 정점색(밖은 1.0 그대로) */}
           <meshStandardMaterial {...RIB_MAT} side={THREE.DoubleSide} onBeforeCompile={ribTintOBC} />
         </mesh>
       ))}
@@ -457,7 +457,7 @@ export function RibStair() {
     plateRef.current.instanceMatrix.needsUpdate = true
   }, [split, freeEnd])
   return (
-    <>
+    <group userData={{ hallBake: true }}>{/* ★214-b 동창 안 리브 계단(기둥·판·폴) — 홀 안 구간 정점색(판은 인스턴스 색) */}
       {newel && (
         <mesh position={[newelC.x, newel.cy, newelC.z]} userData={{ walkable: false }}>
           <cylinderGeometry args={[RIB_NEWEL_R, RIB_NEWEL_R, newel.h, 24]} />
@@ -529,7 +529,7 @@ export function RibStair() {
           <meshStandardMaterial color={DOME_POLE_COL} roughness={0.85} />
         </mesh>
       )}
-    </>
+    </group>
   )
 }
 
