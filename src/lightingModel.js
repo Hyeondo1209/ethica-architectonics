@@ -32,7 +32,7 @@ import {
   BRD_DOOR_LIGHT_ON, BRD_DOOR_L, BRD_DOOR_SPREAD, BRD_DOOR_DX,
   SFT_DIM, SFT_GAMMA, SFT_K, SFT_LIGHT_GAP, SFT_LIGHT_SL_DX, SFT_SAMP, SFT_LIGHT_ON, SFT_LIGHT_SIDES_ON } from './constants.js'   // ★213 월대샤프트 빛
 import { shaftSpec, shaftStepFoot } from './bridgeDeckGeometry.js'   // ★213 샤프트 실기하 정본(사본 0)
-import { woldaeSpec } from './corridorStairsGeometry.js'   // ★210 C구획 + ★211 빛 커튼
+import { woldaeSpec, ribCutSpec } from './corridorStairsGeometry.js'   // ★210 C구획 + ★211 빛 커튼
 import { trapColumnSpec, slitLinkSpec, bridgeTrapSpec, spireCutX } from './bridgeTrapGeometry.js'   // ★210 슬릿 실기하(빌더와 같은 spec — 사본 금지)
 import { spireSpec, wellWallR, wellInnerClear } from './spireGeometry.js'
 import { spireTerraceSpec } from './spireTerraceGeometry.js'   // ★209 테라스 구멍 = y127의 통과 구속(사본 금지)
@@ -1448,7 +1448,9 @@ export function sftLightTris(F = sftLightSpec(), { part = 'all' } = {}) {   //  
 //  ⚠1차 근사 선언: ⓐ정점색 조도에는 가림이 없다(가닥 자체는 가림에서 끝나지만, 끝나기 전 구간이 부재 뒤를 비출 수 있다)
 //   ⓑ가림은 가닥 중심선 한 발로 판정한다(리본 폭은 무시) ⓒ리본은 뿌리 접선 방향 고정 폭(연속 치마 — 아래로 벌어지며 틈이 생긴다 = 주름).
 import { DSK_CROWN_ON, DSK_TUBE_SEG, DSK_ON, DSK_LEAN_DEG, DSK_SPREAD_IN, DSK_SPREAD_OUT, DSK_PER_ARC, DSK_JITTER, DSK_HEM_Y, DSK_FADE_POW, DSK_DIM, DSK_GAMMA, DSK_K, DSK_LOBE, INCA_CUT_Y,
-  DSK_SAMP, DSK_DY, DSK_ROOT_INSET, DSK_RAY_NEAR, DSK_CELLA_IN, DSK_OVERLAP, DSK_TEMPLE_IN, CELLA_XW, CELLA_X1, CELLA_ZHW, CELLA_T, CELLA_ROOF_Y0, FR_FLOOR_Y, FR_SILL_LIFT, TEMPLE_X0 } from './constants.js'
+  DSK_SAMP, DSK_DY, DSK_ROOT_INSET, DSK_RAY_NEAR, DSK_CELLA_IN, DSK_OVERLAP, DSK_TEMPLE_IN, CELLA_XW, CELLA_X1, CELLA_ZHW, CELLA_T, CELLA_ROOF_Y0, FR_FLOOR_Y, FR_SILL_LIFT, TEMPLE_X0,
+  DSK_FR_IN, TEMPLE_X1, FR_ANNEX, FR_BACK_T, TEMPLE_HZ, FR_WALL_T, FR_CEIL_T, CEIL_LO, CEIL_SLOPE, COR_CYL_X0, FRIEZE_ROOM_ON,
+  FRL_ON, FRL_MOUTH_ON, FRL_BODY_ON, FRL_R, FRL_LOBE, FRL_SAMP, FRL_BODY_PM, FRL_DIM, FRL_GAMMA, FRL_K, FRL_STUB_MG, RIB_CUT_CAP_T, rOf, H } from './constants.js'   // ★214-r 프리즈 방 상자 · ★215 프리즈 방 빛
 
 const R2A = 0.7548776662466927, R2B = 0.5698402909980532        // R2 저불일치 상수(부채꼴 생성기·★188과 같은 상수)
 /** 커튼 명세 — 뿌리 링·기울기·48가닥(방위 φ · 퍼짐 · 출발점 o · 단위 방향 d). 전부 파생. */
@@ -1518,12 +1520,105 @@ export function dskirtShadeAt(p, nrm, samples, eRef) {
   const e = dskirtIrradianceAt(p, nrm, samples) / eRef
   return DSK_DIM + (1 - DSK_DIM) * DSK_K * Math.pow(Math.min(1, Math.max(0, e)), DSK_GAMMA)
 }
+// ═══ ★215 프리즈 방(1p7) 빛 — 끊긴 관 다섯(그루터기)이 아가리·몸통에서 비춘다 · 조도 모델 = D 승계 · 정본 기하 = ribCutSpec(사본 0) ═══
+/** 리브 k의 축점(높이 y) — ribCutSpec의 tx/tz·bx/bz와 같은 식(rOf·phi). */
+export const ribAxisAt = (phi, y) => [rOf(y / H) * Math.cos(phi), y, rOf(y / H) * Math.sin(phi)]
+/** 그루터기 다섯의 명세: 아가리(mouth: 축점·아래 방향 단위벡터·바닥 캡 상면까지 길이) · 몸통(stub: 아가리→방 천장 밑 축 구간) */
+export function friezeLightSpec() {
+  if (!FRL_ON || !DSK_FR_IN || !FRIEZE_ROOM_ON) return null
+  const B = friezeRoomBox()
+  const ribs = ribCutSpec().map((c) => {
+    const m = ribAxisAt(c.phi, c.yTop), f = ribAxisAt(c.phi, c.yBot + 0.02 + RIB_CUT_CAP_T / 2)   // 바닥 캡 상면(아랫캡 = yBot+0.02 중심 · 두께 CAP_T)
+    const d = [f[0] - m[0], f[1] - m[1], f[2] - m[2]], L = Math.hypot(...d)
+    let top = m; for (let i = 0; i < 12; i++) top = ribAxisAt(c.phi, friezeRoomCeil(top[0], B) - 0.02)   // 그루터기 위끝 = 방 천장 밑 — 축 x가 y에 따라 움직이므로 고정점 반복(12회 · 1e-6 수렴 · 검사가 문다)
+    return { k: c.k, phi: c.phi, yTop: c.yTop, capT: c.capT, mouth: m, floor: f, d: [d[0] / L, d[1] / L, d[2] / L], gap: L, top, stubLen: top[1] - m[1] }
+  })
+  const ref = ribs.reduce((a, b) => (a.gap <= b.gap ? a : b))                                     // 기준 = 아가리가 가장 낮은 리브(바닥 캡 = 1.0)
+  return { ribs, refK: ref.k, refPoint: ref.floor, R: FRL_R }
+}
+/** 표본 — ⓐ 아가리: 관 안지름 원판(반경 R)에 N점(선플라워 배치 · 총 출력 1 · 빔 d · 로브 FRL_LOBE) ⓑ 몸통: 축 구간 N점(전방위 · 출력 BODY_PM·길이) */
+export function friezeLightSamples(spec = friezeLightSpec(), n = FRL_SAMP) {
+  const out = []
+  if (!spec) return out
+  const ga = Math.PI * (3 - Math.sqrt(5))
+  for (const r of spec.ribs) {
+    const d = r.d, ax = Math.abs(d[0]) < 0.9 ? [1, 0, 0] : [0, 0, 1]
+    let u = [d[1] * ax[2] - d[2] * ax[1], d[2] * ax[0] - d[0] * ax[2], d[0] * ax[1] - d[1] * ax[0]]; const ul = Math.hypot(...u); u = [u[0] / ul, u[1] / ul, u[2] / ul]
+    const v = [d[1] * u[2] - d[2] * u[1], d[2] * u[0] - d[0] * u[2], d[0] * u[1] - d[1] * u[0]]
+    if (FRL_MOUTH_ON) for (let i = 0; i < n; i++) {
+      const rr = spec.R * Math.sqrt((i + 0.5) / n), th = i * ga, c = Math.cos(th) * rr, s2 = Math.sin(th) * rr
+      out.push({ p: [r.mouth[0] + u[0] * c + v[0] * s2, r.mouth[1] + u[1] * c + v[1] * s2, r.mouth[2] + u[2] * c + v[2] * s2], w: 1 / n, d, lobe: FRL_LOBE, k: r.k, kind: 'mouth' })
+    }
+    if (FRL_BODY_ON && FRL_BODY_PM > 0 && r.stubLen > 0) { const dl = r.stubLen / n
+      for (let i = 0; i < n; i++) { const y = r.yTop + (i + 0.5) * dl; out.push({ p: ribAxisAt(r.phi, y), w: FRL_BODY_PM * dl, d: null, lobe: 0, k: r.k, kind: 'body' }) } }
+  }
+  return out
+}
+/** 조도 = Σ w · max(0,cosθ) · beam / d²  (D dskirtIrradianceAt과 같은 식 — 로브만 표본별) */
+export function friezeLightIrradianceAt(p, nrm, samples) {
+  let e = 0
+  for (const s of samples) {
+    const dx = s.p[0] - p[0], dy = s.p[1] - p[1], dz = s.p[2] - p[2], d2 = dx * dx + dy * dy + dz * dz
+    if (d2 < 1e-6) continue
+    const dl = Math.sqrt(d2), cos = (nrm[0] * dx + nrm[1] * dy + nrm[2] * dz) / dl
+    if (cos <= 0) continue
+    let beam = 1
+    if (s.lobe > 0 && s.d) { const a = -(s.d[0] * dx + s.d[1] * dy + s.d[2] * dz) / dl; if (a <= 0) continue; beam = Math.pow(a, s.lobe) }
+    e += (s.w * cos * beam) / d2
+  }
+  return e
+}
+export function friezeLightERef(spec, samples) { return friezeLightIrradianceAt(spec.refPoint, [0, 1, 0], samples) }
+/** 그루터기 자신의 정점인가(축 거리 ≤ capT+MG · y ≥ yTop−MG) — 발광체 = 1(K 상한과 같은 뜻: 빛이 나는 곳은 하얗다) */
+export function friezeLightOnStub(p, spec) {
+  if (!spec || !FRL_BODY_ON) return false
+  return spec.ribs.some((r) => p[1] >= r.yTop - FRL_STUB_MG && (() => { const a = ribAxisAt(r.phi, p[1]); return Math.hypot(p[0] - a[0], p[2] - a[2]) <= r.capT + FRL_STUB_MG })())
+}
+/** ★215-f 관 속(보어)인가 — 축 거리 ≤ FRL_R(안지름 5.78) · y ≥ yTop−MG. 광원 **안쪽**의 물체(자립 나선 판 · 기둥)는 포화 = 1. 위치 규칙(모든 메시) — 관 살(6.0)·천장 구멍 테두리(6.08)는 밖 */
+export function friezeLightInBore(p, spec) {
+  if (!spec || !FRL_MOUTH_ON) return false
+  return spec.ribs.some((r) => p[1] >= r.yTop - FRL_STUB_MG && (() => { const a = ribAxisAt(r.phi, p[1]); return Math.hypot(p[0] - a[0], p[2] - a[2]) <= spec.R })())
+}
+/** ★215-g 베이크 관문 앞 우선 규칙 — 리브 메시(onRib) 정점이 그루터기·관 속이면 안 판정과 무관하게 1. 지붕 위 리브 정점이 '밖 → DIM'으로 굽혀지고(★215-d 규칙은 관문 뒤라 무력), 조각은 높이맵 미스(=리드 207)로 '안'이 되어 검은 쐐기(현도 09.07 15:52 · r<84인 #0·#±1만) */
+export function friezeLightVertexOverride(p, onRib) {
+  if (!FRL_ON) return null
+  const b = friezeLightBake(); if (!b) return null
+  if ((onRib && friezeLightOnStub(p, b.spec)) || friezeLightInBore(p, b.spec)) return 1
+  return null
+}
+/** ★215-i 드럼 천장 높이맵의 **미스 대체값** — 크라운 안(r ≤ GAT_CROWN_R)은 리드 밑(y1: 흡기 구멍 위 크라운 통 = 안), 그 밖(신전 발자국 위 · 리브 구멍 위)은 해석 천장면 ceilY(x)(신전 상판 = ceilY−0.02 · 리브 구멍 둘레 천장면). 구 '미스 = 리드'는 지붕 위 y ≤ 207을 안으로 삼아 리브(★215-g)·피어(★215-i) 검은 쐐기의 뿌리 */
+export function dskRoofFallback(rad, x, spec = dskirtSpec()) { return rad <= GAT_CROWN_R ? spec.slit.y1 : ceilY(x) }
+let _frlBake = undefined
+/** 한 번 계산해 재사용(결정적) — {spec, samples, eRef} 또는 null(FRL 꺼짐) */
+export function friezeLightBake() {
+  if (_frlBake !== undefined) return _frlBake
+  const spec = friezeLightSpec()
+  if (!spec) return (_frlBake = null)
+  const samples = friezeLightSamples(spec)
+  return (_frlBake = { spec, samples, eRef: friezeLightERef(spec, samples) })
+}
+export function friezeLightShadeAt(p, nrm, bake = friezeLightBake(), onRib = false) {   // ★215-e onRib: 그루터기 = 1 규칙은 리브 메시 정점에만(★215-e 오판 — 천장 구멍 테두리 6.08 < 6.24가 1.0으로 굽혀 흰 별 조각)
+  if (!bake) return FRL_DIM
+  if (onRib && friezeLightOnStub(p, bake.spec)) return 1
+  if (friezeLightInBore(p, bake.spec)) return 1                                       // ★215-f 관 속 = 광원 안 = 1
+  const e = friezeLightIrradianceAt(p, nrm, bake.samples) / bake.eRef
+  return FRL_DIM + (1 - FRL_DIM) * FRL_K * Math.pow(Math.min(1, Math.max(0, e)), FRL_GAMMA)
+}
+/** ★215-c 튜브 삼각형을 방 천장 밑에 맞춰 자른다 — 몸통 후광 통의 윗고리는 평평하지만 천장은 빗면(cB 0.476): 반지름 12.3 안에서 ±5.8m 차 → 낮은 쪽에 고리가 삐져나와 삼각 무늬(현도 09.07 x295 y197 z7.4).
+ *  정점마다 y ≤ friezeRoomCeil(x)−0.02−ε 로 눌러 넣는다(x·z 불변 · uv 불변 — 위쪽 페이드는 그대로 고리에서 시작). 반환 = 눌린 정점 수. */
+export function clampTrisToRoomCeil(T, B = friezeRoomBox(), eps = 1e-3) {
+  let n = 0
+  for (let i = 0; i < T.pos.length; i += 3) { const lim = friezeRoomCeil(T.pos[i], B) - 0.02 - eps; if (T.pos[i + 1] > lim) { T.pos[i + 1] = lim; n++ } }
+  return n
+}
 /** ★214-n 두 모델의 이음 — 크라운 통 안 = ★188 슬릿 모델(zoneDShadeAt) · 밑동 아래 GAT_CONE_H 대역 = max(커튼, 슬릿×t) · 그 밖 = 커튼.
  *  근거(실측): 커튼 표본은 밑동에서 아래로만 발광(빔)하므로 통 안은 DIM(새까맣고) 기둥은 제외(새하얗다) — 통 안의 실제 광원은 슬릿이다.
  *  ★188 모델은 통 안에서 리드 밑 0.87~0.97 · 통 안벽 0.73~0.80 · 기둥 안면 0.95(실측). */
-export function dskirtShadeMix(p, nrm, samples, eRef, spec, D188) {
+export function dskirtShadeMix(p, nrm, samples, eRef, spec, D188, onRib = false) {   // ★215-e onRib = 이 정점이 리브 몸통 메시의 것(발광체 규칙 대상)
   const sk = dskirtShadeAt(p, nrm, samples, eRef)
   if (!DSK_CROWN_ON || !D188) return sk
+  if (FRL_ON && ((onRib && friezeLightOnStub(p, friezeLightBake()?.spec)) || friezeLightInBore(p, friezeLightBake()?.spec))) return 1   // ★215-f 관 속도 1(천장 위 관 속 판 연속) · ★215-e 리브 메시 정점만 · ★215-d 발광체(그루터기)는 천장 살 속·위에서도 1 — 방 안 정점 1과 살 위 정점(DIM/슬릿값) 사이 보간 쐐기 방지(GLSL은 방 밖 조각에 정점색을 안 곱하므로 외부는 무해)
+  if (friezeRoomIn(p)) return FRL_ON ? Math.max(sk, friezeLightShadeAt(p, nrm, friezeLightBake(), onRib)) : sk   // ★215 방 안 = 관 다섯의 빛(어둠 바탕 위 max) · ★214-r 프리즈 방은 밀폐 공동 — 슬릿(하늘) 블렌드 대역(y≥baseY−CONE_H 174.4)이 방 상부(천장 189~209)와 겹치나 하늘빛은 못 들어온다(실측: 천장 밑 0.59 → 0.04)
   const S = spec.slit, r = Math.hypot(p[0] - S.cx, p[2])
   if (r <= S.R + 1e-3 && p[1] >= S.baseY - 1e-3) return zoneDShadeAt(p, nrm, D188)
   const t = (p[1] - (S.baseY - GAT_CONE_H)) / GAT_CONE_H
@@ -1552,12 +1647,28 @@ export function tessellateTris(pos, nrm, maxEdge) {
  *     ★188의 '양태 = 림에서 위로 18' 어법은 기운 천장에서 틀린다(동쪽 림 202 > baseY 192.4 — 양태가 **내려간다**).
  *   ⓑ동쪽 상부 쐐기·양태 분기의 무한 반경 결함 소멸(원통 r≤COR_R로 닫힌다) ⓒ동창 너머 셀라 안 포함(DSK_CELLA_IN).
  *  ⚠zoneDInterior는 ★188 검사가 물고 있어 손대지 않는다(보존계). ⚠E=1e-3: 정점은 Float32(r=84.000004 같은 값 — 1e-6이면 벽 전체가 밖). */
+/** ★214-r 프리즈 방(1p7) 공동 상자 — **정본 = Corridor TempleBeam의 ★55 파냄 브러시**와 같은 파생값(사본 0 · 규율 33: JS 정점 판정과 GLSL 조각 판정이 이 하나를 나눠 쓴다).
+ *  x0 = TEMPLE_X0(앞벽 바깥면 — 벽 두께 안의 슬릿 문설주·창살까지 밀폐부) · x1 = 뒷벽 안면 · zh = 옆벽 안면 · y0 = 바닥 상면 · 천장 = ceilY(x) − 0.02 − FR_CEIL_T(빗면 추종 · x의 1차식) */
+export function friezeRoomBox() {
+  return { on: DSK_FR_IN && FRIEZE_ROOM_ON, x0: TEMPLE_X0, x1: TEMPLE_X1 + FR_ANNEX - FR_BACK_T, zh: TEMPLE_HZ - FR_WALL_T, y0: FR_FLOOR_Y,
+    cA: CEIL_LO - 0.02 - FR_CEIL_T, cB: CEIL_SLOPE, cX: COR_CYL_X0 }   // 천장 밑 y = cA + cB·(x − cX)
+}
+export const friezeRoomCeil = (x, B = friezeRoomBox()) => B.cA + B.cB * (x - B.cX)
+export function friezeRoomIn(p, B = friezeRoomBox(), E = 1e-3) {
+  return !!B.on && p[0] >= B.x0 - E && p[0] <= B.x1 + E && Math.abs(p[2]) <= B.zh + E && p[1] >= B.y0 - E && p[1] <= friezeRoomCeil(p[0], B) + E
+}
+/** 셸 정점 법선의 목표점 — 홀에서는 드럼 축점(cx,0,0), 프리즈 방 안에서는 **방 중심**(바닥 +y·천장 −y·옆벽 안쪽이 '안면'이 되게). */
+export function dskirtNormalTarget(p, spec = dskirtSpec(), B = friezeRoomBox()) {
+  if (friezeRoomIn(p, B)) return [(B.x0 + B.x1) / 2, (B.y0 + friezeRoomCeil(p[0], B)) / 2, 0]
+  return [spec.slit.cx, 0, 0]
+}
 export function dskirtInterior(p, spec = dskirtSpec(), facet = false) {   // facet=true(천장 셸)만 외접 다각형 반경(88.3)까지 — 그 외는 벽 반경(84) · ★214-d
   const S = spec.slit, E = 1e-3, r = Math.hypot(p[0] - S.cx, p[2])
   if (DSK_CELLA_IN && p[0] >= CELLA_XW - E && p[0] <= CELLA_X1 + CELLA_T + E && Math.abs(p[2]) <= CELLA_ZHW + CELLA_T + E && p[1] >= -1) {   // ★214-c 셀라 **솔리드 전체**(벽 두께 포함 — 뒷벽 바깥면 정점이 백색으로 남아 옆면이 그라데이션 되던 것)
     if (p[1] <= (DSK_TEMPLE_IN ? FR_FLOOR_Y + FR_SILL_LIFT : CELLA_ROOF_Y0) + E) return true   // 셀라 주머니(★214-b: 프리즈 방 바닥까지 — 신전 하단 띠·아치·리브 다섯) · ★214-c 리브 절단 캡 상면 = 바닥 +LIFT(0.02)
-    if (DSK_TEMPLE_IN && p[0] <= TEMPLE_X0 + E && p[1] <= S.y1 + E) return true         // 그 위는 신전 서면 껍질(x ≤ TEMPLE_X0)만 — 1p7 방 안 무접촉
+    //  ⛔★215-i 구 서면 절(x ≤ TEMPLE_X0 ∧ y ≤ 리드 [∧ r ≤ 84 ★215-h]) 폐기 — r ≤ 84 안은 아래 원통 규칙(천장면)이 이미 덮어 중복이고, 남는 효과는 **천장 위 지붕 공간(y 187~207)을 안으로 삼는 것뿐**(현도 09.07 16:15 피어 측면 (257,189.7,63.5) r 82.7: ★215-h의 r 조건을 통과하고 y ≤ 207로 '안' → 검은 얼룩 잔존). ★215-h는 반쪽 처방이었음
   }
+  if (friezeRoomIn(p, friezeRoomBox(), E)) return true                            // ★214-r 프리즈 방 공동 — 1p7 방 안도 홀과 한 어둠(현도 A 09.06)
   if (p[1] < -CUP_R - E) return false
   if (p[1] < -E) return Math.hypot(r, p[1]) <= CUP_R + E                       // ★214-e 바닥(y0) 아래는 **사발 반구 안**만 — 스트랩·피어 하단(반구 밖)은 외부(현도 사진: 드럼 아래가 검게)
   if (r <= S.R + E) return p[1] <= S.y1 + E                                   // 크라운 통 안 — 리드 밑면(y1=lidY)까지(★214-a: 리드 밑면이 백색 원판으로 보이던 것 — 발광 디스크 소등만으론 부족)

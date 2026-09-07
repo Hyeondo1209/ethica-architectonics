@@ -1080,6 +1080,11 @@ export const FREEZE_C_SIG = 3902720085    // ★212-j 시점 지문(2026.09.04 �
 //  ⚠지문이 어긋나면 갱신하지 말고 현도에게 보고. 되살리기·재론 = 현도 지시로만.
 export const FREEZE_S_ON  = true          // ⛔false = 동결 보류(의도된 재작업 세션에서만)
 export const FREEZE_S_SIG = 2341173034    // 2026.09.05 동결 시점 지문(S-15 실측) — 절대 조용히 갱신 금지
+// ★215-j 구역 **D+F**(드럼 통로·홀 ★214 갓 치마 커튼 + 프리즈 방 1p7 ★215 관 다섯) 동결 — 2026.09.07 현도 확정("드럼통로와 프리즈 방 조명은 완결처리"). 이후 어떤 세션도 이 구역의
+//   조명 노브·판정식·셰이더·표본 배치를 건드리지 않는다. 지문 = 명세(가닥·아가리·상자) + 조도 기준값 + 정점색 표본 + 판정 비트(경계점) + 튜브 세기 + GLSL 판정 블록·베이크 루프 + 노브. check_lux S-19 FNV-1a.
+//   ⛔지문이 붉으면 지문을 갱신하지 말고 현도에게 보고(A·C·S와 같은 규율). 이 구역 위에 새 빛을 얹으려면 현도가 FREEZE_D_ON=false를 선언하고 새 ★ 번호로 연다.
+export const FREEZE_D_ON  = true          // false = 동결 해제(현도 선언 시만)
+export const FREEZE_D_SIG = 3878005666    // ★215-j 2026.09.07 확정값. **갱신 금지** — 붉으면 현도 보고.
 export const FREEZE_A_ON  = true          // ⛔false = 동결 해제(현도 승인 시에만)
 export const FREEZE_A_SIG = 3156926404    // ★209-e 시점 지문. **손으로 고치지 말 것** — 현도 승인 없이 갱신 금지.
 export const SHAFT_HALO_K_UP = 2.0   // 상절 헤일로 배수. 스케치 실측 = 어깨 21 / 기둥 10.6
@@ -5862,6 +5867,38 @@ export const DSK_CROWN_ON    = true               // ★214-n 크라운 통 안(
 export const GAT_FACET_SUB   = 6                  // ★214-o 양태 패싯(f≠0) 격자 분할 — 정점색 보간의 대각선 접힘 제거(f=0 24×12의 1/4 · 면 형상 무변)
 export const DSK_TESS_EDGE   = 2 * DSK_DY         // ★214-q 큰 면(셀라·신전 CSG 솔리드)의 정점색용 재분할 — 변 길이 4m 이하로 쪼갠다(정점색은 정점에서만 계산 → 큰 삼각형은 대각선 무늬)
 export const DSK_CELLA_IN    = true               // 동창 너머 셀라 안도 홀과 한 어둠으로 본다(현도 09.06 "그대로 둬보자")
+// ── ★215 프리즈 방(1p7) 빛 — "끊긴 관 다섯이 스스로 비춘다"(현도 2026.09.06 결정: 아가리+몸통 · 볼륨+조도 · 다섯 동등, 절단 높이 차이만) ──
+//  광원 = 천장에 매달린 리브 그루터기 다섯(ribCutSpec: 절단 yTop 175.6~190.8 · 살 0.22 관 · 아래로 열린 아가리). D(★214) 조도 모델 승계(DIM·K·GAMMA 같은 값), 표본 배치만 다르다:
+//   ⓐ 아가리 = 관 안지름 원판에 표본 N개, 축 아래 방향 빔(cos^LOBE) · 총 출력 1 · 바닥 캡까지 · 볼륨 = 관 안지름 빛기둥(D 튜브 어법·A 색)
+//   ⓑ 몸통 = 그루터기 축(아가리~천장)에 표본, 전방위 · 출력 = 길이 비례(BODY_PM/m) · 볼륨 = 그루터기 둘레 후광 통(A 후광 승계) · 그루터기 정점 자체 = 1(발광체)
+//   기준점(=1.0) = 아가리가 가장 낮은 리브(#−2 · 9.6m)의 바닥 캡. 나머지 넷은 거리 제곱으로 자연히 어둡다 — 현도 "절단 높이에 따라 자연 차이만".
+//  ⛔가림 없음(D 1차 근사 승계 — 판·기둥이 빔 속에 있어도 조도는 통과) · 방 밖(홀)으로의 누출 없음(정점색은 방 상자 안만) — 둘 다 선언된 한계.
+export const FRL_ON          = true               // false = ★214-r 체제(방 = DIM 균일 · 볼륨 없음) 한 줄 복귀
+export const FRL_MOUTH_ON    = true               // ⓐ 아가리 빔(조도+빛기둥)
+export const FRL_BODY_ON     = true               // ⓑ 몸통 발광(조도+후광 통+그루터기 정점 1)
+export const FRL_R           = SHELL_RIB_R - RIB_WALL_T   // 관 안지름 반경(5.78) = 아가리 원판·빛기둥 반경
+export const FRL_LOBE        = DSK_LOBE           // 아가리 빔 로브 지수(4) — D 커튼 승계
+export const FRL_SAMP        = BAKE_N             // 아가리 원판 표본 수 · 몸통 표본 수(16)
+export const FRL_BODY_PM     = 1 / (2 * FRL_R)    // 몸통 출력/m — 파생: 관 지름(11.6m) 길이의 몸통 = 아가리 하나. 0 = 몸통 조도 끔
+export const FRL_DIM         = DSK_DIM            // 어둠의 바닥 = D 승계(0.04)
+export const FRL_GAMMA       = DSK_GAMMA          // 응답 지수 = D(=A 베이크 2.0)
+export const FRL_K           = DSK_K              // 응답 상한 1
+export const FRL_COLOR       = DSK_COLOR          // 백색 어휘(RM_SHAFT_COL)
+export const FRL_NORM_ON     = true               // ★215-b 겹 정규화(현도 09.07 사진 x297 y170 z−56: "나쁘지 않은데 빛이 겹쳐서 너무 밝다"). D 규칙 승계(DSK_OP = 0.34/LAYERS). false = 초판(A 원값 0.34·0.20 그대로 — 한 시선 0.34×2+0.20×2 ≈ 1.08 포화)
+export const FRL_LAYERS      = 2 * 2              // 한 시선이 지나는 겹 = 양면(2) × {빛기둥, 그 후광}(2) — 기하에서 센 것(관 하나에 튜브 둘 · 이웃 관 후광은 25m 간격이라 겹치지 않음)
+export const FRL_BODY_LAYERS = 2                  // 몸통 후광 = 양면(2) × 1
+export const FRL_HALO_K      = SHAFT_HALO_K_UP    // 후광 통 반지름 배율(2.0)
+export const FRL_OP          = FRL_NORM_ON ? RM_SHAFT_OP / FRL_LAYERS : RM_SHAFT_OP                                   // 빛기둥 세기: 0.34/4 = 0.085
+export const FRL_HALO_OP     = FRL_NORM_ON ? SHAFT_HALO_OP / (FRL_LAYERS * FRL_HALO_K) : SHAFT_HALO_OP                // 빛기둥 후광: 0.20/8 = 0.025
+export const FRL_BODY_HALO_OP = FRL_NORM_ON ? SHAFT_HALO_OP / (FRL_BODY_LAYERS * FRL_HALO_K) : SHAFT_HALO_OP          // 몸통 후광: 0.20/4 = 0.05
+export const FRL_TUBE_SEG    = 40                 // 튜브 둘레 분할 = 방 빛기둥과 같게(관 하나라 성길 이유 없음)
+export const FRL_FADE_POW    = DSK_FADE_POW       // 빛기둥 길이 소멸 지수(아가리→바닥) 1.5
+export const FRL_TOPF        = SHAFT_TOP_FADE     // 뿌리 페이드(아가리·천장 쪽) 0.10
+export const FRL_CEIL_FADE_M = FRL_HALO_K * SHELL_RIB_R * CEIL_SLOPE   // ★215-d 몸통 후광의 천장 스밈 폭(m, 세계좌표) = 후광 반지름(12) × 빗면 기울기(0.476) ≈ 5.7 — 빗면이 통 반지름 안에서 만드는 높이 차 그 자체(파생 · 손 수치 0). 이 띠 안에서 눌린 고리들이 슬리버가 되므로 알파를 0으로 끌어내린다
+export const FRL_BODY_FADE_POW = 0.5              // 몸통 후광 통의 길이 소멸 지수(천장→아가리 · 판정 노브 — 0에 가까울수록 균일. GLSL pow(0,0) 회피로 0 금지)
+export const FRL_STUB_MG     = RIB_CUT_CAP_MG     // 그루터기 정점 판별 여유(축 거리 ≤ capT+MG)
+export const DSK_FR_IN       = true               // ★214-r 프리즈 방(1p7) 공동 = D의 어둠에 편입(현도 09.06 사진 x271.5 y167.6 z55.9: "감실 내부 — 지나치게 밝다, 톤 먼저"). 상자 = ★55 CSG 파냄 브러시와 같은 파생값
+//   (앞벽 두께 안 슬릿 문설주·창살 포함 · y 바닥 166 ~ 빗면 천장 밑). 방 자체의 빛(천장 슬릿)은 1p7 조명 몫 — 여기서는 홀과 한 어둠(DIM)만. false = ★214-q 체제(방 안 무접촉) 한 줄 복귀
 export const DSK_TEMPLE_IN   = true               // ★214-b 동창 너머 밀폐부 확장(현도 09.06 사진 "리브 다섯·주위 구조가 밝다 — 밀폐부 면은 어두워야"): 셀라 주머니를
                                                   //  프리즈 방 바닥(FR_FLOOR_Y 166)까지 올리고(신전 하단 띠·아치 개구·리브 다섯·리브 계단), 그 위는 신전 **서면 껍질**(x ≤ TEMPLE_X0)만.
                                                   //  ⚠1p7 프리즈 방 **안**(y>166 · x>TEMPLE_X0)은 무접촉 — 그 방 조명은 별도 과제.

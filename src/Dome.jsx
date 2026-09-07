@@ -303,7 +303,7 @@ export function ExplorationRib() {
   }, [])
   //  ⚠캡 없음 — 위 ribCutBrush 주석 ★★ 참조. #0의 보어는 나선이 지나는 길이라 막으면 뚫고 못 간다.
   return (
-    <mesh geometry={geo} userData={{ hallBake: true }}>{/* ★214-c 동창 가운데 리브(#0) — 홀 안 구간 정점색 */}
+    <mesh geometry={geo} userData={{ hallBake: true, ribBody: true }}>{/* ★215-e ribBody(발광체 규칙 대상) · ★214-c 동창 가운데 리브(#0) — 홀 안 구간 정점색 */}
       <meshStandardMaterial {...RIB_MAT} side={THREE.DoubleSide} onBeforeCompile={ribTintOBC} />
     </mesh>
   )
@@ -374,7 +374,7 @@ export function HallDoorRibs() {
   return (
     <group userData={{ hallBake: true }}>{/* ★214-c 그룹 태그: 리브 다섯 + RibCutCaps(리브가 서는 판) 전부 홀 정점색 대상 */}
       {cut.map((g, i) => (
-        <mesh key={i} geometry={g}>{/* ★214-b 동창 리브 다섯 — 홀 안 구간만 정점색(밖은 1.0 그대로) */}
+        <mesh key={i} geometry={g} userData={{ ribBody: true }}>{/* ★215-e ribBody = 발광체 규칙(그루터기 정점 1)은 이 태그가 있는 메시에만 — 천장 구멍 테두리(반지름 6.08 < 판별 6.24)가 오판되던 것 차단 · ★214-b 동창 리브 다섯 — 홀 안 구간만 정점색(밖은 1.0 그대로) */}
           <meshStandardMaterial {...RIB_MAT} side={THREE.DoubleSide} onBeforeCompile={ribTintOBC} />
         </mesh>
       ))}

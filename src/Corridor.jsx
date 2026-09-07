@@ -5,8 +5,9 @@
 //   계단 기하의 정본 = corridorStairsGeometry.js(순수 빌더 — 판·참·간극 전부 저기서 파생).
 import { useMemo, useRef } from 'react'
 import { useFrame, invalidate, useThree } from '@react-three/fiber'   // ★188 D구획 베이크(Room.jsx와 같은 어법) · ★214 useThree(장면 광선)
-import { dskirtSpec, dskirtResolve, dskirtSamples, dskirtERef, dskirtShadeAt, dskirtShadeMix, dskirtInterior, dskirtTris, tessellateTris } from './lightingModel.js'   // ★214 갓 치마 커튼 수학 정본(사본 금지)
+import { dskirtSpec, dskirtResolve, dskirtSamples, dskirtERef, dskirtShadeAt, dskirtShadeMix, dskirtInterior, dskirtTris, tessellateTris, friezeRoomBox, friezeRoomIn, dskirtNormalTarget, friezeLightBake, friezeLightVertexOverride, clampTrisToRoomCeil, dskRoofFallback } from './lightingModel.js'   // ★214 갓 치마 커튼 수학 정본(사본 금지)
 import { DSK_TESS_EDGE, GAT_FACET_SUB, DSK_CROWN_ON, DSK_ON, DSK_OP, DSK_HALO_OP, DSK_HALO_K, DSK_XF, DSK_TOPF, DSK_FADE_POW, DSK_COLOR, DSK_SHELL_IN, DSK_GLOW_ON, DSK_DIM, DSK_CELLA_IN, DSK_TEMPLE_IN, DSK_ROOF_N, DSK_ROOF_M, DSK_FRAG_E, COR_CX as DSK_AXIS_X, COR_R as DSK_COR_R,
+  FRL_ON, FRL_MOUTH_ON, FRL_BODY_ON, FRL_R, FRL_COLOR, FRL_OP, FRL_HALO_K, FRL_HALO_OP, FRL_BODY_HALO_OP, FRL_TUBE_SEG, FRL_CEIL_FADE_M, FRL_FADE_POW, FRL_BODY_FADE_POW, FRL_TOPF,   // ★215 프리즈 방 빛 볼륨
   CUP_R as C_CUP, CELLA_XW as C_XW, CELLA_X1 as C_X1, CELLA_ZHW as C_ZHW, CELLA_T as C_T, CELLA_ROOF_Y0 as C_ROOF0, FR_FLOOR_Y as C_FRY, FR_SILL_LIFT as C_LIFT, TEMPLE_X0 as C_TX0 } from './constants.js'   // ★214-h 조각 판정 파라미터(dskirtInterior와 같은 상수)
 import { zoneDBakeSpec, zoneDShadeAt, zoneDInterior } from './lightingModel.js'   // ★188 수학 정본(사본 금지 — check_lux P절이 같은 함수를 문다)
 import { BAKE_D_ON, BAKE_D_SHELL, BAKE_D_GAMMA, BAKE_FLOOR } from './constants.js'
@@ -1059,21 +1060,27 @@ const dskPatchFor = (mode, param, U) => (shader) => {
   shader.uniforms.uDskMode = { value: mode }
   shader.uniforms.uDskParam = { value: param }
   shader.uniforms.uDskA = { value: U.a }; shader.uniforms.uDskB = { value: U.b }; shader.uniforms.uDskPk = { value: U.pk }; shader.uniforms.uDskRoof = { value: U.roof }
+  shader.uniforms.uDskFr = { value: U.fr }; shader.uniforms.uDskFrC = { value: U.frc }   // ★214-r 프리즈 방 상자(friezeRoomBox 파생 — JS 정점 판정과 같은 값)
   shader.vertexShader = shader.vertexShader
     .replace('#include <common>', '#include <common>\nuniform vec3 uDskAxis; varying float vDskIn; varying vec3 vDskW;')
     .replace('#include <begin_vertex>', '#include <begin_vertex>\nvDskIn = dot(normal, uDskAxis - position) > 0.0 ? 1.0 : 0.0; vDskW = (modelMatrix * vec4(position, 1.0)).xyz;')
   shader.fragmentShader = shader.fragmentShader
-    .replace('#include <common>', '#include <common>\nuniform vec3 uDskAxis; uniform float uDskMode; uniform float uDskParam; uniform vec4 uDskA; uniform vec4 uDskB; uniform vec4 uDskPk; uniform sampler2D uDskRoof; varying float vDskIn; varying vec3 vDskW;')
+    .replace('#include <common>', '#include <common>\nuniform vec3 uDskAxis; uniform float uDskMode; uniform float uDskParam; uniform vec4 uDskA; uniform vec4 uDskB; uniform vec4 uDskPk; uniform sampler2D uDskRoof; uniform vec4 uDskFr; uniform vec4 uDskFrC; varying float vDskIn; varying vec3 vDskW;')
     .replace('#include <color_fragment>', `#ifdef USE_COLOR
   bool dskIn;
-  if (uDskMode < 0.5) dskIn = ((vDskIn > 0.5) == gl_FrontFacing);
+  // ★214-r 프리즈 방(1p7) 공동 = 모든 모드에서 '안'(위치 판정 — 방 안에 있는 조각은 셸·솔리드의 안면이든 부재든 홀과 한 어둠). uDskFr = (x0, x1, zh, on) · uDskFrC = (cA, cB, cX, y0) · 천장 밑 = cA + cB·(x − cX)
+  float frE = uDskPk.w;
+  bool fr = uDskFr.w > 0.5 && vDskW.x >= uDskFr.x - frE && vDskW.x <= uDskFr.y + frE && abs(vDskW.z) <= uDskFr.z + frE
+            && vDskW.y >= uDskFrC.w - frE && vDskW.y <= uDskFrC.x + uDskFrC.y * (vDskW.x - uDskFrC.z) + frE;
+  if (fr) dskIn = true;
+  else if (uDskMode < 0.5) dskIn = ((vDskIn > 0.5) == gl_FrontFacing);
   else if (uDskMode > 1.5) dskIn = (vDskW.y <= uDskParam);
   else {
     // uDskA = (cx, R크라운, COR_R, CUP_R) · uDskB = (y1 리드밑, 주머니 상한, TEMPLE_X0, 셀라 on) · uDskPk = (XW, X1+T, ZHW+T, e)
     float e = uDskPk.w;
     vec2 d = vDskW.xz - uDskAxis.xz; float r = length(d);
     bool pk = uDskB.w > 0.5 && vDskW.x >= uDskPk.x - e && vDskW.x <= uDskPk.y + e && abs(vDskW.z) <= uDskPk.z + e && vDskW.y >= -1.0
-              && (vDskW.y <= uDskB.y + e || (vDskW.x <= uDskB.z + e && vDskW.y <= uDskB.x + e));
+              && vDskW.y <= uDskB.y + e;   // ★215-i 주머니(≤ 바닥 166.02)만 — 구 서면 절(x ≤ TEMPLE_X0 ∧ y ≤ 리드)은 원통 높이맵과 중복이며 천장 위 지붕 공간(피어 측면 y 187~207)을 안으로 삼던 오류라 폐기
     if (pk) dskIn = true;
     else if (r <= uDskA.y + e) dskIn = vDskW.y <= uDskB.x + e;
     else if (vDskW.y < -e) dskIn = length(vec2(r, vDskW.y)) <= uDskA.w + e;
@@ -1082,6 +1089,54 @@ const dskPatchFor = (mode, param, U) => (shader) => {
   }
   if (dskIn) diffuseColor.rgb *= vColor.rgb;
 #endif`)
+}
+/** ★215 프리즈 방(1p7) 빛 볼륨 — 끊긴 관 다섯: ⓐ 아가리→바닥 캡 빛기둥(관 안지름 · D 튜브 어법 · A 색/세기) + 후광 통(×HALO_K) ⓑ 그루터기 둘레 후광 통(천장→아가리).
+ *  기하 정본 = friezeLightBake().spec(lightingModel — 조도 표본과 같은 축·아가리·길이). 가림 없음(뿌리 페이드만). DSK_ON과 무관하게 FRL_ON 한 줄. */
+//  ★215-d 튜브 셰이더 = D 리본 + **세계좌표 천장 스밈**: 천장 밑 uCeil.w m 안에서 알파 → 0 (빗면에 눌린 고리 슬리버가 정면 밝기로 빛나던 삼각 가시 제거). uCeil.w=0이면 D 리본과 동일.
+const FRL_TUBE_VERT = `
+  varying vec3 vN; varying vec3 vV; varying vec2 vUv; varying vec3 vW;
+  void main() { vN = normalMatrix * normal; vec4 mv = modelViewMatrix * vec4(position, 1.0); vV = -mv.xyz; vUv = uv; vW = (modelMatrix * vec4(position, 1.0)).xyz; gl_Position = projectionMatrix * mv; }`
+const FRL_TUBE_FRAG = `
+  uniform vec3 uColor; uniform float uOpacity; uniform float uXF; uniform float uTopF; uniform float uPow; uniform vec4 uCeil;
+  varying vec3 vN; varying vec3 vV; varying vec2 vUv; varying vec3 vW;
+  void main() {
+    float facing = abs(dot(normalize(vN), normalize(vV)));
+    float edge = pow(facing, 1.6);
+    float xf = uXF > 0.0 ? smoothstep(0.0, uXF, min(vUv.x, 1.0 - vUv.x) * 2.0) : 1.0;
+    float top = uTopF > 0.0 ? smoothstep(0.0, uTopF, vUv.y) : 1.0;
+    float len = pow(max(0.0, 1.0 - vUv.y), uPow);
+    float cf = uCeil.w > 0.0 ? smoothstep(0.0, uCeil.w, (uCeil.x + uCeil.y * (vW.x - uCeil.z) - 0.02) - vW.y) : 1.0;   // 천장 밑 거리(m)로 스밈
+    gl_FragColor = vec4(uColor, uOpacity * edge * xf * top * len * cf);
+  }`
+export function FriezeLight() {
+  const bake = useMemo(() => (FRL_ON ? friezeLightBake() : null), [])
+  const B = useMemo(() => friezeRoomBox(), [])
+  const mk = (op, pow, ceilFade = 0) => new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    uniforms: { uColor: { value: new THREE.Color(FRL_COLOR) }, uOpacity: { value: op }, uXF: { value: 0 }, uTopF: { value: FRL_TOPF }, uPow: { value: pow },
+      uCeil: { value: new THREE.Vector4(B.cA, B.cB, B.cX, ceilFade) } },                                  // ★215-d (cA, cB, cX, 스밈 폭 m) — 0 = 스밈 없음
+    vertexShader: FRL_TUBE_VERT, fragmentShader: FRL_TUBE_FRAG })
+  const mats = useMemo(() => ({ col: mk(FRL_OP, FRL_FADE_POW), colHalo: mk(FRL_HALO_OP, FRL_FADE_POW), body: mk(FRL_BODY_HALO_OP, FRL_BODY_FADE_POW, FRL_CEIL_FADE_M) }), [])   // ★215-b 세기 = 겹 정규화값(constants)
+  const geos = useMemo(() => {
+    if (!bake) return null
+    const mkGeo = (T) => { const g = new THREE.BufferGeometry()
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(T.pos), 3))
+      g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(T.uv), 2))
+      g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(T.nrm), 3)); return g }
+    const tau = [1, 0, 0]
+    const mouth = FRL_MOUTH_ON ? bake.spec.ribs.map((r) => ({ o: r.mouth, d: r.d, w: 2 * FRL_R, tau, tEnd: r.gap, tMax: r.gap })) : []
+    const body = FRL_BODY_ON ? bake.spec.ribs.filter((r) => r.stubLen > 0).map((r) => ({ o: r.top, d: r.d, w: 2 * r.capT, tau, tEnd: r.stubLen, tMax: r.stubLen })) : []
+    return { col: mkGeo(dskirtTris(mouth, { sides: FRL_TUBE_SEG })), colHalo: mkGeo(dskirtTris(mouth, { radiusK: FRL_HALO_K, sides: FRL_TUBE_SEG })),
+      body: mkGeo((() => { const T = dskirtTris(body, { radiusK: FRL_HALO_K, sides: FRL_TUBE_SEG }); clampTrisToRoomCeil(T); return T })()) }   // ★215-c 윗고리를 빗면 천장 밑에 맞춰 누른다
+  }, [bake])
+  if (!geos) return null
+  return (
+    <>
+      <mesh geometry={geos.col} material={mats.col} userData={{ lightVolume: true, walkable: false }} frustumCulled={false} renderOrder={10} />
+      <mesh geometry={geos.colHalo} material={mats.colHalo} userData={{ lightVolume: true, walkable: false }} frustumCulled={false} renderOrder={9} />
+      <mesh geometry={geos.body} material={mats.body} userData={{ lightVolume: true, walkable: false }} frustumCulled={false} renderOrder={9} />
+    </>
+  )
 }
 export function DrumSkirt({ hallRef }) {
   const meshRef = useRef(null), haloRef = useRef(null), done = useRef(false), frames = useRef(0)   // ★214-l 후광 통 메시
@@ -1126,12 +1181,14 @@ export function DrumSkirt({ hallRef }) {
         const th = ((i + 0.5) / RN) * Math.PI * 2 - Math.PI, rad = ((j + 0.5) / RM) * DSK_COR_R
         rr.set(new THREE.Vector3(DSK_AXIS_X + rad * Math.cos(th), -C_CUP - 1, rad * Math.sin(th)), new THREE.Vector3(0, 1, 0))
         const hs = roofMesh ? rr.intersectObject(roofMesh, false) : []
-        roofData[j * RN + i] = hs.length ? hs[0].point.y : spec.slit.y1 } }
+        roofData[j * RN + i] = hs.length ? hs[0].point.y : dskRoofFallback(rad, DSK_AXIS_X + rad * Math.cos(th), spec) } }   // ★215-i 미스 = 크라운 안 리드 · 밖은 천장면 ceilY(x)(구: 전부 리드 → 지붕 위가 '안')
     const roofTex = new THREE.DataTexture(roofData, RN, RM, THREE.RedFormat, THREE.FloatType)
     roofTex.minFilter = roofTex.magFilter = THREE.LinearFilter; roofTex.wrapS = THREE.RepeatWrapping; roofTex.needsUpdate = true
+    const FRB = friezeRoomBox()
     const U = { roof: roofTex, a: new THREE.Vector4(DSK_AXIS_X, spec.slit.R, DSK_COR_R, C_CUP),
       b: new THREE.Vector4(spec.slit.y1, DSK_TEMPLE_IN ? C_FRY + C_LIFT : C_ROOF0, C_TX0, DSK_CELLA_IN ? 1 : 0),
-      pk: new THREE.Vector4(C_XW, C_X1 + C_T, C_ZHW + C_T, DSK_FRAG_E) }
+      pk: new THREE.Vector4(C_XW, C_X1 + C_T, C_ZHW + C_T, DSK_FRAG_E),
+      fr: new THREE.Vector4(FRB.x0, FRB.x1, FRB.zh, FRB.on ? 1 : 0), frc: new THREE.Vector4(FRB.cA, FRB.cB, FRB.cX, FRB.y0) }   // ★214-r 프리즈 방 상자 — 정본 friezeRoomBox()(사본 0)
     const chain = (m, patch, key) => { const prev = m.onBeforeCompile; m.onBeforeCompile = (sh, r) => { if (prev) prev(sh, r); patch(sh) }; const pk = m.customProgramCacheKey; m.customProgramCacheKey = () => (pk ? pk.call(m) : '') + key }
     //  ⑶ 정점색 — 홀 안 정점만(dskirtInterior) · 셸은 안쪽 법선 + 안면 패치 · 위치 판정 메시는 바깥 정점 = DIM
     const samples = dskirtSamples(strands), eRef = dskirtERef(spec, samples), D188 = DSK_CROWN_ON ? zoneDBakeSpec() : null   // ★214-n
@@ -1155,12 +1212,16 @@ export function DrumSkirt({ hallRef }) {
         if (o.userData.bakedDsk) return
         const im = new THREE.Matrix4(), c = new THREE.Color(); let touchedI = false
         for (let i = 0; i < o.count; i++) { o.getMatrixAt(i, im); v.setFromMatrixPosition(im).applyMatrix4(o.matrixWorld); const p = [v.x, v.y, v.z]
-          const sh = dskirtInterior(p, spec) ? dskirtShadeAt(p, [0, 1, 0], samples, eRef) : 1; if (sh < 1) touchedI = true; o.setColorAt(i, c.setScalar(sh)) }
+          const sh = dskirtInterior(p, spec) ? (friezeRoomIn(p) ? dskirtShadeMix(p, [0, 1, 0], samples, eRef, spec, D188) : dskirtShadeAt(p, [0, 1, 0], samples, eRef)) : 1   // ★215-f 방 안 인스턴스(자립 나선 판)는 방 모델 경유(홀 값 무변 — 옛 경로 그대로)
+          if (sh < 1) touchedI = true; o.setColorAt(i, c.setScalar(sh)) }
         if (!touchedI) return
         o.instanceColor.needsUpdate = true; o.userData.bakedDsk = true; nMesh++; return
       }
-      if (gg.userData.bakedDsk || !gg.attributes.position || !gg.attributes.normal) return
       if (o.userData.dskSkip) return
+      if (gg.userData.bakedDsk && gg.userData.dskOwner !== o.uuid) {          // ★214-r 공유 지오메트리(★63 우물 발코니 난간·단 = buildOpenRim 하나를 #−2·#−1·#+1이 공유): 첫 메시가 도장을 찍으면
+        gg = gg.clone(); gg.deleteAttribute('color'); gg.userData = {}; o.geometry = gg   //  나머지는 건너뛰어 원색으로 남았다(현도 사진 09.06 y190 내려다봄 — #+1·#−1 링 백색). 제 몫으로 복제해 각자 세계좌표로 굽는다
+      }
+      if (gg.userData.bakedDsk || !gg.attributes.position || !gg.attributes.normal) return
       const shell = !!o.userData.bakeShell, lid = !!o.userData.dskLid
       if (shell && !DSK_SHELL_IN) return
       o.updateWorldMatrix(true, false); nMat.getNormalMatrix(o.matrixWorld)
@@ -1170,17 +1231,19 @@ export function DrumSkirt({ hallRef }) {
         v.fromBufferAttribute(P, i).applyMatrix4(o.matrixWorld)
         const p = [v.x, v.y, v.z]
         let sh = 1
+        const ovr = friezeLightVertexOverride(p, !!o.userData.ribBody)               // ★215-g 리브 그루터기·관 속 = 1 — 안 판정 관문보다 앞(지붕 위 리브 정점이 DIM으로 굽혀 검은 쐐기 방지)
         const posMode = !shell && !lid                                           // ★214-h 위치 판정 대상(피어·리브·계단·바닥 …)
-        if (lid || dskirtInterior(p, spec, shell)) {           // 셸(천장 패싯)만 외접 다각형 반경까지 · 나머지는 벽 반경(★214-d — 리브가 드럼 밖 4m 띠에서 얼룩졌다)
+        if (ovr !== null) { sh = ovr; touched = true }
+        else if (lid || dskirtInterior(p, spec, shell)) {           // 셸(천장 패싯)만 외접 다각형 반경까지 · 나머지는 벽 반경(★214-d — 리브가 드럼 밖 4m 띠에서 얼룩졌다)
           nm.fromBufferAttribute(N, i).applyMatrix3(nMat).normalize()
-          if (shell && nm.x * (DSK_AXIS_X - v.x) + nm.y * (0 - v.y) + nm.z * (0 - v.z) < 0) nm.negate()   // 셸 = 안쪽(축점 향) 법선
-          sh = dskirtShadeMix(p, [nm.x, nm.y, nm.z], samples, eRef, spec, D188); touched = true   // ★214-n 크라운 통 안 = 슬릿 모델
+          if (shell) { const tg = dskirtNormalTarget(p, spec, FRB); if (nm.x * (tg[0] - v.x) + nm.y * (tg[1] - v.y) + nm.z * (tg[2] - v.z) < 0) nm.negate() }   // 셸 = 안쪽 법선(홀: 축점 향 · ★214-r 프리즈 방 안: 방 중심 향 — 바닥 +y·천장 −y)
+          sh = dskirtShadeMix(p, [nm.x, nm.y, nm.z], samples, eRef, spec, D188, !!o.userData.ribBody); touched = true   // ★215-e ribBody = 그루터기 발광체 규칙은 리브 메시에만(위치만으로는 천장 구멍 테두리가 걸린다)   // ★214-n 크라운 통 안 = 슬릿 모델
         }
         else if (posMode) sh = DSK_DIM                                            // 바깥 정점 = 어둠(조각 판정이 밖이면 곱하지 않으므로 화면엔 안 나온다)
         col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = sh
       }
       if (!touched) return
-      gg.setAttribute('color', new THREE.BufferAttribute(col, 3)); gg.userData.bakedDsk = true
+      gg.setAttribute('color', new THREE.BufferAttribute(col, 3)); gg.userData.bakedDsk = true; gg.userData.dskOwner = o.uuid   // ★214-r 도장에 주인 표기(공유 판별)
       mats.forEach((m) => { m.vertexColors = true
         if (shell) chain(m, dskPatchFor(0, 0, U), '|dsk0')                               // 셸·솔리드: 안면 조각만
         else if (lid) chain(m, dskPatchFor(2, spec.slit.y1 + 1e-3, U), '|dsk2')        // 리드: 밑면 조각만
@@ -1558,7 +1621,8 @@ export function Corridor() {
       <DrumPiers />
       <LightIntake />
       <NeckSkirt />
-      <DrumSkirt hallRef={dRef} />{/* ★214 갓 치마 커튼 + 홀 정점색(DSK_ON=false면 아무것도 안 낸다) */}
+      <DrumSkirt hallRef={dRef} />
+      <FriezeLight />{/* ★215 프리즈 방 빛 볼륨(정점색은 DrumSkirt 베이크가 dskirtShadeMix 경유로 굽는다) */}{/* ★214 갓 치마 커튼 + 홀 정점색(DSK_ON=false면 아무것도 안 낸다) */}
 
       {/* === 외피: 거대 원기둥(벽 + 닫힌 빗면 천장) — 공간감 통로 === */}
       <mesh name="드럼 벽" geometry={wallGeo} userData={{ bakeShell: true }}>
