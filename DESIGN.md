@@ -401,7 +401,10 @@
 >  LNK 가족 감김 · 접지 19기 · 회랑·전실 벽 두께 0 면 · 배포 스위치 미복귀.
 >
 >
-> ★**검증 현황(2026.09.07 · ★215-j 동결 후)**: **9종 3379항 중 3377 green · 2 = ★134 빚**(lux **498** — S-17 11 · S-18 30 · S-19 3 · bridge 365 · corridor 728 · waypoints 351〔대장 +3 빛 볼륨〕 ·
+> ★**검증 현황(2026.09.07 저녁 · ★216 부팅 단축 후)**: **9종 3379항 중 3377 green · 2 = ★134 빚**(항수·결과 ★215-j와 **완전 동일** — 최적화가 값을 안 바꿨다는 넓은 그물) + 빌드 green(1.9s) ·
+> **동결 넷 [340][387][409][498] 전부 green** · **봉인 차분 무결**(`_probe_boot.mjs --diff` — useMemo 170개 결과 지문 전부 일치 · 반증: axisDistAt 걸음 0.0002→0.00021 치환 시 7개 붉음 확인) · lint 신규 오류 0.
+>
+> ★구 검증 현황(2026.09.07 · ★215-j 동결 후): **9종 3379항 중 3377 green · 2 = ★134 빚**(lux **498** — S-17 11 · S-18 30 · S-19 3 · bridge 365 · corridor 728 · waypoints 351〔대장 +3 빛 볼륨〕 ·
 > rooms 960 · radial 327 · lamps 40 · lens 25 · render 85) + 빌드 green · **동결 넷 [340] A 3156926404 · [387] C 3902720085 · [409] S 2341173034 · [498] D+F 3878005666 전부 green** ·
 > 보존계 스윕 green(`DSK_FR_IN=false` 454 · `FRL_ON=false` 461 · `FRL_NORM_ON=false` 473) · 치환 반증 전부 물림(방 절 · 블렌드 절단 · 공유 복제 · 관 속 규칙 · 인스턴스 경로 · 우선 규칙 · 미스값 · 서면 절 · 지문 노브) · cp 복원 diff 무결.
 >
@@ -3563,12 +3566,33 @@ x120 → **124.85** · x124 → **129.50** · x130.5 → **137.06** · x145 → 
 >  FNV-1a · 1e-4 흔들면 바뀜 · 노브 1e-2 치환 시 [498] 붉음 확인). ⛔붉으면 지문 갱신 금지·현도 보고. 해제 = 현도 `FREEZE_D_ON=false` 선언 + 새 ★.
 > 검증: lux **498**(S-17 방 편입 · S-18 관 다섯 · S-19 동결) · 9종 **3379항 중 3377 green · 2 = ★134** · waypoints 대장 +3(빛 볼륨) · 빌드 green · [340][387][409][498] 넷 green.
 >
+> ### ★216 a~d — 부팅 시간 단축 1차: 프로파일러 + 값 무변 최적화 (2026.09.07 저녁 · 한 대화 · Fable)
+> **동기(현도 09.07)**: *"부팅하는데 시간이 너무 오래걸려 수정을 보기가 비효율적."* 착수 전 합의: 이건 작품 트랙(조형→조명)이 아니라 **작업환경**이므로 순연 대상이 아니다. 단 처방을 둘로 가른다 —
+>  ⓐ 값을 한 비트도 안 바꾸는 것(표·메모·가지치기·개발 스위치) = 지금 / ⓑ 구조 수술(CSG·베이크 결과 캐시 직렬화) = 캐시 대상이 굳는 조형 후.
+> **★216-a 재기**: 빌드는 범인이 아니다(1.97s). 새 도구 `src/_probe_boot.mjs` = check_render의 react 대역품을 재활용해 App 트리를 **실제 렌더**하며 useMemo 170개에 스톱워치 + CSG evaluate 장부 + V8 CPU 프로파일(`--cpu`).
+>  결과(Node·계산 몫·StrictMode ×2 미반영): **트리 렌더 16.6s**, useMemo 4개가 11.3s(68%) — HallDoorRibs#1 3.4 · ExplorationRib#1 3.0 · Lookout#1 2.5 · Lookout#2 2.4.
+>  ⛔**첫 가설(CSG가 범인)은 틀렸다** — 장부를 붙여 재니 evaluate 75건 합 2.7s = 16%뿐. V8 self-time이 진범을 짚었다: **`axisDistAt` 5.06s + `rOf` 3.92s = 51%**.
+>  원인 = `axisDistAt(x,y,z)`가 호출마다 u 격자 1250점에서 `rOf(u)`(tanh)를 재계산하고, 그걸 `tubeBottomAt`(60회 이분법)·`tubeInnerBottomAt`(40회)·`ribArchCrownAt`(z 루프)·`archCutProfile`(0.02 걸음 스캔)이 겹겹이 부른다. 실측 호출 116,960회 / 고유 인수 47,100(60% 반복 — archCutProfile·ribArchCutSolid가 각각 **2회** 불림).
+> **★216-b~d 수리(전부 값 비트 동일 · junctionGeometry.js·kneeBodyGeometry.js 두 파일)**:
+>  ⓑ `AXIS_TAB` — u 격자와 rOfC(u)를 모듈 로드 때 한 번 표로. ⚠u 수열은 원문의 누적 덧셈 `u += 0.0002`를 그대로 재생(`0.15+k·0.0002`로 쓰면 값이 달라진다 — 봉인이 잡는다). 16.4→11.5s.
+>  ⓒ `AXIS_MEMO` — 잎(axisDistAt)에 숫자 키 중첩 Map 메모(같은 인수 = 같은 double). 배열·지오메트리가 아니라 숫자만 돌려주므로 ★214-r 공유 병 무관. 11.5→8.5s. `kneeWallHalfAt`의 dAt(u=i/900 격자)도 같은 표 처방. 
+>  ⓓ 가지치기 — `Math.hypot(a,b,c) ≥ |b|`가 V8 구현상 정확히 성립(최댓값 정규화 제곱합 ≥1)하므로 |dy| ≥ best인 점은 hypot 없이 건너뛰고, y=U·H 단조증가라 상한 넘으면 break. min은 순서 무관. 8.5→6.7s. ⚠hypot→sqrt(Σ²) 치환은 **금지**(마지막 ulp가 달라 이분법 가지가 뒤집힌다).
+>  ⛔짐작 하나 더 틀림: 남은 axisDistAt 0.9s를 "문자열 키 비용"으로 짐작 → 숫자 키로 바꿔도 0.8s. hypot 대역이 추정보다 넓다. 여기서 미시 최적화 중단(최대 단일 항 0.8s).
+> **결과: 16.6s → 6.3s(−62%)** · 이제 CSG가 2.6s = 41%(HallDoorRibs 0.88 · TempleBeam 0.44 · DefAxiomRoom 0.38) → 다음 표적이나 ⓑ 가족.
+> **증명 3겹**: ①봉인 차분(`--snap`으로 useMemo 170개 결과값 FNV-1a — BufferGeometry는 속성·인덱스 바이트, uuid·id 제외 · 반증으로 무딘 칼 아님 확인) ②9종 항수·결과 완전 동일 ③동결 넷 green. cp 복원 diff 무결.
+> **브라우저 계측 심음(값 무접촉)**: `main.jsx`에 `__ethicaT0`, `CoordHud.jsx`에 `BootProbe`(App에 한 줄) — 첫 프레임에 콘솔 `[ethica boot] 로딩 A ms → 계산+GPU B ms · StrictMode ×N · JS 모듈 M개`. `DEV_TELEPORT=false`면 무동작.
+>  ⚠**가설(브라우저에서 확정할 것)**: `main.jsx`의 `<StrictMode>`가 개발 모드에서 useMemo 계산을 **두 번** 부른다(React 문서) → 계산 몫 ×2. N=2로 나오면 개발 전용 소등이 후보(배포본 무영향 — 프로덕션 빌드에서 StrictMode는 원래 무동작). 결정 = 현도.
+> **교훈(규율 후보)**: "무거운 useMemo = CSG"라는 짐작을 장부가 반증했다. 성능도 조형과 같다 — **프로파일 없이 처방 금지**, self-time으로 범인을 짚은 뒤 값 무변 증명(봉인 차분)을 붙여야 최적화다.
+>
 > ### ▶ ★209-e 다음 작업 (조명 트랙 — 조형과 병행)
 > ⓪ˣ ✅**드럼 통로 내부(D구획) 조명 = ★214 a~q 구현·현도 잠정 승인(09.06)** — 위 ★214 절(사진 판정 15회분). **다음 세션 = ★214-r: 감실(셀라 벽감) 안쪽 톤 +
 >   외부 색 변화 잔재 정리 → 판정 통과 시 구역 D 동결(FREEZE_D — S-15 어법 복제)** `[B급·중 — 노브·태그·판정 위주 · 새 기하 없음]`. ⚠시작 전: 동결 셋 [340][387][409] green ·
 >   현도 사진의 면을 **좌표·시선으로 먼저 특정**(★214-q 교훈) · 조각 판정 규칙표(★214-g/h) 재독.
 >   → ✅**종결(09.07 · ★214-r + ★215 a~j)**: 프리즈 방(1p7) = D의 어둠에 편입 + 관 다섯의 빛 · **구역 D+F 동결 [498] `FREEZE_D_SIG 3878005666`**(현도 "완결처리 · 침범·수정 금지"). 재론 = 현도 지시로만.
-> ⓪ᵂ ★★★**다음 세션 = 부팅 시간 단축(파일 처리)** `[A급·중~대 — 프로파일링 선행 · 구조 손대면 대수술]` — 현도(09.07): *"부팅하는데 시간이 너무 오래걸려 수정을 보기가 비효율적."*
+> ⓪ᵂ ✅**부팅 시간 단축 1차 = ★216 a~d 종결(09.07 저녁)** — Node 계산 16.6s → 6.3s(−62%), 값 무변 3겹 증명. **다음 세션 시작 시 현도가 콘솔 `[ethica boot]` 줄을 붙여 준다**(로딩/계산+GPU/StrictMode ×N) → 그 수치로 2차 여부·방향 결정:
+>   ⓐ StrictMode ×2로 나오면 개발 전용 소등 `[B급·소 — main.jsx 한 줄 · 현도 결정]` ⓑ 로딩(Vite 모듈 폭포)이 크면 의존성 사전번들·모듈 수 점검 `[B급·중]` ⓒ 계산이 여전히 크면 CSG 2.6s(리브 셸 5기 중복 빌드 ~0.5s 포함) → 셸 1회 빌드 후 복제 `[A급·중 — 값 무변 증명 필수]` · CSG 결과 캐시는 조형 후(ⓑ 가족).
+>   ⚠어느 쪽이든 `_probe_boot.mjs --snap` 기준 → 수정 → `--diff` 무결이 전제. 현행 기준 스냅은 세션마다 새로 뜬다(레포에 두지 않음 — 기하가 바뀌면 당연히 달라진다).
+> ⓪ᵂ′ 구 항목: ★★★**다음 세션 = 부팅 시간 단축(파일 처리)** `[A급·중~대 — 프로파일링 선행 · 구조 손대면 대수술]` — 현도(09.07): *"부팅하는데 시간이 너무 오래걸려 수정을 보기가 비효율적."*
 >   ⚠시작 전 실측 순서: ⑴ 어디서 시간이 가는지 **재기 먼저**(빌드·CSG 평가·베이크 useFrame·높이맵 512×64 광선·리브 계단 인스턴스·재질 컴파일) — 브라우저 Performance 탭 또는 console.time 계측을 현도 로컬에서 ⑵ 동결 넷 [340][387][409][498] green — **최적화는 값을 한 비트도 바꾸면 안 된다**(지문이 곧 검사) ⑶ 후보(측정 뒤에만): CSG 결과 캐시(직렬화 → public/) · 베이크 결과 캐시 · 개발용 `DEV_SKIP_*` 스위치(배포본 무접촉) · 지연 마운트. ⑷ 하드코딩·복제 금지 규율 그대로.
 > ⓪ʸ ✅**월대샤프트 빛 = ★213-a~e 종결 · 구역 S 동결**(2026.09.05 현도 선언). 재론 = 현도 지시로만.
 > ⓪ᶻ ⛔**테라스 → 드럼 통로 구간 조명 = ★210 베이크 → 같은 날 현도 반려(★210-r) → 소등**
@@ -8675,6 +8699,7 @@ DoD-2(완주)·DoD-3(공개) 복구. 남은 결번은 1p6뿐.
 - **★렌더 스모크(2026.07.28 신설)**: `node src/check_render.mjs` — 컴포넌트를 실제 호출해 **ReferenceError**를 잡는다. `vite build`가 못 잡는 '흰 화면' 부류 전용. 새 컴포넌트 파일은 `TARGETS`에 추가.
 - **셀프 렌더 검수**: `node src/render_views.mjs [wp-id ...]`(기본 view·inca-west) → `_render_*.png`. 형태 세션 필수 의례(§2-D ⑤). devDependency `pngjs`.
 - **코드:** GitHub 공개 `https://github.com/Hyeondo1209/ethica-architectonics` — 읽기 = `git clone --depth 5` 만(raw 금지). 주요 파일: `src/constants.js`(수치 정본)·`src/App.jsx`·`src/Dome.jsx`·`src/Room.jsx`·`src/Corridor.jsx`·`src/Steles.jsx`·`src/FirstPersonControls.jsx`·**`src/waypoints.js`**·`src/ethica1.js`·`src/GraphScaffold.jsx`. 검증 스크립트 6종 = `src/check_{waypoints,rooms,radial,lamps,lens,corridor}.mjs`(repo 루트에서 `node src/check_*.mjs`).
+- **부팅 프로파일러(★216):** `node src/_probe_boot.mjs` (컴포넌트·useMemo별 시간 + CSG 장부) · `--cpu`(V8 self-time 상위 30) · `--snap F`(useMemo 결과값 봉인) · `--diff F`(값 무변 증명 — 최적화 세션의 필수 절차) · 브라우저 쪽은 콘솔 `[ethica boot]` 줄(`BootProbe`, DEV_TELEPORT 게이트).
 - **공개 배포:** `https://ethica-architectonics.vercel.app` (push 자동 재배포).
 - **정본 문서:** `DESIGN.md` + `Ethica_Architectonics_운용계획_v5.md` — repo 루트(★2026.07.28 v5 교체, 구 v4 삭제).
 - **연대기:** 노션 'Ethica Architectonics 프로젝트 일지' DB.

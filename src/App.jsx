@@ -16,7 +16,7 @@ import { DefAxiomRoom } from './Room'
 import { Corridor } from './Corridor'
 import { RadialRooms } from './Radial'
 import { RadialEvents } from './RadialEvents'
-import { PoseProbe, CoordHud } from './CoordHud'   // ★99 좌표 HUD(개발 도구 — DEV_TELEPORT로 일괄 차단)
+import { PoseProbe, CoordHud, BootProbe } from './CoordHud'   // ★99 좌표 HUD · ★216 부팅 계측(개발 도구 — DEV_TELEPORT로 일괄 차단)
 import { SurveyRig, SurveyLights, SURVEY_ORDER } from './Survey'   // ★108 조형 검토 모드(⚠조명 아님)
 
 // ============================================================
@@ -173,6 +173,7 @@ export default function App() {
             </group>
             <FirstPersonControls />
             <PoseProbe />{/* ★99 카메라 실값 → window.__ethicaPose (리렌더 0) */}
+            <BootProbe />{/* ★216 첫 프레임에 부팅 시간 콘솔 한 줄 → window.__ethicaBoot */}
           </>
         )}
 

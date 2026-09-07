@@ -16,7 +16,7 @@
 //
 //  키: C = free: 줄 복사(렌더 도구에 그대로 붙음) · Shift+C = 웨이포인트 줄 복사 · V = HUD 접기/펴기
 //  ⚠배포: waypoints.js `DEV_TELEPORT=false` 한 줄로 통째 사라진다(텔레포트 패널과 같은 스위치).
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useMemo } from 'react'
 import { useThree, useFrame } from '@react-three/fiber'
 import { EYE, WAYPOINTS, DEV_TELEPORT } from './waypoints'
 import { formatFree, formatWaypoint, formatHuman } from './poseFormat'
@@ -29,6 +29,34 @@ export function PoseProbe() {
       x: camera.position.x, y: camera.position.y, z: camera.position.z,
       yaw: camera.rotation.y, pitch: camera.rotation.x,
     }
+  })
+  return null
+}
+
+//  ── ★216 부팅 계측(개발 도구) — 첫 프레임에 콘솔 한 줄. 무엇을 나누나:
+//   ⓐ 로딩 = 페이지 요청 → main.jsx 본문 시작(= 모든 import 로드·평가 끝. Vite dev 모듈 폭포·constants 파생값 포함)
+//   ⓑ 계산+GPU = main.jsx 시작 → 첫 프레임(React 렌더 = useMemo 기하 전부 · 재질/셰이더 컴파일 · 버퍼 업로드)
+//   ⓒ StrictMode 배수 = 개발 모드에서 React가 useMemo 계산을 두 번 부르는지(2면 ⓑ의 계산 몫이 2배로 든다)
+//  ⚠값에 손대지 않는다(기하·조명 무접촉). 배포: DEV_TELEPORT=false면 아무것도 안 한다.
+//  읽는 법: 콘솔의 `[ethica boot]` 줄. window.__ethicaBoot에도 같은 값이 남는다(복사해 붙이면 된다).
+let strictProbe = 0
+export function BootProbe() {
+  useMemo(() => { strictProbe++ }, [])           // StrictMode dev면 2회 호출된다(결과 하나 버림 — React 문서)
+  const done = useRef(false)
+  useFrame(() => {
+    if (done.current || !DEV_TELEPORT) return
+    done.current = true
+    const nav = performance.getEntriesByType('navigation')[0]
+    const t0 = window.__ethicaT0 ?? NaN, tf = performance.now()
+    const r = {
+      loadMs: +(t0 - (nav ? nav.startTime : 0)).toFixed(0),      // ⓐ
+      computeGpuMs: +(tf - t0).toFixed(0),                        // ⓑ
+      firstFrameMs: +tf.toFixed(0),                               // 합(페이지 시작 기준)
+      strictModeX: strictProbe,                                   // ⓒ
+      modulesLoaded: performance.getEntriesByType('resource').filter((e) => /\.(jsx?|mjs)(\?|$)/.test(e.name)).length,
+    }
+    window.__ethicaBoot = r
+    console.log(`[ethica boot] 로딩 ${r.loadMs} ms → 계산+GPU ${r.computeGpuMs} ms = 첫 프레임 ${r.firstFrameMs} ms · StrictMode ×${r.strictModeX} · JS 모듈 ${r.modulesLoaded}개`)
   })
   return null
 }

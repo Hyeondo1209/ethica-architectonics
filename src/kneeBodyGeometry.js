@@ -217,11 +217,21 @@ export function buildKneeBody() {
 //   배 구간 벽 반폭이 **1.69**라 자리가 없어 3토막이 났다. 두 가지로 푼다:
 //   ⓐ 틈을 0.10으로 줄이고 ⓑ **안쪽끝을 계단 쪽으로 당긴다**(clamp) — 자리가 좁으면 난간이 계단에
 //     가까워질 뿐 **사라지지 않는다.** 두께는 유지되고, 한 줄로 끝까지 간다.
+//  ★216-c 부팅 단축(2026.09.07): dAt가 호출마다 u=i/900 격자 901점의 rOf(u)를 재계산했다(V8 self-time 0.5s+rOf).
+//   격자·값은 상수 → 표 한 장. u는 원문 그대로 i/900으로 만들어 저장하므로 **값 비트 동일**(봉인 차분으로 확인).
+const KNEE_U_TAB = (() => { const U = [], R = []; for (let i = 0; i <= 900; i++) { const u = i / 900; U.push(u); R.push(rOf(u)) } return { U, R } })()
 export function kneeWallHalfAt(x, y) {
   const lim = (RIB_WALL_ON ? SHELL_RIB_R - RIB_WALL_T : SHELL_RIB_R) * Math.cos(Math.PI / RIB_RADIAL_SEG)
+  const { U, R } = KNEE_U_TAB
   const dAt = (pz) => {
     let b = 1e9
-    for (let i = 0; i <= 900; i++) { const u = i / 900; const d = Math.hypot(x - rOf(u), y - H * u, pz); if (d < b) b = d }
+    //  ★216-d 가지치기(값 무변, junctionGeometry.axisDistAt과 같은 논거): hypot ≥ |dy| → |dy| ≥ b면 d < b 불가 → 건너뜀.
+    for (let i = 0; i <= 900; i++) {
+      const dy = y - H * U[i]
+      if (-dy >= b) break                 // U 단조증가 → dy 단조감소 → 이 뒤는 전부 -dy ≥ b
+      if (dy >= b) continue
+      const d = Math.hypot(x - R[i], dy, pz); if (d < b) b = d
+    }
     return b
   }
   if (dAt(0) > lim) return 0

@@ -231,9 +231,39 @@ export function discSolid(r, t, half) {
 //   그래서 무릎길 도착(X_LAND_HI)·하강 시작(X_DESC0)·전망 시작(X_LAND_LO) 커플링이 무손상이다.
 
 //  판 높이에서 리브 중심선까지의 거리(관 안쪽 판정용) — 검증·렌더가 같은 식을 소비한다
+//  ★216 부팅 단축(2026.09.07): 이 함수가 부팅 계산의 51%였다(V8 self-time — axisDistAt 5.06s + rOf 3.92s / 17.5s).
+//   호출마다 같은 u 격자 1250점에서 rOfC(u)(tanh)를 **다시** 계산하고 있었다 — 격자도 값도 상수다.
+//   → 표 한 장(AXIS_TAB)으로 뺀다. **값은 비트 동일**: u 수열은 원문의 누적 덧셈 `u += 0.0002`를 그대로 재생한다
+//     (`0.15 + k·0.0002`로 쓰면 부동소수 누적이 달라져 결과가 바뀐다 — 봉인 차분이 잡는다).
+//   ⚠Math.hypot을 sqrt(dx²+dy²+dz²)로 바꾸지 말 것 — 마지막 ulp가 달라 이분법 가지가 뒤집힐 수 있다(값 무변 규율).
+const AXIS_TAB = (() => {
+  const U = [], R = []
+  for (let u = 0.15; u < 0.40; u += 0.0002) { U.push(u); R.push(rOfC(u)) }
+  return { U, R, n: U.length }
+})()
+//  ★216-b 메모: 부팅 한 번에 116,960회 호출 중 서로 다른 인수는 47,100(실측) — 같은 x에서 여러 소비자가
+//   같은 이분법 수열로 다시 부른다(archCutProfile 2회·ribArchCutSolid 2회 등). 키 = 숫자의 문자열
+//   (JS Number→string은 double을 유일하게 식별 · 원문 미변 = 같은 인수엔 같은 double). 값은 비트 동일.
+//   ⚠rOfC·H가 상수(모듈 바인딩)라는 전제 — 치환 반증은 파일 편집·별도 프로세스로 하므로 프로세스 안에서는 불변.
+//   키는 문자열이 아니라 **숫자 그대로 중첩 Map**(Map은 SameValueZero — 같은 double이면 같은 키. 문자열화 비용 0).
+const AXIS_MEMO = new Map()
 export function axisDistAt(x, y, z) {   // ★75: 검사가 리브 구멍 정합을 재려면 필요
+  let mx = AXIS_MEMO.get(x); if (!mx) AXIS_MEMO.set(x, mx = new Map())
+  let my = mx.get(y);        if (!my) mx.set(y, my = new Map())
+  const hit = my.get(z)
+  if (hit !== undefined) return hit
   let best = 1e9
-  for (let u = 0.15; u < 0.40; u += 0.0002) best = Math.min(best, Math.hypot(rOfC(u) - x, u * H - y, z))
+  const { U, R, n } = AXIS_TAB
+  //  ★216-d 가지치기(값 무변): Math.hypot(a,b,c) ≥ |b|가 V8 구현상 정확히 성립한다(최댓값으로 정규화한 제곱합 ≥ 1
+  //   → sqrt ≥ 1 → ×최댓값 ≥ |b|). 따라서 |dy| ≥ best인 점은 hypot을 불러도 min을 못 내린다 — 건너뛴다.
+  //   y = U·H는 단조증가이므로 dy가 +best를 넘어서면 그 뒤는 전부 해당 → break. min은 순서 무관(NaN 없음).
+  for (let k = 0; k < n; k++) {
+    const dy = U[k] * H - y
+    if (dy >= best) break
+    if (-dy >= best) continue
+    best = Math.min(best, Math.hypot(R[k] - x, dy, z))
+  }
+  my.set(z, best)
   return best
 }
 
