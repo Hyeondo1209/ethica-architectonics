@@ -2413,7 +2413,8 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
   T('배선 — ★214-h 조각 판정: 모드 0 안면(facing) · 모드 1 **위치**(크라운·주머니·반구·드럼∧지붕 높이맵 텍스처) · 모드 2 리드 · 높이맵 = 실제 드럼 천장 메시 광선(DSK_ROOF_N×M) · 미스 = 리드 밑 · onBeforeCompile 체인(리브 틴트 보존)',
     /vDskIn = dot\(normal, uDskAxis - position\) > 0\.0 \? 1\.0 : 0\.0/.test(corS) && /if \(uDskMode < 0\.5\) dskIn = \(\(vDskIn > 0\.5\) == gl_FrontFacing\)/.test(corS)
     && /texture2D\(uDskRoof, vec2\(atan\(d\.y, d\.x\) \/ 6\.283185307 \+ 0\.5, r \/ uDskA\.z\)\)\.r/.test(corS) && /getObjectByName\('드럼 천장'\)/.test(corS)
-    && /roofData\[j \* RN \+ i\] = hs\.length \? hs\[0\]\.point\.y : dskRoofFallback\(rad, DSK_AXIS_X \+ rad \* Math\.cos\(th\), spec\)/.test(corS)   /* ★215-i */ && /const prev = m\.onBeforeCompile; m\.onBeforeCompile = \(sh, r\) => \{ if \(prev\) prev\(sh, r\); patch\(sh\) \}/.test(corS)
+    && /const G = DSK_ROOF_GRID_ON && roofMesh \? buildUpRayGrid\(roofMesh\) : null/.test(corS) && /if \(G\) hy = upRayHitY\(G, ox, oz, -C_CUP - 1, rr\.near, rr\.far\)/.test(corS)
+    && /roofData\[j \* RN \+ i\] = hy !== null \? hy : dskRoofFallback\(rad, ox, spec\)/.test(corS)   /* ★217-a 배선: 격자 경로 + three 폴백 */   /* ★215-i */ && /const prev = m\.onBeforeCompile; m\.onBeforeCompile = \(sh, r\) => \{ if \(prev\) prev\(sh, r\); patch\(sh\) \}/.test(corS)
     && /else if \(posMode\) sh = DSK_DIM/.test(corS) && /if \(dskIn\) diffuseColor\.rgb \*= vColor\.rgb/.test(corS) && /if \(shell\) \{ const tg = dskirtNormalTarget\(p, spec, FRB\); if \(nm\.x \* \(tg\[0\] - v\.x\)[^\n]*nm\.negate\(\) \}/.test(corS)
     && LM.dskirtInterior([COR_CX, -1, 70], sp) === false && LM.dskirtInterior([COR_CX, -30, 30], sp) && /geometry=\{bowl\} userData=\{\{ walkable: false, hallBake: true, bakeShell: true \}\}/.test(domeS)
     && /<mesh geometry=\{geo\} userData=\{\{ bakeShell: true, dskTess: true \}\}>\{\/\* ★214-q 재분할 · ★214-g 셀라/.test(corS) && K.DSK_ROOF_N >= 256 && K.DSK_ROOF_M >= 32 && K.DSK_FRAG_E > 0 && K.DSK_FRAG_E < 1)
@@ -2668,6 +2669,47 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
     T(`★★동결 — 구역 D+F(드럼 통로·홀 + 프리즈 방) 조명 지문 ${h} = 확정값 ${FREEZE_D_SIG}` +
       (h === FREEZE_D_SIG ? '' : '  ⛔**확정 낸 구역이 움직였다. 지문을 갱신하지 말고 현도에게 보고하라.**'), h === FREEZE_D_SIG)
   } else console.log(`  (구역 D+F 동결 대조 보류 — FREEZE_D_ON=${FREEZE_D_ON} · 정본 체제=${CANON_D}) · 현재 지문 ${h}`)
+}
+
+// ═══ ★217-a 수직 광선 격자(upRayGrid) = three Raycaster와 **값 동일**(지붕 높이맵 광선 경로) ═══
+//  검사 설계: 합성 지붕(주름진 격자 + 겹친 동률 삼각형 + 회전·이동 matrixWorld) 위 광선 수백 발을 두 경로로 쏘아 y를 `===` 대조.
+//  대치 반증: upRayHitY의 `d < best`를 `<=`로 바꾸면 동률 항이 즉시 붉어진다 · 격자 셀 밖 상자 필터를 빼도 값은 같으나 폴백 항이 무는 대신 시간이 는다.
+{
+  const URG = await import('./upRayGrid.js'), THREE = await import('three'), K = await import('./constants.js')
+  const mk = (side, rot) => {
+    const g = new THREE.PlaneGeometry(40, 40, 23, 19); g.rotateX(-Math.PI / 2)
+    const P = g.attributes.position; for (let i = 0; i < P.count; i++) P.setY(i, 30 + 3 * Math.sin(P.getX(i) * 0.7) * Math.cos(P.getZ(i) * 0.5) + 0.01 * i)
+    const ni = g.toNonIndexed()
+    //  겹친 동률 삼각형 — 앞 삼각형 세 장을 그대로 뒤에 한 번 더 붙인다(같은 거리 두 교점 → 안정 정렬 규칙이 갈린다)
+    const a = ni.attributes.position.array, dup = new Float32Array(a.length + 27); dup.set(a); dup.set(a.subarray(0, 27), a.length)
+    const g2 = new THREE.BufferGeometry(); g2.setAttribute('position', new THREE.BufferAttribute(dup, 3))
+    const m = new THREE.Mesh(g2, new THREE.MeshBasicMaterial({ side })); m.position.set(3, -2, 5); m.rotation.set(0.1 * rot, 0.7 * rot, 0.05 * rot); m.updateMatrixWorld(true)
+    return m
+  }
+  const rc = new THREE.Raycaster(); rc.far = 200
+  let nRay = 0, nHit = 0, bad = 0, nMiss = 0
+  for (const side of [THREE.FrontSide, THREE.BackSide, THREE.DoubleSide]) for (const rot of [0, 1]) {
+    const m = mk(side, rot), G = URG.buildUpRayGrid(m)
+    T(`★217-a 격자 구축 성공(side=${side} rot=${rot})`, !!G && G.nTri === m.geometry.attributes.position.count / 3)
+    for (let i = 0; i < 300; i++) {
+      const x = -30 + 60 * ((i * 37) % 300) / 300, z = -30 + 60 * ((i * 91) % 300) / 300
+      rc.set(new THREE.Vector3(x, -10, z), new THREE.Vector3(0, 1, 0))
+      const hs = rc.intersectObject(m, false), ref = hs.length ? hs[0].point.y : null
+      const got = URG.upRayHitY(G, x, z, -10, rc.near, rc.far)
+      nRay++; if (ref !== null) nHit++; else nMiss++
+      if (got !== ref) bad++
+    }
+  }
+  T(`★217-a 격자 y === three Raycaster y — 광선 ${nRay}발(맞음 ${nHit} · 미스 ${nMiss}) 전부 동일`, bad === 0 && nHit > 0 && nMiss > 0, bad ? `불일치 ${bad}` : '')
+  //  ⚠동률(같은 거리 두 교점)은 수직 광선에서 **같은 y**라 출력에 무관 — 동률 항을 두면 공허참(규율: 공허 가드 금지). 대신 side 분기가 실제로 물리는지 문다.
+  { const mF = mk(THREE.FrontSide, 0), mB = mk(THREE.BackSide, 0), GF = URG.buildUpRayGrid(mF), GB = URG.buildUpRayGrid(mB)
+    let diff = 0; for (let i = 0; i < 300; i++) { const x = -18 + 36 * ((i * 37) % 300) / 300, z = -18 + 36 * ((i * 91) % 300) / 300
+      if (URG.upRayHitY(GF, x, z, -10, 0, 200) !== URG.upRayHitY(GB, x, z, -10, 0, 200)) diff++ }
+    T(`★217-a side 분기 실효 — 같은 지붕을 FrontSide/BackSide로 쏘면 결과가 갈린다(${diff}/300발) · 컬링 인자 대치(false)는 앞 항이 261발 불일치로 적발(실측)`, diff > 0) }
+  T('★217-a 노브 위생 — DSK_ROOF_GRID_ON 불리언 · BAKE_MEMO_ON 불리언', typeof K.DSK_ROOF_GRID_ON === 'boolean' && typeof K.BAKE_MEMO_ON === 'boolean')
+  //  ★217-b 메모 = 값 동일: 같은 점을 두 번 물어 첫 값과 둘째 값이 `===`, 그리고 메모 없는 원문 경로(Raw는 비공개)와는 봉인(_probe_bake --diff 1635)이 대조했다
+  const Zs = LM.zoneABakeSpec(); const q = [3.1, 95.2, -2.7], nn = [0.6, 0.8, 0]
+  T('★217-b zoneAShadeAt 메모 — 같은 입력 두 번 = 같은 double(===) · 유한값', LM.zoneAShadeAt(q, nn, Zs) === LM.zoneAShadeAt(q, nn, Zs) && Number.isFinite(LM.zoneAShadeAt(q, nn, Zs)))
 }
 
 console.log(`\n전체 ${pass + fail}항 중 ${pass}항 통과 ${fail ? '❌ ' + fail + '항 실패' : '✅'}`)

@@ -6,6 +6,7 @@
 //
 //  ⚠도구 검증(전제): three uniform 변환에 π 계수 없음 — build/three.module.js 8631·8663·8725 실측.
 //   ambient / hemisphere / directional / point / spot 전부 color×intensity 동일 단위 → 직접 비교 가능.
+import { BAKE_MEMO_ON } from './constants.js'   // ★217-b 조도 메모 노브
 import {
   LGT_AMB_I, LGT_HEMI_I, LGT_DIR_I, LGT_DIR2_I, LGT_DIR3_I,
   LGT_DIR_POS, LGT_DIR2_POS, LGT_DIR3_POS, LGT_DIR23_SHADOW,
@@ -627,7 +628,20 @@ export function zoneASegOf(pos, Z) {
   if (BAKE_DISC_OPEN_SEG && pos[1] >= DISC_Y_LO && discOpenAt(pos)) return Z.upper
   return Z.lower
 }
+//  ★217-b 메모 — 베이크는 같은 정점을 여러 번 묻는다(비인덱스 수프 ≈ 이웃 삼각형 수만큼 · 구배 분할의 변 중점은 이웃과 2회 ·
+//   분할 뒤 정점 루프가 한 번 더). 입력(점 3·법선 3 double)이 같으면 결과도 같은 double — 문자열 키(double→문자열은 왕복 정확).
+//   ⚠키에 Z 정체성(WeakMap) — 절·표본이 다른 명세는 섞이지 않는다. BAKE_MEMO_ON=false = 메모 없음(값 동일).
+const _zoneAMemo = new WeakMap()
 export function zoneAShadeAt(pos, n, Z = zoneABakeSpec()) {
+  if (BAKE_MEMO_ON) {
+    let M = _zoneAMemo.get(Z); if (!M) { M = new Map(); _zoneAMemo.set(Z, M) }
+    const key = pos[0] + ',' + pos[1] + ',' + pos[2] + ',' + n[0] + ',' + n[1] + ',' + n[2]
+    const hit = M.get(key); if (hit !== undefined) return hit
+    const v = zoneAShadeAtRaw(pos, n, Z); M.set(key, v); return v
+  }
+  return zoneAShadeAtRaw(pos, n, Z)
+}
+function zoneAShadeAtRaw(pos, n, Z) {
   const shadeOf = (p, seg) => {
     const E = Z.eAt ? Z.eAt(p, n, seg)
       : bakeIrradianceAt(p, n, seg.samples) + seg.bounceK * bakeIrradianceAt(p, n, seg.bounce)
@@ -1164,9 +1178,12 @@ export function splitSoupAtBoundary(attrs, classify, eps, normalizeNames = ['nor
   const nTri = (attrs.position.array.length / 9) | 0
   const out = {}; for (const nm of names) out[nm] = []
   let straddle0 = 0, emitted = 0
+  //  ★217-c 컨테이너만 손봄(값·순서 불변): 형식화 배열의 제네릭 slice → 원소 직접 읽기, 스프레드 push → 원소 push.
+  //   실측(_probe_bake --cpu): corner·emit이 분할 시간의 대부분(BAKE_C 서단 스테이션 분할 ≈ 10 s). Float32→double 읽기는 같은 값.
   const corner = (tri, k) => { const c = {}
-    for (const nm of names) { const it = attrs[nm].itemSize, b = (tri * 3 + k) * it
-      c[nm] = Array.prototype.slice.call(attrs[nm].array, b, b + it) }
+    for (const nm of names) { const it = attrs[nm].itemSize, arr = attrs[nm].array, b = (tri * 3 + k) * it, v = new Array(it)
+      for (let i = 0; i < it; i++) v[i] = arr[b + i]
+      c[nm] = v }
     return c }
   const flagOf = (c) => !!classify(c.position[0], c.position[1], c.position[2])
   const d2 = (a, b) => { const p = a.position, q = b.position
@@ -1182,7 +1199,8 @@ export function splitSoupAtBoundary(attrs, classify, eps, normalizeNames = ['nor
       c[nm] = M }
     return c }
   const emit = (A, B, C) => { emitted++
-    for (const nm of names) out[nm].push(...A[nm], ...B[nm], ...C[nm]) }
+    for (const nm of names) { const o = out[nm], a = A[nm], b = B[nm], c = C[nm]
+      for (let i = 0; i < a.length; i++) o.push(a[i]); for (let i = 0; i < b.length; i++) o.push(b[i]); for (let i = 0; i < c.length; i++) o.push(c[i]) } }
   const eps2 = eps * eps, stack = []
   for (let t = 0; t < nTri; t++) {
     const A = corner(t, 0), B = corner(t, 1), C = corner(t, 2)
@@ -1228,9 +1246,12 @@ export function splitSoupByGradient(attrs, shadeOf, tol, minEdge, normalizeNames
   const nTri = (attrs.position.array.length / 9) | 0
   const out = {}; for (const nm of names) out[nm] = []
   let rough0 = 0, emitted = 0
+  //  ★217-c 컨테이너만 손봄(값·순서 불변): 형식화 배열의 제네릭 slice → 원소 직접 읽기, 스프레드 push → 원소 push.
+  //   실측(_probe_bake --cpu): corner·emit이 분할 시간의 대부분(BAKE_C 서단 스테이션 분할 ≈ 10 s). Float32→double 읽기는 같은 값.
   const corner = (tri, k) => { const c = {}
-    for (const nm of names) { const it = attrs[nm].itemSize, b = (tri * 3 + k) * it
-      c[nm] = Array.prototype.slice.call(attrs[nm].array, b, b + it) }
+    for (const nm of names) { const it = attrs[nm].itemSize, arr = attrs[nm].array, b = (tri * 3 + k) * it, v = new Array(it)
+      for (let i = 0; i < it; i++) v[i] = arr[b + i]
+      c[nm] = v }
     return c }
   const d2 = (a, b) => { const p = a.position, q = b.position
     const dx = p[0] - q[0], dy = p[1] - q[1], dz = p[2] - q[2]; return dx * dx + dy * dy + dz * dz }
@@ -1244,7 +1265,8 @@ export function splitSoupByGradient(attrs, shadeOf, tol, minEdge, normalizeNames
       c[nm] = M }
     return c }
   const emit = (A, B, C) => { emitted++
-    for (const nm of names) out[nm].push(...A[nm], ...B[nm], ...C[nm]) }
+    for (const nm of names) { const o = out[nm], a = A[nm], b = B[nm], c = C[nm]
+      for (let i = 0; i < a.length; i++) o.push(a[i]); for (let i = 0; i < b.length; i++) o.push(b[i]); for (let i = 0; i < c.length; i++) o.push(c[i]) } }
   const min2 = minEdge * minEdge, stack = []
   for (let t = 0; t < nTri; t++) {
     const A = corner(t, 0), B = corner(t, 1), C = corner(t, 2)
@@ -1499,7 +1521,36 @@ export function dskirtSamples(strands, n = DSK_SAMP) {
 /** 정점 조도(가림 없음 — 1차 근사 ⓐ): Σ w · max(0, cosθ) · beam / d²
  *  ★214-k beam = max(0, d̂·(p−s)/|p−s|)^DSK_LOBE — 표본은 **가닥 진행 방향**(아래·동쪽)으로만 빛을 낸다. 전방위(초판)면 커튼 바로 위 천장이
  *  가장 밝아 빛이 '떠 있게' 읽혔다(현도: "떨어지는 느낌이 아니라 희미"). 실측: 천장 0.23→0.04 · 제단 0.18→1.0(기준점) · 서벽 0.11→0.04. */
+//  ★217-b 표본 평탄화 + 메모 — 표본 배열의 정체성(WeakMap)마다 Float64 평탄 배열(p·d·w·d유무)을 한 번 만들고, (점,법선) 키로 결과를 저장.
+//   식·연산 순서는 원문 그대로(s.p → P[3i…], s.d → D[3i…] · HAS[i]) — 값 비트 동일. BAKE_MEMO_ON=false = 원문 루프.
+const _dskMemo = new WeakMap()
+function dskFlat(samples) {
+  const n = samples.length, P = new Float64Array(n * 3), D = new Float64Array(n * 3), W = new Float64Array(n), HAS = new Uint8Array(n)
+  for (let i = 0; i < n; i++) { const s = samples[i]
+    P[i * 3] = s.p[0]; P[i * 3 + 1] = s.p[1]; P[i * 3 + 2] = s.p[2]; W[i] = s.w
+    if (s.d) { HAS[i] = 1; D[i * 3] = s.d[0]; D[i * 3 + 1] = s.d[1]; D[i * 3 + 2] = s.d[2] } }
+  return { n, P, D, W, HAS, map: new Map() }
+}
 export function dskirtIrradianceAt(p, nrm, samples) {
+  if (!BAKE_MEMO_ON) return dskirtIrradianceAtRaw(p, nrm, samples)
+  let F = _dskMemo.get(samples); if (!F) { F = dskFlat(samples); _dskMemo.set(samples, F) }
+  const key = p[0] + ',' + p[1] + ',' + p[2] + ',' + nrm[0] + ',' + nrm[1] + ',' + nrm[2]
+  const hit = F.map.get(key); if (hit !== undefined) return hit
+  const { n, P, D, W, HAS } = F, p0 = p[0], p1 = p[1], p2 = p[2], n0 = nrm[0], n1 = nrm[1], n2 = nrm[2]
+  let e = 0
+  for (let i = 0; i < n; i++) {
+    const dx = P[i * 3] - p0, dy = P[i * 3 + 1] - p1, dz = P[i * 3 + 2] - p2, d2 = dx * dx + dy * dy + dz * dz
+    if (d2 < 1e-6) continue
+    const dl = Math.sqrt(d2), cos = (n0 * dx + n1 * dy + n2 * dz) / dl
+    if (cos <= 0) continue
+    let beam = 1
+    if (DSK_LOBE > 0 && HAS[i]) { const a = -(D[i * 3] * dx + D[i * 3 + 1] * dy + D[i * 3 + 2] * dz) / dl; if (a <= 0) continue; beam = Math.pow(a, DSK_LOBE) }
+    e += (W[i] * cos * beam) / d2
+  }
+  F.map.set(key, e)
+  return e
+}
+function dskirtIrradianceAtRaw(p, nrm, samples) {
   let e = 0
   for (const s of samples) {
     const dx = s.p[0] - p[0], dy = s.p[1] - p[1], dz = s.p[2] - p[2], d2 = dx * dx + dy * dy + dz * dz

@@ -297,6 +297,7 @@ export const ROOM_DARK_SHELL = true   // 방 껍질(shellGeo)에도 걸까.
 //   점광원'급' 좁은 면, D는 갓 링 슬릿 반경 26의 링 광원. 점으로 하드코딩하면 D에서 재작업).
 //  ⚠내부 면만 어두워진다(안팎 구분 = 헌장 제1 원칙): 구획 밖·바깥면 정점은 색 1(백) = 화면 불변.
 export const BAKE_A_ON  = true    // ⛔한 노브 A/B(규율 41): false = 현행 동적 체제 그대로(정점색 미기록·재질 무접촉)
+export const BAKE_MEMO_ON = true   // ★217-b 조도 함수 메모(zoneAShadeAt·dskirtIrradianceAt — 같은 (점,법선) 입력의 재계산 생략 · 값 비트 동일). ⛔false = 매번 계산(느림 — 봉인 차분이 문다)
 export const BAKE_N     = 16      // 공급지 표본 수(구획 공통 — A 디스크·D 링이 같은 수를 쓴다)
 export const BAKE_FLOOR = 0.03   // 완전 그늘의 밝기 배율(0=칠흑 · 1=베이크 무효). 현도 튜닝 노브
                                   //   ★177 등가 초깃값: aoMap 소등분을 베이크가 승계 — 실내 벽 u70·u110 화면 재현 격자 역산(오차 ≤0.005)
@@ -5859,6 +5860,7 @@ export const DSK_HALO_OP     = SHAFT_HALO_OP / (DSK_LAYERS * DSK_HALO_K) // ★2
 export const DSK_GLOW_ON     = false              // ★214-a ⛔리드 밑 발광 디스크(구 '임시 발광면 — P2 진짜 빛으로 승격' 자리) 소등 — 갓 안에서 밝은 원판으로 보임(현도)
 export const DSK_SHELL_IN    = true               // 두께0 셸(드럼 벽·천장)은 **안면만** 정점색(gl_FrontFacing 판정 — 밖은 무변)
 export const DSK_ROOF_N      = 512                // ★214-h 지붕 높이맵 방위 분할(실측 '드럼 천장' 메시 광선 → 조각 판정 텍스처)
+export const DSK_ROOF_GRID_ON = true              // ★217-a 지붕 높이맵 광선 = xz 격자 후보(upRayGrid.js — three Mesh.raycast 비트 동일 복제). ⛔false = three Raycaster 선형 경로(값 동일 · 느림 — 봉인 차분이 문다)
 export const DSK_ROOF_M      = 64                 // ★214-h 지붕 높이맵 반경 분할(0~COR_R)
 export const DSK_FRAG_E      = GAT_POST_R / 4     // ★214-h 조각 판정 여유(0.3) — 지붕 삼각형 뒤틀림·텍스처 보간 오차 흡수
 export const DSK_BRD_FRONT_OUT = true             // ★214-j 관 껍질 앞면 = 바깥(orientGeo 규율 9). 감김이 반대로 보이면 false 한 줄

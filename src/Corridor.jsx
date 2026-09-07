@@ -7,9 +7,11 @@ import { useMemo, useRef } from 'react'
 import { useFrame, invalidate, useThree } from '@react-three/fiber'   // ★188 D구획 베이크(Room.jsx와 같은 어법) · ★214 useThree(장면 광선)
 import { bootNow, bootPass } from './bootProbe.js'   // ★216-e 부팅 스톱워치(값 무접촉 · DEV_TELEPORT=false면 no-op)
 import { dskirtSpec, dskirtResolve, dskirtSamples, dskirtERef, dskirtShadeAt, dskirtShadeMix, dskirtInterior, dskirtTris, tessellateTris, friezeRoomBox, friezeRoomIn, dskirtNormalTarget, friezeLightBake, friezeLightVertexOverride, clampTrisToRoomCeil, dskRoofFallback } from './lightingModel.js'   // ★214 갓 치마 커튼 수학 정본(사본 금지)
+import { DSK_ROOF_GRID_ON } from './constants'   // ★217-a
 import { DSK_TESS_EDGE, GAT_FACET_SUB, DSK_CROWN_ON, DSK_ON, DSK_OP, DSK_HALO_OP, DSK_HALO_K, DSK_XF, DSK_TOPF, DSK_FADE_POW, DSK_COLOR, DSK_SHELL_IN, DSK_GLOW_ON, DSK_DIM, DSK_CELLA_IN, DSK_TEMPLE_IN, DSK_ROOF_N, DSK_ROOF_M, DSK_FRAG_E, COR_CX as DSK_AXIS_X, COR_R as DSK_COR_R,
   FRL_ON, FRL_MOUTH_ON, FRL_BODY_ON, FRL_R, FRL_COLOR, FRL_OP, FRL_HALO_K, FRL_HALO_OP, FRL_BODY_HALO_OP, FRL_TUBE_SEG, FRL_CEIL_FADE_M, FRL_FADE_POW, FRL_BODY_FADE_POW, FRL_TOPF,   // ★215 프리즈 방 빛 볼륨
   CUP_R as C_CUP, CELLA_XW as C_XW, CELLA_X1 as C_X1, CELLA_ZHW as C_ZHW, CELLA_T as C_T, CELLA_ROOF_Y0 as C_ROOF0, FR_FLOOR_Y as C_FRY, FR_SILL_LIFT as C_LIFT, TEMPLE_X0 as C_TX0 } from './constants.js'   // ★214-h 조각 판정 파라미터(dskirtInterior와 같은 상수)
+import { buildUpRayGrid, upRayHitY } from './upRayGrid.js'   // ★217-a 수직 광선 격자(three raycast 비트 동일 복제)
 import { zoneDBakeSpec, zoneDShadeAt, zoneDInterior } from './lightingModel.js'   // ★188 수학 정본(사본 금지 — check_lux P절이 같은 함수를 문다)
 import { BAKE_D_ON, BAKE_D_SHELL, BAKE_D_GAMMA, BAKE_FLOOR } from './constants.js'
 import * as THREE from 'three'
@@ -1179,11 +1181,15 @@ export function DrumSkirt({ hallRef }) {
     const roofMesh = hallRef.current.getObjectByName('드럼 천장')
     const RN = DSK_ROOF_N, RM = DSK_ROOF_M, roofData = new Float32Array(RN * RM)
     { const rr = new THREE.Raycaster(); rr.far = spec.slit.y1 + C_CUP + 2
+      //  ★217-a 광선 32,768발 × 천장 전 삼각형(three 선형 = DSK의 40%) → xz 격자 후보만(upRayGrid — three와 같은 intersectTriangle·거리·동률 규칙). 격자 구축 불가면 three 경로.
+      const G = DSK_ROOF_GRID_ON && roofMesh ? buildUpRayGrid(roofMesh) : null
       for (let j = 0; j < RM; j++) for (let i = 0; i < RN; i++) {
         const th = ((i + 0.5) / RN) * Math.PI * 2 - Math.PI, rad = ((j + 0.5) / RM) * DSK_COR_R
-        rr.set(new THREE.Vector3(DSK_AXIS_X + rad * Math.cos(th), -C_CUP - 1, rad * Math.sin(th)), new THREE.Vector3(0, 1, 0))
-        const hs = roofMesh ? rr.intersectObject(roofMesh, false) : []
-        roofData[j * RN + i] = hs.length ? hs[0].point.y : dskRoofFallback(rad, DSK_AXIS_X + rad * Math.cos(th), spec) } }   // ★215-i 미스 = 크라운 안 리드 · 밖은 천장면 ceilY(x)(구: 전부 리드 → 지붕 위가 '안')
+        const ox = DSK_AXIS_X + rad * Math.cos(th), oz = rad * Math.sin(th)
+        let hy = null
+        if (G) hy = upRayHitY(G, ox, oz, -C_CUP - 1, rr.near, rr.far)
+        else if (roofMesh) { rr.set(new THREE.Vector3(ox, -C_CUP - 1, oz), new THREE.Vector3(0, 1, 0)); const hs = rr.intersectObject(roofMesh, false); if (hs.length) hy = hs[0].point.y }
+        roofData[j * RN + i] = hy !== null ? hy : dskRoofFallback(rad, ox, spec) } }   // ★215-i 미스 = 크라운 안 리드 · 밖은 천장면 ceilY(x)(구: 전부 리드 → 지붕 위가 '안')
     const roofTex = new THREE.DataTexture(roofData, RN, RM, THREE.RedFormat, THREE.FloatType)
     roofTex.minFilter = roofTex.magFilter = THREE.LinearFilter; roofTex.wrapS = THREE.RepeatWrapping; roofTex.needsUpdate = true
     const FRB = friezeRoomBox()
