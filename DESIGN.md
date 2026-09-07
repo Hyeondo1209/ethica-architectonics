@@ -401,7 +401,10 @@
 >  LNK 가족 감김 · 접지 19기 · 회랑·전실 벽 두께 0 면 · 배포 스위치 미복귀.
 >
 >
-> ★**검증 현황(2026.09.07 저녁 · ★216 부팅 단축 후)**: **9종 3379항 중 3377 green · 2 = ★134 빚**(항수·결과 ★215-j와 **완전 동일** — 최적화가 값을 안 바꿨다는 넓은 그물) + 빌드 green(1.9s) ·
+> ★**검증 현황(2026.09.07 밤 · ★216-e 계측 분할 후)**: 9종 **항수·결과 HEAD와 완전 동일**(도구 출력 합 3187 · corridor 2 = ★134 빚 — ⚠도구 출력 합계 3187과 아래 문서 집계 3379의 차이는 이번 변경과 무관〔HEAD도 3187〕 · 집계 방식 차이 미확인) + 빌드 green(2.8s) ·
+> **동결 넷 [340][387][409][498] 전부 green** · **봉인 차분 무결**(`--diff` 171개 일치) · lint 신규 오류 0(기준 44 = 44).
+>
+> ★구 검증 현황(2026.09.07 저녁 · ★216 부팅 단축 후): **9종 3379항 중 3377 green · 2 = ★134 빚**(항수·결과 ★215-j와 **완전 동일** — 최적화가 값을 안 바꿨다는 넓은 그물) + 빌드 green(1.9s) ·
 > **동결 넷 [340][387][409][498] 전부 green** · **봉인 차분 무결**(`_probe_boot.mjs --diff` — useMemo 170개 결과 지문 전부 일치 · 반증: axisDistAt 걸음 0.0002→0.00021 치환 시 7개 붉음 확인) · lint 신규 오류 0.
 >
 > ★구 검증 현황(2026.09.07 · ★215-j 동결 후): **9종 3379항 중 3377 green · 2 = ★134 빚**(lux **498** — S-17 11 · S-18 30 · S-19 3 · bridge 365 · corridor 728 · waypoints 351〔대장 +3 빛 볼륨〕 ·
@@ -3584,11 +3587,27 @@ x120 → **124.85** · x124 → **129.50** · x130.5 → **137.06** · x145 → 
 >  ⚠**가설(브라우저에서 확정할 것)**: `main.jsx`의 `<StrictMode>`가 개발 모드에서 useMemo 계산을 **두 번** 부른다(React 문서) → 계산 몫 ×2. N=2로 나오면 개발 전용 소등이 후보(배포본 무영향 — 프로덕션 빌드에서 StrictMode는 원래 무동작). 결정 = 현도.
 > **교훈(규율 후보)**: "무거운 useMemo = CSG"라는 짐작을 장부가 반증했다. 성능도 조형과 같다 — **프로파일 없이 처방 금지**, self-time으로 범인을 짚은 뒤 값 무변 증명(봉인 차분)을 붙여야 최적화다.
 >
+> ### ★216-e — 브라우저 수치 판독 + 계측 분할(2026.09.07 밤 · 한 대화 · Fable〔B급 과제 — 현도 "그대로 진행"〕)
+> **현도 실측(★216-d 심음의 첫 결과)**: `로딩 1017 ms → 계산+GPU 84428 ms = 첫 프레임 85445 ms · StrictMode ×2 · JS 모듈 66개`.
+> **판독 — ★216이 준비한 세 갈래 ⓐⓑⓒ 전부 주범 아님**: ⓑ 로딩 1.0 s/85 s 기각 · ⓐ StrictMode ×2 확정이나 절약 상한 ≈ 트리 렌더 1회분(Node 6.3 s ≈ 브라우저도 V8) = 84 s 중 ~7 s · ⓒ CSG 2.6 s = 3%.
+>  산수: 84.4 − 6.3×2 ≈ **72 s가 문서·프로브에 없는 구간**. 코드로 특정 — `_probe_boot.mjs` 5행이 스스로 적은 "못 재는 것: GPU·effect 본체·useFrame 베이크"가 정확히 그 구간이다.
+>  후보 = **첫 프레임 useFrame 베이크 6패스**(Room ACH_INT·ROOM_DARK·BAKE_A·BAKE_C + Corridor DSK〔Raycaster 장면 traverse 가림〕·BAKE_D). App.jsx의 BootProbe(176행)는 Corridor(155행)보다 뒤에 마운트 → R3F 등록순상 여섯이 전부 84 s **안**에 든다. 각 패스는 개수만 찍고 ms를 안 찍었다(BAKE_A 분할 ms만 예외).
+>  ⛔**★216-d 라벨 오류 정정**: '계산+GPU'라 썼으나 BootProbe는 useFrame 콜백 = **gl.render 전**. 셰이더 컴파일·업로드는 84 s 밖(그 뒤). 84 s는 순수 JS·첫 화면은 85 s보다 더 늦다.
+>  ⚠StrictMode dev는 useMemo뿐 아니라 **effect도 2회**(mount→unmount→mount) — Dome·Room의 useLayoutEffect 본체가 무거우면 그것도 ×2다(ⓒ 커밋 구간에 드러난다).
+> **처방 = 계측 한 단계 더(값 무접촉)** — 짐작으로 베이크에 손대면 ★216-a의 ⛔(CSG 오진) 반복:
+>  · 신설 `src/bootProbe.js`(의존성 0 잎): `BOOT{on,frame,marks,passes}` · `bootEnable` · `bootNow` · `bootPass(name,t0)` · `bootMark(name)`. 게이트는 BootProbe **렌더**가 `bootEnable(DEV_TELEPORT)`로 켠다(렌더는 모든 useFrame보다 앞). 배포본 = no-op.
+>  · BootProbe 5구간: ⓐ 로딩 → ⓑ 렌더(t0→`bootMark('renderEnd')` 렌더 본문 · StrictMode 2회분 포함) → ⓒ 커밋(→`useLayoutEffect` · 형제 순서상 Dome·Room의 layoutEffect 뒤) → ⓓ 프레임(→첫 useFrame · 베이크 6패스 포함) → ⓔ GPU(→다음 rAF = 첫 gl.render 완료). 콘솔 `[ethica boot] 로딩 A → 렌더 B → 커밋 C → 프레임 D → GPU E ms = 첫 화면 F ms · StrictMode ×N · 모듈 M개`.
+>  · 패스 장부: 여섯 패스에 `const tB = bootNow()` / 일한 프레임만 `bootPass('이름', tB)`. DSK는 DrumCup을 최대 60프레임 기다리므로 **120프레임째 정산 줄** 한 번 더: `[ethica boot] 패스 정산(120프레임) 합 S ms — 이름 ms(f프레임·회수) …`(f0 = 첫 프레임). `window.__ethicaBoot.passes`에도 남는다.
+> **증명 3겹**: ①봉인 차분 무결(171개 일치 — 기준 스냅은 HEAD에서 새로 뜸) ②9종 항수·결과 HEAD와 완전 동일(stash 대조) ③동결 넷 green. 빌드 2.8s · lint 신규 0. 파일 = `bootProbe.js`(신규)·`CoordHud.jsx`·`Room.jsx`·`Corridor.jsx`(+ `bootNow/bootPass` 두 줄씩 — 기하·색 무접촉).
+> **다음**: 현도가 두 줄(첫 화면 줄 + 120프레임 정산 줄)을 붙여 준다 → 큰 구간부터 처방(ⓓ 크면 패스 장부의 최대 항 · ⓑ 크면 ★216 ⓐ 소등〔확실한 ~7 s〕+ⓒ · ⓒ 크면 layoutEffect 본체 재기 · ⓔ 크면 셰이더 수 점검). ⓐ StrictMode 소등은 계측 뒤 별도 한 줄(기준선 보존).
+>
 > ### ▶ ★209-e 다음 작업 (조명 트랙 — 조형과 병행)
 > ⓪ˣ ✅**드럼 통로 내부(D구획) 조명 = ★214 a~q 구현·현도 잠정 승인(09.06)** — 위 ★214 절(사진 판정 15회분). **다음 세션 = ★214-r: 감실(셀라 벽감) 안쪽 톤 +
 >   외부 색 변화 잔재 정리 → 판정 통과 시 구역 D 동결(FREEZE_D — S-15 어법 복제)** `[B급·중 — 노브·태그·판정 위주 · 새 기하 없음]`. ⚠시작 전: 동결 셋 [340][387][409] green ·
 >   현도 사진의 면을 **좌표·시선으로 먼저 특정**(★214-q 교훈) · 조각 판정 규칙표(★214-g/h) 재독.
 >   → ✅**종결(09.07 · ★214-r + ★215 a~j)**: 프리즈 방(1p7) = D의 어둠에 편입 + 관 다섯의 빛 · **구역 D+F 동결 [498] `FREEZE_D_SIG 3878005666`**(현도 "완결처리 · 침범·수정 금지"). 재론 = 현도 지시로만.
+> ⓪ᵂ″ ★★★**다음 세션 = 부팅 단축 3차 — 현도가 콘솔 두 줄(`[ethica boot]` 첫 화면 줄 + 120프레임 정산 줄)을 첫 메시지에 붙인다** `[현도·소]` → 큰 구간부터 처방(★216-e 절 '다음'): ⓓ 프레임(베이크 6패스)이 크면 장부 최대 항 재기·처방 `[A급·중 — 값 무변 증명 필수]` · ⓑ 렌더가 크면 StrictMode 개발 소등 `[B급·소 · 현도 결정]` · ⓒ 커밋이 크면 layoutEffect 본체 재기 `[B급·소]` · ⓔ GPU가 크면 셰이더·재질 수 점검 `[B급·중]`. 절차 고정: `--snap` 기준 → 수정 → `--diff` 무결.
+> ⓪ᵂ′ ✅**★216-e 계측 분할 종결(09.07 밤)** — 현도 실측 84 s 판독: ⓐⓑⓒ 전부 주범 아님, 72 s = 프로브 밖 구간(useFrame 베이크 6패스·effect 본체). 5구간 + 패스 장부 심음(값 무접촉·증명 3겹).
 > ⓪ᵂ ✅**부팅 시간 단축 1차 = ★216 a~d 종결(09.07 저녁)** — Node 계산 16.6s → 6.3s(−62%), 값 무변 3겹 증명. **다음 세션 시작 시 현도가 콘솔 `[ethica boot]` 줄을 붙여 준다**(로딩/계산+GPU/StrictMode ×N) → 그 수치로 2차 여부·방향 결정:
 >   ⓐ StrictMode ×2로 나오면 개발 전용 소등 `[B급·소 — main.jsx 한 줄 · 현도 결정]` ⓑ 로딩(Vite 모듈 폭포)이 크면 의존성 사전번들·모듈 수 점검 `[B급·중]` ⓒ 계산이 여전히 크면 CSG 2.6s(리브 셸 5기 중복 빌드 ~0.5s 포함) → 셸 1회 빌드 후 복제 `[A급·중 — 값 무변 증명 필수]` · CSG 결과 캐시는 조형 후(ⓑ 가족).
 >   ⚠어느 쪽이든 `_probe_boot.mjs --snap` 기준 → 수정 → `--diff` 무결이 전제. 현행 기준 스냅은 세션마다 새로 뜬다(레포에 두지 않음 — 기하가 바뀌면 당연히 달라진다).
@@ -8699,7 +8718,8 @@ DoD-2(완주)·DoD-3(공개) 복구. 남은 결번은 1p6뿐.
 - **★렌더 스모크(2026.07.28 신설)**: `node src/check_render.mjs` — 컴포넌트를 실제 호출해 **ReferenceError**를 잡는다. `vite build`가 못 잡는 '흰 화면' 부류 전용. 새 컴포넌트 파일은 `TARGETS`에 추가.
 - **셀프 렌더 검수**: `node src/render_views.mjs [wp-id ...]`(기본 view·inca-west) → `_render_*.png`. 형태 세션 필수 의례(§2-D ⑤). devDependency `pngjs`.
 - **코드:** GitHub 공개 `https://github.com/Hyeondo1209/ethica-architectonics` — 읽기 = `git clone --depth 5` 만(raw 금지). 주요 파일: `src/constants.js`(수치 정본)·`src/App.jsx`·`src/Dome.jsx`·`src/Room.jsx`·`src/Corridor.jsx`·`src/Steles.jsx`·`src/FirstPersonControls.jsx`·**`src/waypoints.js`**·`src/ethica1.js`·`src/GraphScaffold.jsx`. 검증 스크립트 6종 = `src/check_{waypoints,rooms,radial,lamps,lens,corridor}.mjs`(repo 루트에서 `node src/check_*.mjs`).
-- **부팅 프로파일러(★216):** `node src/_probe_boot.mjs` (컴포넌트·useMemo별 시간 + CSG 장부) · `--cpu`(V8 self-time 상위 30) · `--snap F`(useMemo 결과값 봉인) · `--diff F`(값 무변 증명 — 최적화 세션의 필수 절차) · 브라우저 쪽은 콘솔 `[ethica boot]` 줄(`BootProbe`, DEV_TELEPORT 게이트).
+- **부팅 프로파일러(★216):** `node src/_probe_boot.mjs` (컴포넌트·useMemo별 시간 + CSG 장부) · `--cpu`(V8 self-time 상위 30) · `--snap F`(useMemo 결과값 봉인) · `--diff F`(값 무변 증명 — 최적화 세션의 필수 절차). ⚠Node 프로브는 effect 본체·useFrame 베이크·GPU를 못 잰다(★216-e).
+- **브라우저 부팅 계측(★216-e):** `src/bootProbe.js`(장부 · 의존성 0) + `CoordHud.jsx` `BootProbe`. 콘솔 두 줄 — `[ethica boot] 로딩→렌더→커밋→프레임→GPU` 5구간(첫 프레임) · `[ethica boot] 패스 정산(120프레임)`(useFrame 베이크 6패스 ms). `window.__ethicaBoot`. DEV_TELEPORT=false면 전부 no-op.
 - **공개 배포:** `https://ethica-architectonics.vercel.app` (push 자동 재배포).
 - **정본 문서:** `DESIGN.md` + `Ethica_Architectonics_운용계획_v5.md` — repo 루트(★2026.07.28 v5 교체, 구 v4 삭제).
 - **연대기:** 노션 'Ethica Architectonics 프로젝트 일지' DB.

@@ -2,6 +2,7 @@
 //   + 주어진 것 배치: DefPrecinct(기단·각인) / DefOctagon(정의 8기) / AxiomStations(공리 7기)
 import { useRef, useMemo, useLayoutEffect, useEffect } from 'react'
 import { useThree, useFrame } from '@react-three/fiber'   // ★174-c4 순서 무관 패치
+import { bootNow, bootPass } from './bootProbe.js'   // ★216-e 부팅 스톱워치(값 무접촉 · DEV_TELEPORT=false면 no-op)
 import * as THREE from 'three'
 import { gatCutSpec } from './gatEaveGeometry.js'   // ★214-j 다리 대역 갓 절단 평면(관 위 실제 지붕)
 import { Brush, Evaluator, HOLLOW_SUBTRACTION } from 'three-bvh-csg'
@@ -125,6 +126,7 @@ export function AchRoomDarkness() {
   //   비용: 프레임당 traverse 1회(수만 메시 순회는 가볍다 — 무거운 건 복제·재컴파일이고 그건 1회뿐).
   useFrame(() => {
     if (!ACH_INT_ON) return
+    const tB = bootNow()   // ★216-e 스톱워치(값 무접촉)
     let touched = 0
     const box = new THREE.Box3()
     scene.traverse((o) => {
@@ -143,7 +145,7 @@ export function AchRoomDarkness() {
       ;[].concat(o.material).forEach(achInteriorPatch)
       touched++
     })
-    if (touched) invalidate()              // on-demand 렌더 체제에서도 새 셰이더가 화면에 반영되게
+    if (touched) { bootPass('ACH_INT', tB); invalidate() }   // on-demand 렌더 체제에서도 새 셰이더가 화면에 반영되게
   })
   return null
 }
@@ -176,6 +178,7 @@ export function DefAxiomRoom({ stairKind }) {
     const wantDark = ROOM_DARK_ON && !!aoTex
     const wantCast = SHDW_CAST_SCOPE === 'room'
     if (!wantDark && !wantCast) return
+    const tB = bootNow()   // ★216-e
     let n = 0
     darkRef.current.traverse((o) => {
       if (!o.isMesh || !o.material || o.userData.rdSeen) return
@@ -196,7 +199,7 @@ export function DefAxiomRoom({ stairKind }) {
         n++
       }
     })
-    if (n) { console.info(`[ROOM_DARK] aoMap 주입 재질 ${n}개 (AO=${ROOM_DARK_AO} · 껍질포함=${ROOM_DARK_SHELL})`); invalidate() }
+    if (n) { bootPass('ROOM_DARK', tB); console.info(`[ROOM_DARK] aoMap 주입 재질 ${n}개 (AO=${ROOM_DARK_AO} · 껍질포함=${ROOM_DARK_SHELL})`); invalidate() }
   })
 
   //  ★178 분할 어댑터 — 수학 정본 = lightingModel.splitSoupAtBoundary(사본 금지). 여기는 마샬링만:
@@ -263,6 +266,7 @@ export function DefAxiomRoom({ stairKind }) {
   const bakeZ = useMemo(() => (BAKE_A_ON ? zoneABakeSpec() : null), [])
   useFrame(() => {
     if (!BAKE_A_ON || !bakeZ || !darkRef.current) return
+    const tB = bootNow()   // ★216-e
     let n = 0, nSplitTri = 0, msSplit = 0, nGradTri = 0, msGrad = 0
     const tmpCol = new THREE.Color()
     const v = new THREE.Vector3(), nm = new THREE.Vector3(), nMat = new THREE.Matrix3()
@@ -334,7 +338,7 @@ export function DefAxiomRoom({ stairKind }) {
       mats.forEach((m) => { m.vertexColors = true; m.needsUpdate = true })
       n++
     })
-    if (n) { console.info(`[BAKE_A] 정점색 베이크 메시 ${n}개 (N=${BAKE_N} · floor=${BAKE_FLOOR} · 경계분할 +${nSplitTri}tri ${msSplit.toFixed(0)}ms · 구배분할 +${nGradTri}tri ${msGrad.toFixed(0)}ms)`); invalidate() }
+    if (n) { bootPass('BAKE_A', tB); console.info(`[BAKE_A] 정점색 베이크 메시 ${n}개 (N=${BAKE_N} · floor=${BAKE_FLOOR} · 경계분할 +${nSplitTri}tri ${msSplit.toFixed(0)}ms · 구배분할 +${nGradTri}tri ${msGrad.toFixed(0)}ms)`); invalidate() }
   })
 
   // ── ★210 C구획(관 = 테라스→드럼) 베이크 — A 패스와 같은 순회, 자체 표식(bakeSeenC·bakedC) ──
@@ -380,6 +384,7 @@ export function DefAxiomRoom({ stairKind }) {
   }, [])
   useFrame(() => {
     if ((!BAKE_C_ON && !BRD_DIM_ON) || !bakeC || !darkRef.current) return
+    const tB = bootNow()   // ★216-e
     let n = 0
     const tmpCol = new THREE.Color()
     const v = new THREE.Vector3(), nm = new THREE.Vector3(), nMat = new THREE.Matrix3()
@@ -493,7 +498,7 @@ export function DefAxiomRoom({ stairKind }) {
       mats.forEach((m) => { m.vertexColors = true; if (DSK_ON && o.userData.brd && !m.userData.dskBrd) { m.userData.dskBrd = true; dskBrdChain(m) } m.needsUpdate = true })
       n++
     })
-    if (n) { console.info(`[BAKE_C] 관 구간 ${BAKE_C_ON ? '베이크 γ=' + BAKE_C_GAMMA : '감광 램프 ' + BRD_DIM_LO + '→' + BRD_DIM_HI} — 메시 ${n}개 (드럼승계=${!!bakeCD})`); invalidate() }
+    if (n) { bootPass('BAKE_C', tB); console.info(`[BAKE_C] 관 구간 ${BAKE_C_ON ? '베이크 γ=' + BAKE_C_GAMMA : '감광 램프 ' + BRD_DIM_LO + '→' + BRD_DIM_HI} — 메시 ${n}개 (드럼승계=${!!bakeCD})`); invalidate() }
   })
 
   // 나선 치수 — 꼭대기 칸 윗면 = 디스크 고리 윗면(49.3). 낱장 디딤판이 중심 반지름 RIN(=14, 고리 6~18 위)에 내려서고, 거기서 고리를 밟아 슬롯으로 나감.

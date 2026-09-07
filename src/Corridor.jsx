@@ -5,6 +5,7 @@
 //   계단 기하의 정본 = corridorStairsGeometry.js(순수 빌더 — 판·참·간극 전부 저기서 파생).
 import { useMemo, useRef } from 'react'
 import { useFrame, invalidate, useThree } from '@react-three/fiber'   // ★188 D구획 베이크(Room.jsx와 같은 어법) · ★214 useThree(장면 광선)
+import { bootNow, bootPass } from './bootProbe.js'   // ★216-e 부팅 스톱워치(값 무접촉 · DEV_TELEPORT=false면 no-op)
 import { dskirtSpec, dskirtResolve, dskirtSamples, dskirtERef, dskirtShadeAt, dskirtShadeMix, dskirtInterior, dskirtTris, tessellateTris, friezeRoomBox, friezeRoomIn, dskirtNormalTarget, friezeLightBake, friezeLightVertexOverride, clampTrisToRoomCeil, dskRoofFallback } from './lightingModel.js'   // ★214 갓 치마 커튼 수학 정본(사본 금지)
 import { DSK_TESS_EDGE, GAT_FACET_SUB, DSK_CROWN_ON, DSK_ON, DSK_OP, DSK_HALO_OP, DSK_HALO_K, DSK_XF, DSK_TOPF, DSK_FADE_POW, DSK_COLOR, DSK_SHELL_IN, DSK_GLOW_ON, DSK_DIM, DSK_CELLA_IN, DSK_TEMPLE_IN, DSK_ROOF_N, DSK_ROOF_M, DSK_FRAG_E, COR_CX as DSK_AXIS_X, COR_R as DSK_COR_R,
   FRL_ON, FRL_MOUTH_ON, FRL_BODY_ON, FRL_R, FRL_COLOR, FRL_OP, FRL_HALO_K, FRL_HALO_OP, FRL_BODY_HALO_OP, FRL_TUBE_SEG, FRL_CEIL_FADE_M, FRL_FADE_POW, FRL_BODY_FADE_POW, FRL_TOPF,   // ★215 프리즈 방 빛 볼륨
@@ -1155,6 +1156,7 @@ export function DrumSkirt({ hallRef }) {
     scene.traverse((o) => { if (o.userData.hallBake) o.traverse((m) => { if (m.isMesh && !hallBake.includes(m)) hallBake.push(m) }) })   // 메시 또는 그룹 태그(★214-b 그룹)
     if (!hallBake.length && frames.current < 60) return                    // DrumCup(Dome.jsx)이 아직 안 올라왔으면 기다린다(최대 60프레임)
     done.current = true
+    const tB = bootNow()   // ★216-e 스톱워치(값 무접촉) — 대기 프레임은 안 센다(일하는 프레임만)
     //  ⑴ 가림 — 장면 전체(리본 자신·빛 볼륨(ShaderMaterial)·투명 재질 제외)
     const rc = new THREE.Raycaster()
     const targets = []
@@ -1253,6 +1255,7 @@ export function DrumSkirt({ hallRef }) {
     }
     hallRef.current.traverse(bakeMesh)
     for (const o of hallBake) bakeMesh(o)
+    bootPass('DSK', tB)
     console.info(`[DSK] ★214 갓 치마: 가닥 ${strands.length}(가림 ${strands.filter((s) => s.hit).length}) · 리본 삼각형 ${T.pos.length / 9} · 정점색 메시 ${nMesh}(셸 안면 ${nShell}) · eRef ${eRef.toExponential(2)}`)
     invalidate()
   })
@@ -1553,6 +1556,7 @@ export function Corridor() {
   useFrame(() => {
     if (DSK_ON) return                                       // ★214 체제에선 ★188 링 슬릿 베이크를 걸지 않는다(보존계 — DSK_ON=false면 그대로 복귀)
     if (!BAKE_D_ON || !bakeD || !dRef.current) return
+    const tB = bootNow()   // ★216-e
     let n = 0, nShellSkip = 0
     const tmpCol = new THREE.Color()
     const v = new THREE.Vector3(), nm = new THREE.Vector3(), nMat = new THREE.Matrix3()
@@ -1586,7 +1590,7 @@ export function Corridor() {
       mats.forEach((m) => { m.vertexColors = true; m.needsUpdate = true })
       n++
     })
-    if (n || nShellSkip) { console.info(`[BAKE_D] 정점색 베이크 메시 ${n}개 (γ=${BAKE_D_GAMMA} · floor=${BAKE_FLOOR} · 두께0셸 제외 ${nShellSkip}개)`); invalidate() }
+    if (n || nShellSkip) { bootPass('BAKE_D', tB); console.info(`[BAKE_D] 정점색 베이크 메시 ${n}개 (γ=${BAKE_D_GAMMA} · floor=${BAKE_FLOOR} · 두께0셸 제외 ${nShellSkip}개)`); invalidate() }
   })
 
   return (
