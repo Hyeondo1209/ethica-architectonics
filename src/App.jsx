@@ -2,6 +2,7 @@ import { Canvas, useThree, useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import GraphScaffold from './GraphScaffold'
+import { ZoneILight } from './ZoneI.jsx'   // ★219 구역 I 빛
 import { SCALE, RIB_XFER_ON, RIB_DEST_PHI, TERRACE_ON, SURVEY_START,
   LGT_BG, LGT_FOG_COL, LGT_FOG_NEAR, LGT_FOG_FAR, LGT_HEMI_SKY, LGT_HEMI_GND, LGT_HEMI_I,
   LGT_AMB_I, LGT_DIR_COL, LGT_DIR_I, RND_TONEMAP, RND_EXPOSURE, RND_SHADOWS, RND_LINEAR,
@@ -162,10 +163,13 @@ export default function App() {
                   2배라 리브 격자가 자기 위로 겹침(회랑↔리브 상대기하 불변 · k 라벨만 +2).
                   RibStair는 자립·판 인스턴스에 같은 회전을 행렬로 편입하므로 이 그룹 밖(§Dome 주석). */}
               <group rotation-y={RIB_XFER_ON ? -RIB_DEST_PHI : 0}>
-                <KneeWalk />
-                <RibJunction />
-                <Lookout />
+                <group userData={{ zoneI: true }}>{/* ★219 구역 I 소속(무릎길·갈림·전망·판) — ZoneILight가 장면에서 찾아 정점색을 굽는다 */}
+                  <KneeWalk />
+                  <RibJunction />
+                  <Lookout />
+                </group>
                 <RevealPassage />
+                <ZoneILight />{/* ★219 구역 I 빛 — 베이크(DSK 뒤) + 볼륨(로컬 좌표 = 이 그룹 안) */}
                 <CloisterLamps />
                 <LampRoom />{/* ★79 1p10의 집 */}
                 {TERRACE_ON && <Terrace />}

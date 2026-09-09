@@ -371,10 +371,11 @@ export function HallDoorRibs() {
   //  ★57·61: 살이 있으면 절단면이 저절로 '고리 단면' → 윗캡(원판)은 끈다(리브별 — RibCutCaps 내부 판정).
   //   ⚠아랫캡은 유지 — 'floor' 모드에서 그건 리브 부재가 아니라 **바닥 관통 구멍의 마개**다(R6 [128]).
   const cuts = useMemo(() => (RIB_CUT_ON ? ribCutSpec().filter(v => v.k !== 0) : []), [])
+  const ks = useMemo(() => hallDoors().filter(d => d.k !== 0).map(d => d.k), [])   // ★219 geos와 같은 순서의 k(목적지 리브 태그용)
   return (
     <group userData={{ hallBake: true }}>{/* ★214-c 그룹 태그: 리브 다섯 + RibCutCaps(리브가 서는 판) 전부 홀 정점색 대상 */}
       {cut.map((g, i) => (
-        <mesh key={i} geometry={g} userData={{ ribBody: true }}>{/* ★215-e ribBody = 발광체 규칙(그루터기 정점 1)은 이 태그가 있는 메시에만 — 천장 구멍 테두리(반지름 6.08 < 판별 6.24)가 오판되던 것 차단 · ★214-b 동창 리브 다섯 — 홀 안 구간만 정점색(밖은 1.0 그대로) */}
+        <mesh key={i} geometry={g} userData={{ ribBody: true, ...(RIB_XFER_ON && ks[i] === RIB_DEST_K ? { ziRib: true } : {}) }}>{/* ★219 ziRib = 목적지 리브(#+2) — 구역 I 베이크가 관 안면 삼각형(천장 위)에 aZi·정점색을 덧쓴다 */}{/* ★215-e ribBody = 발광체 규칙(그루터기 정점 1)은 이 태그가 있는 메시에만 — 천장 구멍 테두리(반지름 6.08 < 판별 6.24)가 오판되던 것 차단 · ★214-b 동창 리브 다섯 — 홀 안 구간만 정점색(밖은 1.0 그대로) */}
           <meshStandardMaterial {...RIB_MAT} side={THREE.DoubleSide} onBeforeCompile={ribTintOBC} />
         </mesh>
       ))}
@@ -518,7 +519,7 @@ export function RibStair() {
             : <meshStandardMaterial {...TREAD_MAT} />}
         </mesh>
       )}
-      <instancedMesh ref={plateRef} args={[undefined, undefined, nPlate]} userData={{ walkable: true }}>
+      <instancedMesh ref={plateRef} args={[undefined, undefined, nPlate]} userData={{ walkable: true, ziPlates: true }}>{/* ★219 ziPlates = 방 천장 위 판 인스턴스는 구역 I 소속(인스턴스색 덧씀) */}
         <boxGeometry args={[TREAD_DEPTH, TREAD_THICK, TREAD_WIDTH]} />
         <meshStandardMaterial {...TREAD_MAT} />
       </instancedMesh>
@@ -1003,6 +1004,7 @@ export function RevealPassage() {
         </mesh>
       </group>}
       {/* A(하강 채널) + B(방) 박스 대장 — 위 수식으로 채워진 B[] 일괄 렌더 */}
+      <group userData={{ zoneI: true }}>{/* ★219 구역 I 소속(★218 Ⅳ: RevealPassage 중 A 하강 채널 + B 전실 방 · C 회랑·D 스텁은 F) — 정점색 베이크 대상 */}
       {B.map((b, i) => (
         b.bore && SHAFT_ON ? (
           <BoredBox key={i} p={b.p} s={b.s} />
@@ -1019,6 +1021,7 @@ export function RevealPassage() {
       <PzCheek />
       {/* ★71 빛 기둥 — 전망 반원 판 → 이 방. 리브 껍질·지붕·판 셋을 같은 자르개로 뚫는다. */}
       <LightShaft />
+      </group>
     </group>
   )
 }

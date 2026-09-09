@@ -1084,7 +1084,11 @@ export const FREEZE_S_SIG = 2341173034    // 2026.09.05 동결 시점 지문(S-1
 // ★215-j 구역 **D+F**(드럼 통로·홀 ★214 갓 치마 커튼 + 프리즈 방 1p7 ★215 관 다섯) 동결 — 2026.09.07 현도 확정("드럼통로와 프리즈 방 조명은 완결처리"). 이후 어떤 세션도 이 구역의
 //   조명 노브·판정식·셰이더·표본 배치를 건드리지 않는다. 지문 = 명세(가닥·아가리·상자) + 조도 기준값 + 정점색 표본 + 판정 비트(경계점) + 튜브 세기 + GLSL 판정 블록·베이크 루프 + 노브. check_lux S-19 FNV-1a.
 //   ⛔지문이 붉으면 지문을 갱신하지 말고 현도에게 보고(A·C·S와 같은 규율). 이 구역 위에 새 빛을 얹으려면 현도가 FREEZE_D_ON=false를 선언하고 새 ★ 번호로 연다.
-export const FREEZE_D_ON  = true          // false = 동결 해제(현도 선언 시만)
+//   ★★219(2026.09.08 넷째 대화) **현도 선언 "예" → FREEZE_D_ON=false**(구역 I 착수 전제 — ★218 Ⅱ: 자립 나선 판의 명암 소속이 D+E → I로 옮겨가므로).
+//    ⚠D+E 자체의 값은 이 세션에서 무변(★215-f 관 속 규칙에 천장 상한만 씌웠고 그 위는 I가 덧쓴다 — 방 안 표본 전부 동일). 세션 종료 시 재동결(새 지문 = I 소속 표본을 뺀 재료) — 현도 선언으로만.
+//   ★219 종료 시 **같은 SIG 그대로 재무장**(2026.09.08): 실측 결과 D+F 지문 재료에는 구역 I 소속 점이 없었고(판 표본 y168.7·179.2·189.7 = 전부 방 천장 아래),
+//    ★218 Ⅵ의 천장 상한(friezeLightInBore)을 씌운 뒤에도 지문이 3878005666 그대로였다 ⇒ 구역 D+F는 실제로 안 움직였다. 해제는 착수 절차였을 뿐 값의 변경이 아니다.
+export const FREEZE_D_ON  = true          // ★219 재무장(2026.09.08) — 해제 기간 중 D+F 값 무변을 확인하고 같은 SIG로 되돌림
 export const FREEZE_D_SIG = 3878005666    // ★215-j 2026.09.07 확정값. **갱신 금지** — 붉으면 현도 보고.
 export const FREEZE_A_ON  = true          // ⛔false = 동결 해제(현도 승인 시에만)
 export const FREEZE_A_SIG = 3156926404    // ★209-e 시점 지문. **손으로 고치지 말 것** — 현도 승인 없이 갱신 금지.
@@ -5904,3 +5908,51 @@ export const DSK_FR_IN       = true               // ★214-r 프리즈 방(1p7)
 export const DSK_TEMPLE_IN   = true               // ★214-b 동창 너머 밀폐부 확장(현도 09.06 사진 "리브 다섯·주위 구조가 밝다 — 밀폐부 면은 어두워야"): 셀라 주머니를
                                                   //  프리즈 방 바닥(FR_FLOOR_Y 166)까지 올리고(신전 하단 띠·아치 개구·리브 다섯·리브 계단), 그 위는 신전 **서면 껍질**(x ≤ TEMPLE_X0)만.
                                                   //  ⚠1p7 프리즈 방 **안**(y>166 · x>TEMPLE_X0)은 무접촉 — 그 방 조명은 별도 과제.
+
+// ══════ ★★★219 구역 **I**(리브 여정 = 자립 나선 ~ 전실 · ★218 신설) 빛 — 2026.09.08 현도 공급지 설명 ══════
+//  현도(09.08): ① 1p8 = 단일 속성 실체의 무한성. 갈림에서 위로 오르면 **무한히 솟은 리브**(관 속)를 마주하고 거기서 **빛이 내려온다**.
+//     근원은 보이지 않는다. 그 빛이 전망 반원 판의 격자 체(십자 그물)를 지나 관(SHAFT)을 타고 **전실을 밝힌다** — 정의·공리 방 빛기둥 어법(A: 볼륨 + 베이크).
+//   ② 프리즈 방(E)의 '리브 각자 발광'을 잇는다 — 무릎길 구간의 **리브 벽(관 안면)이 발광**해 내부를 은은히 비춘다. 안에서만(외부 인상 불변).
+//     ②는 구역 I **전 구간 상주**(경계 없음)이고 ①이 그 위에 얹힌다(현도: "1과 2는 경계를 가지고 만나는 것이 아니라 2는 계속 유지되는 빛").
+//  모델(수학 정본 = lightingModel.js zoneI* — 사본 금지):
+//   ② 발광 벽 = 관 안면(반지름 ZI_R) 전체가 균일 램버트 발광체. 무한 관 안의 조도는 **가림이 없으면 어디서나 같다**(π·L) — 명암은 오직 **가림**(몸·판·계단·디스크가 벽을 가림)에서 나온다
+//      ⇒ 정점마다 코사인 가중 반구 광선 ZI_AO_N발 → 관 안면 명중 비율 = glow ∈ [0,1](= 벽에 대한 가시율). 발광체 자신(관 안면 정점) = ZI_WALL_SELF.
+//   ① 하강광 = 관 축 위 ZI_SRC_DIST 떨어진 **가상 원판**(반지름 ZI_R · 근원 불가시 — 볼륨은 그 거리에서 소멸)에서 축 방향으로 내려오는 면광원. 정점마다 원판 표본을 향한 그림자 광선 ZI_BEAM_N발
+//      (관 벽은 통로라 가림에서 제외 · 몸·계단·판만 가림) → 가시율 × cos. 전망 계단이 관을 채우므로 그 아래(갈림·무릎길)는 저절로 그늘 = 막다름에서 끝나는 빛.
+//   ①′ 전실 = 판 구멍(격자 아래 관 아가리 원판 · 반지름 = 관 안지름)을 **2차 공급지**로: 표본 ZI_HOLE_N점 · 빔 아래(−y) · 로브 ZI_HOLE_LOBE · 그림자 광선(격자 살·관 벽이 가림 → 격자 그림자가 바닥에 생긴다).
+//      기준 조도 = 관 바로 밑 전실 바닥점(무가림) = 1(백색 — DSK_K 어법: 빛이 닿는 곳은 하얗다). 바닥 반사(ZI_BOUNCE)로 전실 벽에 2차광.
+//   합성: E = ZI_GLOW_K·glow + ZI_BEAM_K·beam + ZI_HOLE_K·hole/eRef → shade = DIM + (1−DIM)·K·min(1,E)^γ (D·E 승계 식).
+//  ⚠외부 인상 불변: 정점색은 **관 안면 삼각형(구역 I 대역)에만** 쓰고 GLSL은 aZi 정점 속성(안면 = 1)으로만 곱한다. 볼륨은 관 안·SHAFT 안(불투명 벽 안쪽)에만 — 후광 통 없음(관 밖으로 새지 않게).
+export const ZI_ON          = true               // false = 구역 I 빛 전체 소등(정점색·볼륨·게이트 — 한 줄 복귀)
+export const ZI_GLOW_ON     = true               // ② 관 안면 발광(AO 베이크)
+export const ZI_BEAM_ON     = true               // ① 하강광(가상 원판)
+export const ZI_HOLE_ON     = true               // ①′ 판 구멍 → SHAFT·전실
+export const ZI_VOL_ON      = true               // A 어법 볼륨(관 속 빛기둥 + SHAFT 빛기둥)
+export const ZI_R           = FRL_R              // 관 안지름 반경(5.78) = E 승계
+export const ZI_DIM         = FRL_DIM            // 어둠의 바닥(0.04) = D·E 승계(한 어둠)
+export const ZI_GAMMA       = FRL_GAMMA          // 응답 지수 2.0 = A·D·E 승계
+export const ZI_K           = FRL_K              // 응답 상한 1
+export const ZI_WALL_SELF   = FRL_K              // 발광체(관 안면 정점) = 1 — E 그루터기 규칙 승계("빛이 나는 곳은 하얗다")
+export const ZI_AO_N        = BAKE_N             // ② 반구 광선 수(16 — 공급지 표본 수와 같은 수 · R2 코사인 가중)
+export const ZI_BEAM_N      = BAKE_N / 2         // ① 가상 원판 표본(그림자 광선) 수 8
+export const ZI_HOLE_N      = BAKE_N             // ①′ 판 구멍 원판 표본 16
+export const ZI_GLOW_K      = 0.6                // ② 무가림 면이 받는 밝기(판정 노브 — "은은히". 1이면 열린 면 전부 백색 = 지금 화면)
+export const ZI_BEAM_K      = 1 - ZI_GLOW_K      // ① 정면 무가림 면에 더해지는 밝기 — 파생: 발광 벽 + 하강광 = 정확히 1(백색). 빛이 닿는 곳만 하얗다
+export const ZI_HOLE_K      = DSK_K              // ①′ 전실 바닥 관 밑 = 1(백색) — D 제단 규칙 승계
+export const ZI_HOLE_LOBE   = FRL_LOBE           // ①′ 빔 로브 지수 4 = E 아가리 빔 승계
+export const ZI_BOUNCE      = 0.5                // ①′ 전실 바닥 반사 계수(석재 알베도 ~0.5 · 판정 노브 · 0 = 반사 끔)
+export const ZI_SRC_DIST    = 4 * (2 * ZI_R)     // ① 가상 원판까지 축 거리 = 관 지름 넷(≈46m) — 파생. 원뿔 반각 = atan(R/DIST) ≈ 7.1°(부드러운 반영)
+export const ZI_LAYERS      = 2                  // 볼륨 한 시선이 지나는 겹 = 양면(후광 통 없음)
+export const ZI_OP          = FRL_NORM_ON ? RM_SHAFT_OP / ZI_LAYERS : RM_SHAFT_OP   // 볼륨 세기 0.34/2 = 0.17(겹 정규화 — E ★215-b 규칙)
+export const ZI_VOL_R       = ZI_R - SFT_LIGHT_GAP        // 관 속 빛기둥 반지름 = 안면 − 껍질 여유(0.06 · 공면 파이팅 교훈)
+export const ZI_VOL_LEN     = ZI_SRC_DIST                 // 관 속 빛기둥 길이 = 가상 원판 거리(그 끝에서 알파 0 = 근원 불가시)
+export const ZI_VOL_DY      = DSK_DY                      // 볼륨 링 간격 = D 승계
+export const ZI_VOL_SEG     = FRL_TUBE_SEG                // 둘레 분할 40 = E 승계
+export const ZI_FADE_POW    = FRL_FADE_POW                // 길이 소멸 지수 1.5(전망 판 → 위로 / 판 → 전실 아래로)
+export const ZI_TOPF        = FRL_TOPF                    // 뿌리 페이드(판 접점 칼경계 방지) 0.10
+export const ZI_COLOR       = FRL_COLOR                   // 백색 어휘
+export const ZI_RAY_EPS     = SFT_LIGHT_GAP               // 광선 출발 오프셋(자기 면 회피) = 껍질 여유와 같은 값
+//  구역 I 동결(현도 선언으로만 — 종료 시 현도가 정한다). 지문 = check_lux S-20(명세·노브·합성식 표본·코드 지문). ⚠기하 의존 AO 값 자체는 _probe_bake 봉인이 잡는다(지문 재료 아님 — 정직하게 기록).
+export const FREEZE_I_ON   = false          // ★219 미동결(현도 선언 대기)
+export const FREEZE_I_SIG  = 0              // 동결 시 확정값 기입(현도 선언 시만)
+

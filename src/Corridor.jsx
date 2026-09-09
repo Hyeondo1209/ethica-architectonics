@@ -1670,3 +1670,4 @@ export function Corridor() {
     </group>
   )
 }
+export { FRL_TUBE_VERT, FRL_TUBE_FRAG }   // ★219 구역 I 볼륨이 같은 튜브 셰이더를 쓴다(사본 0)

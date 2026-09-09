@@ -2582,8 +2582,8 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
         const below = seq.filter((p) => p[1] < r2.yTop - 0.5 && LM.friezeRoomIn(p)), inBore = seq.filter((p) => p[1] >= r2.yTop && LM.friezeRoomIn(p)), above = seq.filter((p) => !LM.friezeRoomIn(p))
         T(`판 동축 — 목적지 #${K.RIB_DEST_K} 축 거리 ${below.length + inBore.length + above.length}판 전부 ∈ (0, FRL_R) (관 속 규칙의 대상) · 바닥~아가리 ${below.length} · 관 속(방 안) ${inBore.length} · 천장 위 관 속 ${above.length} (각 ≥ 1)`,
           seq.every((p) => { const a = LM.ribAxisAt(r2.phi, p[1]); const d = Math.hypot(p[0] - a[0], p[2] - a[2]); return d > 0 && d < K.FRL_R }) && below.length > 1 && inBore.length >= 1 && above.length >= 1)
-        T(`값 — 아가리 아래 판: 바닥 ${col(below[0]).toFixed(3)} → 아가리 직전 ${col(below[below.length - 1]).toFixed(3)} 단조 증가(빔 기둥 안에서 위를 보며 광원에 다가감) · 관 속 판 = 1 · 천장 위 관 속 판 = 1(연속) · 바닥 판 > DIM`,
-          below.every((p, i) => i === 0 || col(p) >= col(below[i - 1]) - 1e-9) && col(below[0]) > K.FRL_DIM && inBore.every((p) => col(p) === 1) && above.every((p) => col(p) === 1))
+        T(`값 — 아가리 아래 판: 바닥 ${col(below[0]).toFixed(3)} → 아가리 직전 ${col(below[below.length - 1]).toFixed(3)} 단조 증가(빔 기둥 안에서 위를 보며 광원에 다가감) · 관 속 판 = 1 · ★219 천장 위 관 속 판은 규칙 **밖**(inBore=false — 구역 I 소관) · 바닥 판 > DIM`,
+          below.every((p, i) => i === 0 || col(p) >= col(below[i - 1]) - 1e-9) && col(below[0]) > K.FRL_DIM && inBore.every((p) => col(p) === 1) && above.every((p) => !LM.friezeLightInBore(p, S)))
         T('⛔반증 — 관 속 규칙을 빼면 관 속 판은 위로 갈수록 어두워져(아가리 원판은 발밑 cos<0 · 몸통 표본만) 맨 위가 < 0.1 — 광원 속으로 들어갈수록 어두운 역전 · 천장 구멍 테두리(6.08)·관 살(6.0)은 관 속 규칙 밖',
           (() => { const e = inBore.map((p) => LM.friezeLightIrradianceAt(p, [0, 1, 0], sm) / bake.eRef); return e.every((v, i) => i === 0 || v < e[i - 1]) && e[e.length - 1] < 0.1 })() && !LM.friezeLightInBore([ac[0] + K.SHELL_RIB_R + K.RIB_HOLE_CLR, yc, ac[2]], S) && (() => { const a3 = LM.ribAxisAt(rr.phi, yc - 3); return !LM.friezeLightInBore([a3[0] + K.SHELL_RIB_R, yc - 3, a3[2]], S) })())   // 관 살 = 제 높이의 축 기준(기울기 0.25/3m)
         T('배선 — Corridor 인스턴스 베이크: 방 안(friezeRoomIn)만 dskirtShadeMix, 그 외 dskirtShadeAt 그대로(홀 무변)', /friezeRoomIn\(p\) \? dskirtShadeMix\(p, \[0, 1, 0\], samples, eRef, spec, D188\) : dskirtShadeAt\(p, \[0, 1, 0\], samples, eRef\)/.test(corS))
@@ -2616,7 +2616,7 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
         T(`내부 무변 — 신전 서면 상자 안 · 벽 안 · 천장면 아래 격자 ${grid.length}점 전부 '안'(원통 규칙이 덮는다 — 서면 절은 처음부터 중복)`, grid.length > 50 && grid.every((p) => LM.dskirtInterior(p, sp)))
       }
       T('배선 — Dome: 리브 몸통 메시 둘(#0 탐사 리브 · 리브 다섯 절단)에 ribBody 태그 · Corridor bakeMesh가 !!o.userData.ribBody를 dskirtShadeMix 7번째 인자로 넘긴다 · RibCutCaps·천장·발코니에는 태그 없음',
-        (() => { const domeS2 = readFileSync(new URL('./Dome.jsx', import.meta.url), 'utf8'); return (domeS2.match(/ribBody: true/g) || []).length === 2 && /geometry=\{geo\} userData=\{\{ hallBake: true, ribBody: true \}\}/.test(domeS2) && /geometry=\{g\} userData=\{\{ ribBody: true \}\}/.test(domeS2)
+        (() => { const domeS2 = readFileSync(new URL('./Dome.jsx', import.meta.url), 'utf8'); return (domeS2.match(/ribBody: true/g) || []).length === 2 && /geometry=\{geo\} userData=\{\{ hallBake: true, ribBody: true \}\}/.test(domeS2) && /geometry=\{g\} userData=\{\{ ribBody: true, \.\.\.\(RIB_XFER_ON && ks\[i\] === RIB_DEST_K \? \{ ziRib: true \} : \{\}\) \}\}/.test(domeS2)   // ★219 목적지 리브에 ziRib 동반
           && /dskirtShadeMix\(p, \[nm\.x, nm\.y, nm\.z\], samples, eRef, spec, D188, !!o\.userData\.ribBody\)/.test(corS) })())
     }
   }
@@ -2663,12 +2663,118 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
   }
   const parts = sigD(), h = fnv(parts.join('|'))
   T(`동결 도구 — D+F 지문 재료가 실재한다(명세·정점색·판정·튜브·GLSL·노브 ${parts.length}조각 · ${parts.join('|').length}자 · 관 다섯·판·경계점 포함)`, parts.length === 9 && parts.join("|").length > 900 && !parts.some((x) => x.includes('off')))
+  //  ★219 재무장 근거(실측 09.08) — D+F 지문 재료에는 **처음부터 구역 I 소속 점이 없다**: 판 표본 셋(270/300/330)이 y168.7·179.2·189.7로 전부 방 천장 아래(E),
+  //   그루터기 표본도 방 안. ⇒ 재료를 손댈 이유가 없고, 지문도 안 움직인다. 현도 선언으로 **같은 SIG 그대로 재무장**한다(구역이 실제로 안 움직였다는 것이 요점).
+  {
+    const cs = Math.cos(K.RIB_DEST_PHI), sn = Math.sin(K.RIB_DEST_PHI)
+    const pls = [270, 300, 330].map((i) => { const { pos } = K.spiralPoint((i + 0.5) / K.STAIR_STEPS); return [pos.x * cs - pos.z * sn, pos.y, pos.x * sn + pos.z * cs] })
+    const rdS = LM.friezeLightBake().spec.ribs.find((r) => r.k === K.RIB_DEST_K), stubP = [rdS.mouth[0] + 3.3, rdS.yTop + 2, rdS.mouth[2]]
+    T(`⛔소속 위생 — D+F 지문의 판 표본 셋(y ${pls.map((p) => p[1].toFixed(1)).join('·')})·그루터기 표본 전부 방 안(E) ∧ **구역 I 소속 아님** — 두 구역이 한 점도 공유하지 않는다(공유하면 한쪽을 고칠 때 다른 쪽 지문이 붉어진다)`,
+      pls.every((p) => LM.friezeRoomIn(p) && !LM.zoneIOwns(p)) && LM.friezeRoomIn(stubP) && !LM.zoneIOwns(stubP))
+  }
   T('⛔동결 도구 — D+F 지문이 무디지 않다: 슬릿 축 cx를 1e-4 흔들면 값이 바뀐다', fnv(sigD(1e-4).join('|')) !== h)
   const CANON_D = K.DSK_ON && K.DSK_FR_IN && K.FRL_ON && K.FRL_NORM_ON
   if (FREEZE_D_ON && CANON_D) {
     T(`★★동결 — 구역 D+F(드럼 통로·홀 + 프리즈 방) 조명 지문 ${h} = 확정값 ${FREEZE_D_SIG}` +
       (h === FREEZE_D_SIG ? '' : '  ⛔**확정 낸 구역이 움직였다. 지문을 갱신하지 말고 현도에게 보고하라.**'), h === FREEZE_D_SIG)
   } else console.log(`  (구역 D+F 동결 대조 보류 — FREEZE_D_ON=${FREEZE_D_ON} · 정본 체제=${CANON_D}) · 현재 지문 ${h}`)
+}
+
+// ───────────────────────── S-20. ★219 구역 I(리브 여정 = 자립 나선 ~ 전실) 빛 — 모델·소속·합성·배선 (2026.09.08) ─────────────────────────
+//  검사 설계: 수학 정본(zoneI*)을 **합성 광선 함수**로 문다(브라우저의 BVH 소프는 여기 없다 — 기하 의존 AO 값은 _probe_bake 봉인이 잡는다 · 정직한 경계).
+//  치환 반증 후보: ziNearest를 같은 높이 축거리로 바꾸면 ⑵가 붉다 · ZI_BEAM_K 파생을 끊으면 ⑼ · 천장 상한을 빼면 ⑻ · 게이트 문자열을 바꾸면 ⑽.
+{
+  console.log('\n── S-20. ★219 구역 I 빛 ──')
+  const K = await import('./constants.js'), q = (x) => Number(x).toFixed(6)
+  const Z = LM.zoneISpec(), B = LM.zoneIBake()
+  T('명세 — 구역 I 명세가 선다(ZI_ON) · 아가리 = 목적지 리브 절단 yTop · 관 안면 반경 = SHELL_RIB_R − RIB_WALL_T = ZI_R · 판 구멍 = SHAFT 안지름 · 전실 바닥점 y = PASS_FLOOR_Y · 상자 둘(전실·하강 채널)',
+    !!Z && Math.abs(Z.rIn - (K.SHELL_RIB_R - K.RIB_WALL_T)) < 1e-12 && Math.abs(Z.R - K.ZI_R) < 1e-12 && Math.abs(Z.hole.r - Math.max(0.2, K.SHAFT_R_TOP * (K.SHAFT_MODE === 'capital' ? 1 : 0) + (K.SHAFT_MODE === 'capital' ? 0 : K.SHAFT_R) - K.SHAFT_WALL_T)) < 1e-9
+    && Math.abs(Z.spot[1] - K.PASS_FLOOR_Y) < 1e-12 && Z.room.x0 === K.RM_X0 && Z.chan.x1 === K.PASS_X_CHEEK && Z.yMouth > 190 && Z.yMouth < 191)
+  //  ⑵ 수직 거리 vs 같은 높이 축거리 — ★218 Ⅵ의 kneewalk 오판 재현(같은 높이 9.26 > 5.78) · 수직 거리는 관 속
+  const kw = [234.54, 233.56, 41.36], kwL = LM.ziToLocal(kw), near = LM.ziNearest(kwL), sameY = LM.ribAxisAt(K.RIB_DEST_PHI, kw[1]), dSame = Math.hypot(kw[0] - sameY[0], kw[2] - sameY[2])
+  T(`⛔반증 — 무릎길 표본: 같은 높이 축거리 ${dSame.toFixed(2)} > 관 안면 ${Z.rIn}(규칙 밖으로 오판) · 수직 거리 ${near.d.toFixed(2)} < ${Z.rIn}(관 속) — ★218 Ⅵ "끊김"은 측정 방식의 병이었다`,
+    dSame > Z.rIn && near.d < Z.rIn && near.d > 1)
+  T('로컬 변환 — ziToWorld(ziToLocal(p)) = p (1e-9) · 로컬 축점은 z=0', (() => { const w = LM.ziToWorld(kwL); return Math.hypot(w[0] - kw[0], w[1] - kw[1], w[2] - kw[2]) < 1e-9 && Math.abs(near.foot[2]) < 1e-12 })())
+  //  ⑶ 소속 — 웨이포인트(도입 참·무릎길·갈림·전망·전실) = I · 아가리(방 안 관 속) = I 아님(E) · 관 밖 점 = 아님
+  const wps = { panel: [277.61, 210.6, 48.95], junction: [184.66, 256.13, 32.56], lookout: [169.53, 268.28, 29.89], ante: [170.16, 248.03, 31.02] }
+  T('소속 — 도입 참·무릎길·갈림·전망·전실 = 구역 I · 아가리(방 천장 아래 관 속) = 아님 · 관 밖(축에서 20m) = 아님',
+    Object.values(wps).every((p) => LM.zoneIOwns(p, Z)) && LM.zoneIOwns(kw, Z) && !LM.zoneIOwns([285.12, 190.82, 47.42], Z) && !LM.zoneIOwns(LM.ziToWorld([near.foot[0], kw[1], 20]), Z))
+  //  ⚠무릎길 높이(u≈0.246)의 관은 무릎(KNEE 0.25) 부근이라 거의 **수평**(접선 x성분이 크다) — x로 5.78 떼면 관 **속**이다(수직 거리 0.84). 벽점은 z(항상 ⟂)로 뗀다
+  T(`⛔반증 — 무릎길 높이 축점에서 +x로 관 반경만큼 뗀 점은 여전히 관 속(수직 거리 ${LM.ziNearest([near.foot[0] + Z.rIn, kwL[1], 0]).d.toFixed(2)} < ${Z.rIn}) — 같은 높이 축거리 어법이 무릎에서 왜 틀리는지의 실측`, LM.ziNearest([near.foot[0] + Z.rIn, kwL[1], 0]).d < Z.rIn / 2)
+  //  ⑷ 발광체 삼각형 — 관 안면(수직 거리 rIn±살 3/4) ∧ y ≥ 아가리−MG · 아가리 아래는 아님 · 관 속 중심(축)은 아님
+  //  ⑷ 발광 벽 = 위치(띠) ∧ **법선이 축을 향함**. ⚠소유 메시로 가르지 않는다(무릎길 몸의 관 접촉면 = 관 안면 — buildKneeBody = prism ∩ innerTubeSolid).
+  //  ⚠벽점 유도: 최근접점(foot)에서 **접선에 수직인 방향**으로 rIn만큼. 로컬 z로 그냥 떼면 기운 관에서 순수 반경이 아니라 수직 거리가 6.38(띠 밖)로 튄다 — 실측 09.08.
+  const wallAt = (yL, r) => { const n0 = LM.ziNearest([LM.ziAxis(yL / K.H)[0], yL, 0]); return { p: LM.ziToWorld([n0.foot[0], n0.foot[1], r]), foot: n0.foot } }   // z축은 접선(x·y 평면 안)에 항상 수직이라 순수 반경 방향이다
+  const wA = wallAt(kwL[1], Z.rIn), wB = wallAt(185, Z.rIn)   // wallAt: {p, foot}
+  const wallP = wA.p, wallLo = wB.p
+  const nIn = LM.ziToWorld([0, 0, -1]), nOut = LM.ziToWorld([0, 0, 1])          // 안면 법선(축 향) · 바깥 향
+  T('발광 벽 — 무릎길 높이 관 안면점(축 향 법선) = 발광 · 같은 점 바깥 향 법선 = 아님(안·바깥 벽 분리) · 아가리 아래(y185) = 아님 · 축상 점 = 아님',
+    LM.zoneIWallTri(wallP, nIn, Z) && !LM.zoneIWallTri(wallP, nOut, Z) && !LM.zoneIWallTri(wallLo, nIn, Z) && !LM.zoneIWallTri(kw, nIn, Z))
+  //  ⑷″ 소속 경계 = 방 천장(E와 겹치지 않는다) — 아가리~천장 사이 관 안면은 I가 안 건드린다(E ★215-f가 칠한다 · 봉인 차분에서 적발한 겹침)
+  {
+    const yMid = (Z.yMouth + LM.friezeRoomCeil(LM.ziAxis((Z.yMouth + 3) / K.H)[0])) / 2, wMid = wallAt(yMid, Z.rIn)
+    //  ⚠E의 friezeLightInBore는 **같은 높이 축거리**라 기운 관의 안면점은 물지 않는다(그 규칙은 보어 '속' 물체용). 벽면 자체는 E의 방 안(friezeRoomIn)이라 dskirtShadeMix가 조도값을 준다 — 빈틈 없음.
+    T(`⛔반증 — 아가리(${Z.yMouth.toFixed(1)})~방 천장(${LM.friezeRoomCeil(LM.ziAxis((Z.yMouth + 3) / K.H)[0]).toFixed(1)}) 사이 관 안면(y ${yMid.toFixed(1)})은 **E 소관** — zoneIWallTri = false · zoneIOwns = false · friezeRoomIn = true(E가 칠한다) · 천장 위 같은 벽은 I = true`,
+      !LM.zoneIWallTri(wMid.p, nIn, Z) && !LM.zoneIOwns(wMid.p, Z) && LM.friezeRoomIn(wMid.p) && LM.zoneIWallTri(wallAt(kwL[1], Z.rIn).p, nIn, Z))
+  }
+  T(`⛔반증 — 패싯 중심은 반경 안쪽으로 당겨진다(10분할 ×cos18° = ${(Z.rIn * Math.cos(Math.PI / K.RIB_RADIAL_SEG)).toFixed(2)}) — 안벽(5.78)·바깥벽(${K.SHELL_RIB_R}) 중심 대역이 겹쳐 **반경만으로는 못 가른다**(법선 조건이 필수)`,
+    Z.rIn * Math.cos(Math.PI / K.RIB_RADIAL_SEG) < K.SHELL_RIB_R * Math.cos(Math.PI / K.RIB_RADIAL_SEG) && K.SHELL_RIB_R * Math.cos(Math.PI / K.RIB_RADIAL_SEG) < Z.rIn
+    && LM.zoneIWallTri(wallAt(kwL[1], K.SHELL_RIB_R * Math.cos(Math.PI / K.RIB_RADIAL_SEG)).p, nIn, Z))
+  //  ⑷′ 배선 반증 — 무릎길 몸의 관 접촉면이 발광 대상에 들어온다(리브 메시 한정이면 무릎길 전 구간 DIM 0.04 — 실측 09.08)
+  {
+    const KB = await import('./kneeBodyGeometry.js'), gb = KB.buildKneeBody(), P = gb.attributes.position, I2 = gb.index
+    let nWall = 0, nTot = 0
+    const nn = (a, b, c) => { const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], w = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
+      const m = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]], l = Math.hypot(...m); return l < 1e-12 ? null : [m[0] / l, m[1] / l, m[2] / l] }
+    const cnt = I2 ? I2.count : P.count
+    for (let i = 0; i + 2 < cnt; i += 3) { const W = [0, 1, 2].map((k) => { const id = I2 ? I2.getX(i + k) : i + k; return LM.ziToWorld([P.getX(id), P.getY(id), P.getZ(id)]) })
+      const m = nn(...W); if (!m) continue; nTot++
+      const c = [(W[0][0] + W[1][0] + W[2][0]) / 3, (W[0][1] + W[1][1] + W[2][1]) / 3, (W[0][2] + W[1][2] + W[2][2]) / 3]
+      if (LM.zoneIWallTri(c, m, Z) || LM.zoneIWallTri(c, [-m[0], -m[1], -m[2]], Z)) nWall++ }
+    T(`⛔반증 — 무릎길 몸(prism ∩ innerTubeSolid) 삼각형 ${nTot} 중 ${nWall}장이 관 안면 = 발광 벽 · 리브 메시 한정 규칙이었으면 0장(무릎길 전 구간 DIM)`, nWall > 100 && nWall < nTot)
+  }
+  //  ⑸ 반구 방향 — 전부 위(z>0) · 코사인 가중 평균 z ≈ 2/3
+  const dirs = LM.zoneIHemiDirs(K.ZI_AO_N), mz = dirs.reduce((a, d) => a + d[2], 0) / dirs.length
+  T(`반구 방향 ${dirs.length}발 — 전부 단위·z>0 · 평균 z ${mz.toFixed(3)} ≈ 2/3(코사인 가중)`, dirs.length === K.ZI_AO_N && dirs.every((d) => Math.abs(Math.hypot(...d) - 1) < 1e-9 && d[2] > 0) && Math.abs(mz - 2 / 3) < 0.06)
+  //  ⑹ ② 가시율 — 전부 glow → 1 · 전부 body → 0 · 절반(광선 짝수 번째만 glow) → 0.5
+  const allG = () => ({ dist: 1, kind: 'glow' }), allB = () => ({ dist: 1, kind: 'body' }); let cnt = 0; const half = () => ({ dist: 1, kind: (cnt++ % 2) ? 'body' : 'glow' })
+  T('② 가시율 — 전 명중 glow = 1 · 전 body = 0 · 격발 절반 = 0.5', LM.zoneIGlowAt(kwL, [0, 1, 0], allG, dirs) === 1 && LM.zoneIGlowAt(kwL, [0, 1, 0], allB, dirs) === 0 && Math.abs(LM.zoneIGlowAt(kwL, [0, 1, 0], half, dirs) - 0.5) < 1e-12)
+  //  ⑺ ① 하강광 — 판 접점 위 향: 가시율 1 × cos(dUp.y) · 법선 = −dUp이면 1 · 법선이 빛을 등지면 0 · 가림(body)이면 0 · 관 벽(glow) 명중은 통과
+  const bs = LM.zoneIBeamSamples(Z), miss = () => null
+  T(`① 하강광 — 위 향 무가림 = dUp.y ${Z.dUp[1].toFixed(3)} · 법선 = dUp(빛을 정면으로) = 1 · 등짐(−dUp·아래) = 0 · body 가림 = 0 · glow 명중 = 통과(=무가림)`,
+    Math.abs(LM.zoneIBeamAt(Z.top, [0, 1, 0], miss, bs, Z) - Z.dUp[1]) < 1e-9 && Math.abs(LM.zoneIBeamAt(Z.top, Z.dUp, miss, bs, Z) - 1) < 1e-9 && LM.zoneIBeamAt(Z.top, Z.dUp.map((v) => -v), miss, bs, Z) === 0
+    && LM.zoneIBeamAt(Z.top, [0, -1, 0], miss, bs, Z) === 0 && LM.zoneIBeamAt(Z.top, [0, 1, 0], allB, bs, Z) === 0 && Math.abs(LM.zoneIBeamAt(Z.top, [0, 1, 0], allG, bs, Z) - Z.dUp[1]) < 1e-9)
+  T('① 가상 원판 — 표본 ZI_BEAM_N · 전부 축점에서 ZI_SRC_DIST 앞 원판 위(반지름 ≤ ZI_R · dUp ⟂)', bs.length === K.ZI_BEAM_N && bs.every((s) => { const d = [s[0] - Z.src[0], s[1] - Z.src[1], s[2] - Z.src[2]]; return Math.abs(d[0] * Z.dUp[0] + d[1] * Z.dUp[1] + d[2] * Z.dUp[2]) < 1e-9 && Math.hypot(...d) <= Z.srcR + 1e-9 }))
+  //  ⑻ ①′ 판 구멍 — 기준 = 관 밑 전실 바닥점 무가림 · 그 점의 정규화 조도 = 1 · 그림자 광선 명중이면 0 · 반사 표본(bounce)은 바닥 위 향 · 천장 상한: friezeLightInBore가 천장 위에서 false
+  const hs = LM.zoneIHoleSamples(Z), eR = LM.zoneIHoleERef(Z, hs), spotN = LM.zoneIHoleIrradianceAt(Z.spot, [0, 1, 0], hs.filter((x) => x.kind === 'hole')) / eR
+  const frS = LM.friezeLightBake()?.spec, rdW = LM.ribAxisAt(K.RIB_DEST_PHI, 200)
+  T(`①′ 판 구멍 — eRef ${eR.toExponential(2)} > 0 · 바닥점 정규화 = 1 · 표본 = 구멍 ${K.ZI_HOLE_N}(아래 향) + 반사 ${K.ZI_BOUNCE > 0 ? K.ZI_HOLE_N : 0}(위 향·무게 BOUNCE/N) · 그림자 전가림 = 0`,
+    eR > 0 && Math.abs(spotN - 1) < 1e-9 && hs.filter((x) => x.kind === 'hole').length === K.ZI_HOLE_N && hs.filter((x) => x.kind === 'bounce').every((x) => x.d[1] === 1 && Math.abs(x.w - K.ZI_BOUNCE / K.ZI_HOLE_N) < 1e-12)
+    && LM.zoneIHoleIrradianceAt(Z.spot, [0, 1, 0], hs, () => ({ dist: 0.5, kind: 'body' })) === 0)
+  T('⛔★218 Ⅵ 천장 상한 — friezeLightInBore: 목적지 관 속 y200(천장 위) = false · 아가리+2(천장 아래) = true', !!frS && !LM.friezeLightInBore([rdW[0], 200, rdW[2]], frS) && LM.friezeLightInBore([LM.ribAxisAt(K.RIB_DEST_PHI, Z.yMouth + 2)[0], Z.yMouth + 2, LM.ribAxisAt(K.RIB_DEST_PHI, Z.yMouth + 2)[2]], frS))
+  //  ⑼ 합성 — 무광 = DIM · 발광체 = ZI_WALL_SELF · 전부(glow 1 + beam) 상한 1 → 1 · 파생 노브: BEAM_K = 1−GLOW_K · SRC_DIST = 8R · OP = RM_SHAFT_OP/LAYERS · 판 접점 무가림 위 향 = DIM+(1−DIM)·(GLOW_K + BEAM_K·dUp.y + hole)^γ
+  const shade = (E) => K.ZI_DIM + (1 - K.ZI_DIM) * K.ZI_K * Math.pow(Math.min(1, E), K.ZI_GAMMA)
+  const topW = LM.ziToWorld(Z.top), holeTop = LM.zoneIHoleIrradianceAt(Z.top, [0, 1, 0], hs) / eR
+  T('합성 — 전가림 = DIM · 발광체 = WALL_SELF · glow 전부(무가림 판 접점 위 향) = shade(GLOW_K + BEAM_K·dUp.y + hole/eRef) · 노브 파생 셋',
+    Math.abs(LM.zoneIShadeAt(topW, [0, 1, 0], allB, B) - K.ZI_DIM) < 1e-12 && LM.zoneIShadeAt(topW, [0, 1, 0], allB, B, true) === K.ZI_WALL_SELF
+    && Math.abs(LM.zoneIShadeAt(topW, [0, 1, 0], allG, B) - shade(K.ZI_GLOW_K + K.ZI_BEAM_K * Z.dUp[1] + K.ZI_HOLE_K * holeTop)) < 1e-9
+    && Math.abs(K.ZI_BEAM_K - (1 - K.ZI_GLOW_K)) < 1e-12 && Math.abs(K.ZI_SRC_DIST - 8 * K.ZI_R) < 1e-12 && Math.abs(K.ZI_OP - K.RM_SHAFT_OP / K.ZI_LAYERS) < 1e-12)
+  //  ⑽ 볼륨 — 관 속 튜브: 모든 정점의 수직 거리 ≤ VOL_R+1e-6 < rIn(관 안) · uv.y ∈ [0,1] · 길이 = VOL_LEN · SHAFT 튜브 반지름 < 오큘러스 · 수직
+  const TB = LM.zoneITubeTris(Z, 'bore'), TS = LM.zoneITubeTris(Z, 'shaft'); let okB = true, okS = true
+  for (let i = 0; i < TB.pos.length; i += 3) { const d = LM.ziNearest([TB.pos[i], TB.pos[i + 1], TB.pos[i + 2]]).d; if (d > K.ZI_VOL_R + 1e-3 || d >= Z.rIn) okB = false }
+  for (let i = 0; i < TS.pos.length; i += 3) { const r = Math.hypot(TS.pos[i] - Z.hole.c[0], TS.pos[i + 2] - Z.hole.c[2]); if (r >= Z.oculus.r || TS.pos[i + 1] > Z.hole.c[1] + 1e-9 || TS.pos[i + 1] < Z.spot[1] - 1e-9) okS = false }
+  T(`볼륨 — 관 속 튜브 ${TB.pos.length / 9}tri ⊂ 관(수직 거리 ≤ VOL_R) · 길이 ${TB.len.toFixed(1)} = VOL_LEN · SHAFT 튜브 ${TS.pos.length / 9}tri ⊂ 관 안지름 · 판 구멍~전실 바닥 · uv.y ∈ [0,1]`,
+    okB && okS && Math.abs(TB.len - K.ZI_VOL_LEN) < 1e-6 && Math.max(...TB.uv.filter((_, i) => i % 2)) <= 1 + 1e-9 && Math.min(...TB.uv.filter((_, i) => i % 2)) >= 0)
+  //  ⑾ 배선 — Dome 태그(ziRib 목적지 · ziPlates · zoneI 그룹 둘) · App 마운트 · ZoneI 게이트(aZi · dskIn ∨ vZi) · 튜브 셰이더 공유 · DSK 뒤 실행
+  const domeS = readFileSync(new URL('./Dome.jsx', import.meta.url), 'utf8'), appS = readFileSync(new URL('./App.jsx', import.meta.url), 'utf8'), ziS = readFileSync(new URL('./ZoneI.jsx', import.meta.url), 'utf8'), corS2 = readFileSync(new URL('./Corridor.jsx', import.meta.url), 'utf8')
+  T('배선 — Dome: ks[i] === RIB_DEST_K → ziRib · 판 인스턴스 ziPlates · RevealPassage A+B zoneI 그룹 · App: KneeWalk/RibJunction/Lookout zoneI 그룹 + <ZoneILight /> 회전 그룹 안 · Corridor: 튜브 셰이더 export · ZoneI: aZi 게이트 dskIn ∨ vZi · DSK bakedDsk 대기 · 발광체 삼각형 kind glow',
+    /RIB_XFER_ON && ks\[i\] === RIB_DEST_K \? \{ ziRib: true \}/.test(domeS) && /userData=\{\{ walkable: true, ziPlates: true \}\}/.test(domeS) && (domeS.match(/userData=\{\{ zoneI: true \}\}/g) || []).length === 1
+    && /<group userData=\{\{ zoneI: true \}\}>\{\/\* ★219/.test(appS) && /<ZoneILight \/>/.test(appS) && /export \{ FRL_TUBE_VERT, FRL_TUBE_FRAG \}/.test(corS2)
+    && /if \(dskIn \|\| vZi > 0\.5\) diffuseColor\.rgb \*= vColor\.rgb;/.test(ziS) && /attribute float aZi; varying float vZi;/.test(ziS) && /!rib\[0\]\.geometry\.userData\.bakedDsk/.test(ziS)
+    && /const kindOfTri = \(W\) =>/.test(ziS) && /zoneIWallTri\(c, n, B\.spec\) \|\| zoneIWallTri\(c, \[-n\[0\], -n\[1\], -n\[2\]\], B\.spec\)/.test(ziS)
+    && /const toL = \(p\) => ziToLocal\(p\)/.test(ziS) && /kindOfHit = \(fi\) => kinds\[\(SIDX\[fi \* 3\] \/ 3\) \| 0\]/.test(ziS))   // ★219 함정 둘(map 인덱스 · BVH 재정렬)의 해법이 코드에 남아 있는지
+  if (K.FREEZE_I_ON) T(`★★동결 — 구역 I 지문(미구현 — 현도 동결 선언 시 S-19 어법으로 세운다)`, false)
+  else console.log(`  (구역 I 동결 대조 보류 — FREEZE_I_ON=${K.FREEZE_I_ON} · 현도 선언 대기)`)
 }
 
 // ═══ ★217-a 수직 광선 격자(upRayGrid) = three Raycaster와 **값 동일**(지붕 높이맵 광선 경로) ═══

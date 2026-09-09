@@ -1,0 +1,140 @@
+// ★★★219 구역 I(리브 여정 = 자립 나선 ~ 전실) 빛 — 2026.09.08 (현도 공급지 설명 · 상수 ZI_* 주석 참조)
+//  ⚠수학 정본 = lightingModel.js zoneI*(사본 금지). 여기는 **순회·마샬링·광선 공급·셰이더 게이트**만.
+//  패스 순서: DSK(Corridor.jsx) 베이크가 목적지 리브 정점색을 찍은 **뒤**에 돈다(같은 color 속성을 나눠 쓴다 — 관 안면·천장 위 삼각형만 덧쓴다).
+//  가림 광선 = three-mesh-bvh(three-bvh-csg의 종속 · 이미 트리에 있음) 한 소프: 구역 I 부재 전부 + 목적지 리브(관 안면 삼각형 = 'glow', 나머지 = 'body') — **로컬 좌표**(상부 여정 그룹).
+//  외부 인상 불변: 리브에는 aZi 정점 속성(관 안면·천장 위 = 1)으로만 곱한다 · 나머지 부재는 통째 구역 I 안(vertexColors만) · 볼륨은 관 안·SHAFT 안, 후광 없음.
+import { useMemo, useRef } from 'react'
+import * as THREE from 'three'
+import { useFrame, useThree, invalidate } from '@react-three/fiber'
+import { MeshBVH } from 'three-mesh-bvh'
+import { ZI_ON, ZI_VOL_ON, ZI_OP, ZI_FADE_POW, ZI_TOPF, ZI_COLOR, ZI_WALL_SELF, DSK_ON } from './constants.js'
+import { zoneIBake, zoneIShadeAt, zoneIWallTri, zoneIOwns, zoneITubeTris, ziToLocal } from './lightingModel.js'
+import { FRL_TUBE_VERT, FRL_TUBE_FRAG } from './Corridor.jsx'
+import { bootNow, bootPass } from './bootProbe.js'
+
+//  리브 정점 속성 게이트 — DSK 패치 뒤에 체인: dskIn ∨ vZi>0.5 면 정점색 곱. DSK가 없는 재질이면 color_fragment를 직접 잡는다.
+const ziPatch = (shader) => {
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nattribute float aZi; varying float vZi;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvZi = aZi;')
+  const fs = shader.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vZi;')
+  shader.fragmentShader = fs.includes('if (dskIn) diffuseColor.rgb *= vColor.rgb;')
+    ? fs.replace('if (dskIn) diffuseColor.rgb *= vColor.rgb;', 'if (dskIn || vZi > 0.5) diffuseColor.rgb *= vColor.rgb;')
+    : fs.replace('#include <color_fragment>', '#ifdef USE_COLOR\n  if (vZi > 0.5) diffuseColor.rgb *= vColor.rgb;\n#endif')
+}
+const chain = (m, patch, key) => { const prev = m.onBeforeCompile; m.onBeforeCompile = (sh, r) => { if (prev) prev(sh, r); patch(sh) }; const pk = m.customProgramCacheKey; m.customProgramCacheKey = () => (pk ? pk.call(m) : '') + key }
+
+export function ZoneILight() {
+  const { scene } = useThree()
+  const done = useRef(false), frames = useRef(0)
+  const B = useMemo(() => (ZI_ON ? zoneIBake() : null), [])
+  const mat = useMemo(() => new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    uniforms: { uColor: { value: new THREE.Color(ZI_COLOR) }, uOpacity: { value: ZI_OP }, uXF: { value: 0 }, uTopF: { value: ZI_TOPF }, uPow: { value: ZI_FADE_POW }, uCeil: { value: new THREE.Vector4(0, 0, 0, 0) } },
+    vertexShader: FRL_TUBE_VERT, fragmentShader: FRL_TUBE_FRAG }), [])
+  const geos = useMemo(() => {
+    if (!B || !ZI_VOL_ON) return null
+    const mk = (T) => { const g = new THREE.BufferGeometry()
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(T.pos), 3)); g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(T.uv), 2)); g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(T.nrm), 3)); return g }
+    return { bore: mk(zoneITubeTris(B.spec, 'bore')), shaft: mk(zoneITubeTris(B.spec, 'shaft')) }
+  }, [B])
+  useFrame(() => {
+    if (!B || done.current) return
+    frames.current++
+    const members = [], rib = [], plates = []
+    scene.traverse((o) => {
+      if (o.userData.zoneI) o.traverse((m) => { if (m.isMesh && !members.includes(m)) members.push(m) })
+      if (o.isMesh && o.userData.ziRib) rib.push(o)
+      if (o.isInstancedMesh && o.userData.ziPlates) plates.push(o)
+    })
+    if ((!members.length || !rib.length) && frames.current < 60) return
+    if (DSK_ON && rib.length && !rib[0].geometry.userData.bakedDsk && frames.current < 90) return   // DSK가 리브 정점색을 찍은 뒤
+    done.current = true
+    const t0 = bootNow()
+    const v = new THREE.Vector3(), nm = new THREE.Vector3(), nMat = new THREE.Matrix3(), im = new THREE.Matrix4()
+    //  ⑴ 가림 소프(로컬 좌표) — 삼각형별 kind
+    const soupPos = [], kinds = []
+    //  ⛔★219 함정(실측 09.08): `W.map(ziToLocal)`는 Array.map 둘째 인자(**인덱스** 0·1·2)가 ziToLocal의 phi 자리에 들어가 세 정점이 제각각 0·1·2 rad 돌아간다 —
+    //   소프 삼각형 34967개 **전부** 변 100m 초과(최대 496m · 실측)로 부풀어 BVH가 무의미해지고(41.8µs/발) 가림이 엉터리가 됐다. 인자 하나짜리 화살표로 고정한다.
+    const toL = (p) => ziToLocal(p)
+    const addTri = (a, b, c, kind) => { soupPos.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]); kinds.push(kind) }
+    const triWorld = (o, g, i0, i1, i2) => [i0, i1, i2].map((i) => { v.fromBufferAttribute(g.attributes.position, i).applyMatrix4(o.matrixWorld); return [v.x, v.y, v.z] })
+    const eachTri = (g, f) => { const P = g.attributes.position, I = g.index; const n = I ? I.count : P.count; for (let i = 0; i + 2 < n; i += 3) f(I ? I.getX(i) : i, I ? I.getX(i + 1) : i + 1, I ? I.getX(i + 2) : i + 2) }
+    //  ★219 종류는 **소유 메시가 아니라 면 자체**가 정한다 — 무릎길·전망 몸의 관 접촉면이 곧 관 안면(발광)이기 때문(lightingModel zoneIWallTri 주석 ⓐ).
+    const triC = (W) => [(W[0][0] + W[1][0] + W[2][0]) / 3, (W[0][1] + W[1][1] + W[2][1]) / 3, (W[0][2] + W[1][2] + W[2][2]) / 3]
+    const triN = (W) => { const u = [W[1][0] - W[0][0], W[1][1] - W[0][1], W[1][2] - W[0][2]], w = [W[2][0] - W[0][0], W[2][1] - W[0][1], W[2][2] - W[0][2]]
+      const n = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]], l = Math.hypot(...n); return l < 1e-12 ? null : [n[0] / l, n[1] / l, n[2] / l] }
+    const kindOfTri = (W) => { const n = triN(W); if (!n) return 'body'; const c = triC(W)
+      return (zoneIWallTri(c, n, B.spec) || zoneIWallTri(c, [-n[0], -n[1], -n[2]], B.spec)) ? 'glow' : 'body' }   // 두 방향 다 본다(CSG 면 감김이 뒤집혀 있을 수 있다 — 규율: 감김을 믿지 않는다)
+    const addMesh = (o) => { const g = o.geometry; if (!g || !g.attributes.position) return; o.updateWorldMatrix(true, false)
+      if (o.isInstancedMesh) { const M = new THREE.Matrix4()
+        for (let k = 0; k < o.count; k++) { o.getMatrixAt(k, im); M.multiplyMatrices(o.matrixWorld, im)
+          eachTri(g, (a, b, c) => { const W = [a, b, c].map((i) => { v.fromBufferAttribute(g.attributes.position, i).applyMatrix4(M); return [v.x, v.y, v.z] }); addTri(...W.map(toL), kindOfTri(W)) }) } return }
+      eachTri(g, (a, b, c) => { const W = triWorld(o, g, a, b, c); addTri(...W.map(toL), kindOfTri(W)) }) }
+    for (const m of members) addMesh(m)
+    for (const p of plates) addMesh(p)
+    for (const r of rib) addMesh(r)
+    //  ⛔★219 함정 둘째(실측 09.08): MeshBVH는 **삼각형 순서를 재정렬**한다 — `kinds[hit.faceIndex]`는 다른 삼각형의 종류를 준다(맞은 면 중심이 y−920으로 나와 적발).
+    //   해법 = 항등 색인(index[i] = i)을 미리 달아 두면, 재정렬 뒤에도 `index[3·faceIndex]`가 **원래 정점 번호**라 원 삼각형 = ⌊그 값/3⌋로 복원된다(실측 대조 완료).
+    const soup = new THREE.BufferGeometry(); soup.setAttribute('position', new THREE.BufferAttribute(new Float32Array(soupPos), 3))
+    { const nv = soupPos.length / 3, id = new Uint32Array(nv); for (let i = 0; i < nv; i++) id[i] = i; soup.setIndex(new THREE.BufferAttribute(id, 1)) }
+    const tS = bootNow(); const bvh = new MeshBVH(soup); const tB = bootNow()
+    const SIDX = soup.index.array, kindOfHit = (fi) => kinds[(SIDX[fi * 3] / 3) | 0]
+    if (typeof window !== 'undefined') window.__ethicaZi = { soup: soup.attributes.position.array, kinds }   // 개발 핸들(★216 __ethicaBoot 어법) — 프로브가 소프를 꺼내 광선 성능을 잰다
+    let nRay = 0
+    const ray = new THREE.Ray(), rayFn = (o, d, maxD) => { nRay++; ray.origin.set(o[0], o[1], o[2]); ray.direction.set(d[0], d[1], d[2]); const h = bvh.raycastFirst(ray, THREE.DoubleSide, 0, maxD); if (!h) return null; return { dist: h.distance, kind: kindOfHit(h.faceIndex) } }
+    //  인스턴스 표본점 = 인스턴스 **상면 중심**(중심점은 상자 속이라 광선이 제 윗면을 맞힌다 — DSK는 가림이 없어 중심점으로 충분했다) · 위 향
+    const bbox = new THREE.Box3(), instTop = (o, k) => { o.getMatrixAt(k, im); im.premultiply(o.matrixWorld); if (!o.geometry.boundingBox) o.geometry.computeBoundingBox(); bbox.copy(o.geometry.boundingBox).applyMatrix4(im); return [(bbox.min.x + bbox.max.x) / 2, bbox.max.y, (bbox.min.z + bbox.max.z) / 2] }
+    //  ⑵ 부재 정점색(세계 p·n → 모델) · 인스턴스 = 중심점·위 향
+    let nMesh = 0, nInst = 0, nVert = 0, nEmit = 0
+    const bakeMesh = (o) => {
+      if (!o.isMesh || !o.geometry) return
+      const mats = [].concat(o.material); if (!mats.every((m) => m && m.isMeshStandardMaterial)) return
+      const g = o.geometry; o.updateWorldMatrix(true, false)
+      if (o.isInstancedMesh) { const c = new THREE.Color()
+        for (let k = 0; k < o.count; k++) o.setColorAt(k, c.setScalar(zoneIShadeAt(instTop(o, k), [0, 1, 0], rayFn, B)))
+        o.instanceColor.needsUpdate = true; nInst++; return }
+      if (!g.attributes.normal) g.computeVertexNormals()
+      if (g.userData.bakedZi) return
+      nMat.getNormalMatrix(o.matrixWorld)
+      const P = g.attributes.position, N = g.attributes.normal, col = new Float32Array(P.count * 3)
+      for (let i = 0; i < P.count; i++) { v.fromBufferAttribute(P, i).applyMatrix4(o.matrixWorld); nm.fromBufferAttribute(N, i).applyMatrix3(nMat).normalize()
+        const s = zoneIShadeAt([v.x, v.y, v.z], [nm.x, nm.y, nm.z], rayFn, B); col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = s }
+      //  ★219 발광 벽 정점 = ZI_WALL_SELF("빛이 나는 곳은 하얗다" — E 그루터기 규칙 승계). 무릎길·전망 몸의 관 접촉면이 여기 든다(CSG 출력은 비색인이라 삼각형끼리 정점을 안 나눈다)
+      let nEm = 0
+      eachTri(g, (a, b, c) => { const W = triWorld(o, g, a, b, c); const n = triN(W); if (!n) return; const cc = triC(W)
+        if (!zoneIWallTri(cc, n, B.spec) && !zoneIWallTri(cc, [-n[0], -n[1], -n[2]], B.spec)) return
+        for (const i of [a, b, c]) { col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = ZI_WALL_SELF; nEm++ } })
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.userData.bakedZi = true; nVert += P.count; nEmit += nEm
+      mats.forEach((m) => { m.vertexColors = true; m.needsUpdate = true }); nMesh++
+    }
+    for (const m of members) bakeMesh(m)
+    const tM = bootNow()
+    //  ⑶ 판 인스턴스 — 방 천장 위(zoneIOwns)만 덧쓴다(방 안 = E 값 그대로)
+    for (const p of plates) { const c = new THREE.Color(); let n = 0
+      for (let k = 0; k < p.count; k++) { p.getMatrixAt(k, im); v.setFromMatrixPosition(im).applyMatrix4(p.matrixWorld); const pw = [v.x, v.y, v.z]
+        if (!zoneIOwns(pw, B.spec)) continue; if (!p.instanceColor) p.setColorAt(k, c.setScalar(1)); p.setColorAt(k, c.setScalar(zoneIShadeAt(instTop(p, k), [0, 1, 0], rayFn, B))); n++ }
+      if (n) { p.instanceColor.needsUpdate = true; nInst++ } }
+    //  ⑷ 목적지 리브 — 삼각형 중심 소속(관 안면 ∧ 천장 위) → 세 정점 색 = 발광체 · aZi = 1 · 게이트 패치
+    for (const r of rib) { const g = r.geometry, P = g.attributes.position; if (!P) continue
+      let col = g.attributes.color; if (!col) { col = new THREE.BufferAttribute(new Float32Array(P.count * 3).fill(1), 3); g.setAttribute('color', col) }
+      const zi = new Float32Array(P.count); let n = 0
+      eachTri(g, (a, b, c) => { const W = triWorld(r, g, a, b, c), cw = [(W[0][0] + W[1][0] + W[2][0]) / 3, (W[0][1] + W[1][1] + W[2][1]) / 3, (W[0][2] + W[1][2] + W[2][2]) / 3]
+        const nn = triN(W); if (!nn || (!zoneIWallTri(cw, nn, B.spec) && !zoneIWallTri(cw, [-nn[0], -nn[1], -nn[2]], B.spec))) return   // ★219 천장 경계는 zoneIWallTri 안에 있다(E와 겹치지 않는다 — 사본 금지)
+        for (const i of [a, b, c]) { zi[i] = 1; const s = zoneIShadeAt(cw, [0, 1, 0], rayFn, B, true); col.setXYZ(i, s, s, s) } n++ })
+      col.needsUpdate = true; g.setAttribute('aZi', new THREE.BufferAttribute(zi, 1)); g.userData.bakedZi = true
+      ;[].concat(r.material).forEach((m) => { m.vertexColors = true; chain(m, ziPatch, '|zi'); m.needsUpdate = true }); nMesh++
+      console.info(`[ZI] 리브 관 안면(천장 위) 삼각형 ${n}`) }
+    bootPass('ZI', t0)
+    console.info(`[ZI] ★219 구역 I: 소프 ${kinds.length}tri(발광 ${kinds.filter((k) => k === 'glow').length}) · 정점색 메시 ${nMesh}(정점 ${nVert}) · 인스턴스 ${nInst} · 발광 벽 정점 ${nEmit} · 광선 ${nRay} · eRefHole ${B.eRefHole.toExponential(2)} · ms 소프 ${(tS - t0).toFixed(0)} bvh ${(tB - tS).toFixed(0)} 부재 ${(tM - tB).toFixed(0)} 판·리브 ${(bootNow() - tM).toFixed(0)}`)
+    invalidate()
+  })
+  if (!geos) return null
+  return (
+    <>
+      <mesh geometry={geos.bore} material={mat} userData={{ lightVolume: true, walkable: false }} frustumCulled={false} renderOrder={10} />
+      <mesh geometry={geos.shaft} material={mat} userData={{ lightVolume: true, walkable: false }} frustumCulled={false} renderOrder={10} />
+    </>
+  )
+}
+
