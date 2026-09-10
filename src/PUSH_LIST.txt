@@ -1,5 +1,0 @@
-★219-h push 대상 (2026.09.10)
-수정: DESIGN.md · package.json · package-lock.json · src/ZoneI.jsx · src/lightingModel.js · src/check_lux.mjs · src/_probe_zoneI.mjs
-신규: src/_probe_zoneI_verify.mjs
-삭제: src/package.json  (잘못 생긴 사본 — 로컬에서 직접 지울 것)
-로컬 절차: 파일 덮어쓰기 → src/package.json 삭제 → npm install → node src/check_lux.mjs (538/538) → node src/_probe_zoneI.mjs --verify (Ⓐ0·Ⓑ0) → npm run dev 화면 판정 → Commit→Push
