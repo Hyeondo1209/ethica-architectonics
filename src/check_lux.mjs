@@ -2710,6 +2710,13 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
   const nIn = LM.ziToWorld([0, 0, -1]), nOut = LM.ziToWorld([0, 0, 1])          // 안면 법선(축 향) · 바깥 향
   T('발광 벽 — 무릎길 높이 관 안면점(축 향 법선) = 발광 · 같은 점 바깥 향 법선 = 아님(안·바깥 벽 분리) · 아가리 아래(y185) = 아님 · 축상 점 = 아님',
     LM.zoneIWallTri(wallP, nIn, Z) && !LM.zoneIWallTri(wallP, nOut, Z) && !LM.zoneIWallTri(wallLo, nIn, Z) && !LM.zoneIWallTri(kw, nIn, Z))
+  //  ⑷ᵉ ★219-c **광원 ≠ 소속** — 천장 아래 관 벽도 E가 백색으로 칠하므로 광선에게는 광원이다(가림 분류는 천장을 안 본다). 겹쳐 놓았더니 나선 판이 밝은 벽을 몸으로 보고 glow 0이었다(실측 판 300~340 = 0.00~0.19).
+  {
+    const yLo = (Z.yMouth + LM.friezeRoomCeil(LM.ziAxis((Z.yMouth + 3) / K.H)[0])) / 2, wLo = wallAt(yLo, Z.rIn).p, wHi = wallAt(kwL[1], Z.rIn).p
+    T(`⛔반증 — 천장 아래 관 안면(y ${yLo.toFixed(1)}): **광원 O**(zoneIEmitTri) · **소속 X**(zoneIWallTri) — 두 선이 다르다 · 천장 위(y ${kwL[1].toFixed(1)})는 둘 다 O · 아가리 아래(y185)는 둘 다 X · 바깥 향 법선은 둘 다 X`,
+      LM.zoneIEmitTri(wLo, nIn, Z) && !LM.zoneIWallTri(wLo, nIn, Z) && LM.zoneIEmitTri(wHi, nIn, Z) && LM.zoneIWallTri(wHi, nIn, Z)
+      && !LM.zoneIEmitTri(wB.p, nIn, Z) && !LM.zoneIEmitTri(wHi, nOut, Z) && !LM.zoneIWallTri(wHi, nOut, Z))
+  }
   //  ⑷″ 소속 경계 = 방 천장(E와 겹치지 않는다) — 아가리~천장 사이 관 안면은 I가 안 건드린다(E ★215-f가 칠한다 · 봉인 차분에서 적발한 겹침)
   {
     const yMid = (Z.yMouth + LM.friezeRoomCeil(LM.ziAxis((Z.yMouth + 3) / K.H)[0])) / 2, wMid = wallAt(yMid, Z.rIn)
@@ -2755,10 +2762,73 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
   //  ⑼ 합성 — 무광 = DIM · 발광체 = ZI_WALL_SELF · 전부(glow 1 + beam) 상한 1 → 1 · 파생 노브: BEAM_K = 1−GLOW_K · SRC_DIST = 8R · OP = RM_SHAFT_OP/LAYERS · 판 접점 무가림 위 향 = DIM+(1−DIM)·(GLOW_K + BEAM_K·dUp.y + hole)^γ
   const shade = (E) => K.ZI_DIM + (1 - K.ZI_DIM) * K.ZI_K * Math.pow(Math.min(1, E), K.ZI_GAMMA)
   const topW = LM.ziToWorld(Z.top), holeTop = LM.zoneIHoleIrradianceAt(Z.top, [0, 1, 0], hs) / eR
-  T('합성 — 전가림 = DIM · 발광체 = WALL_SELF · glow 전부(무가림 판 접점 위 향) = shade(GLOW_K + BEAM_K·dUp.y + hole/eRef) · 노브 파생 셋',
+  T('합성 — 전가림 = DIM · 발광체 = WALL_SELF · glow 전부(무가림 판 접점 위 향) = shade(GLOW_K + BEAM_K·dUp.y + hole/eRef) · ★219-b 파생: GLOW_K = WALL_SELF · BEAM_K = DSK_K · γ = 1(확장 광원) · STUB_FADE = 2R',
     Math.abs(LM.zoneIShadeAt(topW, [0, 1, 0], allB, B) - K.ZI_DIM) < 1e-12 && LM.zoneIShadeAt(topW, [0, 1, 0], allB, B, true) === K.ZI_WALL_SELF
     && Math.abs(LM.zoneIShadeAt(topW, [0, 1, 0], allG, B) - shade(K.ZI_GLOW_K + K.ZI_BEAM_K * Z.dUp[1] + K.ZI_HOLE_K * holeTop)) < 1e-9
-    && Math.abs(K.ZI_BEAM_K - (1 - K.ZI_GLOW_K)) < 1e-12 && Math.abs(K.ZI_SRC_DIST - 8 * K.ZI_R) < 1e-12 && Math.abs(K.ZI_OP - K.RM_SHAFT_OP / K.ZI_LAYERS) < 1e-12)
+    && K.ZI_GLOW_K === K.ZI_WALL_SELF && K.ZI_BEAM_K === K.DSK_K && K.ZI_GAMMA === 1 && Math.abs(K.ZI_SRC_DIST - 8 * K.ZI_R) < 1e-12 && Math.abs(K.ZI_OP - K.RM_SHAFT_OP / K.ZI_LAYERS) < 1e-12 && Math.abs(K.ZI_STUB_FADE - 2 * K.ZI_R) < 1e-12)
+  //  ⑷ᵍ ★219-g 가시성 판정(정본) — 합성 광선으로 문다: 아무것도 안 막으면 어느 면이든 안면 · 전부 막히면 바깥면 · 실내 대표점이 관 축과 두 상자를 덮는다
+  {
+    const pts = LM.zoneIInteriorPoints(Z), miss2 = () => null, blockAll = () => ({ dist: 0.1, kind: 'body' })
+    const wIn2 = wallAt(kwL[1], Z.rIn).p, nIn2 = LM.ziToWorld([0, 0, -1])
+    const inBoxL = (p, Bx) => p[0] >= Bx.x0 && p[0] <= Bx.x1 && p[1] >= Bx.y0 && p[1] <= Bx.y1 && p[2] >= Bx.z0 && p[2] <= Bx.z1
+    T(`실내 대표점 ${pts.length} — 관 축(아가리~전망 판) ∧ 전실 18 ∧ 채널 4 · 전부 실내(zoneIInterior) · 관 축 점은 상자 밖 · 상자 점은 관 밖`,
+      pts.length >= 25 && pts.every((p) => LM.zoneIInterior(p, Z)) && pts.some((p) => inBoxL(p, Z.room)) && pts.some((p) => inBoxL(p, Z.chan))
+      && pts.some((p) => !inBoxL(p, Z.room) && !inBoxL(p, Z.chan)))
+    T('⛔반증 — 가시성: 무가림 광선이면 관 안면 = 안면(side ±1) · **전 방향 가림**이면 같은 면이 바깥면(side 0) — 판정이 기하에 실제로 의존한다(상자·법선만 보는 구판은 가림과 무관했다)',
+      LM.zoneIVisibleFromInside(wIn2, nIn2, miss2, pts, Z).inward && LM.zoneIVisibleFromInside(wIn2, nIn2, miss2, pts, Z).side !== 0
+      && !LM.zoneIVisibleFromInside(wIn2, nIn2, blockAll, pts, Z).inward && LM.zoneIVisibleFromInside(wIn2, nIn2, blockAll, pts, Z).side === 0)
+    T('가시성 — 광선 함수·대표점이 없으면 바깥면(안전측: 안 칠한다) · 등지는 점은 셈에서 빠진다',
+      !LM.zoneIVisibleFromInside(wIn2, nIn2, null, pts, Z).inward && !LM.zoneIVisibleFromInside(wIn2, nIn2, miss2, [], Z).inward)
+    { const ziG = readFileSync(new URL('./ZoneI.jsx', import.meta.url), 'utf8')
+      T('배선 — ZoneI bakeMesh: 삼각형마다 가시성으로 안팎을 가르고(좌표 상자 아님) 바깥면은 1.0으로 되돌린다 · 그 결과가 정한 방향으로 음영을 낸다(정점 법선이 어긋나면 뒤집는다) · 실내 대표점은 한 번만 만든다',
+        /const vis = zoneIVisibleFromInside\(triC\(W\), n, rayFn, ipts, B\.spec\)/.test(ziG) && /if \(!vis\.inward\) \{ nOut \+= 3; return \}/.test(ziG)
+        && /if \(side\[i\] === 0\) \{ col\[i \* 3\] = col\[i \* 3 \+ 1\] = col\[i \* 3 \+ 2\] = 1; continue \}/.test(ziG)
+        && /if \(side\[i\] < 0\) nm\.negate\(\)/.test(ziG) && /const ipts = zoneIInteriorPoints\(B\.spec\)/.test(ziG)) }
+  }
+  //  ⑷ᵒ ★219-g 가시성 판정의 **한계 명시** — 이 판정은 실제 가림(BVH)에 전적으로 의존한다. 장면이 없는 이 스위트에서는 기계적 성질만 물 수 있고,
+  //   "어느 면이 실제로 안이냐"는 **_probe_zoneI 전수 대조**(구역 I 전 삼각형의 판정↔값)로만 검증된다. ⚠이 한계를 검사로 못 박아 둔다(합성 광선으로 실제 분류를 물면 무의미하다 — 무가림이면 전부 안면, 전가림이면 전부 바깥면).
+  {
+    const pts3 = LM.zoneIInteriorPoints(Z), miss4 = () => null, block4 = () => ({ dist: 0.1, kind: 'body' })
+    const fw = LM.ziToWorld([(Z.room.x0 + Z.room.x1) / 2, Z.room.y0 + 0.01, (Z.room.z0 + Z.room.z1) / 2])
+    const up2 = LM.ziToWorld([0, 1, 0])
+    T('⛔한계 반증 — 같은 면·같은 법선이라도 가림에 따라 판정이 뒤집힌다(무가림 = 안면 · 전가림 = 바깥면) ⇒ 실제 분류는 합성 광선으로 못 문다. 실측은 프로브 전수 대조 몫',
+      LM.zoneIVisibleFromInside(fw, up2, miss4, pts3, Z).inward && !LM.zoneIVisibleFromInside(fw, up2, block4, pts3, Z).inward)
+  }
+  //  ⑼ᵗ ★219-d 판 준광원 + d′ 상면 백색
+  {
+    const dirs2 = LM.zoneIHemiDirs(K.ZI_AO_N)
+    const allT = () => ({ dist: 1, kind: 'tread' }), allB2 = () => ({ dist: 1, kind: 'body' })
+    const ziS2 = readFileSync(new URL('./ZoneI.jsx', import.meta.url), 'utf8')
+    T(`⛔반증 — 걷는 판 명중은 **준광원**(ZI_TREAD_REFL ${K.ZI_TREAD_REFL}): 전 명중 tread = ${LM.zoneIGlowAt([0, 200, 0], [0, 1, 0], allT, dirs2).toFixed(2)} · 전 명중 body = 0 · 하강광은 판을 **통과 못 한다**(직사 그림자 존치) · 판 상면 백색 배선(ZI_TREAD_LIT)`,
+      Math.abs(LM.zoneIGlowAt([0, 200, 0], [0, 1, 0], allT, dirs2) - K.ZI_TREAD_REFL) < 1e-12 && LM.zoneIGlowAt([0, 200, 0], [0, 1, 0], allB2, dirs2) === 0
+      && LM.zoneIBeamAt(Z.top, [0, 1, 0], allT, bs, Z) === 0 && K.ZI_TREAD_LIT === true
+      && /if \(ZI_TREAD_LIT && o\.userData\.walkable === true\) return ZI_WALL_SELF/.test(ziS2) && /const kind = \(W\) => \{ const k = kindOfTri\(W\); return k === 'glow' \? k : \(walk \? 'tread' : 'body'\) \}/.test(ziS2))
+  }
+  //  ⑼ᶠ ★219-f 전실 채움 — 방 안 점은 직사 0이어도 DIM이 아니다(적분 공동) · 관 속 점은 채움 없음(발광 벽이 채운다) · 채움은 파생(ZI_BOUNCE)
+  {
+    const inRoom = LM.ziToWorld([(Z.room.x0 + Z.room.x1) / 2, Z.room.y0 + 3, Z.room.z0 + 0.5])   // 관 밑 웅덩이에서 먼 방 구석
+    const inChan = LM.ziToWorld([(Z.chan.x0 + Z.chan.x1) / 2, Z.chan.y0 + 2, 0])
+    const allB3 = () => ({ dist: 0.5, kind: 'body' })
+    const sRoom = LM.zoneIShadeAt(inRoom, LM.ziToWorld([0, 1, 0]), allB3, B), sChan = LM.zoneIShadeAt(inChan, LM.ziToWorld([0, 1, 0]), allB3, B)
+    const sBore = LM.zoneIShadeAt(wallAt(kwL[1], 0).p, LM.ziToWorld([0, 1, 0]), allB3, B)        // 관 축상 점 = 전가림 → DIM(채움 없음)
+    //  ⚠경계면 위 정점(벽·바닥)도 채움을 받아야 한다 — 점 자신이 아니라 법선 쪽 한 발짝으로 묻기 때문. 바깥면(법선이 밖)은 못 받는다.
+    const wallPt = LM.ziToWorld([(Z.room.x0 + Z.room.x1) / 2, Z.room.y0 + 3, Z.room.z0]), nInRoom = LM.ziToWorld([0, 0, 1]), nOutRoom = LM.ziToWorld([0, 0, -1])
+    const sWallIn = LM.zoneIShadeAt(wallPt, nInRoom, allB3, B), sWallOut = LM.zoneIShadeAt(wallPt, nOutRoom, allB3, B)
+    T(`⛔반증 — 전 방향 가림에서도 전실 ${sRoom.toFixed(3)} · 채널 ${sChan.toFixed(3)} · **경계면 위 벽 안면** ${sWallIn.toFixed(3)} = 채움(${K.ZI_ROOM_FILL})으로 DIM(${K.ZI_DIM})보다 밝다 · 같은 벽 **바깥 향 법선** ${sWallOut.toFixed(3)} = DIM(밖은 안 받는다) · 관 속 ${sBore.toFixed(3)} = DIM(발광 벽이 채운다) · 채움 = ZI_BOUNCE 파생`,
+      sRoom > K.ZI_DIM + 0.1 && sChan > K.ZI_DIM + 0.1 && sWallIn > K.ZI_DIM + 0.1 && Math.abs(sWallOut - K.ZI_DIM) < 1e-9 && Math.abs(sBore - K.ZI_DIM) < 1e-9 && K.ZI_ROOM_FILL === K.ZI_BOUNCE)
+  }
+  //  ⑼′ ★219-b 그루터기 이음 — 관 속: 천장 바로 위 = 1 · 천장+FADE/2 = 중간 · 천장+FADE 이상 = I 값 그대로 · 관 밖(전실 바닥점) = 그대로
+  {
+    const xr = LM.ziAxis((Z.yMouth + 8) / K.H)[0], cy = LM.friezeRoomCeil(LM.ziToWorld([xr, 0, 0])[0])
+    const at = (dy) => { const a = LM.ziAxis((cy + dy) / K.H); return LM.ziToWorld([a[0], cy + dy, 0]) }
+    //  ⚠천장은 x의 빗면이라 축을 따라 오르면 '천장+dy'의 dy가 그 점의 천장 기준으로는 달라진다 — 기대값은 **점 자신의 천장**으로 계산한다(첫 판은 이걸 놓쳐 붉었다)
+    const expect = (p, sh) => { const t = Math.min(1, Math.max(0, (p[1] - LM.friezeRoomCeil(p[0])) / K.ZI_STUB_FADE)), w = t * t * (3 - 2 * t); return 1 - w + sh * w }
+    const pA = at(0.01), pB = at(K.ZI_STUB_FADE / 2), pC = at(K.ZI_STUB_FADE + 2)
+    T(`⛔그루터기 이음 — 관 축상 천장 직상 → ${LM.zoneIStubBlend(pA, K.ZI_DIM, Z).toFixed(3)}(≈1) · 중간 → ${LM.zoneIStubBlend(pB, K.ZI_DIM, Z).toFixed(3)}(스무스스텝 기대값과 일치 · 0.3~0.7 사이) · FADE 너머 → sh 그대로 · 전실 바닥점(관 밖) → 그대로`,
+      Math.abs(LM.zoneIStubBlend(pA, K.ZI_DIM, Z) - expect(pA, K.ZI_DIM)) < 1e-12 && LM.zoneIStubBlend(pA, K.ZI_DIM, Z) > 0.99
+      && Math.abs(LM.zoneIStubBlend(pB, K.ZI_DIM, Z) - expect(pB, K.ZI_DIM)) < 1e-12 && LM.zoneIStubBlend(pB, K.ZI_DIM, Z) > 0.3 && LM.zoneIStubBlend(pB, K.ZI_DIM, Z) < 0.7
+      && LM.zoneIStubBlend(pC, K.ZI_DIM, Z) === K.ZI_DIM && LM.zoneIStubBlend(LM.ziToWorld(Z.spot), K.ZI_DIM, Z) === K.ZI_DIM)
+  }
   //  ⑽ 볼륨 — 관 속 튜브: 모든 정점의 수직 거리 ≤ VOL_R+1e-6 < rIn(관 안) · uv.y ∈ [0,1] · 길이 = VOL_LEN · SHAFT 튜브 반지름 < 오큘러스 · 수직
   const TB = LM.zoneITubeTris(Z, 'bore'), TS = LM.zoneITubeTris(Z, 'shaft'); let okB = true, okS = true
   for (let i = 0; i < TB.pos.length; i += 3) { const d = LM.ziNearest([TB.pos[i], TB.pos[i + 1], TB.pos[i + 2]]).d; if (d > K.ZI_VOL_R + 1e-3 || d >= Z.rIn) okB = false }
@@ -2771,7 +2841,7 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
     /RIB_XFER_ON && ks\[i\] === RIB_DEST_K \? \{ ziRib: true \}/.test(domeS) && /userData=\{\{ walkable: true, ziPlates: true \}\}/.test(domeS) && (domeS.match(/userData=\{\{ zoneI: true \}\}/g) || []).length === 1
     && /<group userData=\{\{ zoneI: true \}\}>\{\/\* ★219/.test(appS) && /<ZoneILight \/>/.test(appS) && /export \{ FRL_TUBE_VERT, FRL_TUBE_FRAG \}/.test(corS2)
     && /if \(dskIn \|\| vZi > 0\.5\) diffuseColor\.rgb \*= vColor\.rgb;/.test(ziS) && /attribute float aZi; varying float vZi;/.test(ziS) && /!rib\[0\]\.geometry\.userData\.bakedDsk/.test(ziS)
-    && /const kindOfTri = \(W\) =>/.test(ziS) && /zoneIWallTri\(c, n, B\.spec\) \|\| zoneIWallTri\(c, \[-n\[0\], -n\[1\], -n\[2\]\], B\.spec\)/.test(ziS)
+    && /const kindOfTri = \(W\) =>/.test(ziS) && /zoneIEmitTri\(c, n, B\.spec\) \|\| zoneIEmitTri\(c, \[-n\[0\], -n\[1\], -n\[2\]\], B\.spec\)/.test(ziS) && /const shadeInstance = \(o, k\) =>/.test(ziS)   // ★219-c 광원 분류 · 판 다점 평균
     && /const toL = \(p\) => ziToLocal\(p\)/.test(ziS) && /kindOfHit = \(fi\) => kinds\[\(SIDX\[fi \* 3\] \/ 3\) \| 0\]/.test(ziS))   // ★219 함정 둘(map 인덱스 · BVH 재정렬)의 해법이 코드에 남아 있는지
   if (K.FREEZE_I_ON) T(`★★동결 — 구역 I 지문(미구현 — 현도 동결 선언 시 S-19 어법으로 세운다)`, false)
   else console.log(`  (구역 I 동결 대조 보류 — FREEZE_I_ON=${K.FREEZE_I_ON} · 현도 선언 대기)`)

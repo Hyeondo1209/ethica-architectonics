@@ -1628,15 +1628,24 @@ export function friezeLightOnStub(p, spec) {
 /** ★215-f 관 속(보어)인가 — 축 거리 ≤ FRL_R(안지름 5.78) · y ≥ yTop−MG. 광원 **안쪽**의 물체(자립 나선 판 · 기둥)는 포화 = 1. 위치 규칙(모든 메시) — 관 살(6.0)·천장 구멍 테두리(6.08)는 밖 */
 export function friezeLightInBore(p, spec) {
   if (!spec || !FRL_MOUTH_ON) return false
-  //  ★219 천장 상한(★218 Ⅵ): 규칙은 **방 천장(그 x의 빗면)까지** — 그 위 관 속은 구역 I 소관(zoneI*가 덧쓴다). 구판은 상한이 없어 관 속 무한히 위까지 1.0이었다.
+  //  ★219 천장 상한(★218 Ⅵ): **색 소속** 규칙은 방 천장(그 x의 빗면)까지 — 그 위 관 속은 구역 I 소관(zoneI*가 덧쓴다). 구판은 상한이 없어 관 속 무한히 위까지 1.0이었다.
   if (p[1] > friezeRoomCeil(p[0])) return false
+  return friezeLightInBoreRaw(p, spec)
+}
+/** ★219-f 상한 **없는** 관 속 규칙(구판 그대로) — ★215-g 검은 쐐기 방지 전용.
+ *  ⚠왜 둘이 필요한가: 천장 상한은 "천장 위 관 속 색을 누가 칠하나"(E→I)의 선이지, "지붕 위 리브 정점을 DIM으로 굽지 마라"(★215-g)의 선이 아니다.
+ *   ★219에서 하나로 묶었더니 **목적지 아닌 네 리브**가 천장 위에서 보호를 잃고 DIM(0.04)으로 구워져 화면에 검은 판으로 나왔다(현도 09.09 x169.9 y254 · 실측 면적 10~12㎡ 다수). */
+export function friezeLightInBoreRaw(p, spec) {
+  if (!spec || !FRL_MOUTH_ON) return false
   return spec.ribs.some((r) => p[1] >= r.yTop - FRL_STUB_MG && (() => { const a = ribAxisAt(r.phi, p[1]); return Math.hypot(p[0] - a[0], p[2] - a[2]) <= spec.R })())
 }
 /** ★215-g 베이크 관문 앞 우선 규칙 — 리브 메시(onRib) 정점이 그루터기·관 속이면 안 판정과 무관하게 1. 지붕 위 리브 정점이 '밖 → DIM'으로 굽혀지고(★215-d 규칙은 관문 뒤라 무력), 조각은 높이맵 미스(=리드 207)로 '안'이 되어 검은 쐐기(현도 09.07 15:52 · r<84인 #0·#±1만) */
 export function friezeLightVertexOverride(p, onRib) {
   if (!FRL_ON) return null
   const b = friezeLightBake(); if (!b) return null
-  if ((onRib && friezeLightOnStub(p, b.spec)) || friezeLightInBore(p, b.spec)) return 1
+  //  ★219-f 리브 정점은 **상한 없는** 관 속 규칙으로 보호한다(검은 쐐기 방지 = ★215-g). 리브가 아닌 점(판·계단 등)은 상한 있는 규칙 그대로 — 천장 위는 구역 I가 칠한다.
+  if (onRib && (friezeLightOnStub(p, b.spec) || friezeLightInBoreRaw(p, b.spec))) return 1
+  if (friezeLightInBore(p, b.spec)) return 1
   return null
 }
 /** ★215-i 드럼 천장 높이맵의 **미스 대체값** — 크라운 안(r ≤ GAT_CROWN_R)은 리드 밑(y1: 흡기 구멍 위 크라운 통 = 안), 그 밖(신전 발자국 위 · 리브 구멍 위)은 해석 천장면 ceilY(x)(신전 상판 = ceilY−0.02 · 리브 구멍 둘레 천장면). 구 '미스 = 리드'는 지붕 위 y ≤ 207을 안으로 삼아 리브(★215-g)·피어(★215-i) 검은 쐐기의 뿌리 */
@@ -1765,8 +1774,8 @@ export function dskirtTris(strands, { radiusK = 1, sides = DSK_TUBE_SEG } = {}) 
 //   → 정점 값(zoneIShadeAt) / 볼륨(zoneITubeTris). 좌표 = **상부 여정 그룹 로컬**(App.jsx rotation-y=−RIB_DEST_PHI) — 관 축이 φ=0 리브 (rOf(u), uH, 0)가 되어 식이 단순하다.
 //   세계좌표 정점은 ziToLocal로 넘겨 재고, 결과는 좌표계 무관 스칼라. 소속 판정(관 안면 삼각형 · 방 천장 위)만 세계좌표(friezeRoomCeil)를 같이 본다.
 //  ⚠1차 근사 선언: ⓐ②의 가림은 광선 한 발 = 명중/미명중(부분 가림 없음) ⓑ관 안면은 아가리(yTop)부터 위로 전부 발광(그루터기 연속 · 관 끝은 무한) ⓒ①의 관 벽은 가림에서 제외(통로) ⓓ2차 반사는 전실 바닥 한 원판만.
-import { ZI_ON, ZI_GLOW_ON, ZI_BEAM_ON, ZI_HOLE_ON, ZI_R, ZI_DIM, ZI_GAMMA, ZI_K, ZI_WALL_SELF, ZI_AO_N, ZI_BEAM_N, ZI_HOLE_N, ZI_GLOW_K, ZI_BEAM_K, ZI_HOLE_K, ZI_HOLE_LOBE, ZI_BOUNCE,
-  ZI_SRC_DIST, ZI_VOL_R, ZI_VOL_LEN, ZI_VOL_DY, ZI_VOL_SEG, ZI_RAY_EPS, RIB_DEST_PHI, RIB_DEST_K, SHELL_RIB_R, RIB_WALL_T, RIB_RADIAL_SEG, PASS_FLOOR_Y, RM_ROOF, RM_X0, RM_X1, RM_Z0, RM_Z1,
+import { ZI_ON, ZI_GLOW_ON, ZI_BEAM_ON, ZI_HOLE_ON, ZI_R, ZI_DIM, ZI_GAMMA, ZI_K, ZI_WALL_SELF, ZI_STUB_FADE, ZI_AO_N, ZI_BEAM_N, ZI_HOLE_N, ZI_GLOW_K, ZI_BEAM_K, ZI_HOLE_K, ZI_HOLE_LOBE, ZI_BOUNCE,
+  ZI_SRC_DIST, ZI_VOL_R, ZI_VOL_LEN, ZI_VOL_DY, ZI_VOL_SEG, ZI_RAY_EPS, ZI_TREAD_REFL, ZI_ROOM_FILL, RIB_DEST_PHI, RIB_DEST_K, SHELL_RIB_R, RIB_WALL_T, RIB_RADIAL_SEG, PASS_FLOOR_Y, RM_ROOF, RM_X0, RM_X1, RM_Z0, RM_Z1,
   PASS_HW, PASS_T, JCT_DN_Z, PASS_X_CHEEK, CHEEK_TOP_NZ } from './constants.js'   // FRL_STUB_MG는 ★214 절 import에 이미 있다
 import { lightShaftSpec } from './junctionGeometry.js'   // ★71 빛 기둥 실기하 정본(판 윗면·관 안지름·오큘러스 — 사본 0)
 
@@ -1820,8 +1829,10 @@ export function zoneIOwns(pw, Z = zoneISpec()) {
  *     ⇒ 위치는 넉넉한 띠로 두고, **법선이 축을 향하는가**로 가른다(안벽 = 축 향 · 바깥벽 = 반대). */
 export function zoneIWallTri(cw, nw, Z = zoneISpec()) {
   if (!Z) return false
-  //  ★219 경계 = **방 천장**(zoneIOwns와 같은 선 — 사본 금지의 이유로 여기 한 곳에만 적는다): 아가리~천장 구간의 관 안면은 E 소관(★215-f가 이미 1.0으로 칠한다 — 시각적으로는 이어진다).
-  //   ⚠구판은 하한이 아가리(yMouth)라 E의 방 안 구간까지 I가 덧썼다 — 봉인 차분에서 적발(값은 같았으나 소속이 겹쳤다).
+  //  ★219 **소속** 경계 = 방 천장(zoneIOwns와 같은 선): 아가리~천장 구간의 관 안면 색은 E 소관(★215-f가 1.0으로 칠한다).
+  //   ⚠구판은 하한이 아가리(yMouth)라 E의 방 안 구간까지 I가 덧썼다 — 봉인 차분에서 적발.
+  //   ⚠⚠★219-c(2026.09.09 현도 "나선 계단 색이 이상하게 분포"): **소속과 광원은 다른 선이다.** 천장 아래 관 벽도 E가 백색으로 칠하므로 **광원이다** —
+  //    가림 분류(zoneIEmitTri)는 천장을 안 본다. 이 선을 겹쳐 놓았더니 나선 판이 "밝은 벽을 캄캄한 몸으로" 보고 glow 0이 됐다(실측 판 300~340 = 0.00~0.19).
   if (cw[1] <= friezeRoomCeil(cw[0])) return false
   const cl = ziToLocal(cw), n = ziNearest(cl)
   if (n.d < Z.rIn * Math.cos(Math.PI / RIB_RADIAL_SEG) - 1e-3 || n.d > SHELL_RIB_R + 1e-3) return false
@@ -1829,6 +1840,55 @@ export function zoneIWallTri(cw, nw, Z = zoneISpec()) {
   const rx = cl[0] - n.foot[0], ry = cl[1] - n.foot[1], rz = cl[2]                       // 축에서 밖으로 나가는 방향(접선 성분 없음 — 최근접점이라 이미 ⟂)
   const rl = Math.hypot(rx, ry, rz); if (rl < 1e-6) return false
   return (nl[0] * rx + nl[1] * ry + nl[2] * rz) / rl < 0 && Math.abs(nl[0] * t[0] + nl[1] * t[1] + nl[2] * t[2]) < 0.9   // 축 향(안면) · 마구리(접선 향)는 제외
+}
+/** ★219-e 구역 I의 **실내 공극**인가(로컬 점) — 전실 방·하강 채널 상자 안이거나 관 속. 빛이 도는 공간의 정의.
+ *  ⚠상자는 **비어 있는 속**을 뜻한다(벽·바닥 살은 그 밖) — 그래서 벽면의 안쪽 면만 이 판정을 통과한다. */
+export function zoneIInterior(pl, Z = zoneISpec()) {
+  if (!Z) return false
+  return inBox(pl, Z.room, 0) || inBox(pl, Z.chan, 0) || ziNearest(pl).d < Z.rIn
+}
+/** ★219-g 실내 대표점 — 구역 I가 빛을 도는 **공간의 뼈대**: 관 축(아가리~전망 판, 관 지름 간격) + 전실 방·하강 채널 상자 중심 격자.
+ *  가시성 판정(zoneIInwardTri)의 표적이다. 좌표 상자 판정이 아니라 **실제 기하로 광선을 쏴서** 안팎을 가르기 위한 것. */
+export function zoneIInteriorPoints(Z = zoneISpec()) {
+  if (!Z) return []
+  const out = []
+  for (let y = Z.yMouth; y <= Z.top[1]; y += 2 * Z.R) { const a = ziAxis(y / H); out.push([a[0], y, 0]) }   // 관 축
+  out.push([...Z.top])
+  const g = (B, nx, ny, nz) => { for (let i = 1; i <= nx; i++) for (let j = 1; j <= ny; j++) for (let k = 1; k <= nz; k++)
+    out.push([B.x0 + (B.x1 - B.x0) * i / (nx + 1), B.y0 + (B.y1 - B.y0) * j / (ny + 1), B.z0 + (B.z1 - B.z0) * k / (nz + 1)]) }
+  g(Z.room, 3, 2, 3); g(Z.chan, 2, 2, 1)
+  return out
+}
+/** ★219-g **가시성으로** 안팎을 가른다(정본) — 면 중심에서 실내 대표점(zoneIInteriorPoints)으로 광선을 쏴, **막힘 없이 닿는 점이 하나라도 있으면 안면**.
+ *  ⚠왜 좌표 상자를 안 쓰나(실측 09.09): 벽·바닥 정점은 상자 **경계면 위**에 놓이고(z −4.38 vs 경계 −4.35), CSG 감김·정점 법선이 어긋난 면도 있어
+ *   상자·법선 판정은 70㎡ 벽 하나를 통째로 놓쳤다. 실제 기하로 재면 그 면이 방 안에서 보이는지가 곧 답이다.
+ *  ray(o, d, maxDist) → 명중이면 {dist, kind}. 자기 면을 맞히지 않게 양쪽으로 살짝 띄워 두 번 쏜다(감김을 안 믿는다).
+ *  반환 {inward, side}: side = +1이면 법선 쪽이 실내 · −1이면 반대쪽 · 0이면 바깥면. */
+export function zoneIVisibleFromInside(cw, nw, ray, pts, Z = zoneISpec(), d = ZI_RAY_EPS) {
+  if (!Z || !ray || !pts || !pts.length) return { inward: false, side: 0 }
+  const cl = ziToLocal(cw), nl = ziToLocal(nw)
+  for (const sgn of [1, -1]) {
+    const o = [cl[0] + nl[0] * d * sgn, cl[1] + nl[1] * d * sgn, cl[2] + nl[2] * d * sgn]
+    for (const q of pts) {
+      const dx = q[0] - o[0], dy = q[1] - o[1], dz = q[2] - o[2], L = Math.hypot(dx, dy, dz)
+      if (L < 1e-6) return { inward: true, side: sgn }
+      if ((nl[0] * dx + nl[1] * dy + nl[2] * dz) * sgn <= 0) continue          // 그 면이 등지고 있는 점은 셈에서 뺀다
+      const h = ray(o, [dx / L, dy / L, dz / L], L - d)
+      if (!h) return { inward: true, side: sgn }
+    }
+  }
+  return { inward: false, side: 0 }
+}
+/** ★219-c **광원** 삼각형인가 — 색을 누가 칠하느냐(소속)와 무관하게 "이 면이 빛나는가". 관 안면 ∧ y ≥ 아가리 − MG.
+ *  천장 아래 관 벽은 E가 1.0으로 칠하므로 광원이고(그루터기 규칙), 천장 위는 I가 칠하는 광원이다 — 광선에게는 둘이 같은 벽이다. */
+export function zoneIEmitTri(cw, nw, Z = zoneISpec()) {
+  if (!Z || cw[1] < Z.yMouth - FRL_STUB_MG) return false
+  const cl = ziToLocal(cw), n = ziNearest(cl)
+  if (n.d < Z.rIn * Math.cos(Math.PI / RIB_RADIAL_SEG) - 1e-3 || n.d > SHELL_RIB_R + 1e-3) return false
+  const nl = ziToLocal(nw), t = ziTangent(n.u)
+  const rx = cl[0] - n.foot[0], ry = cl[1] - n.foot[1], rz = cl[2], rl = Math.hypot(rx, ry, rz)
+  if (rl < 1e-6) return false
+  return (nl[0] * rx + nl[1] * ry + nl[2] * rz) / rl < 0 && Math.abs(nl[0] * t[0] + nl[1] * t[1] + nl[2] * t[2]) < 0.9
 }
 /** 코사인 가중 반구 방향(접선 공간 [t,b,n] 계수 · R2 저불일치 · 결정적) — 각 광선의 무게가 같다(가중 표본) */
 export function zoneIHemiDirs(n = ZI_AO_N) {
@@ -1845,7 +1905,9 @@ export function zoneIGlowAt(p, n, ray, dirs = zoneIHemiDirs()) {
   const { t, b } = frameOf(n), o = [p[0] + n[0] * ZI_RAY_EPS, p[1] + n[1] * ZI_RAY_EPS, p[2] + n[2] * ZI_RAY_EPS]
   let hit = 0
   for (const w of dirs) { const d = [t[0] * w[0] + b[0] * w[1] + n[0] * w[2], t[1] * w[0] + b[1] * w[1] + n[1] * w[2], t[2] * w[0] + b[2] * w[1] + n[2] * w[2]]
-    const h = ray(o, d, Infinity); if (h && h.kind === 'glow') hit++ }
+    const h = ray(o, d, Infinity); if (!h) continue
+    //  ★219-d 걷는 판('tread')은 **준광원**(상호반사 — 상수 ZI_TREAD_REFL 주석). 벽('glow')은 1, 그 외 몸은 0.
+    if (h.kind === 'glow') hit += 1; else if (h.kind === 'tread') hit += ZI_TREAD_REFL }
   return hit / dirs.length
 }
 /** ① 가상 원판 표본(로컬 · 원판 ⟂ dUp · 선플라워) */
@@ -1864,7 +1926,7 @@ export function zoneIBeamAt(pl, n, ray, samps, Z = zoneISpec()) {
   const o = [pl[0] + n[0] * ZI_RAY_EPS, pl[1] + n[1] * ZI_RAY_EPS, pl[2] + n[2] * ZI_RAY_EPS]
   let vis = 0
   for (const s of samps) { const d = [s[0] - o[0], s[1] - o[1], s[2] - o[2]], L = Math.hypot(...d), u = [d[0] / L, d[1] / L, d[2] / L]
-    const h = ray(o, u, L); if (!h || h.kind === 'glow') vis++ }
+    const h = ray(o, u, L); if (!h || h.kind === 'glow') vis++ }   // ★219-d 하강광은 판을 통과하지 않는다(직사광의 그림자는 남는다 — 준광원은 ②의 확산광에만)
   return (vis / samps.length) * cosA
 }
 /** ①′ 판 구멍 원판 표본(로컬 · 아래 향 빔 · 총 출력 1 · 로브) + 전실 바닥 반사 원판(위 향 · 출력 = BOUNCE × 바닥 정규화 조도 — 바닥점은 1이므로 BOUNCE) */
@@ -1909,7 +1971,22 @@ export function zoneIShadeAt(pw, nw, ray, B = zoneIBake(), emitter = false) {
   if (ZI_GLOW_ON) E += ZI_GLOW_K * zoneIGlowAt(pl, nl, ray, B.dirs)
   if (ZI_BEAM_ON) E += ZI_BEAM_K * zoneIBeamAt(pl, nl, ray, B.beam, B.spec)
   if (ZI_HOLE_ON && B.eRefHole > 0) E += ZI_HOLE_K * zoneIHoleIrradianceAt(pl, nl, B.hole, ray) / B.eRefHole
-  return ZI_DIM + (1 - ZI_DIM) * ZI_K * Math.pow(Math.min(1, Math.max(0, E)), ZI_GAMMA)
+  //  ★219-f 전실·하강 채널 = 흰 벽으로 닫힌 방 → 상호반사 채움(적분 공동). 관 속은 발광 벽이 이미 채우므로 제외.
+  //   ⚠판정은 점 자신이 아니라 **법선 쪽 한 발짝**(★219-e 어법): 벽·바닥 정점은 방 상자의 **경계면 위**라 점 자신으로 물으면 아슬하게 밖으로 떨어진다
+  //    (실측: 벽면 z −4.4 vs 경계 −4.35 → 채움 누락 → 70㎡ 벽이 그대로 0.04. 현도 "아직 검정색이야"의 잔여분).
+  {
+    const q = [pl[0] + nl[0] * ZI_RAY_EPS, pl[1] + nl[1] * ZI_RAY_EPS, pl[2] + nl[2] * ZI_RAY_EPS]
+    if (ZI_ROOM_FILL > 0 && (inBox(q, B.spec.room, 0) || inBox(q, B.spec.chan, 0))) E += ZI_ROOM_FILL
+  }
+  const sh = ZI_DIM + (1 - ZI_DIM) * ZI_K * Math.pow(Math.min(1, Math.max(0, E)), ZI_GAMMA)
+  return zoneIStubBlend(pw, sh, B.spec)
+}
+/** ★219-b 그루터기 이음 — 관 속 점만: 방 천장 위 ZI_STUB_FADE 동안 E의 "관 속 = 1"(★215-f)에서 I 값으로 스무스스텝. 관 밖(전실·채널)은 무관(그대로). */
+export function zoneIStubBlend(pw, sh, Z = zoneISpec()) {
+  if (!Z || !(ZI_STUB_FADE > 0)) return sh
+  const pl = ziToLocal(pw); if (ziNearest(pl).d >= Z.rIn) return sh
+  const t = Math.min(1, Math.max(0, (pw[1] - friezeRoomCeil(pw[0])) / ZI_STUB_FADE)), w = t * t * (3 - 2 * t)
+  return 1 * (1 - w) + sh * w
 }
 /** 볼륨 — 관 축을 따르는 폴리라인 튜브(uv.y = 호길이/전체 → 셰이더 len 소멸) · part 'bore' = 전망 판 → 위로 VOL_LEN(끝 알파 0 = 근원 불가시) · 'shaft' = 판 구멍 → 오큘러스 → 전실 바닥(수직) */
 export function zoneITubeTris(Z = zoneISpec(), part = 'bore', { sides = ZI_VOL_SEG, dy = ZI_VOL_DY } = {}) {

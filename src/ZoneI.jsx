@@ -7,8 +7,8 @@ import { useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { useFrame, useThree, invalidate } from '@react-three/fiber'
 import { MeshBVH } from 'three-mesh-bvh'
-import { ZI_ON, ZI_VOL_ON, ZI_OP, ZI_FADE_POW, ZI_TOPF, ZI_COLOR, ZI_WALL_SELF, DSK_ON } from './constants.js'
-import { zoneIBake, zoneIShadeAt, zoneIWallTri, zoneIOwns, zoneITubeTris, ziToLocal } from './lightingModel.js'
+import { ZI_ON, ZI_VOL_ON, ZI_OP, ZI_FADE_POW, ZI_TOPF, ZI_COLOR, ZI_WALL_SELF, ZI_TREAD_LIT, DSK_ON } from './constants.js'
+import { zoneIBake, zoneIShadeAt, zoneIWallTri, zoneIEmitTri, zoneIVisibleFromInside, zoneIInteriorPoints, zoneIOwns, zoneITubeTris, ziToLocal } from './lightingModel.js'
 import { FRL_TUBE_VERT, FRL_TUBE_FRAG } from './Corridor.jsx'
 import { bootNow, bootPass } from './bootProbe.js'
 
@@ -64,13 +64,17 @@ export function ZoneILight() {
     const triC = (W) => [(W[0][0] + W[1][0] + W[2][0]) / 3, (W[0][1] + W[1][1] + W[2][1]) / 3, (W[0][2] + W[1][2] + W[2][2]) / 3]
     const triN = (W) => { const u = [W[1][0] - W[0][0], W[1][1] - W[0][1], W[1][2] - W[0][2]], w = [W[2][0] - W[0][0], W[2][1] - W[0][1], W[2][2] - W[0][2]]
       const n = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]], l = Math.hypot(...n); return l < 1e-12 ? null : [n[0] / l, n[1] / l, n[2] / l] }
+    //  ★219-c 가림 분류는 **광원 판정**(zoneIEmitTri — 천장 무관)이다. 색 소유(zoneIWallTri — 천장 위)와 다른 선. 두 방향 다 본다(CSG 감김을 믿지 않는다).
     const kindOfTri = (W) => { const n = triN(W); if (!n) return 'body'; const c = triC(W)
-      return (zoneIWallTri(c, n, B.spec) || zoneIWallTri(c, [-n[0], -n[1], -n[2]], B.spec)) ? 'glow' : 'body' }   // 두 방향 다 본다(CSG 면 감김이 뒤집혀 있을 수 있다 — 규율: 감김을 믿지 않는다)
+      return (zoneIEmitTri(c, n, B.spec) || zoneIEmitTri(c, [-n[0], -n[1], -n[2]], B.spec)) ? 'glow' : 'body' }
+    //  ★219-d 걷는 판(walkable)의 삼각형은 'tread' — 벽에 가려지는 대신 **준광원**으로 센다(상호반사). 단 벽 판정이 먼저다(관 접촉면이면 벽).
     const addMesh = (o) => { const g = o.geometry; if (!g || !g.attributes.position) return; o.updateWorldMatrix(true, false)
+      const walk = o.userData.walkable === true
+      const kind = (W) => { const k = kindOfTri(W); return k === 'glow' ? k : (walk ? 'tread' : 'body') }
       if (o.isInstancedMesh) { const M = new THREE.Matrix4()
         for (let k = 0; k < o.count; k++) { o.getMatrixAt(k, im); M.multiplyMatrices(o.matrixWorld, im)
-          eachTri(g, (a, b, c) => { const W = [a, b, c].map((i) => { v.fromBufferAttribute(g.attributes.position, i).applyMatrix4(M); return [v.x, v.y, v.z] }); addTri(...W.map(toL), kindOfTri(W)) }) } return }
-      eachTri(g, (a, b, c) => { const W = triWorld(o, g, a, b, c); addTri(...W.map(toL), kindOfTri(W)) }) }
+          eachTri(g, (a, b, c) => { const W = [a, b, c].map((i) => { v.fromBufferAttribute(g.attributes.position, i).applyMatrix4(M); return [v.x, v.y, v.z] }); addTri(...W.map(toL), kind(W)) }) } return }
+      eachTri(g, (a, b, c) => { const W = triWorld(o, g, a, b, c); addTri(...W.map(toL), kind(W)) }) }
     for (const m of members) addMesh(m)
     for (const p of plates) addMesh(p)
     for (const r of rib) addMesh(r)
@@ -85,27 +89,58 @@ export function ZoneILight() {
     const ray = new THREE.Ray(), rayFn = (o, d, maxD) => { nRay++; ray.origin.set(o[0], o[1], o[2]); ray.direction.set(d[0], d[1], d[2]); const h = bvh.raycastFirst(ray, THREE.DoubleSide, 0, maxD); if (!h) return null; return { dist: h.distance, kind: kindOfHit(h.faceIndex) } }
     //  인스턴스 표본점 = 인스턴스 **상면 중심**(중심점은 상자 속이라 광선이 제 윗면을 맞힌다 — DSK는 가림이 없어 중심점으로 충분했다) · 위 향
     const bbox = new THREE.Box3(), instTop = (o, k) => { o.getMatrixAt(k, im); im.premultiply(o.matrixWorld); if (!o.geometry.boundingBox) o.geometry.computeBoundingBox(); bbox.copy(o.geometry.boundingBox).applyMatrix4(im); return [(bbox.min.x + bbox.max.x) / 2, bbox.max.y, (bbox.min.z + bbox.max.z) / 2] }
+    //  ★219-c 판 한 장 = 색 하나이므로 **상면 다점 평균**을 쓴다. 한 점 대표는 그 점이 우연히 위 판에 가리면 판 전체가 0.04로 떨어져
+    //   나선을 따라 0.04↔1.0이 불규칙하게 튄다(현도 화면). 표본 = 상면 네 귀(면적 60% 안쪽 · 상자 밖으로 안 나가게) + 중심.
+    const instTopSamples = (o, k) => { o.getMatrixAt(k, im); im.premultiply(o.matrixWorld); if (!o.geometry.boundingBox) o.geometry.computeBoundingBox(); bbox.copy(o.geometry.boundingBox).applyMatrix4(im)
+      const cx = (bbox.min.x + bbox.max.x) / 2, cz = (bbox.min.z + bbox.max.z) / 2, hx = (bbox.max.x - bbox.min.x) * 0.3, hz = (bbox.max.z - bbox.min.z) * 0.3, y = bbox.max.y
+      return [[cx, y, cz], [cx - hx, y, cz - hz], [cx + hx, y, cz - hz], [cx - hx, y, cz + hz], [cx + hx, y, cz + hz]] }
+    //  ★219-d′ 걷는 판 = 발광 벽과 같은 밝기(현도 지시 "상단면들은 전부 흰색"). 노브 끄면 다점 평균 AO로 돌아간다.
+    const shadeInstance = (o, k) => { if (ZI_TREAD_LIT && o.userData.walkable === true) return ZI_WALL_SELF
+      const ss = instTopSamples(o, k); let a = 0; for (const p of ss) a += zoneIShadeAt(p, [0, 1, 0], rayFn, B); return a / ss.length }
     //  ⑵ 부재 정점색(세계 p·n → 모델) · 인스턴스 = 중심점·위 향
-    let nMesh = 0, nInst = 0, nVert = 0, nEmit = 0
+    const ipts = zoneIInteriorPoints(B.spec)
+    let nMesh = 0, nInst = 0, nVert = 0, nEmit = 0, nExt = 0
     const bakeMesh = (o) => {
       if (!o.isMesh || !o.geometry) return
       const mats = [].concat(o.material); if (!mats.every((m) => m && m.isMeshStandardMaterial)) return
       const g = o.geometry; o.updateWorldMatrix(true, false)
       if (o.isInstancedMesh) { const c = new THREE.Color()
-        for (let k = 0; k < o.count; k++) o.setColorAt(k, c.setScalar(zoneIShadeAt(instTop(o, k), [0, 1, 0], rayFn, B)))
+        for (let k = 0; k < o.count; k++) o.setColorAt(k, c.setScalar(shadeInstance(o, k)))
         o.instanceColor.needsUpdate = true; nInst++; return }
       if (!g.attributes.normal) g.computeVertexNormals()
       if (g.userData.bakedZi) return
       nMat.getNormalMatrix(o.matrixWorld)
       const P = g.attributes.position, N = g.attributes.normal, col = new Float32Array(P.count * 3)
-      for (let i = 0; i < P.count; i++) { v.fromBufferAttribute(P, i).applyMatrix4(o.matrixWorld); nm.fromBufferAttribute(N, i).applyMatrix3(nMat).normalize()
-        const s = zoneIShadeAt([v.x, v.y, v.z], [nm.x, nm.y, nm.z], rayFn, B); col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = s }
-      //  ★219 발광 벽 정점 = ZI_WALL_SELF("빛이 나는 곳은 하얗다" — E 그루터기 규칙 승계). 무릎길·전망 몸의 관 접촉면이 여기 든다(CSG 출력은 비색인이라 삼각형끼리 정점을 안 나눈다)
+      //  ★219-g 삼각형 한 장마다 **가시성**으로 안팎을 먼저 가르고(좌표 상자 아님), 그 결과가 정하는 **방향**으로 음영을 낸다.
+      //   ⛔이 순서를 뒤집었던 것이 09.09의 병: 판정은 감김 법선, 음영은 정점 법선을 써서 서로 반대를 가리켰다 —
+      //    "안면이라 안 되돌리는데 빛은 못 받는" 면이 생겨 70㎡ 벽이 통째로 0.04로 남았다(실측). 이제 둘이 같은 방향을 쓴다.
+      //  ⚠기준은 **정점 법선 자신**이다: side는 감김 법선 기준이라, 정점 법선이 감김과 반대인 면(CSG·수입 기하에 흔하다)에서는 그대로 쓰면 또 어긋난다.
+      //   ⇒ 실내를 향하는 방향(desired = side·n_tri)과 그 정점의 법선을 직접 비교해 뒤집을지 정한다.
+      const side = new Int8Array(P.count)          // +1 그대로 · −1 뒤집어 · 0 = 바깥면(안 칠한다)
+      let nOut = 0, nIn = 0
+      eachTri(g, (a, b, c) => { const W = triWorld(o, g, a, b, c); const n = triN(W); if (!n) return
+        const vis = zoneIVisibleFromInside(triC(W), n, rayFn, ipts, B.spec)
+        if (!vis.inward) { nOut += 3; return }
+        nIn += 3
+        const want = [n[0] * vis.side, n[1] * vis.side, n[2] * vis.side]
+        for (const i of [a, b, c]) { nm.fromBufferAttribute(N, i).applyMatrix3(nMat)
+          side[i] = (nm.x * want[0] + nm.y * want[1] + nm.z * want[2]) < 0 ? -1 : 1 } })
+      for (let i = 0; i < P.count; i++) {
+        if (side[i] === 0) { col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = 1; continue }   // 바깥면 = 기준선 복원(재질 원색과 같다 — ZI 이전 측정)
+        v.fromBufferAttribute(P, i).applyMatrix4(o.matrixWorld); nm.fromBufferAttribute(N, i).applyMatrix3(nMat).normalize()
+        //  정점 법선이 가시성이 정한 쪽과 어긋나면 뒤집어 쓴다(부드러운 법선의 뉘앙스는 살리고 방향만 바로잡는다)
+        if (side[i] < 0) nm.negate()
+        const sh = zoneIShadeAt([v.x, v.y, v.z], [nm.x, nm.y, nm.z], rayFn, B)
+        col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = sh
+      }
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.userData.bakedZi = true; nVert += nIn; nExt += nOut
+      //  ★219 발광 벽 정점 = ZI_WALL_SELF("빛이 나는 곳은 하얗다" — E 그루터기 규칙 승계). 무릎길·전망 몸의 관 접촉면이 여기 든다.
       let nEm = 0
       eachTri(g, (a, b, c) => { const W = triWorld(o, g, a, b, c); const n = triN(W); if (!n) return; const cc = triC(W)
         if (!zoneIWallTri(cc, n, B.spec) && !zoneIWallTri(cc, [-n[0], -n[1], -n[2]], B.spec)) return
         for (const i of [a, b, c]) { col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = ZI_WALL_SELF; nEm++ } })
-      g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.userData.bakedZi = true; nVert += P.count; nEmit += nEm
+      nEmit += nEm
+      g.attributes.color.needsUpdate = true
       mats.forEach((m) => { m.vertexColors = true; m.needsUpdate = true }); nMesh++
     }
     for (const m of members) bakeMesh(m)
@@ -113,7 +148,7 @@ export function ZoneILight() {
     //  ⑶ 판 인스턴스 — 방 천장 위(zoneIOwns)만 덧쓴다(방 안 = E 값 그대로)
     for (const p of plates) { const c = new THREE.Color(); let n = 0
       for (let k = 0; k < p.count; k++) { p.getMatrixAt(k, im); v.setFromMatrixPosition(im).applyMatrix4(p.matrixWorld); const pw = [v.x, v.y, v.z]
-        if (!zoneIOwns(pw, B.spec)) continue; if (!p.instanceColor) p.setColorAt(k, c.setScalar(1)); p.setColorAt(k, c.setScalar(zoneIShadeAt(instTop(p, k), [0, 1, 0], rayFn, B))); n++ }
+        if (!zoneIOwns(pw, B.spec)) continue; if (!p.instanceColor) p.setColorAt(k, c.setScalar(1)); p.setColorAt(k, c.setScalar(shadeInstance(p, k))); n++ }
       if (n) { p.instanceColor.needsUpdate = true; nInst++ } }
     //  ⑷ 목적지 리브 — 삼각형 중심 소속(관 안면 ∧ 천장 위) → 세 정점 색 = 발광체 · aZi = 1 · 게이트 패치
     for (const r of rib) { const g = r.geometry, P = g.attributes.position; if (!P) continue
@@ -126,7 +161,7 @@ export function ZoneILight() {
       ;[].concat(r.material).forEach((m) => { m.vertexColors = true; chain(m, ziPatch, '|zi'); m.needsUpdate = true }); nMesh++
       console.info(`[ZI] 리브 관 안면(천장 위) 삼각형 ${n}`) }
     bootPass('ZI', t0)
-    console.info(`[ZI] ★219 구역 I: 소프 ${kinds.length}tri(발광 ${kinds.filter((k) => k === 'glow').length}) · 정점색 메시 ${nMesh}(정점 ${nVert}) · 인스턴스 ${nInst} · 발광 벽 정점 ${nEmit} · 광선 ${nRay} · eRefHole ${B.eRefHole.toExponential(2)} · ms 소프 ${(tS - t0).toFixed(0)} bvh ${(tB - tS).toFixed(0)} 부재 ${(tM - tB).toFixed(0)} 판·리브 ${(bootNow() - tM).toFixed(0)}`)
+    console.info(`[ZI] ★219 구역 I: 소프 ${kinds.length}tri(발광 ${kinds.filter((k) => k === 'glow').length}) · 정점색 메시 ${nMesh}(정점 ${nVert}) · 인스턴스 ${nInst} · 발광 벽 정점 ${nEmit} · 바깥면 정점 ${nExt} · 판 ${kinds.filter((k) => k === 'tread').length}tri · 광선 ${nRay} · eRefHole ${B.eRefHole.toExponential(2)} · ms 소프 ${(tS - t0).toFixed(0)} bvh ${(tB - tS).toFixed(0)} 부재 ${(tM - tB).toFixed(0)} 판·리브 ${(bootNow() - tM).toFixed(0)}`)
     invalidate()
   })
   if (!geos) return null

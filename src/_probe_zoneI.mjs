@@ -138,7 +138,7 @@ const PHI = K.RIB_DEST_PHI, RIN = K.SHELL_RIB_R - K.RIB_WALL_T
 const axisOf = (y) => { const r = K.rOf(y / K.H); return [r * Math.cos(PHI), y, r * Math.sin(PHI)] }
 const axDist = (p) => { const a = axisOf(p[1]); return Math.hypot(p[0] - a[0], p[2] - a[2]) }
 const FRB = LM.friezeRoomBox(), ceilAt = (x) => LM.friezeRoomCeil(x, FRB)
-const members = []
+const members = [], darkFaces = []
 const v = new THREE.Vector3(), im = new THREE.Matrix4()
 scene.traverse((o) => {
   if (!o.isMesh) return
@@ -155,12 +155,32 @@ scene.traverse((o) => {
       if (axDist(p) <= RIN + 0.3 && p[1] >= 166) { nBore++; if (p[1] > ceilAt(p[0])) { nAbove++; if (C) { const k = C.getX(i).toFixed(2); hist[k] = (hist[k] || 0) + 1 } } } }
     let zh = {}, zmin = 9, zmax = -9; if (C && o.userData.__comp !== 'HallDoorRibs') for (let i = 0; i < C.count; i++) { const c = C.getX(i); zmin = Math.min(zmin, c); zmax = Math.max(zmax, c); const k = (Math.round(c * 10) / 10).toFixed(1); zh[k] = (zh[k] || 0) + 1 }
     const aZi = g.attributes.aZi; let nZi = 0; if (aZi) for (let i = 0; i < aZi.count; i++) if (aZi.getX(i) > 0.5) nZi++
+    row.own = [g.userData.bakedZi ? 'ZI' : '', g.userData.bakedDsk ? 'DSK' : '', g.userData.dskOwner ? 'own' : ''].filter(Boolean).join('+') || '-'
     Object.assign(row, { yMin: +yMin.toFixed(1), yMax: +yMax.toFixed(1), nBore, nAbove, hist, zh, zmin: +zmin.toFixed(3), zmax: +zmax.toFixed(3), nZi })
   }
   if (o.isInstancedMesh) { const c = new THREE.Color(); let nAbove = 0, hist = {}, yMin = 1e9, yMax = -1e9
     for (let i = 0; i < o.count; i++) { o.getMatrixAt(i, im); v.setFromMatrixPosition(im).applyMatrix4(o.matrixWorld); const p = [v.x, v.y, v.z]; yMin = Math.min(yMin, p[1]); yMax = Math.max(yMax, p[1])
       if (p[1] > ceilAt(p[0]) && axDist(p) <= RIN + 0.3) { nAbove++; if (o.instanceColor) { o.getColorAt(i, c); const k = c.r.toFixed(2); hist[k] = (hist[k] || 0) + 1 } } }
     Object.assign(row, { yMin: +yMin.toFixed(1), yMax: +yMax.toFixed(1), nAbove, hist }) }
+  //  ★219-f 큰 검은 **면** 특정 — 세 정점이 다 어둡고(≤0.15) 면적이 큰 삼각형(현도 화면 x169.9 y254 z10.7)
+  if (P && C) { const cam2 = new THREE.Vector3(169.92, 253.95, 10.66), a3 = new THREE.Vector3(), b3 = new THREE.Vector3(), c3 = new THREE.Vector3()
+    const II = g.index, nn = II ? II.count : P.count
+    for (let i = 0; i + 2 < nn; i += 3) { const ids = [0, 1, 2].map((k) => (II ? II.getX(i + k) : i + k))
+      if (!ids.every((id) => C.getX(id) <= 0.15)) continue
+      a3.fromBufferAttribute(P, ids[0]).applyMatrix4(o.matrixWorld); b3.fromBufferAttribute(P, ids[1]).applyMatrix4(o.matrixWorld); c3.fromBufferAttribute(P, ids[2]).applyMatrix4(o.matrixWorld)
+      const ar = b3.clone().sub(a3).cross(c3.clone().sub(a3)).length() / 2
+      if (ar < 4) continue
+      const ctr = a3.clone().add(b3).add(c3).multiplyScalar(1 / 3)
+      const nrm = b3.clone().sub(a3).cross(c3.clone().sub(a3)).normalize()
+      darkFaces.push({ comp: o.userData.__comp || '?', ar: +ar.toFixed(1), d: +ctr.distanceTo(cam2).toFixed(1), c: ctr.toArray().map((x) => +x.toFixed(1)), n: nrm.toArray().map((x) => +x.toFixed(2)), col: +C.getX(ids[0]).toFixed(3), path: pathOf(o) }) } }
+  //  ★219-e 현도 화면(x151.8 y262.3 z9.8)에서 검게 보이는 메시 특정 — 어두운 정점(≤0.1)이 있는 메시의 세계 bbox·최근접 거리
+  if (row.zmin !== undefined && row.zmin <= 0.1 && P) { const bb = new THREE.Box3()
+    for (let i = 0; i < P.count; i++) { v.fromBufferAttribute(P, i).applyMatrix4(o.matrixWorld); bb.expandByPoint(v) }
+    const cam = new THREE.Vector3(151.79, 262.34, 9.77)
+    row.bbox = [bb.min.toArray().map((x) => +x.toFixed(1)), bb.max.toArray().map((x) => +x.toFixed(1))]
+    row.dist = +bb.distanceToPoint(cam).toFixed(1)
+    let nDark = 0; if (C) for (let i = 0; i < C.count; i++) if (C.getX(i) <= 0.1) nDark++
+    row.nDark = nDark }
   members.push(row)
 })
 
@@ -190,7 +210,7 @@ let wps = []
 try { const W = await import('${join(process.cwd(), 'src/waypoints.js')}'); const list = (W.WAYPOINTS || W.default || W.waypoints || []); for (const w of list) if (wp.includes(w.id)) wps.push({ id: w.id, x: +w.x.toFixed(2), y: +w.y.toFixed(2), z: +w.z.toFixed(2), ax: +axDist([w.x, w.y, w.z]).toFixed(2), ceil: +ceilAt(w.x).toFixed(2), inBore: spec ? LM.friezeLightInBore([w.x, w.y, w.z], spec) : null, dskIn: D ? LM.dskirtInterior([w.x, w.y, w.z], D) : null, frag: dskFragIn([w.x, w.y, w.z]) }) } catch (e) { errs.push('waypoints: ' + e.message) }
 import { writeFileSync as WF } from 'fs'
 if (globalThis.window.__ethicaZi) { WF('/tmp/zi_soup.bin', Buffer.from(globalThis.window.__ethicaZi.soup.buffer)); WF('/tmp/zi_kinds.json', JSON.stringify(globalThis.window.__ethicaZi.kinds)) }
-WF('${RESULT}', JSON.stringify({ errs, logs, members, sweep, wps, consts: { PHI, RIN, H: K.H, R: spec ? spec.R : null, ribs: spec ? spec.ribs.map((r) => ({ k: r.k, yTop: +r.yTop.toFixed(3), top: r.top.map((x) => +x.toFixed(3)), stubLen: +r.stubLen.toFixed(3) })) : null, FRB } }))
+WF('${RESULT}', JSON.stringify({ errs, logs, members, darkFaces, sweep, wps, consts: { PHI, RIN, H: K.H, R: spec ? spec.R : null, ribs: spec ? spec.ribs.map((r) => ({ k: r.k, yTop: +r.yTop.toFixed(3), top: r.top.map((x) => +x.toFixed(3)), stubLen: +r.stubLen.toFixed(3) })) : null, FRB } }))
 process.exit(0)
 `)
 if (!REPORT) execSync(`node ${process.env.PROF ? "--cpu-prof --cpu-prof-dir=/tmp/prof " : ""}${runner}`, { stdio: ['ignore', 'inherit', 'inherit'] })
@@ -198,7 +218,13 @@ const R = JSON.parse(readFileSync(RESULT, 'utf-8'))
 console.log('상수:', JSON.stringify(R.consts)); for (const l of R.logs) if (/\[ZI|\[ethica/.test(l)) console.log('  ' + l)
 if (R.errs.length) console.log('오류:', R.errs.join(' | '))
 console.log('\n── ⓐ 구역 I 후보 부재 ──')
-for (const m of R.members) console.log(`${m.comp.padEnd(14)} ${m.inst ? 'inst×' + m.count : 'mesh'} v${m.verts} y${m.yMin}~${m.yMax} 색:${m.hasColor ? 'V' : '-'}${m.instColor ? 'I' : ''} aZi:${m.nZi ?? '-'} 태그[${m.tags}] ${m.zmin !== undefined && m.zmin < 9 ? 'ZI값 ' + m.zmin + '~' + m.zmax + ' ' + JSON.stringify(m.zh) : ''} ${m.inst ? '천장위 인스턴스색 ' + JSON.stringify(m.hist) : ''}`)
+for (const m of R.members) console.log(`${m.comp.padEnd(14)} ${m.inst ? 'inst×' + m.count : 'mesh'} 주인:${(m.own || '-').padEnd(7)} v${m.verts} y${m.yMin}~${m.yMax} 색:${m.hasColor ? 'V' : '-'}${m.instColor ? 'I' : ''} aZi:${m.nZi ?? '-'} 태그[${m.tags}] ${m.zmin !== undefined && m.zmin < 9 ? 'ZI값 ' + m.zmin + '~' + m.zmax + ' ' + JSON.stringify(m.zh) : ''} ${m.inst ? '천장위 인스턴스색 ' + JSON.stringify(m.hist) : ''}`)
+console.log('\n── ⓕ 큰 검은 면(면적 ≥4㎡ · 현도 화면 근처 순) ──')
+for (const f of (R.darkFaces || []).sort((a, b) => a.d - b.d).slice(0, 16))
+  console.log(`d${String(f.d).padStart(6)} ${String(f.ar).padStart(7)}㎡ ${f.comp.padEnd(14)} 값${f.col} 중심${JSON.stringify(f.c)} 법선${JSON.stringify(f.n)}\n     ${f.path}`)
+console.log('\n── ⓔ 어두운 메시(현도 화면 근처 순) ──')
+for (const m of R.members.filter((x) => x.bbox).sort((a, b) => a.dist - b.dist).slice(0, 14))
+  console.log(`d${String(m.dist).padStart(6)} ${m.comp.padEnd(14)} v${m.verts} 어두움${m.nDark} 값${m.zmin}~${m.zmax} bbox${JSON.stringify(m.bbox)}\n     ${m.path}`)
 console.log('\n── ⓑ 축 스윕(y × 축거리 rr) — inBore/dskIn/frIn/조각게이트 ──')
 const prev = {}
 for (const s of R.sweep) { const key = `${s.inBore}|${s.dskIn}|${s.frIn}|${s.frag}`; if (key !== prev[s.rr]) { console.log(`rr${s.rr} y${s.y.toFixed(1).padStart(6)} x${s.x} z${s.z} 천장${s.ceil}  inBore=${s.inBore} dskIn=${s.dskIn} frIn=${s.frIn} frag=${s.frag}`); prev[s.rr] = key } }
