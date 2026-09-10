@@ -8,7 +8,7 @@ import * as THREE from 'three'
 import { useFrame, useThree, invalidate } from '@react-three/fiber'
 import { MeshBVH } from 'three-mesh-bvh'
 import { ZI_ON, ZI_VOL_ON, ZI_OP, ZI_FADE_POW, ZI_TOPF, ZI_COLOR, ZI_WALL_SELF, ZI_TREAD_LIT, DSK_ON } from './constants.js'
-import { zoneIBake, zoneIShadeAt, zoneIWallTri, zoneIEmitTri, zoneIVisibleFromInside, zoneIInteriorPoints, zoneIOwns, zoneITubeTris, ziToLocal } from './lightingModel.js'
+import { zoneIBake, zoneIShadeAt, zoneIWallTri, zoneIEmitTri, zoneIVisibleFromInside, zoneIFillFace, zoneIInteriorPoints, zoneIOwns, zoneITubeTris, ziToLocal } from './lightingModel.js'
 import { FRL_TUBE_VERT, FRL_TUBE_FRAG } from './Corridor.jsx'
 import { bootNow, bootPass } from './bootProbe.js'
 
@@ -84,7 +84,7 @@ export function ZoneILight() {
     { const nv = soupPos.length / 3, id = new Uint32Array(nv); for (let i = 0; i < nv; i++) id[i] = i; soup.setIndex(new THREE.BufferAttribute(id, 1)) }
     const tS = bootNow(); const bvh = new MeshBVH(soup); const tB = bootNow()
     const SIDX = soup.index.array, kindOfHit = (fi) => kinds[(SIDX[fi * 3] / 3) | 0]
-    if (typeof window !== 'undefined') window.__ethicaZi = { soup: soup.attributes.position.array, kinds }   // 개발 핸들(★216 __ethicaBoot 어법) — 프로브가 소프를 꺼내 광선 성능을 잰다
+    if (typeof window !== 'undefined') window.__ethicaZi = { soup: soup.attributes.position.array, kinds }   // 개발 핸들(★216 __ethicaBoot 어법) — 프로브가 소프를 꺼내 광선 성능을 잰다 · ★219-h 아래서 records·rayFn·B·ipts를 덧단다
     let nRay = 0
     const ray = new THREE.Ray(), rayFn = (o, d, maxD) => { nRay++; ray.origin.set(o[0], o[1], o[2]); ray.direction.set(d[0], d[1], d[2]); const h = bvh.raycastFirst(ray, THREE.DoubleSide, 0, maxD); if (!h) return null; return { dist: h.distance, kind: kindOfHit(h.faceIndex) } }
     //  인스턴스 표본점 = 인스턴스 **상면 중심**(중심점은 상자 속이라 광선이 제 윗면을 맞힌다 — DSK는 가림이 없어 중심점으로 충분했다) · 위 향
@@ -99,6 +99,7 @@ export function ZoneILight() {
       const ss = instTopSamples(o, k); let a = 0; for (const p of ss) a += zoneIShadeAt(p, [0, 1, 0], rayFn, B); return a / ss.length }
     //  ⑵ 부재 정점색(세계 p·n → 모델) · 인스턴스 = 중심점·위 향
     const ipts = zoneIInteriorPoints(B.spec)
+    const records = []   // ★219-h 베이크한 메시와 삼각형별 안팎 판정 — _probe_zoneI --verify가 값과 대조한다
     let nMesh = 0, nInst = 0, nVert = 0, nEmit = 0, nExt = 0
     const bakeMesh = (o) => {
       if (!o.isMesh || !o.geometry) return
@@ -117,12 +118,16 @@ export function ZoneILight() {
       //  ⚠기준은 **정점 법선 자신**이다: side는 감김 법선 기준이라, 정점 법선이 감김과 반대인 면(CSG·수입 기하에 흔하다)에서는 그대로 쓰면 또 어긋난다.
       //   ⇒ 실내를 향하는 방향(desired = side·n_tri)과 그 정점의 법선을 직접 비교해 뒤집을지 정한다.
       const side = new Int8Array(P.count)          // +1 그대로 · −1 뒤집어 · 0 = 바깥면(안 칠한다)
-      let nOut = 0, nIn = 0
-      eachTri(g, (a, b, c) => { const W = triWorld(o, g, a, b, c); const n = triN(W); if (!n) return
+      const fillV = new Uint8Array(P.count)        // ★219-h 공극에 면한 삼각형의 정점 = 1(zoneIShadeAt faceFill — 귀퉁이가 상자 밖이라도 채움)
+      const triSide = new Int8Array(((g.index ? g.index.count : P.count) / 3) | 0)   // ★219-h 삼각형별 판정 기록(±1 안면·0 바깥면·2 퇴화) — 전수 대조 프로브 몫
+      let nOut = 0, nIn = 0, ti = 0
+      eachTri(g, (a, b, c) => { const W = triWorld(o, g, a, b, c); const n = triN(W); const t = ti++; if (!n) { triSide[t] = 2; return }
         const vis = zoneIVisibleFromInside(triC(W), n, rayFn, ipts, B.spec)
+        triSide[t] = vis.inward ? vis.side : 0
         if (!vis.inward) { nOut += 3; return }
         nIn += 3
         const want = [n[0] * vis.side, n[1] * vis.side, n[2] * vis.side]
+        if (zoneIFillFace(triC(W), want, B.spec)) { fillV[a] = 1; fillV[b] = 1; fillV[c] = 1 }
         for (const i of [a, b, c]) { nm.fromBufferAttribute(N, i).applyMatrix3(nMat)
           side[i] = (nm.x * want[0] + nm.y * want[1] + nm.z * want[2]) < 0 ? -1 : 1 } })
       for (let i = 0; i < P.count; i++) {
@@ -130,10 +135,11 @@ export function ZoneILight() {
         v.fromBufferAttribute(P, i).applyMatrix4(o.matrixWorld); nm.fromBufferAttribute(N, i).applyMatrix3(nMat).normalize()
         //  정점 법선이 가시성이 정한 쪽과 어긋나면 뒤집어 쓴다(부드러운 법선의 뉘앙스는 살리고 방향만 바로잡는다)
         if (side[i] < 0) nm.negate()
-        const sh = zoneIShadeAt([v.x, v.y, v.z], [nm.x, nm.y, nm.z], rayFn, B)
+        const sh = zoneIShadeAt([v.x, v.y, v.z], [nm.x, nm.y, nm.z], rayFn, B, false, fillV[i] === 1)
         col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = sh
       }
       g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.userData.bakedZi = true; nVert += nIn; nExt += nOut
+      records.push({ o, triSide })   // ★219-h 전수 대조 프로브에 판정을 넘긴다(개발 핸들 — 렌더 무관)
       //  ★219 발광 벽 정점 = ZI_WALL_SELF("빛이 나는 곳은 하얗다" — E 그루터기 규칙 승계). 무릎길·전망 몸의 관 접촉면이 여기 든다.
       let nEm = 0
       eachTri(g, (a, b, c) => { const W = triWorld(o, g, a, b, c); const n = triN(W); if (!n) return; const cc = triC(W)
@@ -160,6 +166,7 @@ export function ZoneILight() {
       col.needsUpdate = true; g.setAttribute('aZi', new THREE.BufferAttribute(zi, 1)); g.userData.bakedZi = true
       ;[].concat(r.material).forEach((m) => { m.vertexColors = true; chain(m, ziPatch, '|zi'); m.needsUpdate = true }); nMesh++
       console.info(`[ZI] 리브 관 안면(천장 위) 삼각형 ${n}`) }
+    if (typeof window !== 'undefined' && window.__ethicaZi) Object.assign(window.__ethicaZi, { records, rayFn, B, ipts })   // ★219-h 전수 대조 핸들
     bootPass('ZI', t0)
     console.info(`[ZI] ★219 구역 I: 소프 ${kinds.length}tri(발광 ${kinds.filter((k) => k === 'glow').length}) · 정점색 메시 ${nMesh}(정점 ${nVert}) · 인스턴스 ${nInst} · 발광 벽 정점 ${nEmit} · 바깥면 정점 ${nExt} · 판 ${kinds.filter((k) => k === 'tread').length}tri · 광선 ${nRay} · eRefHole ${B.eRefHole.toExponential(2)} · ms 소프 ${(tS - t0).toFixed(0)} bvh ${(tB - tS).toFixed(0)} 부재 ${(tM - tB).toFixed(0)} 판·리브 ${(bootNow() - tM).toFixed(0)}`)
     invalidate()

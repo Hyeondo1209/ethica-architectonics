@@ -8,13 +8,15 @@
 //      지붕 높이맵 아래인가)를 같은 식으로 재현해 "어디서 1.0 칠이 시작·끊기나"를 표로 낸다.
 //  사용: node src/_probe_zoneI.mjs            (스윕 표 + 부재 표)
 //        node src/_probe_zoneI.mjs --report   (직전 실행 결과만 다시)
+//        node src/_probe_zoneI.mjs --verify   ★219-h 전수 대조(구역 I 전 삼각형 안팎 판정↔구운 값 · _probe_zoneI_verify.mjs) — 불일치가 있으면 종료 코드 1
+//                                              (check_lux [520]·[521]이 못 박은 한계의 반쪽 = 장면 있는 검사. 조립 뒤 베이크가 남긴 records·rayFn을 그대로 쓴다)
 import { execSync } from 'child_process'
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
 const ARGS = process.argv.slice(2)
-const REPORT = ARGS.includes('--report')
+const REPORT = ARGS.includes('--report'), VERIFY = ARGS.includes('--verify')
 const RESULT = join(tmpdir(), 'ethica_zoneI_last.json')
 const dir = mkdtempSync(join(tmpdir(), 'ethica-zi-'))
 const bdir = join(process.cwd(), '.tmp_probe_zoneI'); mkdirSync(bdir, { recursive: true })
@@ -210,13 +212,32 @@ let wps = []
 try { const W = await import('${join(process.cwd(), 'src/waypoints.js')}'); const list = (W.WAYPOINTS || W.default || W.waypoints || []); for (const w of list) if (wp.includes(w.id)) wps.push({ id: w.id, x: +w.x.toFixed(2), y: +w.y.toFixed(2), z: +w.z.toFixed(2), ax: +axDist([w.x, w.y, w.z]).toFixed(2), ceil: +ceilAt(w.x).toFixed(2), inBore: spec ? LM.friezeLightInBore([w.x, w.y, w.z], spec) : null, dskIn: D ? LM.dskirtInterior([w.x, w.y, w.z], D) : null, frag: dskFragIn([w.x, w.y, w.z]) }) } catch (e) { errs.push('waypoints: ' + e.message) }
 import { writeFileSync as WF } from 'fs'
 if (globalThis.window.__ethicaZi) { WF('/tmp/zi_soup.bin', Buffer.from(globalThis.window.__ethicaZi.soup.buffer)); WF('/tmp/zi_kinds.json', JSON.stringify(globalThis.window.__ethicaZi.kinds)) }
-WF('${RESULT}', JSON.stringify({ errs, logs, members, darkFaces, sweep, wps, consts: { PHI, RIN, H: K.H, R: spec ? spec.R : null, ribs: spec ? spec.ribs.map((r) => ({ k: r.k, yTop: +r.yTop.toFixed(3), top: r.top.map((x) => +x.toFixed(3)), stubLen: +r.stubLen.toFixed(3) })) : null, FRB } }))
+//  ★219-h 전수 대조 — 베이크가 남긴 삼각형별 판정(records)과 정점색을 같은 광선 함수로 대조
+let verify = null
+if (globalThis.window.__ethicaZi && globalThis.window.__ethicaZi.records) { const V = await import('${join(process.cwd(), 'src/_probe_zoneI_verify.mjs')}'); verify = V.verifyZoneI(THREE, globalThis.window.__ethicaZi) }
+WF('${RESULT}', JSON.stringify({ errs, logs, members, darkFaces, sweep, wps, verify, consts: { PHI, RIN, H: K.H, R: spec ? spec.R : null, ribs: spec ? spec.ribs.map((r) => ({ k: r.k, yTop: +r.yTop.toFixed(3), top: r.top.map((x) => +x.toFixed(3)), stubLen: +r.stubLen.toFixed(3) })) : null, FRB } }))
 process.exit(0)
 `)
 if (!REPORT) execSync(`node ${process.env.PROF ? "--cpu-prof --cpu-prof-dir=/tmp/prof " : ""}${runner}`, { stdio: ['ignore', 'inherit', 'inherit'] })
 const R = JSON.parse(readFileSync(RESULT, 'utf-8'))
 console.log('상수:', JSON.stringify(R.consts)); for (const l of R.logs) if (/\[ZI|\[ethica/.test(l)) console.log('  ' + l)
 if (R.errs.length) console.log('오류:', R.errs.join(' | '))
+if (VERIFY) {
+  const V = R.verify
+  if (!V) { console.log('\n── ★219-h 전수 대조 — records 없음(ZI_ON=false거나 베이크 미실행)'); process.exit(2) }
+  console.log('\n── ★219-h 전수 대조: 안팎 판정 ↔ 구운 값 (구역 I 정점색 메시 전 삼각형) ──')
+  console.log(`삼각형 ${V.nTri} = 안면 ${V.nIn}(${V.areaIn}㎡) · 바깥면 ${V.nOut}(${V.areaOut}㎡) · 퇴화 ${V.nDeg}`)
+  console.log(`Ⓒ 안면 정점평균 − 중심 재계산: n${V.diff.n} min${V.diff.min} p01${V.diff.p01} p10${V.diff.p10} p50${V.diff.p50} p90${V.diff.p90} p99${V.diff.p99} max${V.diff.max}`)
+  console.log(`Ⓒ 정보 — 면 ≥1㎡ 중 정점평균이 중심보다 0.3 넘게 어두운 면 ${V.nC} (면적순 상위):`)
+  for (const f of V.Cface) console.log(`     ${f.comp.padEnd(14)} ${String(f.ar).padStart(7)}㎡ 정점${JSON.stringify(f.cols)} 평균${f.mean} 중심${f.ref} 중심좌표${JSON.stringify(f.c)} 법선${JSON.stringify(f.n)}`)
+  for (const r of V.rows) console.log(`  ${r.comp.padEnd(14)} ${r.indexed ? 'idx' : 'raw'} tri${String(r.tris).padStart(6)} 안${String(r.in).padStart(6)} 밖${String(r.out).padStart(6)}  Ⓐ${r.A}(${r.arA}㎡) Ⓑ${r.B}`)
+  const okA = V.nA === 0, okB = V.nB === 0
+  console.log(`${okA ? '✓' : '✗'} Ⓐ 안면인데 어둠(세 정점 ≤ DIM · 중심 재계산은 밝음) = ${V.nA}면 ${V.areaA}㎡ (기대 0)`)
+  for (const f of V.Aface) console.log(`     ${f.comp.padEnd(14)} ${String(f.ar).padStart(7)}㎡ 재계산${f.ref} side${f.side} 중심${JSON.stringify(f.c)} 법선${JSON.stringify(f.n)}`)
+  console.log(`${okB ? '✓' : '✗'} Ⓑ 바깥면인데 칠함(안면과 공유하지 않는 정점 값 ≠ 1) = ${V.nB}정점 (기대 0)`)
+  for (const b of V.Bvert) console.log(`     ${b.comp.padEnd(14)} #${b.id} 값${b.col} ${JSON.stringify(b.p)}`)
+  process.exit(okA && okB ? 0 : 1)
+}
 console.log('\n── ⓐ 구역 I 후보 부재 ──')
 for (const m of R.members) console.log(`${m.comp.padEnd(14)} ${m.inst ? 'inst×' + m.count : 'mesh'} 주인:${(m.own || '-').padEnd(7)} v${m.verts} y${m.yMin}~${m.yMax} 색:${m.hasColor ? 'V' : '-'}${m.instColor ? 'I' : ''} aZi:${m.nZi ?? '-'} 태그[${m.tags}] ${m.zmin !== undefined && m.zmin < 9 ? 'ZI값 ' + m.zmin + '~' + m.zmax + ' ' + JSON.stringify(m.zh) : ''} ${m.inst ? '천장위 인스턴스색 ' + JSON.stringify(m.hist) : ''}`)
 console.log('\n── ⓕ 큰 검은 면(면적 ≥4㎡ · 현도 화면 근처 순) ──')

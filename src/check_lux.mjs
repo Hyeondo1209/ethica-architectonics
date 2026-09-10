@@ -2817,6 +2817,25 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
     T(`⛔반증 — 전 방향 가림에서도 전실 ${sRoom.toFixed(3)} · 채널 ${sChan.toFixed(3)} · **경계면 위 벽 안면** ${sWallIn.toFixed(3)} = 채움(${K.ZI_ROOM_FILL})으로 DIM(${K.ZI_DIM})보다 밝다 · 같은 벽 **바깥 향 법선** ${sWallOut.toFixed(3)} = DIM(밖은 안 받는다) · 관 속 ${sBore.toFixed(3)} = DIM(발광 벽이 채운다) · 채움 = ZI_BOUNCE 파생`,
       sRoom > K.ZI_DIM + 0.1 && sChan > K.ZI_DIM + 0.1 && sWallIn > K.ZI_DIM + 0.1 && Math.abs(sWallOut - K.ZI_DIM) < 1e-9 && Math.abs(sBore - K.ZI_DIM) < 1e-9 && K.ZI_ROOM_FILL === K.ZI_BOUNCE)
   }
+  //  ⑼ʰ ★219-h 벽 상자면 **귀퉁이** 채움 = 면 단위 — 전수 대조(_probe_zoneI --verify) 실측: −x벽 상자면(Dome.jsx RevealPassage `wall(RM_X0 − t/2, …, RM_ROOF + 2t, RM_Z1 − RM_Z0 + 2t)`)의
+  //   귀퉁이 정점은 공극 상자 밖 판 두께(0.6)에 놓여 점 규칙으로는 채움을 못 받고, 정점 4개가 43㎡를 덮으니 **벽 전체가 0.04**였다(중심 재계산 1.0 · 5면 125㎡).
+  //   해법 = 면이 정한다(zoneIFillFace: 삼각형 중심 + 안쪽 향 한 발짝이 공극 안) → 그 정점은 faceFill로 채움. 여유 띠는 기각(램프 밑동 784정점이 걸림 — 봉인 차분 실측).
+  //   귀퉁이 = builder 식 그대로 [RM_X0, floor + RM_ROOF + t, RM_Z1 + t] · 면 중심 = [RM_X0, floor + RM_ROOF/2, (RM_Z0+RM_Z1)/2](합성 좌표 아님). 점 규칙은 여전히 여유 0([523] 불변).
+  {
+    const t = K.PASS_T, corner = [K.RM_X0, K.PASS_FLOOR_Y + K.RM_ROOF + t, K.RM_Z1 + t], faceC = [K.RM_X0, K.PASS_FLOOR_Y + K.RM_ROOF / 2, (K.RM_Z0 + K.RM_Z1) / 2]
+    const allB4 = () => ({ dist: 0.5, kind: 'body' })
+    const cw = LM.ziToWorld(corner).map((x) => Math.fround(x)), nIn = LM.ziToWorld([1, 0, 0]), nOut = LM.ziToWorld([-1, 0, 0])   // float32 정점(베이크가 보는 것)
+    const sPt = LM.zoneIShadeAt(cw, nIn, allB4, B), sFace = LM.zoneIShadeAt(cw, nIn, allB4, B, false, true)
+    const fIn = LM.zoneIFillFace(LM.ziToWorld(faceC), nIn, Z), fOut = LM.zoneIFillFace(LM.ziToWorld(faceC), nOut, Z), fCorner = LM.zoneIFillFace(cw, nIn, Z)
+    T(`⛔귀퉁이 반증 — −x벽 상자면 귀퉁이(builder 식 · 상자 밖 z+${(corner[2] - Z.room.z1).toFixed(2)} y+${(corner[1] - Z.room.y1).toFixed(2)}): 점 규칙 ${sPt.toFixed(3)} = DIM(여유 0) · 면 규칙(faceFill) ${sFace.toFixed(3)} = 채움(${K.ZI_ROOM_FILL}) · 면 중심 안 향 = 공극 면(${fIn}) · 바깥 향 = 아님(${fOut}) · 귀퉁이 점 자신은 면이 아니다(${fCorner})`,
+      Math.abs(sPt - K.ZI_DIM) < 1e-9 && sFace > K.ZI_DIM + 0.1 && Math.abs(sFace - sPt - (1 - K.ZI_DIM) * K.ZI_K * K.ZI_ROOM_FILL) < 1e-9 && fIn && !fOut && !fCorner)
+    const lmG = readFileSync(new URL('./lightingModel.js', import.meta.url), 'utf8'), ziG2 = readFileSync(new URL('./ZoneI.jsx', import.meta.url), 'utf8'), prG = readFileSync(new URL('./_probe_zoneI.mjs', import.meta.url), 'utf8')
+    T('배선 — zoneIShadeAt 채움 = faceFill ∨ 점 규칙(여유 0) 한 곳 · ZoneI bakeMesh는 안면 삼각형마다 zoneIFillFace(중심·want)로 fillV를 표시해 정점 음영에 넘기고, 삼각형별 판정(triSide)을 records로 남겨 window.__ethicaZi에 rayFn·B·ipts와 함께 단다 · _probe_zoneI --verify가 그것으로 전 삼각형 판정↔값을 대조한다(장면 있는 검사 = [521] 한계의 반쪽)',
+      /faceFill \|\| inBox\(q, B\.spec\.room, 0\) \|\| inBox\(q, B\.spec\.chan, 0\)/.test(lmG) && !/ZI_FILL_MG|zoneIFillIn/.test(lmG)
+      && /if \(zoneIFillFace\(triC\(W\), want, B\.spec\)\) \{ fillV\[a\] = 1; fillV\[b\] = 1; fillV\[c\] = 1 \}/.test(ziG2) && /rayFn, B, false, fillV\[i\] === 1\)/.test(ziG2)
+      && /records\.push\(\{ o, triSide \}\)/.test(ziG2) && /Object\.assign\(window\.__ethicaZi, \{ records, rayFn, B, ipts \}\)/.test(ziG2)
+      && /VERIFY = ARGS\.includes\('--verify'\)/.test(prG) && /_probe_zoneI_verify\.mjs/.test(prG) && /process\.exit\(okA && okB \? 0 : 1\)/.test(prG))
+  }
   //  ⑼′ ★219-b 그루터기 이음 — 관 속: 천장 바로 위 = 1 · 천장+FADE/2 = 중간 · 천장+FADE 이상 = I 값 그대로 · 관 밖(전실 바닥점) = 그대로
   {
     const xr = LM.ziAxis((Z.yMouth + 8) / K.H)[0], cy = LM.friezeRoomCeil(LM.ziToWorld([xr, 0, 0])[0])

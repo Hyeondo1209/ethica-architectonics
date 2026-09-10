@@ -1848,7 +1848,7 @@ export function zoneIInterior(pl, Z = zoneISpec()) {
   return inBox(pl, Z.room, 0) || inBox(pl, Z.chan, 0) || ziNearest(pl).d < Z.rIn
 }
 /** ★219-g 실내 대표점 — 구역 I가 빛을 도는 **공간의 뼈대**: 관 축(아가리~전망 판, 관 지름 간격) + 전실 방·하강 채널 상자 중심 격자.
- *  가시성 판정(zoneIInwardTri)의 표적이다. 좌표 상자 판정이 아니라 **실제 기하로 광선을 쏴서** 안팎을 가르기 위한 것. */
+ *  가시성 판정(zoneIVisibleFromInside)의 표적이다. 좌표 상자 판정이 아니라 **실제 기하로 광선을 쏴서** 안팎을 가르기 위한 것. */
 export function zoneIInteriorPoints(Z = zoneISpec()) {
   if (!Z) return []
   const out = []
@@ -1963,7 +1963,16 @@ export function zoneIBake() {
   return { spec: Z, dirs, beam, hole, eRefHole: zoneIHoleERef(Z, hole) }
 }
 /** 정점 값 — 세계좌표 p·n(단위) · ray는 **로컬 좌표**로 받는 광선 함수 · emitter=true면 발광체(관 안면) = ZI_WALL_SELF */
-export function zoneIShadeAt(pw, nw, ray, B = zoneIBake(), emitter = false) {
+/** ★219-h 채움을 받는 **면**인가(세계 중심 cw · 안쪽 향 법선 nw) — 중심에서 법선 쪽 한 발짝이 공극 상자(방·채널) 안이면 그 면은 공극에 면한다.
+ *  왜 면 단위인가(전수 대조 실측 09.10): 전실 벽 상자면은 이음 겹침으로 공극보다 판 두께만큼 크고 정점 4개가 43㎡를 덮는다 — 귀퉁이 정점은 전부 공극 밖(0.6)이라
+ *  점 규칙만으로는 채움을 못 받아 벽 전체가 0.04로 보간됐다(중심 재계산 1.0 · 5면 125㎡). 면이 공극에 면하면 그 정점도 받는다(zoneIWallTri와 같은 어법 = 면이 정한다).
+ *  ⛔여유 띠(상자 밖 0.66 · 법선 조건)는 두 판 다 기각 — 전망 램프 밑동 784정점이 채널 상단 위 띠에 걸려 HEAD 값이 움직였다(봉인 차분이 잡음). 여유는 0이다. */
+export function zoneIFillFace(cw, nw, Z = zoneISpec(), d = ZI_RAY_EPS) {
+  if (!Z || !(ZI_ROOM_FILL > 0)) return false
+  const c = ziToLocal(cw), n = ziToLocal(nw), q = [c[0] + n[0] * d, c[1] + n[1] * d, c[2] + n[2] * d]
+  return inBox(q, Z.room, 0) || inBox(q, Z.chan, 0)
+}
+export function zoneIShadeAt(pw, nw, ray, B = zoneIBake(), emitter = false, faceFill = false) {
   if (!B) return 1
   if (emitter) return ZI_WALL_SELF
   const pl = ziToLocal(pw), nl = ziToLocal(nw)
@@ -1976,7 +1985,8 @@ export function zoneIShadeAt(pw, nw, ray, B = zoneIBake(), emitter = false) {
   //    (실측: 벽면 z −4.4 vs 경계 −4.35 → 채움 누락 → 70㎡ 벽이 그대로 0.04. 현도 "아직 검정색이야"의 잔여분).
   {
     const q = [pl[0] + nl[0] * ZI_RAY_EPS, pl[1] + nl[1] * ZI_RAY_EPS, pl[2] + nl[2] * ZI_RAY_EPS]
-    if (ZI_ROOM_FILL > 0 && (inBox(q, B.spec.room, 0) || inBox(q, B.spec.chan, 0))) E += ZI_ROOM_FILL
+    //   ★219-h faceFill: 이 정점이 속한 **면**이 공극에 면하면(zoneIFillFace — 베이크가 삼각형 중심으로 정한다) 점이 상자 밖 귀퉁이라도 채움을 받는다(벽 상자면 43㎡가 0.04로 보간되던 병).
+    if (ZI_ROOM_FILL > 0 && (faceFill || inBox(q, B.spec.room, 0) || inBox(q, B.spec.chan, 0))) E += ZI_ROOM_FILL
   }
   const sh = ZI_DIM + (1 - ZI_DIM) * ZI_K * Math.pow(Math.min(1, Math.max(0, E)), ZI_GAMMA)
   return zoneIStubBlend(pw, sh, B.spec)
