@@ -1775,7 +1775,7 @@ export function dskirtTris(strands, { radiusK = 1, sides = DSK_TUBE_SEG } = {}) 
 //   세계좌표 정점은 ziToLocal로 넘겨 재고, 결과는 좌표계 무관 스칼라. 소속 판정(관 안면 삼각형 · 방 천장 위)만 세계좌표(friezeRoomCeil)를 같이 본다.
 //  ⚠1차 근사 선언: ⓐ②의 가림은 광선 한 발 = 명중/미명중(부분 가림 없음) ⓑ관 안면은 아가리(yTop)부터 위로 전부 발광(그루터기 연속 · 관 끝은 무한) ⓒ①의 관 벽은 가림에서 제외(통로) ⓓ2차 반사는 전실 바닥 한 원판만.
 import { ZI_ON, ZI_GLOW_ON, ZI_BEAM_ON, ZI_HOLE_ON, ZI_R, ZI_DIM, ZI_GAMMA, ZI_K, ZI_WALL_SELF, ZI_STUB_FADE, ZI_AO_N, ZI_BEAM_N, ZI_HOLE_N, ZI_GLOW_K, ZI_BEAM_K, ZI_HOLE_K, ZI_HOLE_LOBE, ZI_BOUNCE,
-  ZI_SRC_DIST, ZI_VOL_R, ZI_VOL_LEN, ZI_VOL_DY, ZI_VOL_SEG, ZI_RAY_EPS, ZI_TREAD_REFL, ZI_ROOM_FILL, RIB_DEST_PHI, RIB_DEST_K, SHELL_RIB_R, RIB_WALL_T, RIB_RADIAL_SEG, PASS_FLOOR_Y, RM_ROOF, RM_X0, RM_X1, RM_Z0, RM_Z1,
+  ZI_SRC_DIST, ZI_VOL_R, ZI_VOL_LEN, ZI_VOL_DY, ZI_VOL_SEG, ZI_DISC_R, ZI_VOL_K, RM_SHAFT_OP, FRL_NORM_ON, ZI_WALL_DIP, ZI_WALL_DIP_RAMP, ZI_RAY_EPS, ZI_TREAD_REFL, ZI_ROOM_FILL, RIB_DEST_PHI, RIB_DEST_K, SHELL_RIB_R, RIB_WALL_T, RIB_RADIAL_SEG, PASS_FLOOR_Y, RM_ROOF, RM_X0, RM_X1, RM_Z0, RM_Z1,
   PASS_HW, PASS_T, JCT_DN_Z, PASS_X_CHEEK, CHEEK_TOP_NZ } from './constants.js'   // FRL_STUB_MG는 ★214 절 import에 이미 있다
 import { lightShaftSpec } from './junctionGeometry.js'   // ★71 빛 기둥 실기하 정본(판 윗면·관 안지름·오큘러스 — 사본 0)
 
@@ -1827,6 +1827,14 @@ export function zoneIOwns(pw, Z = zoneISpec()) {
  *     리브 메시에만 발광을 붙였더니 무릎길 전 구간이 DIM(0.04)이었다. 벽은 '누구의 삼각형인가'가 아니라 **어디를 향해 어디에 있는가**로 정한다.
  *   ⓑ 반경만으로는 안벽(5.78)과 바깥벽(6.0)을 못 가른다 — 10분할 패싯이라 삼각형 **중심**이 반경보다 안쪽(×cos18° = 0.951)에 떨어져 두 대역이 겹친다(실측 중심 5.51~6.0).
  *     ⇒ 위치는 넉넉한 띠로 두고, **법선이 축을 향하는가**로 가른다(안벽 = 축 향 · 바깥벽 = 반대). */
+/** ★219-o 관 벽의 어느 면인가 — 로컬 점 cl(축 최근접 n)의 둘레각 θ(면 중앙 0°·꼭짓점 18° 실측)로 안면·바깥면 반지름을 세우고 가까운 쪽. 'in' | 'out'
+ *  r_in(θ) = rIn·cos(π/10)/cos δ · r_out(θ) = (rIn+wallT)·cos(π/10)/cos δ(δ = 가장 가까운 면 중앙에서의 각). 두 값 간격 ≥ wallT·cos18° = 0.21 > 처짐 0.06. */
+export function ziBoreSide(cl, n = ziNearest(cl), Z = zoneISpec()) {
+  const t = ziTangent(n.u), rx = cl[0] - n.foot[0], ry = cl[1] - n.foot[1], rz = cl[2]
+  const inPlane = Math.hypot(rx, ry) * Math.sign(rx * t[1] - ry * t[0] || 1), th = Math.atan2(rz, inPlane)
+  const step = 2 * Math.PI / RIB_RADIAL_SEG, delta = th - step * Math.round(th / step), apo = Math.cos(Math.PI / RIB_RADIAL_SEG) / Math.cos(delta)
+  return Math.abs(n.d - Z.rIn * apo) <= Math.abs(n.d - (Z.rIn + Z.wallT) * apo) ? 'in' : 'out'
+}
 export function zoneIWallTri(cw, nw, Z = zoneISpec()) {
   if (!Z) return false
   //  ★219 **소속** 경계 = 방 천장(zoneIOwns와 같은 선): 아가리~천장 구간의 관 안면 색은 E 소관(★215-f가 1.0으로 칠한다).
@@ -1835,7 +1843,12 @@ export function zoneIWallTri(cw, nw, Z = zoneISpec()) {
   //    가림 분류(zoneIEmitTri)는 천장을 안 본다. 이 선을 겹쳐 놓았더니 나선 판이 "밝은 벽을 캄캄한 몸으로" 보고 glow 0이 됐다(실측 판 300~340 = 0.00~0.19).
   if (cw[1] <= friezeRoomCeil(cw[0])) return false
   const cl = ziToLocal(cw), n = ziNearest(cl)
-  if (n.d < Z.rIn * Math.cos(Math.PI / RIB_RADIAL_SEG) - 1e-3 || n.d > SHELL_RIB_R + 1e-3) return false
+  //  ★219-m(2026.09.11 현도 "비대칭 무늬 계속 그대로" · 실측): 안면 하한을 r·cos(π/10)−1e-3(직선 원통 면 중앙)에 붙여 두니 **축이 곡선**이라 긴 면 삼각형(~10㎡)의 중심이 5.43~5.49로 처져
+//   27장(273㎡)이 분류에서 빠졌고, 그 정점 일부가 D 어둠값 0.04로 남아 왼쪽 쐐기 무늬가 됐다. 여유 = 벽 두께(이 대역엔 안면뿐 · 마구리는 접선 검사가 거른다).
+  if (n.d < Z.rIn * Math.cos(Math.PI / RIB_RADIAL_SEG) - Z.wallT || n.d > SHELL_RIB_R + 1e-3) return false
+  //  ★219-o(2026.09.11 현도 "외부에서 하나만 각진 리브" · 실측): 이 축거리 대역은 **안면과 바깥면이 겹친다**(안면 꼭짓점 5.78 > 바깥면 면중앙 6.0·cos18° = 5.71) — 구판은 양 부호 법선 검사라 바깥면까지 안면으로 잡아
+//   바깥면이 aZi=1·톤·정점 분리를 받았다(⛔외면 불변 LOCKED 위반 · 09.10 "외부 색 변화"의 진짜 원인). 10각형 위상 실측: 꼭짓점 = 18°(mod 36) → 면 중앙 0°. ⇒ ziBoreSide로 가까운 면이 안면일 때만.
+  if (ziBoreSide(cl, n, Z) !== 'in') return false
   const nl = ziToLocal(nw), t = ziTangent(n.u)
   const rx = cl[0] - n.foot[0], ry = cl[1] - n.foot[1], rz = cl[2]                       // 축에서 밖으로 나가는 방향(접선 성분 없음 — 최근접점이라 이미 ⟂)
   const rl = Math.hypot(rx, ry, rz); if (rl < 1e-6) return false
@@ -1884,7 +1897,8 @@ export function zoneIVisibleFromInside(cw, nw, ray, pts, Z = zoneISpec(), d = ZI
 export function zoneIEmitTri(cw, nw, Z = zoneISpec()) {
   if (!Z || cw[1] < Z.yMouth - FRL_STUB_MG) return false
   const cl = ziToLocal(cw), n = ziNearest(cl)
-  if (n.d < Z.rIn * Math.cos(Math.PI / RIB_RADIAL_SEG) - 1e-3 || n.d > SHELL_RIB_R + 1e-3) return false
+  if (n.d < Z.rIn * Math.cos(Math.PI / RIB_RADIAL_SEG) - Z.wallT || n.d > SHELL_RIB_R + 1e-3) return false   // ★219-m 처짐 여유(안면 하한) — 광원 분류도 같은 안면
+  if (ziBoreSide(cl, n, Z) !== 'in') return false   // ★219-o 바깥면은 광원이 아니다
   const nl = ziToLocal(nw), t = ziTangent(n.u)
   const rx = cl[0] - n.foot[0], ry = cl[1] - n.foot[1], rz = cl[2], rl = Math.hypot(rx, ry, rz)
   if (rl < 1e-6) return false
@@ -1972,9 +1986,26 @@ export function zoneIFillFace(cw, nw, Z = zoneISpec(), d = ZI_RAY_EPS) {
   const c = ziToLocal(cw), n = ziToLocal(nw), q = [c[0] + n[0] * d, c[1] + n[1] * d, c[2] + n[2] * d]
   return inBox(q, Z.room, 0) || inBox(q, Z.chan, 0)
 }
+/** ★219-j 관 안면 발광 톤(세계 점) = ZI_WALL_SELF · (1 − (1 − DIP)·smoothstep(0, RAMP, h)) — h = 전망 판(축 위 uDisc 점) 위 **높이**(세계 y 차).
+ *  ⛔첫 판(09.10)은 축에 수직 투영한 호길이 s를 썼다 — 관이 30° 기울어 같은 높이의 좌우 벽 s가 ~5.8m 달라 톤이 ~0.2 어긋나 "비대칭"으로 읽혔다(현도 화면). 눈은 수직을 기준으로 보므로 높이로 잰다.
+ *  h ≤ 0(판 이하)·관 밖 점은 ZI_WALL_SELF 그대로(연속). ⚠정점마다 제 위치로 부른다(삼각형 중심 하나로 덮어쓰면 ~9㎡ 삼각형 계단 — 첫 판의 둘째 병). */
+export function zoneIWallTone(pw, Z = zoneISpec()) {
+  if (!Z || !(ZI_WALL_DIP < 1) || !(ZI_WALL_DIP_RAMP > 0)) return ZI_WALL_SELF
+  const pl = ziToLocal(pw); if (ziNearest(pl).d > Z.rIn + 0.75 * Z.wallT) return ZI_WALL_SELF
+  const h = pw[1] - Z.top[1]; if (h <= 0) return ZI_WALL_SELF
+  const t = Math.min(1, h / ZI_WALL_DIP_RAMP), w = t * t * (3 - 2 * t)
+  return ZI_WALL_SELF * (1 - (1 - ZI_WALL_DIP) * w)
+}
+/** ★219-l 관 안면 해석 법선(세계 점 → 세계 단위 벡터 · 축을 향함) — 관은 축 곡선 둘레의 원통이라 안면 법선 = (수직 발 − 점) 방향.
+ *  왜: 목적지 리브 관 안면 8,039삼각형은 CSG 산출물이라 감김이 안/밖 반반(실측 3,962/4,077)이고 정점 법선이 절반은 면 법선(플랫)·절반은 평균(스무스)이라 삼각형마다 음영이 갈렸다(현도 "비대칭 무늬").
+ *  ZoneI가 관 안면 정점마다 이 벡터를 감김 부호에 맞춰 씌운다(양면 재질의 faceDirection 뒤집기와 정합). 색·조명·기하 위치는 무접촉. */
+export function zoneIWallNormal(pw, Z = zoneISpec()) {
+  const pl = ziToLocal(pw), n = ziNearest(pl), rl = [n.foot[0] - pl[0], n.foot[1] - pl[1], -pl[2]], rw = ziToWorld(rl), L = Math.hypot(rw[0], rw[1], rw[2])
+  return L < 1e-9 ? [0, 1, 0] : [rw[0] / L, rw[1] / L, rw[2] / L]
+}
 export function zoneIShadeAt(pw, nw, ray, B = zoneIBake(), emitter = false, faceFill = false) {
   if (!B) return 1
-  if (emitter) return ZI_WALL_SELF
+  if (emitter) return zoneIWallTone(pw, B.spec)
   const pl = ziToLocal(pw), nl = ziToLocal(nw)
   let E = 0
   if (ZI_GLOW_ON) E += ZI_GLOW_K * zoneIGlowAt(pl, nl, ray, B.dirs)
@@ -1998,13 +2029,33 @@ export function zoneIStubBlend(pw, sh, Z = zoneISpec()) {
   const t = Math.min(1, Math.max(0, (pw[1] - friezeRoomCeil(pw[0])) / ZI_STUB_FADE)), w = t * t * (3 - 2 * t)
   return 1 * (1 - w) + sh * w
 }
+/** ★219-i 관 속 빛기둥 축 폴리라인(로컬) — 전망 판(uDisc)에서 축을 따라 VOL_LEN까지 dy 걸음 · {p 축점, t 접선(위 향), s 호길이}. tube·discs가 같은 점열을 쓴다(사본 금지) */
+export function zoneIBoreAxis(Z = zoneISpec(), dy = ZI_VOL_DY) {
+  if (!Z) return []
+  const pts = []; let s = 0, u = Z.uDisc; pts.push({ p: ziAxis(u), t: ziTangent(u), s, u })
+  while (s < ZI_VOL_LEN) { const step = Math.min(dy, ZI_VOL_LEN - s); const tg = ziTangent(u); u += step * tg[1] / H; s += step; pts.push({ p: ziAxis(u), t: ziTangent(u), s, u }) }
+  return pts
+}
+/** ★219-i 관 속 빛기둥 = 축 단면 **원판 적층**(축 방향 시선용 — 옆면 튜브는 facing이 죽는다 · 실측 constants ZI_VOL_BORE 주석).
+ *  원판마다 부채꼴 sides장: 중심 uv.x = 0.5 · 림 uv.x = 0 ⇒ 셰이더 xf = smoothstep(0, uXF, min(uv.x, 1−uv.x)·2) = smoothstep(0, uXF, 1 − r/rad) — 림에서 0, 안쪽 uXF 구간이 깃털(★189 경계 없음).
+ *  법선 = 축 접선(전부 같은 값 · 올려다보면 facing=1, 옆에서는 0) · uv.y = s/L(길이 소멸 · 근원 불가시). 반지름 = ZI_DISC_R. */
+export function zoneIDiscTris(Z = zoneISpec(), { sides = ZI_VOL_SEG, dy = ZI_VOL_DY, rad = ZI_DISC_R } = {}) {
+  if (!Z) return null
+  const pts = zoneIBoreAxis(Z, dy), L = pts[pts.length - 1].s, pos = [], uv = [], nrm = []
+  const push = (p, ux, n, s) => { pos.push(p[0], p[1], p[2]); uv.push(ux, s / L); nrm.push(n[0], n[1], n[2]) }
+  for (const q of pts) { const { t, b } = frameOf(q.t)
+    const rim = (k) => { const a = (k / sides) * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a); const nn = [t[0] * ca + b[0] * sa, t[1] * ca + b[1] * sa, t[2] * ca + b[2] * sa]; return [q.p[0] + nn[0] * rad, q.p[1] + nn[1] * rad, q.p[2] + nn[2] * rad] }
+    for (let k = 0; k < sides; k++) { push(q.p, 0.5, q.t, q.s); push(rim(k), 0, q.t, q.s); push(rim(k + 1), 0, q.t, q.s) } }
+  return { pos, uv, nrm, len: L, rings: pts.length, discs: pts.length }
+}
+/** ★219-i 원판 한 장의 세기 = ★215-b 겹 정규화 승계: 축 시선은 원판 n장을 전부 지나므로 총량 RM_SHAFT_OP(×ZI_VOL_K 판정 배율)를 n으로 나눈다. FRL_NORM_ON=false면 정규화 없음(E 규칙 그대로) */
+export function zoneIDiscOpacity(n) { return (FRL_NORM_ON ? RM_SHAFT_OP / Math.max(1, n) : RM_SHAFT_OP) * ZI_VOL_K }
 /** 볼륨 — 관 축을 따르는 폴리라인 튜브(uv.y = 호길이/전체 → 셰이더 len 소멸) · part 'bore' = 전망 판 → 위로 VOL_LEN(끝 알파 0 = 근원 불가시) · 'shaft' = 판 구멍 → 오큘러스 → 전실 바닥(수직) */
 export function zoneITubeTris(Z = zoneISpec(), part = 'bore', { sides = ZI_VOL_SEG, dy = ZI_VOL_DY } = {}) {
   if (!Z) return null
   const pos = [], uv = [], nrm = []
   let pts = [], rad
-  if (part === 'bore') { rad = ZI_VOL_R; let s = 0, u = Z.uDisc; pts.push({ p: ziAxis(u), t: ziTangent(u), s })
-    while (s < ZI_VOL_LEN) { const step = Math.min(dy, ZI_VOL_LEN - s); const tg = ziTangent(u); u += step * tg[1] / H; s += step; pts.push({ p: ziAxis(u), t: ziTangent(u), s }) } }
+  if (part === 'bore') { rad = ZI_VOL_R; pts = zoneIBoreAxis(Z, dy) }
   else { rad = Math.max(0.05, Z.oculus.r - ZI_RAY_EPS); const y0 = Z.hole.c[1], y1 = Z.spot[1], L = y0 - y1
     for (let s = 0; s < L - 1e-9; s += dy) pts.push({ p: [Z.hole.c[0], y0 - s, Z.hole.c[2]], t: [0, -1, 0], s }); pts.push({ p: [Z.hole.c[0], y1, Z.hole.c[2]], t: [0, -1, 0], s: L }) }
   const L = pts[pts.length - 1].s

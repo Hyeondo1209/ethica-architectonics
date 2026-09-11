@@ -7,8 +7,8 @@ import { useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { useFrame, useThree, invalidate } from '@react-three/fiber'
 import { MeshBVH } from 'three-mesh-bvh'
-import { ZI_ON, ZI_VOL_ON, ZI_OP, ZI_FADE_POW, ZI_TOPF, ZI_COLOR, ZI_WALL_SELF, ZI_TREAD_LIT, DSK_ON } from './constants.js'
-import { zoneIBake, zoneIShadeAt, zoneIWallTri, zoneIEmitTri, zoneIVisibleFromInside, zoneIFillFace, zoneIInteriorPoints, zoneIOwns, zoneITubeTris, ziToLocal } from './lightingModel.js'
+import { ZI_ON, ZI_VOL_ON, ZI_OP, ZI_FADE_POW, ZI_TOPF, ZI_COLOR, ZI_WALL_SELF, ZI_TREAD_LIT, DSK_ON, ZI_VOL_BORE, ZI_VOL_FEATHER, ZI_WALL_UNLIT, ZI_WALL_FACET_ON } from './constants.js'
+import { zoneIBake, zoneIShadeAt, zoneIWallTone, zoneIWallTri, zoneIEmitTri, zoneIVisibleFromInside, zoneIFillFace, zoneIInteriorPoints, zoneIOwns, zoneITubeTris, zoneIDiscTris, zoneIDiscOpacity, ziToLocal } from './lightingModel.js'
 import { FRL_TUBE_VERT, FRL_TUBE_FRAG } from './Corridor.jsx'
 import { bootNow, bootPass } from './bootProbe.js'
 
@@ -18,9 +18,12 @@ const ziPatch = (shader) => {
     .replace('#include <common>', '#include <common>\nattribute float aZi; varying float vZi;')
     .replace('#include <begin_vertex>', '#include <begin_vertex>\nvZi = aZi;')
   const fs = shader.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vZi;')
-  shader.fragmentShader = fs.includes('if (dskIn) diffuseColor.rgb *= vColor.rgb;')
+  const fs2 = fs.includes('if (dskIn) diffuseColor.rgb *= vColor.rgb;')
     ? fs.replace('if (dskIn) diffuseColor.rgb *= vColor.rgb;', 'if (dskIn || vZi > 0.5) diffuseColor.rgb *= vColor.rgb;')
     : fs.replace('#include <color_fragment>', '#ifdef USE_COLOR\n  if (vZi > 0.5) diffuseColor.rgb *= vColor.rgb;\n#endif')
+  //  ★219-i 관 안면 = 무조명 발광면: 장면 조명(outgoingLight)을 버리고 재질색×정점색(diffuseColor)을 그대로 낸다 — 발광체가 헤미·방향광 무늬를 입던 병(실측 constants ZI_WALL_UNLIT 주석).
+  //   opaque_fragment 직전(outgoingLight 확정 뒤)에 한 줄. 톤매핑·색공간·fog는 그 뒤 청크가 그대로 받는다. vZi ≤ 0.5(다른 리브·E 그루터기)는 무접촉.
+  shader.fragmentShader = ZI_WALL_UNLIT ? fs2.replace('#include <opaque_fragment>', 'if (vZi > 0.5) outgoingLight = diffuseColor.rgb;\n#include <opaque_fragment>') : fs2
 }
 const chain = (m, patch, key) => { const prev = m.onBeforeCompile; m.onBeforeCompile = (sh, r) => { if (prev) prev(sh, r); patch(sh) }; const pk = m.customProgramCacheKey; m.customProgramCacheKey = () => (pk ? pk.call(m) : '') + key }
 
@@ -32,12 +35,17 @@ export function ZoneILight() {
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     uniforms: { uColor: { value: new THREE.Color(ZI_COLOR) }, uOpacity: { value: ZI_OP }, uXF: { value: 0 }, uTopF: { value: ZI_TOPF }, uPow: { value: ZI_FADE_POW }, uCeil: { value: new THREE.Vector4(0, 0, 0, 0) } },
     vertexShader: FRL_TUBE_VERT, fragmentShader: FRL_TUBE_FRAG }), [])
+  //  ★219-i 관 속 빛기둥 재질 = 튜브 재질 사본 · uXF = 반경 깃털 · uOpacity = 원판 겹 정규화(zoneIDiscOpacity — 원판 수는 기하가 정한다). 'tube' 보존계면 공유 재질 그대로.
+  const boreMat = useMemo(() => { if (ZI_VOL_BORE !== 'discs') return mat
+    const m = mat.clone(); m.uniforms = THREE.UniformsUtils.clone(mat.uniforms); m.uniforms.uXF.value = ZI_VOL_FEATHER; return m }, [mat])
   const geos = useMemo(() => {
     if (!B || !ZI_VOL_ON) return null
     const mk = (T) => { const g = new THREE.BufferGeometry()
       g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(T.pos), 3)); g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(T.uv), 2)); g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(T.nrm), 3)); return g }
-    return { bore: mk(zoneITubeTris(B.spec, 'bore')), shaft: mk(zoneITubeTris(B.spec, 'shaft')) }
-  }, [B])
+    const boreT = ZI_VOL_BORE === 'discs' ? zoneIDiscTris(B.spec) : zoneITubeTris(B.spec, 'bore')
+    if (ZI_VOL_BORE === 'discs') boreMat.uniforms.uOpacity.value = zoneIDiscOpacity(boreT.discs)
+    return { bore: mk(boreT), shaft: mk(zoneITubeTris(B.spec, 'shaft')) }
+  }, [B, boreMat])
   useFrame(() => {
     if (!B || done.current) return
     frames.current++
@@ -59,7 +67,7 @@ export function ZoneILight() {
     const toL = (p) => ziToLocal(p)
     const addTri = (a, b, c, kind) => { soupPos.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]); kinds.push(kind) }
     const triWorld = (o, g, i0, i1, i2) => [i0, i1, i2].map((i) => { v.fromBufferAttribute(g.attributes.position, i).applyMatrix4(o.matrixWorld); return [v.x, v.y, v.z] })
-    const eachTri = (g, f) => { const P = g.attributes.position, I = g.index; const n = I ? I.count : P.count; for (let i = 0; i + 2 < n; i += 3) f(I ? I.getX(i) : i, I ? I.getX(i + 1) : i + 1, I ? I.getX(i + 2) : i + 2) }
+    const eachTri = (g, f) => { const P = g.attributes.position, I = g.index; const n = I ? I.count : P.count; for (let i = 0; i + 2 < n; i += 3) f(I ? I.getX(i) : i, I ? I.getX(i + 1) : i + 1, I ? I.getX(i + 2) : i + 2, i / 3) }   // ★219-n 넷째 인자 = 삼각형 번호
     //  ★219 종류는 **소유 메시가 아니라 면 자체**가 정한다 — 무릎길·전망 몸의 관 접촉면이 곧 관 안면(발광)이기 때문(lightingModel zoneIWallTri 주석 ⓐ).
     const triC = (W) => [(W[0][0] + W[1][0] + W[2][0]) / 3, (W[0][1] + W[1][1] + W[2][1]) / 3, (W[0][2] + W[1][2] + W[2][2]) / 3]
     const triN = (W) => { const u = [W[1][0] - W[0][0], W[1][1] - W[0][1], W[1][2] - W[0][2]], w = [W[2][0] - W[0][0], W[2][1] - W[0][1], W[2][2] - W[0][2]]
@@ -144,7 +152,7 @@ export function ZoneILight() {
       let nEm = 0
       eachTri(g, (a, b, c) => { const W = triWorld(o, g, a, b, c); const n = triN(W); if (!n) return; const cc = triC(W)
         if (!zoneIWallTri(cc, n, B.spec) && !zoneIWallTri(cc, [-n[0], -n[1], -n[2]], B.spec)) return
-        for (const i of [a, b, c]) { col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = ZI_WALL_SELF; nEm++ } })
+        for (const i of [a, b, c]) { const tone = zoneIWallTone(W[[a, b, c].indexOf(i)], B.spec); col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = tone; nEm++ } })   // ★219-j 발광 톤 = 정점 제 위치의 높이 함수(전망 판 위 관만 · 그 밖 = ZI_WALL_SELF)
       nEmit += nEm
       g.attributes.color.needsUpdate = true
       mats.forEach((m) => { m.vertexColors = true; m.needsUpdate = true }); nMesh++
@@ -159,13 +167,33 @@ export function ZoneILight() {
     //  ⑷ 목적지 리브 — 삼각형 중심 소속(관 안면 ∧ 천장 위) → 세 정점 색 = 발광체 · aZi = 1 · 게이트 패치
     for (const r of rib) { const g = r.geometry, P = g.attributes.position; if (!P) continue
       let col = g.attributes.color; if (!col) { col = new THREE.BufferAttribute(new Float32Array(P.count * 3).fill(1), 3); g.setAttribute('color', col) }
-      const zi = new Float32Array(P.count); let n = 0
-      eachTri(g, (a, b, c) => { const W = triWorld(r, g, a, b, c), cw = [(W[0][0] + W[1][0] + W[2][0]) / 3, (W[0][1] + W[1][1] + W[2][1]) / 3, (W[0][2] + W[1][2] + W[2][2]) / 3]
+      let zi = new Float32Array(P.count); let n = 0; const walls = []
+      const nmInv = new THREE.Matrix3().getNormalMatrix(r.matrixWorld).invert()   // 세계 법선 → 메시 로컬
+      eachTri(g, (a, b, c, ti) => { const W = triWorld(r, g, a, b, c), cw = [(W[0][0] + W[1][0] + W[2][0]) / 3, (W[0][1] + W[1][1] + W[2][1]) / 3, (W[0][2] + W[1][2] + W[2][2]) / 3]
         const nn = triN(W); if (!nn || (!zoneIWallTri(cw, nn, B.spec) && !zoneIWallTri(cw, [-nn[0], -nn[1], -nn[2]], B.spec))) return   // ★219 천장 경계는 zoneIWallTri 안에 있다(E와 겹치지 않는다 — 사본 금지)
-        for (const i of [a, b, c]) { zi[i] = 1; const s = zoneIShadeAt(cw, [0, 1, 0], rayFn, B, true); col.setXYZ(i, s, s, s) } n++ })
+        const tones = [a, b, c].map((i) => zoneIShadeAt(W[[a, b, c].indexOf(i)], [0, 1, 0], rayFn, B, true))   // ★219-j 정점 제 위치(삼각형 중심 덮어쓰기 = 계단)
+        const nl = new THREE.Vector3(nn[0], nn[1], nn[2]).applyMatrix3(nmInv).normalize()                         // 감김 법선(로컬) — 양면 재질 faceDirection과 정합
+        walls.push({ ti, a, b, c, tones, nl }); n++ })
+      if (ZI_WALL_FACET_ON && g.index && walls.length) {
+        //  ★219-n(ⓐ · 현도 09.11 "a로 가보자"): 관 안면 삼각형마다 **정점 분리**(자기 삼각형 전용 사본) · 법선 = 그 삼각형의 감김 면 법선 → 같은 10각형 면의 삼각형은 공면이라 한 톤,
+        //   모서리에서는 정점을 나누지 않으니 각이 산다. CSG가 남긴 플랫/스무스 혼재(★219-l 실측 반반)를 지우되 조형(각진 면)은 그대로. 원래 정점·다른 삼각형은 무접촉(aZi 0 · 색 그대로).
+        const oldN = P.count, add = walls.length * 3, names = Object.keys(g.attributes).filter((k) => k !== 'aZi')
+        const grown = {}; for (const k of names) { const A = g.attributes[k], sz = A.itemSize, arr = new Float32Array((oldN + add) * sz); arr.set(A.array.subarray(0, oldN * sz)); grown[k] = { arr, sz } }
+        const zi2 = new Float32Array(oldN + add); zi2.set(zi); const idx = g.index.array.slice()
+        walls.forEach((w, wi) => { [w.a, w.b, w.c].forEach((src, j) => { const dst = oldN + wi * 3 + j
+          for (const k of names) { const { arr, sz } = grown[k]; for (let q = 0; q < sz; q++) arr[dst * sz + q] = arr[src * sz + q] }
+          const cA = grown.color, t = w.tones[j]; cA.arr[dst * 3] = cA.arr[dst * 3 + 1] = cA.arr[dst * 3 + 2] = t
+          if (grown.normal) { const nA = grown.normal; nA.arr[dst * 3] = w.nl.x; nA.arr[dst * 3 + 1] = w.nl.y; nA.arr[dst * 3 + 2] = w.nl.z }
+          zi2[dst] = 1; idx[w.ti * 3 + j] = dst }) })
+        for (const k of names) g.setAttribute(k, new THREE.BufferAttribute(grown[k].arr, grown[k].sz))
+        g.setIndex(new THREE.BufferAttribute(idx, 1)); col = g.attributes.color; zi = zi2; g.userData.ziFacetSplit = walls.length
+      } else {
+        for (const w of walls) [w.a, w.b, w.c].forEach((i, j) => { zi[i] = 1; const t = w.tones[j]; col.setXYZ(i, t, t, t) }) }
       col.needsUpdate = true; g.setAttribute('aZi', new THREE.BufferAttribute(zi, 1)); g.userData.bakedZi = true
-      ;[].concat(r.material).forEach((m) => { m.vertexColors = true; chain(m, ziPatch, '|zi'); m.needsUpdate = true }); nMesh++
-      console.info(`[ZI] 리브 관 안면(천장 위) 삼각형 ${n}`) }
+      //  ★219-i 게이트 결정화: 리브 재질은 72기가 공유하고 aZi는 목적지 리브에만 있다 — 없는 메시에서 vZi가 잔존값을 읽던 구멍(외부 리브 전부가 분기에 걸린 실측 09.10) 봉쇄. three는 material.defaultAttributeValues를 어떤 재질에서든 읽는다.
+      ;[].concat(r.material).forEach((m) => { m.vertexColors = true; m.defaultAttributeValues = { ...(m.defaultAttributeValues || {}), color: [1, 1, 1], uv: [0, 0], uv1: [0, 0], aZi: [0] }; chain(m, ziPatch, '|zi'); m.needsUpdate = true }); nMesh++
+      console.info(`[ZI] 리브 관 안면(천장 위) 삼각형 ${n}` + (g.userData.ziFacetSplit ? ` · 정점 분리 ${g.userData.ziFacetSplit}장(★219-n 면마다 플랫)` : '')) }
+    if (geos) console.info(`[ZI] 볼륨 — 관 속 ${ZI_VOL_BORE} ${geos.bore.attributes.position.count / 3}tri · uOpacity ${boreMat.uniforms.uOpacity.value.toFixed(4)} · uXF ${boreMat.uniforms.uXF.value} · SHAFT ${geos.shaft.attributes.position.count / 3}tri · uOpacity ${mat.uniforms.uOpacity.value.toFixed(4)}`)   // ★219-j 렌더 진단(현도 콘솔 — 볼륨이 장면에 있는지)
     if (typeof window !== 'undefined' && window.__ethicaZi) Object.assign(window.__ethicaZi, { records, rayFn, B, ipts })   // ★219-h 전수 대조 핸들
     bootPass('ZI', t0)
     console.info(`[ZI] ★219 구역 I: 소프 ${kinds.length}tri(발광 ${kinds.filter((k) => k === 'glow').length}) · 정점색 메시 ${nMesh}(정점 ${nVert}) · 인스턴스 ${nInst} · 발광 벽 정점 ${nEmit} · 바깥면 정점 ${nExt} · 판 ${kinds.filter((k) => k === 'tread').length}tri · 광선 ${nRay} · eRefHole ${B.eRefHole.toExponential(2)} · ms 소프 ${(tS - t0).toFixed(0)} bvh ${(tB - tS).toFixed(0)} 부재 ${(tM - tB).toFixed(0)} 판·리브 ${(bootNow() - tM).toFixed(0)}`)
@@ -174,7 +202,7 @@ export function ZoneILight() {
   if (!geos) return null
   return (
     <>
-      <mesh geometry={geos.bore} material={mat} userData={{ lightVolume: true, walkable: false }} frustumCulled={false} renderOrder={10} />
+      <mesh geometry={geos.bore} material={boreMat} userData={{ lightVolume: true, walkable: false }} frustumCulled={false} renderOrder={10} />
       <mesh geometry={geos.shaft} material={mat} userData={{ lightVolume: true, walkable: false }} frustumCulled={false} renderOrder={10} />
     </>
   )

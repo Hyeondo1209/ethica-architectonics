@@ -214,8 +214,20 @@ import { writeFileSync as WF } from 'fs'
 if (globalThis.window.__ethicaZi) { WF('/tmp/zi_soup.bin', Buffer.from(globalThis.window.__ethicaZi.soup.buffer)); WF('/tmp/zi_kinds.json', JSON.stringify(globalThis.window.__ethicaZi.kinds)) }
 //  ★219-h 전수 대조 — 베이크가 남긴 삼각형별 판정(records)과 정점색을 같은 광선 함수로 대조
 let verify = null
+//  ★219-m Ⓓ 리브 관 안면(전망 판 위) — 기하로 고른 안면 후보(축거리 ≤ rIn+wallT/2 · 접선 아님 · 정점 하나라도 y>판) 중 aZi 미분류 또는 어두운 정점 = 0. records(부재)에 리브가 없어 ★219-m 병(27장 273㎡)을 못 잡던 구멍.
+let ribV = null
+{ let rib = null; scene.traverse(function (o) { if (o.isMesh && o.userData.ziRib) rib = o })
+  if (rib) { const g = rib.geometry, P = g.attributes.position, C = g.attributes.color, Zi = g.attributes.aZi, I = g.index, nn = I ? I.count : P.count, idx = function (i) { return I ? I.getX(i) : i }
+    const Z = LM.zoneISpec(), va = new THREE.Vector3(), vb = new THREE.Vector3(), vc = new THREE.Vector3(), gn = new THREE.Vector3(); let inner = 0, miss = 0, dark = 0, missArea = 0
+    const plateY = LM.ziToWorld(Z.top)[1]
+    for (let i = 0; i + 2 < nn; i += 3) { const a = idx(i), b = idx(i + 1), c = idx(i + 2); va.fromBufferAttribute(P, a); vb.fromBufferAttribute(P, b); vc.fromBufferAttribute(P, c)
+      if (Math.max(va.y, vb.y, vc.y) <= plateY) continue
+      const cw = [(va.x + vb.x + vc.x) / 3, (va.y + vb.y + vc.y) / 3, (va.z + vb.z + vc.z) / 3], cl = LM.ziToLocal(cw), n = LM.ziNearest(cl); if (n.d > Z.rIn + Z.wallT + 1e-3 || LM.ziBoreSide(cl, n, Z) !== 'in') continue   // ★219-o 안면만(바깥면은 각도별 반지름으로 가른다)
+      gn.subVectors(vb, va).cross(vc.clone().sub(va)); const area = gn.length() / 2; gn.normalize(); const nl = LM.ziToLocal([gn.x, gn.y, gn.z]), t = LM.ziTangent(n.u); if (Math.abs(nl[0] * t[0] + nl[1] * t[1] + nl[2] * t[2]) >= 0.9) continue
+      inner++; if (!Zi || Zi.getX(a) + Zi.getX(b) + Zi.getX(c) < 3) { miss++; missArea += area } if (C) for (const k of [a, b, c]) if (C.getX(k) < K.ZI_DIM + 0.1) dark++ }
+    ribV = { inner, miss, missArea: +missArea.toFixed(1), dark } } }
 if (globalThis.window.__ethicaZi && globalThis.window.__ethicaZi.records) { const V = await import('${join(process.cwd(), 'src/_probe_zoneI_verify.mjs')}'); verify = V.verifyZoneI(THREE, globalThis.window.__ethicaZi) }
-WF('${RESULT}', JSON.stringify({ errs, logs, members, darkFaces, sweep, wps, verify, consts: { PHI, RIN, H: K.H, R: spec ? spec.R : null, ribs: spec ? spec.ribs.map((r) => ({ k: r.k, yTop: +r.yTop.toFixed(3), top: r.top.map((x) => +x.toFixed(3)), stubLen: +r.stubLen.toFixed(3) })) : null, FRB } }))
+WF('${RESULT}', JSON.stringify({ errs, logs, members, darkFaces, sweep, wps, verify, ribV, consts: { PHI, RIN, H: K.H, R: spec ? spec.R : null, ribs: spec ? spec.ribs.map((r) => ({ k: r.k, yTop: +r.yTop.toFixed(3), top: r.top.map((x) => +x.toFixed(3)), stubLen: +r.stubLen.toFixed(3) })) : null, FRB } }))
 process.exit(0)
 `)
 if (!REPORT) execSync(`node ${process.env.PROF ? "--cpu-prof --cpu-prof-dir=/tmp/prof " : ""}${runner}`, { stdio: ['ignore', 'inherit', 'inherit'] })
@@ -236,7 +248,9 @@ if (VERIFY) {
   for (const f of V.Aface) console.log(`     ${f.comp.padEnd(14)} ${String(f.ar).padStart(7)}㎡ 재계산${f.ref} side${f.side} 중심${JSON.stringify(f.c)} 법선${JSON.stringify(f.n)}`)
   console.log(`${okB ? '✓' : '✗'} Ⓑ 바깥면인데 칠함(안면과 공유하지 않는 정점 값 ≠ 1) = ${V.nB}정점 (기대 0)`)
   for (const b of V.Bvert) console.log(`     ${b.comp.padEnd(14)} #${b.id} 값${b.col} ${JSON.stringify(b.p)}`)
-  process.exit(okA && okB ? 0 : 1)
+  const RV = R.ribV, okD = !!RV && RV.miss === 0 && RV.dark === 0
+  console.log(`${okD ? '✓' : '✗'} Ⓓ 리브 관 안면(판 위 · ★219-o 안면만) — 후보 ${RV ? RV.inner : '?'}장 중 미분류 ${RV ? RV.miss : '?'}장 ${RV ? RV.missArea : '?'}㎡ · 어두운 정점 ${RV ? RV.dark : '?'} (기대 0·0 — ★219-m 이전 27장 273㎡)`)
+  process.exit(okA && okB && okD ? 0 : 1)
 }
 console.log('\n── ⓐ 구역 I 후보 부재 ──')
 for (const m of R.members) console.log(`${m.comp.padEnd(14)} ${m.inst ? 'inst×' + m.count : 'mesh'} 주인:${(m.own || '-').padEnd(7)} v${m.verts} y${m.yMin}~${m.yMax} 색:${m.hasColor ? 'V' : '-'}${m.instColor ? 'I' : ''} aZi:${m.nZi ?? '-'} 태그[${m.tags}] ${m.zmin !== undefined && m.zmin < 9 ? 'ZI값 ' + m.zmin + '~' + m.zmax + ' ' + JSON.stringify(m.zh) : ''} ${m.inst ? '천장위 인스턴스색 ' + JSON.stringify(m.hist) : ''}`)
