@@ -674,7 +674,7 @@ export function KneeWalk() {
   return (
     <>
       {bodyGeo && (
-        <mesh geometry={bodyGeo}>
+        <mesh geometry={bodyGeo} userData={{ ziFlatTop: true }}>{/* ★219-q 구역 I 베이크: 상면(선반) 삼각형 = 면마다 플랫(폭 11m 삼각형의 숨은 모서리 정점 보간 얼룩 차단) */}
           <meshStandardMaterial {...KNEE_BODY_MAT} />
         </mesh>
       )}

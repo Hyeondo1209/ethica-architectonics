@@ -2852,8 +2852,8 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
   const TB = LM.zoneITubeTris(Z, 'bore'), TS = LM.zoneITubeTris(Z, 'shaft'); let okB = true, okS = true
   for (let i = 0; i < TB.pos.length; i += 3) { const d = LM.ziNearest([TB.pos[i], TB.pos[i + 1], TB.pos[i + 2]]).d; if (d > K.ZI_VOL_R + 1e-3 || d >= Z.rIn) okB = false }
   for (let i = 0; i < TS.pos.length; i += 3) { const r = Math.hypot(TS.pos[i] - Z.hole.c[0], TS.pos[i + 2] - Z.hole.c[2]); if (r >= Z.oculus.r || TS.pos[i + 1] > Z.hole.c[1] + 1e-9 || TS.pos[i + 1] < Z.spot[1] - 1e-9) okS = false }
-  T(`볼륨 — 관 속 튜브 ${TB.pos.length / 9}tri ⊂ 관(수직 거리 ≤ VOL_R) · 길이 ${TB.len.toFixed(1)} = VOL_LEN · SHAFT 튜브 ${TS.pos.length / 9}tri ⊂ 관 안지름 · 판 구멍~전실 바닥 · uv.y ∈ [0,1]`,
-    okB && okS && Math.abs(TB.len - K.ZI_VOL_LEN) < 1e-6 && Math.max(...TB.uv.filter((_, i) => i % 2)) <= 1 + 1e-9 && Math.min(...TB.uv.filter((_, i) => i % 2)) >= 0)
+  T(`볼륨 — 관 속 튜브 ${TB.pos.length / 9}tri ⊂ 관(수직 거리 ≤ VOL_R) · 길이 ${TB.len.toFixed(1)} ${K.ZI_FAR_ON ? '> VOL_LEN(★219-s 관 끝까지)' : '= VOL_LEN'} · SHAFT 튜브 ${TS.pos.length / 9}tri ⊂ 관 안지름 · 판 구멍~전실 바닥 · uv.y ∈ [0,1]`,
+    okB && okS && (K.ZI_FAR_ON ? TB.len > K.ZI_VOL_LEN : Math.abs(TB.len - K.ZI_VOL_LEN) < 1e-6) && Math.max(...TB.uv.filter((_, i) => i % 2)) <= 1 + 1e-9 && Math.min(...TB.uv.filter((_, i) => i % 2)) >= 0)
   //  ⑾ 배선 — Dome 태그(ziRib 목적지 · ziPlates · zoneI 그룹 둘) · App 마운트 · ZoneI 게이트(aZi · dskIn ∨ vZi) · 튜브 셰이더 공유 · DSK 뒤 실행
   const domeS = readFileSync(new URL('./Dome.jsx', import.meta.url), 'utf8'), appS = readFileSync(new URL('./App.jsx', import.meta.url), 'utf8'), ziS = readFileSync(new URL('./ZoneI.jsx', import.meta.url), 'utf8'), corS2 = readFileSync(new URL('./Corridor.jsx', import.meta.url), 'utf8')
   T('배선 — Dome: ks[i] === RIB_DEST_K → ziRib · 판 인스턴스 ziPlates · RevealPassage A+B zoneI 그룹 · App: KneeWalk/RibJunction/Lookout zoneI 그룹 + <ZoneILight /> 회전 그룹 안 · Corridor: 튜브 셰이더 export · ZoneI: aZi 게이트 dskIn ∨ vZi · DSK bakedDsk 대기 · 발광체 삼각형 kind glow',
@@ -2864,7 +2864,7 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
     && /const toL = \(p\) => ziToLocal\(p\)/.test(ziS) && /kindOfHit = \(fi\) => kinds\[\(SIDX\[fi \* 3\] \/ 3\) \| 0\]/.test(ziS))   // ★219 함정 둘(map 인덱스 · BVH 재정렬)의 해법이 코드에 남아 있는지
   //  ⑿ ★219-i 관 속 빛기둥 = 원판 적층 — 기하 불변식(축 위 중심 · 반지름 = DISC_R · 법선 = 접선 · uv.x 중심 0.5/림 0 · 같은 축 점열) · 세기 총량 항등 · 축 시선 가시성(원판 ⟂ 축 vs 튜브 ∥ 축)
   //   치환 반증: rim uv.x를 0→1로 바꾸면 ⓐ 붉음 · 법선을 반경 방향으로 바꾸면 ⓐ·ⓒ 붉음 · zoneIDiscOpacity에서 /n을 빼면 ⓑ 붉음 · zoneIBoreAxis 대신 자체 걸음을 쓰면 점열 대조가 붉음
-  { const D = LM.zoneIDiscTris(Z), AX = LM.zoneIBoreAxis(Z), sides = K.ZI_VOL_SEG; let okG = D && D.discs === AX.length && D.pos.length === D.discs * sides * 9 && Math.abs(D.len - K.ZI_VOL_LEN) < 1e-9
+  { const D = LM.zoneIDiscTris(Z), AX = LM.zoneIBoreAxis(Z, K.ZI_DISC_DY), sides = K.ZI_VOL_SEG; let okG = D && D.discs === AX.length && D.pos.length === D.discs * sides * 9 && (K.ZI_FAR_ON ? Math.abs(D.len - AX[AX.length - 1].s) < 1e-9 && Math.abs(AX[AX.length - 1].u - 1) < 1e-9 : Math.abs(D.len - K.ZI_VOL_LEN) < 1e-9)   // ★219-s 대기 = 관 끝(u=1)까지 · ★219-r′ 점열 간격 = ZI_DISC_DY let okG = D && D.discs === AX.length && D.pos.length === D.discs * sides * 9 && Math.abs(D.len - K.ZI_VOL_LEN) < 1e-9
     let maxDrim = 0, maxDc = 0, minDot = 1, maxAxDot = 0
     for (let i = 0; D && okG && i < D.discs; i++) { const q = AX[i]
       for (let k = 0; k < sides; k++) { const b = (i * sides + k) * 9, o = (i * sides + k) * 3
@@ -2877,9 +2877,13 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
         const rv = [r1[0] - q.p[0], r1[1] - q.p[1], r1[2] - q.p[2]]; maxAxDot = Math.max(maxAxDot, Math.abs((rv[0] * q.t[0] + rv[1] * q.t[1] + rv[2] * q.t[2]) / K.ZI_DISC_R)) } }   // 림 반지름 ⟂ 접선
     T(`ⓐ 원판 기하 — ${D ? D.discs : 0}장 × ${sides}부채꼴 · 중심 = 축점(최대 이탈 ${maxDc.toExponential(1)}) · 림 = DISC_R ${K.ZI_DISC_R.toFixed(3)}(오차 ${maxDrim.toExponential(1)}) · 법선 = 접선(최소 내적 ${minDot.toFixed(6)}) · 림 ⟂ 접선 · uv.x 중심 0.5/림 0 · uv.y = s/L · 점열 = zoneIBoreAxis`,
       okG && maxDc < 1e-9 && maxDrim < 1e-9 && minDot > 1 - 1e-9 && maxAxDot < 1e-9 && K.ZI_DISC_R < Z.rIn && K.ZI_DISC_R > 0)
-    const n = D ? D.discs : 1, tot = LM.zoneIDiscOpacity(n) * n
+    const n = D ? D.discs : 1
+    if (K.ZI_FAR_ON) { const op = LM.zoneIDiscOpacity(n, D.lenSum), tot = op * D.lenSum, lenSum2 = AX.reduce((a, q) => a + LM.zoneIFarLen(q.s), 0), fl0 = LM.zoneIFarLen(0), flF = LM.zoneIFarLen(K.ZI_FAR_LEN), fl2 = LM.zoneIFarLen(2 * K.ZI_FAR_LEN)
+      T(`ⓑ 원판 세기(★219-s 대기) — 한 장 ${op.toFixed(5)} × 길이 가중 합 ${D.lenSum.toFixed(2)}(= Σ zoneIFarLen 재계산 ${lenSum2.toFixed(2)}) = 축 방향 적산 ${tot.toFixed(4)} = RM_SHAFT_OP·K_FAR(${(K.RM_SHAFT_OP * K.ZI_VOL_K_FAR).toFixed(4)}) (★219-v 현도 판정값 · 상한 없음) · 판 s=0 → ${fl0} = NEAR(판에 닿는다) · FAR_LEN → ${flF} = 1 · 2·FAR_LEN → ${fl2} = 0 · 한 장 < 총량`,
+        Math.abs(tot - K.RM_SHAFT_OP * K.ZI_VOL_K_FAR) < 1e-9 && Math.abs(D.lenSum - lenSum2) < 1e-9 && fl0 === K.ZI_FAR_NEAR && K.ZI_FAR_NEAR > 0 && Math.abs(flF - 1) < 1e-12 && fl2 === 0 && op < tot) }
+    else { const tot = LM.zoneIDiscOpacity(n) * n
     T(`ⓑ 원판 세기 — 한 장 ${LM.zoneIDiscOpacity(n).toFixed(5)} × ${n}장 = 총량 ${tot.toFixed(4)} = RM_SHAFT_OP·ZI_VOL_K(${(K.RM_SHAFT_OP * K.ZI_VOL_K).toFixed(4)}) [FRL_NORM_ON=${K.FRL_NORM_ON}] · 한 장 < 총량`,
-      (K.FRL_NORM_ON ? Math.abs(tot - K.RM_SHAFT_OP * K.ZI_VOL_K) < 1e-12 : LM.zoneIDiscOpacity(n) === K.RM_SHAFT_OP * K.ZI_VOL_K) && LM.zoneIDiscOpacity(n) < tot)
+      (K.FRL_NORM_ON ? Math.abs(tot - K.RM_SHAFT_OP * K.ZI_VOL_K) < 1e-12 : LM.zoneIDiscOpacity(n) === K.RM_SHAFT_OP * K.ZI_VOL_K) && LM.zoneIDiscOpacity(n) < tot) }
     //  ⓒ 축 시선 가시성 — 셰이더 facing = |N·V|. 축 방향 시선(V ≈ dUp)에서 원판 법선(=접선)은 |t·dUp| ≥ cos 30°(곡률 실측 30.3°)로 살고, 구판 튜브 옆면 법선은 축에 수직(|n·t| = 0)이라 죽는다 — 어법 교체의 근거를 기하로 못 박는다
     let minFace = 1, maxTubeFace = 0; for (const q of AX) minFace = Math.min(minFace, Math.abs(q.t[0] * Z.dUp[0] + q.t[1] * Z.dUp[1] + q.t[2] * Z.dUp[2]))
     for (let i = 0; i < TB.pos.length; i += 3) { const nr = LM.ziNearest([TB.pos[i], TB.pos[i + 1], TB.pos[i + 2]]), tg = LM.ziTangent(nr.u), n = [TB.nrm[i], TB.nrm[i + 1], TB.nrm[i + 2]]; maxTubeFace = Math.max(maxTubeFace, Math.abs(n[0] * tg[0] + n[1] * tg[1] + n[2] * tg[2])) }
@@ -2889,18 +2893,26 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
       ['discs', 'tube'].includes(K.ZI_VOL_BORE) && K.ZI_VOL_RF > 0 && K.ZI_VOL_RF < 1 && K.ZI_VOL_FEATHER > 0 && K.ZI_VOL_FEATHER <= 1 && K.ZI_VOL_K > 0 && typeof K.ZI_WALL_UNLIT === 'boolean'
       && /ZI_WALL_UNLIT \? fs2\.replace\('#include <opaque_fragment>', 'if \(vZi > 0\.5\) outgoingLight = diffuseColor\.rgb;\\n#include <opaque_fragment>'\)/.test(ziS)
       && K.ZI_WALL_UNLIT === false && /defaultAttributeValues = \{ \.\.\.\(m\.defaultAttributeValues \|\| \{\}\), color: \[1, 1, 1\], uv: \[0, 0\], uv1: \[0, 0\], aZi: \[0\] \}/.test(ziS)   // ⛔반려 고정 + 게이트 결정화
-      && /m\.uniforms\.uXF\.value = ZI_VOL_FEATHER/.test(ziS) && /boreMat\.uniforms\.uOpacity\.value = zoneIDiscOpacity\(boreT\.discs\)/.test(ziS) && /geometry=\{geos\.bore\} material=\{boreMat\}/.test(ziS)) }
+      && /m\.uniforms\.uXF\.value = ZI_VOL_FEATHER/.test(ziS) && /boreMat\.uniforms\.uOpacity\.value = zoneIDiscOpacity\(boreT\.discs, boreT\.lenSum\)/.test(ziS) && /geometry=\{geos\.bore\} material=\{boreMat\}/.test(ziS)) }
   //  ⒀ ★219-j 관 안면 발광 톤 = 전망 판 위 **높이** 함수 — 판 이하 = WALL_SELF(연속) · RAMP/2 = 식값 · h ≥ RAMP = WALL_SELF·DIP · 단조 · 같은 높이 좌우 벽 톤 동일(대칭) · 관 밖 = WALL_SELF · 정점별 호출
   //   치환 반증: smoothstep을 계단으로 바꾸면 RAMP/2 항 붉음 · 높이 대신 축 투영 호길이로 바꾸면 좌우 동일 항 붉음 · ZoneI 정점별 호출을 삼각형 중심으로 되돌리면 배선 항 붉음
   { const topW = LM.ziToWorld(Z.top), up = (h, dx = 0, dz = 0) => LM.ziToWorld([Z.top[0] + dx, Z.top[1] + h, Z.top[2] + dz])   // 축 위 h · 관 속 옆 점(로컬 z ±3 = 관 폭 방향 · 같은 높이)
     const f = (h) => { const t = Math.min(1, Math.max(0, h) / K.ZI_WALL_DIP_RAMP); return K.ZI_WALL_SELF * (1 - (1 - K.ZI_WALL_DIP) * t * t * (3 - 2 * t)) }
+    if (K.ZI_WALL_RISE_ON) {   // ★219-s 상승: 판 아래·판 = 1 · 판 직상 = DIP → 관 끝(H) = 1 · 단조 증가 · 좌우 동일
+      const Hrem = 960 - Z.top[1], FL = K.ZI_FAR_LEN, g = (h) => K.ZI_WALL_SELF * (K.ZI_WALL_DIP + (1 - K.ZI_WALL_DIP) * Math.pow(1 - Math.exp(-h / FL), K.ZI_WALL_RISE_POW))
+      const axW = (h, dz) => { const u = (Z.top[1] + h) / 960, a = LM.ziAxis(u); return LM.ziToWorld([a[0], a[1], dz]) }
+      const b2 = LM.zoneIWallTone(up(-4, 0, 3), Z), a2 = LM.zoneIWallTone(axW(0.01, 3), Z), m2 = LM.zoneIWallTone(axW(Hrem / 4, 3), Z), t2 = LM.zoneIWallTone(axW(FL + 0.5, 3), Z), L2 = LM.zoneIWallTone(axW(Hrem / 4, 3), Z), R2 = LM.zoneIWallTone(axW(Hrem / 4, -3), Z)
+      let mono2 = true, prev2 = -1; for (let h = 0.01; h <= Hrem; h += 5) { const v = LM.zoneIWallTone(axW(h, 3), Z); if (v < prev2 - 1e-12) mono2 = false; prev2 = v }
+      T(`ⓔ 발광 톤(높이 · ★219-s 상승) — 판 아래 ${b2.toFixed(3)} = 1 · 판 직상 ${a2.toFixed(3)} ≈ DIP ${K.ZI_WALL_DIP} · H_rem/4 ${m2.toFixed(3)} = 식값 ${g(Hrem / 4).toFixed(3)} · FAR_LEN(${FL}m)+0.5 ${t2.toFixed(3)} = 식값 ${g(FL + 0.5).toFixed(3)} ${K.ZI_WALL_DIP === 1 ? '= 1(DIP 1 = 평탄 · ★219-v 현도)' : '< 1(점근)'} · 단조 증가 · 같은 높이 좌우 ${L2.toFixed(4)}=${R2.toFixed(4)} · RISE_POW ∈ (0,1]`,
+        b2 === K.ZI_WALL_SELF && Math.abs(a2 - g(0.01)) < 1e-12 && a2 < K.ZI_WALL_DIP + 0.01 && Math.abs(m2 - g(Hrem / 4)) < 1e-12 && Math.abs(t2 - g(FL + 0.5)) < 1e-12 && (K.ZI_WALL_DIP === 1 ? t2 === K.ZI_WALL_SELF : t2 < K.ZI_WALL_SELF) && LM.zoneIWallTone(axW(Hrem - 0.5, 3), Z) > 0.99 && mono2 && L2 === R2 && K.ZI_FAR_LEN > 0 && K.ZI_WALL_RISE_POW > 0 && K.ZI_WALL_RISE_POW <= 1) }
+    else {
     const below = LM.zoneIWallTone(up(-4, 0, 3), Z), at0 = LM.zoneIWallTone(up(0, 0, 3), Z), mid = LM.zoneIWallTone(up(K.ZI_WALL_DIP_RAMP / 2, 0, 3), Z), far = LM.zoneIWallTone(up(K.ZI_WALL_DIP_RAMP + 2, 0, 3), Z)
     const L = LM.zoneIWallTone(up(K.ZI_WALL_DIP_RAMP / 2, 0, 3), Z), R = LM.zoneIWallTone(up(K.ZI_WALL_DIP_RAMP / 2, 0, -3), Z), outside = LM.zoneIWallTone(LM.ziToWorld(Z.spot), Z)
     let mono = true, prev = 2; for (let h = 0; h <= K.ZI_WALL_DIP_RAMP; h += 0.25) { const v = LM.zoneIWallTone(up(h, 0, 3), Z); if (v > prev + 1e-12) mono = false; prev = v }
     T(`ⓔ 발광 톤(높이) — 판 아래 ${below.toFixed(3)} = 판 ${at0.toFixed(3)} = WALL_SELF ${K.ZI_WALL_SELF} · RAMP/2 ${mid.toFixed(3)} = 식값 ${f(K.ZI_WALL_DIP_RAMP / 2).toFixed(3)} · RAMP+2 ${far.toFixed(3)} = WALL_SELF·DIP ${(K.ZI_WALL_SELF * K.ZI_WALL_DIP).toFixed(3)} · 단조 · 같은 높이 좌우 ${L.toFixed(4)}=${R.toFixed(4)} · 관 밖 ${outside} = WALL_SELF · 정점별 호출 · DIP ∈ (0,1] · RAMP > 0`,
       below === K.ZI_WALL_SELF && at0 === K.ZI_WALL_SELF && Math.abs(mid - f(K.ZI_WALL_DIP_RAMP / 2)) < 1e-12 && mid < K.ZI_WALL_SELF && mid > K.ZI_WALL_SELF * K.ZI_WALL_DIP && Math.abs(far - K.ZI_WALL_SELF * K.ZI_WALL_DIP) < 1e-12 && mono && L === R && outside === K.ZI_WALL_SELF
       && K.ZI_WALL_DIP > 0 && K.ZI_WALL_DIP <= 1 && K.ZI_WALL_DIP_RAMP > 0 && /const tone = zoneIWallTone\(W\[\[a, b, c\]\.indexOf\(i\)\], B\.spec\)/.test(ziS) && /const tones = \[a, b, c\]\.map\(\(i\) => zoneIShadeAt\(W\[\[a, b, c\]\.indexOf\(i\)\], \[0, 1, 0\], rayFn, B, true\)\)/.test(ziS)
-      && /if \(emitter\) return zoneIWallTone\(pw, B\.spec\)/.test(readFileSync(new URL('./lightingModel.js', import.meta.url), 'utf8'))) }
+      && /if \(emitter\) return zoneIWallTone\(pw, B\.spec\)/.test(readFileSync(new URL('./lightingModel.js', import.meta.url), 'utf8'))) } }
   //  ⒁ ★219-l 관 안면 해석 법선 — 단위 · 축을 향함(점→발 방향과 내적 1) · 관 폭 방향 두 점이 서로 반대(좌우 대칭) · 축 위 점은 퇴화 안 함 · 배선(감김 부호 · needsUpdate · 노브)
   //   치환 반증: rl의 −pl[2]를 +pl[2]로 바꾸면 좌우 반대 항 붉음 · 정규화를 빼면 단위 항 붉음
   { const ax = LM.zoneIBoreAxis(Z)[3].p, q = LM.ziToWorld(ax), mk = (dz) => LM.ziToWorld([ax[0], ax[1], ax[2] + dz])   // 축 점열 넷째 점(s=6) 기준 관 폭(로컬 z) ±4
@@ -2945,6 +2957,33 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
         && /if \(g0 && g0 !== o\.geometry\) nSwap\+\+/.test(veP) && /EYEP = ARGS\.includes\('--eye'\)/.test(prP) && /_probe_zoneI_eye\.mjs/.test(prP)
         && /rayFn\(e, \[0, -1, 0\], EYE \+ 0\.6\)/.test(eyP) && /rayFn\(e, \[0, 1, 0\], 30\)/.test(eyP) && /zoneIVisibleFromInside\(cw, \[n\.x, n\.y, n\.z\], rayFn, eyes, B\.spec\)/.test(eyP) && !/new MeshBVH/.test(eyP)) }
   }
+  //  ⓛ ★219-q 무릎길 몸 상면 = 면마다 플랫(★219-n 어법 승계) — 실측 --look·선반 덤프: 폭 11m 삼각형의 숨은 모서리 정점(1.0↔0.34)이 선반 전체로 보간되던 띠. 중심 참값 1.0 = 분리 뒤 정점값.
+  { const ziQ = readFileSync(new URL('./ZoneI.jsx', import.meta.url), 'utf8'), dmQ = readFileSync(new URL('./Dome.jsx', import.meta.url), 'utf8'), prQ = readFileSync(new URL('./_probe_zoneI.mjs', import.meta.url), 'utf8')
+    //  ★219-u 뿌리 페이드 = 길이 고정(0.9m) — 692m 볼륨에서 비율 0.02가 14m로 늘어 판 위가 비던 병
+    { const ziU = readFileSync(new URL('./ZoneI.jsx', import.meta.url), 'utf8'), Tb = LM.zoneIDiscTris(Z)
+      T(`ⓛ′ 뿌리 페이드 — uTopF = ZI_TOPF·VOL_LEN/L ⇒ 길이 ${(K.ZI_TOPF * K.ZI_VOL_LEN).toFixed(2)}m (비율 그대로면 ${(K.ZI_TOPF * Tb.len).toFixed(1)}m — 판 위 공백) · 배선`,
+        K.ZI_TOPF * K.ZI_VOL_LEN < 2 && (!K.ZI_FAR_ON || /if \(ZI_FAR_ON\) boreMat\.uniforms\.uTopF\.value = ZI_TOPF \* ZI_VOL_LEN \/ boreT\.len/.test(ziU))) }
+    T('ⓛ 배선 — Dome KneeWalk 몸 메시 userData.ziFlatTop · ZoneI bakeMesh: ZI_BODY_FLAT_ON ∧ ziFlatTop ∧ g.index → 안면(±1) ∧ 위 향(want[1] > 0) 삼각형만 정점 분리(색인 재지정 · 삼각형 수·순서 불변) + 중심 zoneIShadeAt 한 톤 · 발광 톤 덮어쓰기는 colAttr(분리 뒤 배열) · 노브 불리언 · --look 프로브 존재',
+      typeof K.ZI_BODY_FLAT_ON === 'boolean' && /<mesh geometry=\{bodyGeo\} userData=\{\{ ziFlatTop: true \}\}>/.test(dmQ)
+      && /if \(ZI_BODY_FLAT_ON && o\.userData\.ziFlatTop === true && g\.index\) \{/.test(ziQ) && /if \(s0 !== 1 && s0 !== -1\) return/.test(ziQ) && /if \(want\[1\] <= 0\) return/.test(ziQ)
+      && /tone: zoneIShadeAt\(cc, want, rayFn, B, false, zoneIFillFace\(cc, want, B\.spec\)\)/.test(ziQ) && /idx\[f\.t \* 3 \+ j\] = dst/.test(ziQ) && /colAttr\.setXYZ\(i, tone, tone, tone\)/.test(ziQ)
+      && /--look=/.test(prQ)) }
+  //  ⓜ ★219-r 원판 림 봉우리 단면 — 시야 91발 적산 실측: 빈 통(껍질)은 관 속 3~10배 더 밝아 기각 · 두 시점을 가르는 건 반경(관 속 = 중심 · 갈림길 = 중심~림). 단면 = 중심 0 → RIM에서 1 → 림 RIM_F 깃털 0.
+  { const pf = (u) => LM.zoneIDiscProfile(u, 'rim'), core = (u) => LM.zoneIDiscProfile(u, 'core'), sm = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t) }
+    T(`ⓜ 단면 — rim(★219-r″): 중심 = FLOOR(${K.ZI_VOL_FLOOR}) · u=RIM(${K.ZI_VOL_RIM}) = 1 · u=1−RIM_F(${1 - K.ZI_VOL_RIM_F}) = 1 · 림 0(⛔칼경계) · 오르막·내리막 단조 · core = ★219-i 식 그대로 · RIM_F > 0 · RIM + RIM_F ≤ 1 · 0 ≤ FLOOR < 1 · 모드 문자열`,
+      Math.abs(pf(0) - K.ZI_VOL_FLOOR) < 1e-12 && Math.abs(pf(K.ZI_VOL_RIM) - 1) < 1e-12 && Math.abs(pf(1 - K.ZI_VOL_RIM_F) - 1) < 1e-12 && pf(1) === 0 && pf(0.2) < pf(0.5) && pf(0.97) < pf(0.8) && K.ZI_VOL_FLOOR >= 0 && K.ZI_VOL_FLOOR < 1
+      && [0, 0.3, 0.7, 0.95, 1].every((u) => Math.abs(core(u) - sm(0, K.ZI_VOL_FEATHER, 1 - u)) < 1e-12) && K.ZI_VOL_RIM_F > 0 && K.ZI_VOL_RIM + K.ZI_VOL_RIM_F <= 1 && ['rim', 'core'].includes(K.ZI_VOL_PROFILE))
+    //  ★219-r′ 원판 간격 1/8 — 비스듬한 시선의 계단(주름) 소거. 장 수 = 축 길이/간격 + 1 · uOpacity = 총량/장 수(겹 정규화 — 총량 불변)
+    { const T8 = LM.zoneIDiscTris(Z), T1 = LM.zoneIDiscTris(Z, { dy: K.ZI_VOL_DY })
+      T(`ⓜ′ 간격 — ZI_DISC_DY = VOL_DY/${K.ZI_DISC_DIV}(${K.ZI_DISC_DY.toFixed(3)}) · 원판 ${T8.discs}장 = ⌈L/DY⌉+1 (★219-i ${T1.discs}장) · 삼각형 = 장 수·${K.ZI_VOL_SEG} · 총량: uOp·장 수 = ${(LM.zoneIDiscOpacity(T8.discs) * T8.discs).toFixed(3)} = ${(LM.zoneIDiscOpacity(T1.discs) * T1.discs).toFixed(3)}`,
+        Math.abs(K.ZI_DISC_DY - K.ZI_VOL_DY / K.ZI_DISC_DIV) < 1e-12 && K.ZI_DISC_DIV >= 8 && (K.ZI_FAR_ON ? (T8.discs > T1.discs && T8.discs < 1000) : T8.discs === Math.ceil(T8.len / K.ZI_DISC_DY - 1e-9) + 1 && T8.discs > T1.discs) && T8.pos.length / 9 === T8.discs * K.ZI_VOL_SEG
+        && (K.ZI_FAR_ON ? Math.abs(LM.zoneIDiscOpacity(T8.discs, T8.lenSum) * T8.lenSum - LM.zoneIDiscOpacity(T1.discs, T1.lenSum) * T1.lenSum) < 1e-9 : Math.abs(LM.zoneIDiscOpacity(T8.discs) * T8.discs - LM.zoneIDiscOpacity(T1.discs) * T1.discs) < 1e-9) && (K.ZI_FAR_ON ? Math.abs(T8.len - T1.len) < 0.01 * T8.len : Math.abs(T8.len - T1.len) < 1e-9)) }   // ★219-s 성장 간격은 호길이 이산화가 달라 1% 여유
+    const coQ = readFileSync(new URL('./Corridor.jsx', import.meta.url), 'utf8'), ziR = readFileSync(new URL('./ZoneI.jsx', import.meta.url), 'utf8')
+    T('ⓜ 배선 — 공유 셰이더(FRL_TUBE_FRAG) 무접촉(uRim 없음 · 구판 xf 줄 존재 = D+F 동결 보전) · ZoneI boreMat만 PROFILE rim일 때 xf 줄을 치환한 파생 fragmentShader + uRim(RIM, RIM_F, FLOOR) · 치환 대상 없으면 throw',
+      !/uRim/.test(coQ) && /float xf = uXF > 0\.0 \? smoothstep\(0\.0, uXF, min\(vUv\.x, 1\.0 - vUv\.x\) \* 2\.0\) : 1\.0;/.test(coQ)
+      && /if \(ZI_VOL_PROFILE === 'rim'\) \{ const xfOld = 'float xf = uXF > 0\.0 \? smoothstep\(0\.0, uXF, min\(vUv\.x, 1\.0 - vUv\.x\) \* 2\.0\) : 1\.0;'/.test(ziR)
+      && /throw new Error\('★219-r/.test(ziR) && /m\.uniforms\.uRim = \{ value: new THREE\.Vector3\(ZI_VOL_RIM, ZI_VOL_RIM_F, ZI_VOL_FLOOR\) \}/.test(ziR)
+      && /float uR = 1\.0 - min\(vUv\.x, 1\.0 - vUv\.x\) \* 2\.0; float xf = \(uRim\.z \+ \(1\.0 - uRim\.z\) \* smoothstep\(0\.0, uRim\.x, uR\)\) \* smoothstep\(0\.0, uRim\.y, 1\.0 - uR\);/.test(ziR) && /uniform vec3 uRim;/.test(ziR)) }
   if (K.FREEZE_I_ON) T(`★★동결 — 구역 I 지문(미구현 — 현도 동결 선언 시 S-19 어법으로 세운다)`, false)
   else console.log(`  (구역 I 동결 대조 보류 — FREEZE_I_ON=${K.FREEZE_I_ON} · 현도 선언 대기)`)
 }

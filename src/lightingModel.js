@@ -1777,7 +1777,7 @@ export function dskirtTris(strands, { radiusK = 1, sides = DSK_TUBE_SEG } = {}) 
 //   세계좌표 정점은 ziToLocal로 넘겨 재고, 결과는 좌표계 무관 스칼라. 소속 판정(관 안면 삼각형 · 방 천장 위)만 세계좌표(friezeRoomCeil)를 같이 본다.
 //  ⚠1차 근사 선언: ⓐ②의 가림은 광선 한 발 = 명중/미명중(부분 가림 없음) ⓑ관 안면은 아가리(yTop)부터 위로 전부 발광(그루터기 연속 · 관 끝은 무한) ⓒ①의 관 벽은 가림에서 제외(통로) ⓓ2차 반사는 전실 바닥 한 원판만.
 import { ZI_ON, ZI_GLOW_ON, ZI_BEAM_ON, ZI_HOLE_ON, ZI_R, ZI_DIM, ZI_GAMMA, ZI_K, ZI_WALL_SELF, ZI_STUB_FADE, ZI_AO_N, ZI_BEAM_N, ZI_HOLE_N, ZI_GLOW_K, ZI_BEAM_K, ZI_HOLE_K, ZI_HOLE_LOBE, ZI_BOUNCE,
-  ZI_SRC_DIST, ZI_VOL_R, ZI_VOL_LEN, ZI_VOL_DY, ZI_VOL_SEG, ZI_DISC_R, ZI_VOL_K, RM_SHAFT_OP, FRL_NORM_ON, ZI_WALL_DIP, ZI_WALL_DIP_RAMP, ZI_RAY_EPS, ZI_TREAD_REFL, ZI_ROOM_FILL, ZI_KW_PTS_ON, ZI_KW_STEP, ZI_KW_ZOFF, RIB_DEST_PHI, RIB_DEST_K, SHELL_RIB_R, RIB_WALL_T, RIB_RADIAL_SEG, PASS_FLOOR_Y, RM_ROOF, RM_X0, RM_X1, RM_Z0, RM_Z1,
+  ZI_SRC_DIST, ZI_VOL_R, ZI_VOL_LEN, ZI_VOL_DY, ZI_VOL_SEG, ZI_DISC_R, ZI_VOL_K, RM_SHAFT_OP, FRL_NORM_ON, ZI_WALL_DIP, ZI_WALL_DIP_RAMP, ZI_RAY_EPS, ZI_TREAD_REFL, ZI_ROOM_FILL, ZI_KW_PTS_ON, ZI_KW_STEP, ZI_KW_ZOFF, ZI_VOL_PROFILE, ZI_VOL_RIM, ZI_VOL_RIM_F, ZI_VOL_FLOOR, ZI_VOL_FEATHER, ZI_DISC_DY, ZI_FAR_ON, ZI_VOL_K_FAR, ZI_FAR_POW, ZI_FAR_LEN, ZI_FAR_NEAR, ZI_DISC_GROW, ZI_WALL_RISE_ON, ZI_WALL_RISE_POW, ZI_FADE_POW, RIB_DEST_PHI, RIB_DEST_K, SHELL_RIB_R, RIB_WALL_T, RIB_RADIAL_SEG, PASS_FLOOR_Y, RM_ROOF, RM_X0, RM_X1, RM_Z0, RM_Z1,
   PASS_HW, PASS_T, JCT_DN_Z, PASS_X_CHEEK, CHEEK_TOP_NZ } from './constants.js'   // FRL_STUB_MG는 ★214 절 import에 이미 있다
 import { lightShaftSpec } from './junctionGeometry.js'   // ★71 빛 기둥 실기하 정본(판 윗면·관 안지름·오큘러스 — 사본 0)
 
@@ -1997,6 +1997,8 @@ export function zoneIWallTone(pw, Z = zoneISpec()) {
   if (!Z || !(ZI_WALL_DIP < 1) || !(ZI_WALL_DIP_RAMP > 0)) return ZI_WALL_SELF
   const pl = ziToLocal(pw); if (ziNearest(pl).d > Z.rIn + 0.75 * Z.wallT) return ZI_WALL_SELF
   const h = pw[1] - Z.top[1]; if (h <= 0) return ZI_WALL_SELF
+  //  ★219-s 상승: 판 근처 = DIP(0.55) → 관 끝(y=H)에서 1(백색). 판 접점의 1→DIP 급락은 DIP_RAMP로 내려온 뒤 다시 오르는 게 아니라, 판 바로 위가 DIP에서 시작해 단조 상승(판 아래 E 그루터기 1과의 이음은 ZI_STUB_FADE 몫).
+  if (ZI_WALL_RISE_ON) { const D = tn('DIP', ZI_WALL_DIP), t = 1 - Math.exp(-h / tn('FAR_LEN', ZI_FAR_LEN)); return ZI_WALL_SELF * (D + (1 - D) * Math.pow(t, tn('RISE_POW', ZI_WALL_RISE_POW))) }   // ★219-s″ 점근 — 92m 0.83 · 200m 0.94 · 끝에서만 ≈1(평탄 백색 원판 금지)
   const t = Math.min(1, h / ZI_WALL_DIP_RAMP), w = t * t * (3 - 2 * t)
   return ZI_WALL_SELF * (1 - (1 - ZI_WALL_DIP) * w)
 }
@@ -2037,23 +2039,45 @@ export function zoneIStubBlend(pw, sh, Z = zoneISpec()) {
 export function zoneIBoreAxis(Z = zoneISpec(), dy = ZI_VOL_DY) {
   if (!Z) return []
   const pts = []; let s = 0, u = Z.uDisc; pts.push({ p: ziAxis(u), t: ziTangent(u), s, u })
+  if (ZI_FAR_ON) {   // ★219-s 관 끝(u=1)까지 · 간격은 거리에 비례해 성장(먼 원판은 화면에서 작다)
+    while (u < 1 - 1e-9) { const step = dy * (1 + ZI_DISC_GROW * s / ZI_SRC_DIST); const tg = ziTangent(u); const du = step * tg[1] / H; if (u + du >= 1) { s += (1 - u) * H / tg[1]; u = 1 } else { u += du; s += step } pts.push({ p: ziAxis(u), t: ziTangent(u), s, u }) }
+    return pts }
   while (s < ZI_VOL_LEN) { const step = Math.min(dy, ZI_VOL_LEN - s); const tg = ziTangent(u); u += step * tg[1] / H; s += step; pts.push({ p: ziAxis(u), t: ziTangent(u), s, u }) }
   return pts
+}
+/** ★219-t 런타임 튜닝(개발 전용 — ZoneI 패널 `L`키): on이면 아래 값이 상수를 덮는다. 검사(check_lux)는 on=false 기본으로 상수를 문다. 배포·베이크 수학 무접촉(값만). */
+export const ZI_TUNE = { on: false, K_FAR: ZI_VOL_K_FAR, NEAR: ZI_FAR_NEAR, FAR_LEN: ZI_FAR_LEN, POW: ZI_FAR_POW, DIP: ZI_WALL_DIP, RISE_POW: ZI_WALL_RISE_POW }
+const tn = (k, def) => (ZI_TUNE.on ? ZI_TUNE[k] : def)
+/** ★219-s″ 대기 길이 항(셰이더와 같은 식 · s = 판에서 축 호길이): NEAR + (1−NEAR)·min(1,s/FL)^POW · FL~2FL에서 1→0 스무스스텝 · 2FL 너머 0(벽 점근이 이어받는다) */
+export function zoneIFarLen(s) {
+  const sm = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t) }
+  const N = tn('NEAR', ZI_FAR_NEAR), FL = tn('FAR_LEN', ZI_FAR_LEN), P = tn('POW', ZI_FAR_POW)
+  return (N + (1 - N) * Math.pow(Math.min(1, s / FL), P)) * (1 - sm(FL, 2 * FL, s))
 }
 /** ★219-i 관 속 빛기둥 = 축 단면 **원판 적층**(축 방향 시선용 — 옆면 튜브는 facing이 죽는다 · 실측 constants ZI_VOL_BORE 주석).
  *  원판마다 부채꼴 sides장: 중심 uv.x = 0.5 · 림 uv.x = 0 ⇒ 셰이더 xf = smoothstep(0, uXF, min(uv.x, 1−uv.x)·2) = smoothstep(0, uXF, 1 − r/rad) — 림에서 0, 안쪽 uXF 구간이 깃털(★189 경계 없음).
  *  법선 = 축 접선(전부 같은 값 · 올려다보면 facing=1, 옆에서는 0) · uv.y = s/L(길이 소멸 · 근원 불가시). 반지름 = ZI_DISC_R. */
-export function zoneIDiscTris(Z = zoneISpec(), { sides = ZI_VOL_SEG, dy = ZI_VOL_DY, rad = ZI_DISC_R } = {}) {
+export function zoneIDiscTris(Z = zoneISpec(), { sides = ZI_VOL_SEG, dy = ZI_DISC_DY, rad = ZI_DISC_R } = {}) {   // ★219-r′ 간격 = ZI_DISC_DY(1/8)
   if (!Z) return null
   const pts = zoneIBoreAxis(Z, dy), L = pts[pts.length - 1].s, pos = [], uv = [], nrm = []
   const push = (p, ux, n, s) => { pos.push(p[0], p[1], p[2]); uv.push(ux, s / L); nrm.push(n[0], n[1], n[2]) }
   for (const q of pts) { const { t, b } = frameOf(q.t)
     const rim = (k) => { const a = (k / sides) * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a); const nn = [t[0] * ca + b[0] * sa, t[1] * ca + b[1] * sa, t[2] * ca + b[2] * sa]; return [q.p[0] + nn[0] * rad, q.p[1] + nn[1] * rad, q.p[2] + nn[2] * rad] }
     for (let k = 0; k < sides; k++) { push(q.p, 0.5, q.t, q.s); push(rim(k), 0, q.t, q.s); push(rim(k + 1), 0, q.t, q.s) } }
-  return { pos, uv, nrm, len: L, rings: pts.length, discs: pts.length }
+  //  ★219-s 축 방향 적산 정규화 몫: 한 장의 길이 가중 합(대기 = (s/L)^FAR_POW · 덩어리 = (1−s/L)^FADE_POW) — uOpacity = 총량 / lenSum
+  //  ★219-s′ 대기 len = min(1, s/FAR_LEN)^POW · 정규화 합은 FAR_LEN 안의 장만(축 시선이 FAR_LEN에서 총량 = RM_SHAFT_OP·K_FAR ≥ 1에 닿고 그 너머는 클램프 백색)
+  const lenSum = pts.reduce((a, q) => a + (ZI_FAR_ON ? zoneIFarLen(q.s) : Math.pow(1 - q.s / L, ZI_FADE_POW)), 0)
+  return { pos, uv, nrm, len: L, rings: pts.length, discs: pts.length, lenSum }
 }
 /** ★219-i 원판 한 장의 세기 = ★215-b 겹 정규화 승계: 축 시선은 원판 n장을 전부 지나므로 총량 RM_SHAFT_OP(×ZI_VOL_K 판정 배율)를 n으로 나눈다. FRL_NORM_ON=false면 정규화 없음(E 규칙 그대로) */
-export function zoneIDiscOpacity(n) { return (FRL_NORM_ON ? RM_SHAFT_OP / Math.max(1, n) : RM_SHAFT_OP) * ZI_VOL_K }
+/** ★219-r 원판 반경 단면(셰이더 xf와 같은 식 — u = r/rad · 0 중심 · 1 림). 'rim' = (FLOOR + (1−FLOOR)·smoothstep(0,RIM,u))·smoothstep(0,RIM_F,1−u) · 'core' = smoothstep(0,FEATHER,1−u). 검사·프로브가 셰이더 대신 이 함수를 쓴다. */
+export function zoneIDiscProfile(u, mode = ZI_VOL_PROFILE) {
+  const sm = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t) }
+  return mode === 'rim' ? (ZI_VOL_FLOOR + (1 - ZI_VOL_FLOOR) * sm(0, ZI_VOL_RIM, u)) * sm(0, ZI_VOL_RIM_F, 1 - u) : (ZI_VOL_FEATHER > 0 ? sm(0, ZI_VOL_FEATHER, 1 - u) : 1)   // ★219-r″ 바닥 + 언덕 · 림 0
+}
+export function zoneIDiscOpacity(n, lenSum = null) {
+  if (ZI_FAR_ON) return RM_SHAFT_OP * tn('K_FAR', ZI_VOL_K_FAR) / Math.max(1e-9, lenSum ?? n)   // ★219-s 대기: 축 방향 적산(Σ op·len) = RM_SHAFT_OP·K_FAR (길이 가중 정규화 · 소실점 백색)
+  return (FRL_NORM_ON ? RM_SHAFT_OP / Math.max(1, n) : RM_SHAFT_OP) * ZI_VOL_K }
 /** 볼륨 — 관 축을 따르는 폴리라인 튜브(uv.y = 호길이/전체 → 셰이더 len 소멸) · part 'bore' = 전망 판 → 위로 VOL_LEN(끝 알파 0 = 근원 불가시) · 'shaft' = 판 구멍 → 오큘러스 → 전실 바닥(수직) */
 export function zoneITubeTris(Z = zoneISpec(), part = 'bore', { sides = ZI_VOL_SEG, dy = ZI_VOL_DY } = {}) {
   if (!Z) return null

@@ -18,6 +18,7 @@ import { join } from 'path'
 
 const ARGS = process.argv.slice(2)
 const REPORT = ARGS.includes('--report'), VERIFY = ARGS.includes('--verify'), EYEP = ARGS.includes('--eye')
+const LOOK = (ARGS.find((a) => a.startsWith('--look=')) || '').slice(7)   // ★219-q --look=x,y,z,yawDeg,pitchDeg — HUD 자세에서 화면 격자 광선 → 명중 메시·정점색(어느 메시가 화면의 무엇인지 확정)
 const RESULT = join(tmpdir(), 'ethica_zoneI_last.json')
 const dir = mkdtempSync(join(tmpdir(), 'ethica-zi-'))
 const bdir = join(process.cwd(), '.tmp_probe_zoneI'); mkdirSync(bdir, { recursive: true })
@@ -228,15 +229,53 @@ let ribV = null
       inner++; if (!Zi || Zi.getX(a) + Zi.getX(b) + Zi.getX(c) < 3) { miss++; missArea += area } if (C) for (const k of [a, b, c]) if (C.getX(k) < K.ZI_DIM + 0.1) dark++ }
     ribV = { inner, miss, missArea: +missArea.toFixed(1), dark } } }
 if (globalThis.window.__ethicaZi && globalThis.window.__ethicaZi.records) { const V = await import('${join(process.cwd(), 'src/_probe_zoneI_verify.mjs')}'); verify = V.verifyZoneI(THREE, globalThis.window.__ethicaZi) }
+let look = null
+if ('${LOOK}') { const [cx, cy, cz, yawD, pitD] = '${LOOK}'.split(',').map(Number); const yaw = yawD * Math.PI / 180, pit = pitD * Math.PI / 180
+  const rc = new THREE.Raycaster(); rc.far = 400; const origin = new THREE.Vector3(cx, cy, cz)
+  const fovV = 70 * Math.PI / 180, aspect = 16 / 9, tanV = Math.tan(fovV / 2), tanH = tanV * aspect
+  const meshes = []; scene.traverse((o) => { if (o.isMesh && o.geometry && !o.userData.lightVolume) meshes.push(o) })
+  const rows = []
+  for (let r = 0; r < 7; r++) for (let c = 0; c < 9; c++) {
+    const sx = (c / 8) * 2 - 1, sy = 1 - (r / 6) * 2   // 화면 -1..1
+    const d = new THREE.Vector3(sx * tanH, sy * tanV, -1).normalize().applyEuler(new THREE.Euler(pit, yaw, 0, 'YXZ'))
+    rc.set(origin, d); const h = rc.intersectObjects(meshes, false)[0]
+    if (!h) { rows.push({ r, c, hit: null }); continue }
+    const o = h.object, g = o.geometry, C = g.attributes.color, f = h.face
+    const cols = C ? [C.getX(f.a), C.getX(f.b), C.getX(f.c)].map((x) => +x.toFixed(2)) : null
+    const inst = o.isInstancedMesh ? (() => { const cc = new THREE.Color(); if (o.instanceColor) o.getColorAt(h.instanceId, cc); return +cc.r.toFixed(2) })() : null
+    const P = g.attributes.position, ys = [f.a, f.b, f.c].map((i) => +new THREE.Vector3().fromBufferAttribute(P, i).applyMatrix4(o.matrixWorld).y.toFixed(1))
+    rows.push({ r, c, comp: o.userData.__comp || o.name || '?', inst: o.isInstancedMesh, walk: o.userData.walkable === true, ziRib: !!o.userData.ziRib, d: +h.distance.toFixed(1), p: h.point.toArray().map((x) => +x.toFixed(1)), n: f.normal.toArray().map((x) => +x.toFixed(2)), cols, vy: ys, instCol: inst, idx: !!g.index, nTri: (g.index ? g.index.count : P.count) / 3 })
+  }
+  look = rows }
+let shelf = null
+if ('${LOOK}' && globalThis.window.__ethicaZi && globalThis.window.__ethicaZi.records) {   // ★219-q 선반(몸 상면 비탈) 삼각형 단위 덤프
+  const { records, rayFn, B } = globalThis.window.__ethicaZi, rows = []
+  for (const { o, g, triSide } of records) { if ((o.userData.__comp || '') !== 'KneeWalk' || o.userData.walkable) continue
+    const P = g.attributes.position, C = g.attributes.color, I = g.index, nn = I ? I.count : P.count, idx = (i) => I ? I.getX(i) : i
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3()
+    for (let t = 0, i = 0; i + 2 < nn; i += 3, t++) { const ia = idx(i), ib = idx(i + 1), ic = idx(i + 2)
+      a.fromBufferAttribute(P, ia).applyMatrix4(o.matrixWorld); b.fromBufferAttribute(P, ib).applyMatrix4(o.matrixWorld); c.fromBufferAttribute(P, ic).applyMatrix4(o.matrixWorld)
+      const n = b.clone().sub(a).cross(c.clone().sub(a)); const ar = n.length() / 2; n.normalize()
+      const cw = [(a.x + b.x + c.x) / 3, (a.y + b.y + c.y) / 3, (a.z + b.z + c.z) / 3], cl = LM.ziToLocal(cw)
+      if (cl[0] < 200 || cl[0] > 226 || Math.abs(cl[2]) < 1.0 || Math.abs(cl[2]) > 3.6 || n.y < 0.5) continue
+      const sh = LM.zoneIShadeAt(cw, [n.x, n.y, n.z], rayFn, B)
+      rows.push({ mesh: nn / 3, t, side: triSide[t], ar: +ar.toFixed(2), cl: cl.map((x) => +x.toFixed(2)), n: [n.x, n.y, n.z].map((x) => +x.toFixed(2)), cols: [C.getX(ia), C.getX(ib), C.getX(ic)].map((x) => +x.toFixed(2)), ctr: +sh.toFixed(2),
+        vl: [a, b, c].map((v) => LM.ziToLocal([v.x, v.y, v.z]).map((x) => +x.toFixed(2))) }) } }
+  shelf = rows.sort((p, q) => q.cl[0] - p.cl[0] || p.cl[2] - q.cl[2]) }
 let eye = null
 if (${EYEP} && globalThis.window.__ethicaZi && globalThis.window.__ethicaZi.records) { const EM = await import('${join(process.cwd(), 'src/_probe_zoneI_eye.mjs')}'); const tE = performance.now(); eye = EM.eyeProbe(THREE, globalThis.window.__ethicaZi); eye.ms = Math.round(performance.now() - tE) }
-WF('${RESULT}', JSON.stringify({ errs, logs, members, darkFaces, sweep, wps, verify, ribV, eye, consts: { PHI, RIN, H: K.H, R: spec ? spec.R : null, ribs: spec ? spec.ribs.map((r) => ({ k: r.k, yTop: +r.yTop.toFixed(3), top: r.top.map((x) => +x.toFixed(3)), stubLen: +r.stubLen.toFixed(3) })) : null, FRB } }))
+WF('${RESULT}', JSON.stringify({ errs, logs, members, darkFaces, sweep, wps, verify, ribV, eye, look, shelf, consts: { PHI, RIN, H: K.H, R: spec ? spec.R : null, ribs: spec ? spec.ribs.map((r) => ({ k: r.k, yTop: +r.yTop.toFixed(3), top: r.top.map((x) => +x.toFixed(3)), stubLen: +r.stubLen.toFixed(3) })) : null, FRB } }))
 process.exit(0)
 `)
 if (!REPORT) execSync(`node ${process.env.PROF ? "--cpu-prof --cpu-prof-dir=/tmp/prof " : ""}${runner}`, { stdio: ['ignore', 'inherit', 'inherit'] })
 const R = JSON.parse(readFileSync(RESULT, 'utf-8'))
 console.log('상수:', JSON.stringify(R.consts)); for (const l of R.logs) if (/\[ZI|\[ethica/.test(l)) console.log('  ' + l)
 if (R.errs.length) console.log('오류:', R.errs.join(' | '))
+if (LOOK) {
+  console.log('\n── ★219-q --look ' + LOOK + ' (7행×9열 · 화면 좌상→우하) ──')
+  for (const q of R.look) console.log(q.hit === null ? `  r${q.r} c${q.c} —` : `  r${q.r} c${q.c} ${q.comp.padEnd(14)}${q.inst ? ' inst' : ''}${q.walk ? ' walk' : ''}${q.ziRib ? ' ziRib' : ''} d${String(q.d).padStart(6)} p${JSON.stringify(q.p)} n${JSON.stringify(q.n)} 색${q.cols ? JSON.stringify(q.cols) : q.instCol !== null ? 'inst' + q.instCol : '-'} 정점y${JSON.stringify(q.vy)}`)
+  if (!EYEP && !VERIFY) process.exit(0)
+}
 if (EYEP) {
   const E = R.eye
   if (!E) { console.log('\n── ★219-p 눈-가시성 — records 없음'); process.exit(2) }
