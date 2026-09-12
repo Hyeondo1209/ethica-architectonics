@@ -20,8 +20,9 @@ export function verifyZoneI(THREE, H) {
   const EPS = 1e-3, LIT = ZI_DIM + 0.1   // "밝다" = 어둠 바닥에서 0.1 이상 위(안면 최저 채움 0.52·관 속 gl≥0.1 대역과 DIM 0.04 사이)
   const v = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3()
   const rows = [], Aface = [], Bvert = [], Cface = [], diffs = []
-  let nTri = 0, nIn = 0, nOut = 0, nDeg = 0, areaIn = 0, areaOut = 0, areaA = 0
-  for (const { o, triSide } of records) {
+  let nTri = 0, nIn = 0, nOut = 0, nDeg = 0, areaIn = 0, areaOut = 0, areaA = 0, nSwap = 0   // ★219-p nSwap = 베이크 당시 지오메트리(records.g)와 지금 o.geometry가 다른 메시 수(기대 0 — ★219-o Ⅵ '23s 재생성' 의심의 계측)
+  for (const { o, g: g0, triSide } of records) {
+    if (g0 && g0 !== o.geometry) nSwap++
     const g = o.geometry, P = g.attributes.position, C = g.attributes.color, I = g.index
     const comp = o.userData.__comp || o.name || '?'
     const idx = (i) => (I ? I.getX(i) : i), nn = I ? I.count : P.count
@@ -66,6 +67,6 @@ export function verifyZoneI(THREE, H) {
     require('fs').writeFileSync(process.env.ZI_DUMP, JSON.stringify(D)) }
   diffs.sort((x, y) => x - y)
   const q = (p) => (diffs.length ? +diffs[Math.min(diffs.length - 1, Math.floor(p * diffs.length))].toFixed(3) : null)
-  return { nTri, nIn, nOut, nDeg, areaIn: +areaIn.toFixed(1), areaOut: +areaOut.toFixed(1), areaA: +areaA.toFixed(3), nA: Aface.length, nB: Bvert.length,
+  return { nSwap, nTri, nIn, nOut, nDeg, areaIn: +areaIn.toFixed(1), areaOut: +areaOut.toFixed(1), areaA: +areaA.toFixed(3), nA: Aface.length, nB: Bvert.length,
     diff: { n: diffs.length, p01: q(0.01), p10: q(0.1), p50: q(0.5), p90: q(0.9), p99: q(0.99), min: q(0), max: q(0.999999) }, rows, Aface: Aface.sort((x, y) => y.ar - x.ar).slice(0, 20), Bvert: Bvert.slice(0, 20), Cface: Cface.sort((x, y) => y.ar - x.ar).slice(0, 12), nC: Cface.length }
 }

@@ -2833,8 +2833,8 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
     T('배선 — zoneIShadeAt 채움 = faceFill ∨ 점 규칙(여유 0) 한 곳 · ZoneI bakeMesh는 안면 삼각형마다 zoneIFillFace(중심·want)로 fillV를 표시해 정점 음영에 넘기고, 삼각형별 판정(triSide)을 records로 남겨 window.__ethicaZi에 rayFn·B·ipts와 함께 단다 · _probe_zoneI --verify가 그것으로 전 삼각형 판정↔값을 대조한다(장면 있는 검사 = [521] 한계의 반쪽)',
       /faceFill \|\| inBox\(q, B\.spec\.room, 0\) \|\| inBox\(q, B\.spec\.chan, 0\)/.test(lmG) && !/ZI_FILL_MG|zoneIFillIn/.test(lmG)
       && /if \(zoneIFillFace\(triC\(W\), want, B\.spec\)\) \{ fillV\[a\] = 1; fillV\[b\] = 1; fillV\[c\] = 1 \}/.test(ziG2) && /rayFn, B, false, fillV\[i\] === 1\)/.test(ziG2)
-      && /records\.push\(\{ o, triSide \}\)/.test(ziG2) && /Object\.assign\(window\.__ethicaZi, \{ records, rayFn, B, ipts \}\)/.test(ziG2)
-      && /VERIFY = ARGS\.includes\('--verify'\)/.test(prG) && /_probe_zoneI_verify\.mjs/.test(prG) && /process\.exit\(okA && okB && okD \? 0 : 1\)/.test(prG) && /Ⓓ 리브 관 안면\(판 위 · ★219-o 안면만\)/.test(prG))   // ★219-m Ⓓ 리브 항 추가
+      && /records\.push\(\{ o, g, triSide \}\)/.test(ziG2) && /Object\.assign\(window\.__ethicaZi, \{ records, rayFn, B, ipts \}\)/.test(ziG2)
+      && /VERIFY = ARGS\.includes\('--verify'\)/.test(prG) && /_probe_zoneI_verify\.mjs/.test(prG) && /process\.exit\(okA && okB && okD && V\.nSwap === 0 \? 0 : 1\)/.test(prG) && /Ⓓ 리브 관 안면\(판 위 · ★219-o 안면만\)/.test(prG))   // ★219-m Ⓓ 리브 항 추가
   }
   //  ⑼′ ★219-b 그루터기 이음 — 관 속: 천장 바로 위 = 1 · 천장+FADE/2 = 중간 · 천장+FADE 이상 = I 값 그대로 · 관 밖(전실 바닥점) = 그대로
   {
@@ -2927,6 +2927,24 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
     const lmS = readFileSync(new URL('./lightingModel.js', import.meta.url), 'utf8')
     T(`ⓘ 관 벽 면 판별 — 면 중앙 0°: rIn·cos ${(rI * c).toFixed(3)} → in · rOut·cos ${(rO * c).toFixed(3)} → out · 꼭짓점 18°: rIn ${rI.toFixed(3)} → in · rOut ${rO.toFixed(3)} → out · 처짐 −0.06 → in · 간격 ${(Z.wallT * c).toFixed(3)} > 0.06 · zoneIWallTri·zoneIEmitTri 둘 다 ziBoreSide 'in'`,
       ok && Z.wallT * c > 0.06 && (lmS.match(/if \(ziBoreSide\(cl, n, Z\) !== 'in'\) return false/g) || []).length === 2) }
+  //  ⓙ ★219-p 무릎길 눈 경로 대표점 — 실측(--eye): 대표점 30개(관 축·상자)뿐이라 보행자 눈에 보이는 면 727장 438㎡가 '바깥면'(흰색 1.0)이었다 → 눈 경로(보행면 + EYE · z 0·±ZOFF) 추가 후 1.9㎡.
+  {
+    const KS = await import('./kneeStair.js'), WP = await import('./waypoints.js')
+    const pts = LM.zoneIInteriorPoints(Z), nX = Math.floor((KS.KNEE_XA - KS.KNEE_XB) / K.ZI_KW_STEP + 1e-9) + 1, nEye = K.ZI_KW_PTS_ON ? 3 * nX : 0
+    const eyes = pts.slice(pts.length - nEye)
+    const onPath = eyes.every((p, i) => { const x = KS.KNEE_XB + Math.floor(i / 3) * K.ZI_KW_STEP; const z = [0, -K.ZI_KW_ZOFF, K.ZI_KW_ZOFF][i % 3]
+      return Math.abs(p[0] - x) < 1e-9 && Math.abs(p[1] - (KS.kneeSurfaceY(x) + WP.EYE)) < 1e-9 && Math.abs(p[2] - z) < 1e-9 })
+    //  치환 반증(상주): 눈 경로 점이 관 밖(축거리 ≥ rIn)이면 zoneIInterior가 거른다 — 지금은 전부 관 속이어야 한다(무릎길은 관 안에 매달린다 · kneeHeadroom)
+    const allIn = eyes.every((p) => LM.ziNearest(p).d < Z.rIn)
+    T(`ⓙ 눈 경로 대표점 — ${nEye}점(${nX}×3) = 전체 ${pts.length} − 구판 ${pts.length - nEye} · x = KNEE_XB~XA 걸음 ${K.ZI_KW_STEP}(= KW_TREAD_W·2) · y = kneeSurfaceY + EYE ${WP.EYE} · z 0·±${K.ZI_KW_ZOFF}(= KW_TREAD_W/4) · 전부 관 속(축거리 < rIn) · 노브 불리언`,
+      (K.ZI_KW_PTS_ON ? (nEye > 0 && onPath && allIn) : nEye === 0) && K.ZI_KW_STEP === K.KW_TREAD_W * 2 && K.ZI_KW_ZOFF === K.KW_TREAD_W / 4 && typeof K.ZI_KW_PTS_ON === 'boolean')
+    //  ⓚ ★219-p 배선 — ★219-d′ 규칙(걷는 판 상면 = 백색)의 비인스턴스 구현: bakeMesh 정점 루프에서 walkable 메시의 위 향 정점 = ZI_WALL_SELF(--verify Ⓐ 2면 17㎡의 수리) · records에 베이크 당시 g · --verify Ⓖ 교체 수 0 · --eye 프로브 존재(Ⓔ0 자기검사)
+    { const ziP = readFileSync(new URL('./ZoneI.jsx', import.meta.url), 'utf8'), prP = readFileSync(new URL('./_probe_zoneI.mjs', import.meta.url), 'utf8'), veP = readFileSync(new URL('./_probe_zoneI_verify.mjs', import.meta.url), 'utf8'), eyP = readFileSync(new URL('./_probe_zoneI_eye.mjs', import.meta.url), 'utf8')
+      T('ⓚ 배선 — bakeMesh: walkMesh = userData.walkable === true · 위 향 정점(nm.y > 0)은 ZI_TREAD_LIT일 때 ZI_WALL_SELF · records.push({ o, g, triSide }) · verify nSwap(g0 !== o.geometry) · _probe_zoneI --eye → _probe_zoneI_eye.mjs(Ⓔ0 아래·위 자기검사 · rayFn·records 재사용 · 소프 재조립 없음)',
+        /const walkMesh = o\.userData\.walkable === true/.test(ziP) && /\(ZI_TREAD_LIT && walkMesh && nm\.y > 0\) \? ZI_WALL_SELF : zoneIShadeAt\(/.test(ziP)
+        && /if \(g0 && g0 !== o\.geometry\) nSwap\+\+/.test(veP) && /EYEP = ARGS\.includes\('--eye'\)/.test(prP) && /_probe_zoneI_eye\.mjs/.test(prP)
+        && /rayFn\(e, \[0, -1, 0\], EYE \+ 0\.6\)/.test(eyP) && /rayFn\(e, \[0, 1, 0\], 30\)/.test(eyP) && /zoneIVisibleFromInside\(cw, \[n\.x, n\.y, n\.z\], rayFn, eyes, B\.spec\)/.test(eyP) && !/new MeshBVH/.test(eyP)) }
+  }
   if (K.FREEZE_I_ON) T(`★★동결 — 구역 I 지문(미구현 — 현도 동결 선언 시 S-19 어법으로 세운다)`, false)
   else console.log(`  (구역 I 동결 대조 보류 — FREEZE_I_ON=${K.FREEZE_I_ON} · 현도 선언 대기)`)
 }

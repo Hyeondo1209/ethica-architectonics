@@ -112,7 +112,7 @@ export function ZoneILight() {
     const bakeMesh = (o) => {
       if (!o.isMesh || !o.geometry) return
       const mats = [].concat(o.material); if (!mats.every((m) => m && m.isMeshStandardMaterial)) return
-      const g = o.geometry; o.updateWorldMatrix(true, false)
+      const g = o.geometry; o.updateWorldMatrix(true, false); const walkMesh = o.userData.walkable === true   // ★219-p
       if (o.isInstancedMesh) { const c = new THREE.Color()
         for (let k = 0; k < o.count; k++) o.setColorAt(k, c.setScalar(shadeInstance(o, k)))
         o.instanceColor.needsUpdate = true; nInst++; return }
@@ -143,11 +143,13 @@ export function ZoneILight() {
         v.fromBufferAttribute(P, i).applyMatrix4(o.matrixWorld); nm.fromBufferAttribute(N, i).applyMatrix3(nMat).normalize()
         //  정점 법선이 가시성이 정한 쪽과 어긋나면 뒤집어 쓴다(부드러운 법선의 뉘앙스는 살리고 방향만 바로잡는다)
         if (side[i] < 0) nm.negate()
-        const sh = zoneIShadeAt([v.x, v.y, v.z], [nm.x, nm.y, nm.z], rayFn, B, false, fillV[i] === 1)
+        //  ★219-p ★219-d′ 규칙의 구현 누락 보완: "걷는 판 상면 = 백색"이 인스턴스 디딤판(shadeInstance)에만 있었다 — 참 상자·정션 판 같은 **비인스턴스 걷는 판**은
+        //   여태 '바깥면'이라 우연히 1.0이었고, 눈 경로 대표점이 생기자 '안면'이 되어 AO 귀퉁이 0.04(--verify Ⓐ 2면 17㎡ · 첫 참 0.16 정점)로 갈라졌다. 위 향 정점 = ZI_WALL_SELF.
+        const sh = (ZI_TREAD_LIT && walkMesh && nm.y > 0) ? ZI_WALL_SELF : zoneIShadeAt([v.x, v.y, v.z], [nm.x, nm.y, nm.z], rayFn, B, false, fillV[i] === 1)
         col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = sh
       }
       g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.userData.bakedZi = true; nVert += nIn; nExt += nOut
-      records.push({ o, triSide })   // ★219-h 전수 대조 프로브에 판정을 넘긴다(개발 핸들 — 렌더 무관)
+      records.push({ o, g, triSide })   // ★219-h 전수 대조 프로브에 판정을 넘긴다(개발 핸들 — 렌더 무관) · ★219-p g = 베이크 당시 지오메트리(대조 시 o.geometry와 같은 객체인지 프로브가 센다)
       //  ★219 발광 벽 정점 = ZI_WALL_SELF("빛이 나는 곳은 하얗다" — E 그루터기 규칙 승계). 무릎길·전망 몸의 관 접촉면이 여기 든다.
       let nEm = 0
       eachTri(g, (a, b, c) => { const W = triWorld(o, g, a, b, c); const n = triN(W); if (!n) return; const cc = triC(W)

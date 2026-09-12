@@ -39,6 +39,8 @@ import { spireSpec, wellWallR, wellInnerClear } from './spireGeometry.js'
 import { spireTerraceSpec } from './spireTerraceGeometry.js'   // ★209 테라스 구멍 = y127의 통과 구속(사본 금지)
 import { discSpec } from './discGeometry.js'   // ★180 하절 공급지에 디스크 트인 틈 합류
 import { pitSpec } from './defPitGeometry.js'
+import { kneeSurfaceY, KNEE_XA, KNEE_XB } from './kneeStair.js'   // ★219-p 무릎길 보행면(눈 경로 대표점 — 사본 금지)
+import { EYE } from './waypoints.js'   // ★219-p 눈높이 정본
 
 // ── 벡터 ──────────────────────────────────────────────────────
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
@@ -1775,7 +1777,7 @@ export function dskirtTris(strands, { radiusK = 1, sides = DSK_TUBE_SEG } = {}) 
 //   세계좌표 정점은 ziToLocal로 넘겨 재고, 결과는 좌표계 무관 스칼라. 소속 판정(관 안면 삼각형 · 방 천장 위)만 세계좌표(friezeRoomCeil)를 같이 본다.
 //  ⚠1차 근사 선언: ⓐ②의 가림은 광선 한 발 = 명중/미명중(부분 가림 없음) ⓑ관 안면은 아가리(yTop)부터 위로 전부 발광(그루터기 연속 · 관 끝은 무한) ⓒ①의 관 벽은 가림에서 제외(통로) ⓓ2차 반사는 전실 바닥 한 원판만.
 import { ZI_ON, ZI_GLOW_ON, ZI_BEAM_ON, ZI_HOLE_ON, ZI_R, ZI_DIM, ZI_GAMMA, ZI_K, ZI_WALL_SELF, ZI_STUB_FADE, ZI_AO_N, ZI_BEAM_N, ZI_HOLE_N, ZI_GLOW_K, ZI_BEAM_K, ZI_HOLE_K, ZI_HOLE_LOBE, ZI_BOUNCE,
-  ZI_SRC_DIST, ZI_VOL_R, ZI_VOL_LEN, ZI_VOL_DY, ZI_VOL_SEG, ZI_DISC_R, ZI_VOL_K, RM_SHAFT_OP, FRL_NORM_ON, ZI_WALL_DIP, ZI_WALL_DIP_RAMP, ZI_RAY_EPS, ZI_TREAD_REFL, ZI_ROOM_FILL, RIB_DEST_PHI, RIB_DEST_K, SHELL_RIB_R, RIB_WALL_T, RIB_RADIAL_SEG, PASS_FLOOR_Y, RM_ROOF, RM_X0, RM_X1, RM_Z0, RM_Z1,
+  ZI_SRC_DIST, ZI_VOL_R, ZI_VOL_LEN, ZI_VOL_DY, ZI_VOL_SEG, ZI_DISC_R, ZI_VOL_K, RM_SHAFT_OP, FRL_NORM_ON, ZI_WALL_DIP, ZI_WALL_DIP_RAMP, ZI_RAY_EPS, ZI_TREAD_REFL, ZI_ROOM_FILL, ZI_KW_PTS_ON, ZI_KW_STEP, ZI_KW_ZOFF, RIB_DEST_PHI, RIB_DEST_K, SHELL_RIB_R, RIB_WALL_T, RIB_RADIAL_SEG, PASS_FLOOR_Y, RM_ROOF, RM_X0, RM_X1, RM_Z0, RM_Z1,
   PASS_HW, PASS_T, JCT_DN_Z, PASS_X_CHEEK, CHEEK_TOP_NZ } from './constants.js'   // FRL_STUB_MG는 ★214 절 import에 이미 있다
 import { lightShaftSpec } from './junctionGeometry.js'   // ★71 빛 기둥 실기하 정본(판 윗면·관 안지름·오큘러스 — 사본 0)
 
@@ -1870,6 +1872,8 @@ export function zoneIInteriorPoints(Z = zoneISpec()) {
   const g = (B, nx, ny, nz) => { for (let i = 1; i <= nx; i++) for (let j = 1; j <= ny; j++) for (let k = 1; k <= nz; k++)
     out.push([B.x0 + (B.x1 - B.x0) * i / (nx + 1), B.y0 + (B.y1 - B.y0) * j / (ny + 1), B.z0 + (B.z1 - B.z0) * k / (nz + 1)]) }
   g(Z.room, 3, 2, 3); g(Z.chan, 2, 2, 1)
+  //  ★219-p 보행자 눈 경로(무릎길 전 구간) — 무릎길 복도에 대표점이 없어 벽이 흰색↔음영으로 갈리던 얼룩(실측 438㎡)의 수리. 좌표 = 무릎길 설계 프레임 = 구역 I 로컬(스파인 z=0).
+  if (ZI_KW_PTS_ON) for (let x = KNEE_XB; x <= KNEE_XA + 1e-9; x += ZI_KW_STEP) { const y = kneeSurfaceY(x) + EYE; for (const z of [0, -ZI_KW_ZOFF, ZI_KW_ZOFF]) out.push([x, y, z]) }
   return out
 }
 /** ★219-g **가시성으로** 안팎을 가른다(정본) — 면 중심에서 실내 대표점(zoneIInteriorPoints)으로 광선을 쏴, **막힘 없이 닿는 점이 하나라도 있으면 안면**.
