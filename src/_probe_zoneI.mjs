@@ -304,9 +304,12 @@ if (VERIFY) {
   for (const f of V.Aface) console.log(`     ${f.comp.padEnd(14)} ${String(f.ar).padStart(7)}㎡ 재계산${f.ref} side${f.side} 중심${JSON.stringify(f.c)} 법선${JSON.stringify(f.n)}`)
   console.log(`${okB ? '✓' : '✗'} Ⓑ 바깥면인데 칠함(안면과 공유하지 않는 정점 값 ≠ 1) = ${V.nB}정점 (기대 0)`)
   for (const b of V.Bvert) console.log(`     ${b.comp.padEnd(14)} #${b.id} 값${b.col} ${JSON.stringify(b.p)}`)
+  const okH = V.nH === 0
+  console.log(`${okH ? '✓' : '✗'} Ⓗ 판 밑 바닥면 오판(위 향 면인데 위가 실내로 안 잡힘 · 위 광선이 tread에 판 두께 안에서 막힘) = ${V.nH}면 ${V.areaH}㎡ (기대 0 · ★219-w 이전 Lookout 램프 59장 177㎡ · ZI_UNDER_TREAD_ON=false면 보류)`)
+  for (const f of V.Hface) console.log(`     ${f.comp.padEnd(14)} ${String(f.ar).padStart(7)}㎡ side${f.side} 중심${JSON.stringify(f.c)}`)
   const RV = R.ribV, okD = !!RV && RV.miss === 0 && RV.dark === 0
   console.log(`${okD ? '✓' : '✗'} Ⓓ 리브 관 안면(판 위 · ★219-o 안면만) — 후보 ${RV ? RV.inner : '?'}장 중 미분류 ${RV ? RV.miss : '?'}장 ${RV ? RV.missArea : '?'}㎡ · 어두운 정점 ${RV ? RV.dark : '?'} (기대 0·0 — ★219-m 이전 27장 273㎡)`)
-  process.exit(okA && okB && okD && V.nSwap === 0 ? 0 : 1)
+  process.exit(okA && okB && okD && okH && V.nSwap === 0 ? 0 : 1)
 }
 console.log('\n── ⓐ 구역 I 후보 부재 ──')
 for (const m of R.members) console.log(`${m.comp.padEnd(14)} ${m.inst ? 'inst×' + m.count : 'mesh'} 주인:${(m.own || '-').padEnd(7)} v${m.verts} y${m.yMin}~${m.yMax} 색:${m.hasColor ? 'V' : '-'}${m.instColor ? 'I' : ''} aZi:${m.nZi ?? '-'} 태그[${m.tags}] ${m.zmin !== undefined && m.zmin < 9 ? 'ZI값 ' + m.zmin + '~' + m.zmax + ' ' + JSON.stringify(m.zh) : ''} ${m.inst ? '천장위 인스턴스색 ' + JSON.stringify(m.hist) : ''}`)

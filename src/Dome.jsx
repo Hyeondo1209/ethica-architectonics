@@ -767,7 +767,7 @@ export function Lookout() {
   return (
     <>
       {geo && (
-        <mesh geometry={geo} castShadow receiveShadow>
+        <mesh geometry={geo} castShadow receiveShadow userData={{ ziUnderTread: true, ziFlatAll: true, ziSmooth: true }}>{/* ★219-w 판이 앉은 몸: 램프 윗면(디딤판이 0.06 파묻힘)은 위 광선이 판 상자 안에서 막혀 '아래 실내'로 뒤집히던 것 — 판 밑 = 실내 바닥면 규칙(constants ZI_UNDER_TREAD_ON) */}
           <meshStandardMaterial {...SHELL_MAT} />
         </mesh>
       )}

@@ -3,14 +3,15 @@
 //  패스 순서: DSK(Corridor.jsx) 베이크가 목적지 리브 정점색을 찍은 **뒤**에 돈다(같은 color 속성을 나눠 쓴다 — 관 안면·천장 위 삼각형만 덧쓴다).
 //  가림 광선 = three-mesh-bvh(three-bvh-csg의 종속 · 이미 트리에 있음) 한 소프: 구역 I 부재 전부 + 목적지 리브(관 안면 삼각형 = 'glow', 나머지 = 'body') — **로컬 좌표**(상부 여정 그룹).
 //  외부 인상 불변: 리브에는 aZi 정점 속성(관 안면·천장 위 = 1)으로만 곱한다 · 나머지 부재는 통째 구역 I 안(vertexColors만) · 볼륨은 관 안·SHAFT 안, 후광 없음.
-import { useMemo, useRef, useEffect } from 'react'
+import { useMemo, useRef, useEffect, useState } from 'react'
 import * as THREE from 'three'
 import { useFrame, useThree, invalidate } from '@react-three/fiber'
 import { MeshBVH } from 'three-mesh-bvh'
-import { ZI_ON, ZI_VOL_ON, ZI_OP, ZI_FADE_POW, ZI_TOPF, ZI_COLOR, ZI_WALL_SELF, ZI_TREAD_LIT, DSK_ON, ZI_VOL_BORE, ZI_VOL_FEATHER, ZI_WALL_UNLIT, ZI_WALL_FACET_ON, ZI_BODY_FLAT_ON, ZI_VOL_PROFILE, ZI_VOL_RIM, ZI_VOL_RIM_F, ZI_VOL_FLOOR, ZI_FAR_ON, ZI_FAR_POW, ZI_FAR_LEN, ZI_FAR_NEAR, ZI_DISC_DY, ZI_VOL_LEN } from './constants.js'
-import { ZI_TUNE, zoneIFarLen, zoneIBake, zoneIShadeAt, zoneIWallTone, zoneIWallTri, zoneIEmitTri, zoneIVisibleFromInside, zoneIFillFace, zoneIInteriorPoints, zoneIOwns, zoneITubeTris, zoneIDiscTris, zoneIDiscOpacity, ziToLocal, zoneIBoreAxis } from './lightingModel.js'
+import { ZI_ON, ZI_VOL_ON, ZI_OP, ZI_FADE_POW, ZI_TOPF, ZI_COLOR, ZI_WALL_SELF, ZI_TREAD_LIT, DSK_ON, ZI_VOL_BORE, ZI_VOL_FEATHER, ZI_WALL_UNLIT, ZI_WALL_FACET_ON, ZI_BODY_FLAT_ON, ZI_VOL_PROFILE, ZI_VOL_RIM, ZI_VOL_RIM_F, ZI_VOL_FLOOR, ZI_FAR_ON, ZI_FAR_POW, ZI_FAR_LEN, ZI_FAR_NEAR, ZI_DISC_DY, ZI_VOL_LEN, ZI_FLAT_ALL_ON, ZI_FLAT_ALL_SAMP, ZI_SMOOTH_ON, ZI_SMOOTH_N, ZI_SMOOTH_ITER, ZI_SMOOTH_SCOPE, ZI_SMOOTH_EDGE, ZI_SHAFT_DISCS_ON, ZI_SHAFT_K, ZI_SHAFT_AX0, ZI_SHAFT_AX1, RM_SHAFT_OP, ZI_WELD_COS } from './constants.js'
+import { ZI_TUNE, zoneIFarLen, zoneIBake, zoneIHemiDirs, zoneIShadeAt, zoneIWallTone, zoneIWallTri, zoneIEmitTri, zoneIVisibleFromInside, zoneIFillFace, zoneIInteriorPoints, zoneIOwns, zoneITubeTris, zoneIDiscTris, zoneIDiscOpacity, ziToLocal, zoneIBoreAxis } from './lightingModel.js'
 import { FRL_TUBE_VERT, FRL_TUBE_FRAG } from './Corridor.jsx'
 import { bootNow, bootPass } from './bootProbe.js'
+import { subdivideLongEdges } from './ziSubdivide.js'   // ★219-w‴ 적록 세분(순수 모듈 — check_lux가 같은 함수를 자기검증한다)
 
 //  리브 정점 속성 게이트 — DSK 패치 뒤에 체인: dskIn ∨ vZi>0.5 면 정점색 곱. DSK가 없는 재질이면 color_fragment를 직접 잡는다.
 const ziPatch = (shader) => {
@@ -49,6 +50,16 @@ export function ZoneILight() {
       m.uniforms.uRim = { value: new THREE.Vector3(ZI_VOL_RIM, ZI_VOL_RIM_F, ZI_VOL_FLOOR) }   // ★219-r″ (오르막, 내리막, 바닥)
       m.fragmentShader = m.fragmentShader.replace(xfOld, 'float uR = 1.0 - min(vUv.x, 1.0 - vUv.x) * 2.0; float xf = (uRim.z + (1.0 - uRim.z) * smoothstep(0.0, uRim.x, uR)) * smoothstep(0.0, uRim.y, 1.0 - uR);').replace('uniform vec4 uCeil;', 'uniform vec4 uCeil; uniform vec3 uRim;') }
     return m }, [mat])
+  //  ★219-x 전실 빛기둥 = 통 + 원판 교차 페이드(시선 각). 공유 셰이더는 무접촉 — 두 재질 모두 gl_FragColor 한 줄만 치환한 파생(대상 없으면 throw).
+  //   ax = |dot(축(뷰), 시선)| · 통 = 1 − smoothstep(AX0, AX1, ax) · 원판 = smoothstep(AX0, AX1, ax). 옆에서 걸으면 통(구판 그대로), 아래서 올려다보면 원판(면 없음 = 부채살 없음).
+  const axGate = (m, sign) => { const old = 'gl_FragColor = vec4(uColor, uOpacity * edge * xf * top * len * cf);'
+    if (!m.fragmentShader.includes(old)) throw new Error('★219-x: FRL_TUBE_FRAG gl_FragColor 줄이 바뀌었다 — 파생 치환 대상 없음')
+    m.uniforms.uAxis = { value: new THREE.Vector3(0, 1, 0) }; m.uniforms.uAxGate = { value: new THREE.Vector3(ZI_SHAFT_AX0, ZI_SHAFT_AX1, sign) }
+    m.fragmentShader = m.fragmentShader.replace('uniform vec4 uCeil;', 'uniform vec4 uCeil; uniform vec3 uAxis; uniform vec3 uAxGate;')
+      .replace(old, 'float ax = abs(dot(normalize((viewMatrix * vec4(uAxis, 0.0)).xyz), normalize(vV))); float ag = uAxGate.z > 0.5 ? smoothstep(uAxGate.x, uAxGate.y, ax) : 1.0 - smoothstep(uAxGate.x, uAxGate.y, ax);\n    gl_FragColor = vec4(uColor, uOpacity * edge * xf * top * len * cf * ag);')
+    return m }
+  const shaftTubeMat = useMemo(() => { if (!ZI_SHAFT_DISCS_ON) return mat; const m = mat.clone(); m.uniforms = THREE.UniformsUtils.clone(mat.uniforms); return axGate(m, 0) }, [mat])
+  const shaftDiscMat = useMemo(() => { if (!ZI_SHAFT_DISCS_ON) return null; const m = mat.clone(); m.uniforms = THREE.UniformsUtils.clone(mat.uniforms); m.uniforms.uXF.value = ZI_VOL_FEATHER; return axGate(m, 1) }, [mat])
   const geos = useMemo(() => {
     if (!B || !ZI_VOL_ON) return null
     const mk = (T) => { const g = new THREE.BufferGeometry()
@@ -60,8 +71,10 @@ export function ZoneILight() {
     //  ★219-u(현도 "노브를 아무리 조절해도 판까지 안 내려간다"): 뿌리 페이드 uTopF는 **길이 비율**(ZI_TOPF 0.02) — 46m 볼륨에선 0.9m였는데 692m로 늘리자 **14m**가 되어 판 위 14m가 항상 비었다.
     //   ⇒ 길이로 고정: uTopF = ZI_TOPF·VOL_LEN/L (= 0.9m 그대로). 노브와 무관한 배선 병.
     if (ZI_FAR_ON) boreMat.uniforms.uTopF.value = ZI_TOPF * ZI_VOL_LEN / boreT.len
-    return { bore, shaft: mk(zoneITubeTris(B.spec, 'shaft')) }
-  }, [B, boreMat])
+    let shaftDiscs = null
+    if (ZI_SHAFT_DISCS_ON && shaftDiscMat) { const T = zoneIDiscTris(B.spec, { part: 'shaft' }); shaftDiscMat.uniforms.uOpacity.value = RM_SHAFT_OP * ZI_SHAFT_K / Math.max(1e-9, T.lenSum); shaftDiscs = mk(T); shaftDiscs.userData.discs = T.discs }   // ★219-x 축 적산 정규화
+    return { bore, shaft: mk(zoneITubeTris(B.spec, 'shaft')), shaftDiscs }
+  }, [B, boreMat, shaftDiscMat])
   useFrame(() => {
     if (!B || done.current) return
     frames.current++
@@ -126,15 +139,36 @@ export function ZoneILight() {
     const emitVerts = tuneRef.current.emitVerts = []   // ★219-t 발광 정점(속성·색인·세계 위치) — 패널이 벽 톤 노브로 재톤한다(재베이크 없음)
     const records = []   // ★219-h 베이크한 메시와 삼각형별 안팎 판정 — _probe_zoneI --verify가 값과 대조한다
     let nMesh = 0, nInst = 0, nVert = 0, nEmit = 0, nExt = 0
+    //  ★219-y 구역 I 공통 용접점(메시 경계 무관) — bakeMesh가 모으고 finishSmooth가 한 번에 광선·평활·기록
+    const GW = [], GWmap = new Map(), GWgeos = []
+    const finishSmooth = () => { if (!GW.length) return
+      const Bs = { ...B, dirs: zoneIHemiDirs(ZI_SMOOTH_N) }
+      let sh = new Float32Array(GW.length)
+      for (let w = 0; w < GW.length; w++) { const q = GW[w], L = Math.hypot(q.n[0], q.n[1], q.n[2]) || 1; const nn = [q.n[0] / L, q.n[1] / L, q.n[2] / L]
+        sh[w] = (ZI_TREAD_LIT && q.walkUp) ? ZI_WALL_SELF : zoneIShadeAt(q.pos, nn, rayFn, Bs, false, q.fill) }
+      for (let it = 0; it < ZI_SMOOTH_ITER; it++) { const nx = new Float32Array(GW.length)
+        for (let w = 0; w < GW.length; w++) { let a = sh[w], cnt = 1; for (const w2 of GW[w].adj) { a += sh[w2]; cnt++ } nx[w] = a / cnt } sh = nx }
+      for (let w = 0; w < GW.length; w++) for (const { col, i } of GW[w].idx) { col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = sh[w] }
+      for (const g of GWgeos) if (g.attributes.color) g.attributes.color.needsUpdate = true
+      return GW.length }
     const bakeMesh = (o) => {
       if (!o.isMesh || !o.geometry) return
       const mats = [].concat(o.material); if (!mats.every((m) => m && m.isMeshStandardMaterial)) return
-      const g = o.geometry; o.updateWorldMatrix(true, false); const walkMesh = o.userData.walkable === true   // ★219-p
+      let g = o.geometry; o.updateWorldMatrix(true, false); const walkMesh = o.userData.walkable === true   // ★219-p
       if (o.isInstancedMesh) { const c = new THREE.Color()
         for (let k = 0; k < o.count; k++) o.setColorAt(k, c.setScalar(shadeInstance(o, k)))
         o.instanceColor.needsUpdate = true; nInst++; return }
       if (!g.attributes.normal) g.computeVertexNormals()
       if (g.userData.bakedZi) return
+      //  ★219-w‴ 평활 범위: 'all' = 리브·인스턴스·ziFlatTop 제외 전 부재 · 'tag' = ziSmooth 태그만. 세분 → 용접 → 평활이 한 벌.
+      const smoothMe = ZI_SMOOTH_ON && (ZI_SMOOTH_SCOPE === 'all' ? o.userData.ziFlatTop !== true : ZI_SMOOTH_SCOPE === 'tag' && o.userData.ziSmooth === true)
+      //  가시성 판정은 **원본 삼각형**에서 한 번(자식은 부모 판정을 물려받는다). 세분은 그 뒤.
+      const underD = o.userData.ziUnderTread === true ? undefined : 0
+      let visOf = null, g0 = g
+      if (smoothMe && ZI_SMOOTH_EDGE > 0) { visOf = []
+        eachTri(g0, (a, b, c) => { const W = triWorld(o, g0, a, b, c); const n = triN(W); visOf.push(n ? zoneIVisibleFromInside(triC(W), n, rayFn, ipts, B.spec, undefined, underD) : null) })
+        const g2 = subdivideLongEdges(g0, ZI_SMOOTH_EDGE); if (g2.userData.ziSubdiv) { o.geometry = g2; g = g2 } else visOf = null }
+      const parentOf = g.userData.ziParent || null
       nMat.getNormalMatrix(o.matrixWorld)
       const P = g.attributes.position, N = g.attributes.normal, col = new Float32Array(P.count * 3)
       //  ★219-g 삼각형 한 장마다 **가시성**으로 안팎을 먼저 가르고(좌표 상자 아님), 그 결과가 정하는 **방향**으로 음영을 낸다.
@@ -147,7 +181,7 @@ export function ZoneILight() {
       const triSide = new Int8Array(((g.index ? g.index.count : P.count) / 3) | 0)   // ★219-h 삼각형별 판정 기록(±1 안면·0 바깥면·2 퇴화) — 전수 대조 프로브 몫
       let nOut = 0, nIn = 0, ti = 0
       eachTri(g, (a, b, c) => { const W = triWorld(o, g, a, b, c); const n = triN(W); const t = ti++; if (!n) { triSide[t] = 2; return }
-        const vis = zoneIVisibleFromInside(triC(W), n, rayFn, ipts, B.spec)
+        const vis = (visOf && parentOf) ? (visOf[parentOf[t]] || { inward: false, side: 0 }) : zoneIVisibleFromInside(triC(W), n, rayFn, ipts, B.spec, undefined, underD)   // ★219-w 판 밑 규칙 = ziUnderTread 태그 몸(Lookout)에만 — 전실 봉인 슬랩 밑면(위에 걷는 판이 파묻힘)도 같은 거리·방향이라 태그로 가른다 · ★219-w‴ 세분 자식은 부모 판정
         triSide[t] = vis.inward ? vis.side : 0
         if (!vis.inward) { nOut += 3; return }
         nIn += 3
@@ -162,17 +196,45 @@ export function ZoneILight() {
         if (side[i] < 0) nm.negate()
         //  ★219-p ★219-d′ 규칙의 구현 누락 보완: "걷는 판 상면 = 백색"이 인스턴스 디딤판(shadeInstance)에만 있었다 — 참 상자·정션 판 같은 **비인스턴스 걷는 판**은
         //   여태 '바깥면'이라 우연히 1.0이었고, 눈 경로 대표점이 생기자 '안면'이 되어 AO 귀퉁이 0.04(--verify Ⓐ 2면 17㎡ · 첫 참 0.16 정점)로 갈라졌다. 위 향 정점 = ZI_WALL_SELF.
-        const sh = (ZI_TREAD_LIT && walkMesh && nm.y > 0) ? ZI_WALL_SELF : zoneIShadeAt([v.x, v.y, v.z], [nm.x, nm.y, nm.z], rayFn, B, false, fillV[i] === 1)
+        const sh = smoothMe ? 1 : (ZI_TREAD_LIT && walkMesh && nm.y > 0) ? ZI_WALL_SELF : zoneIShadeAt([v.x, v.y, v.z], [nm.x, nm.y, nm.z], rayFn, B, false, fillV[i] === 1)   // ★219-w‴ 평활 부재는 아래 용접 패스가 안면 정점 전부를 다시 쓴다(광선 중복 방지)
         col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = sh
+      }
+      //  ★219-w″ ziSmooth(Lookout 몸): 안면 정점을 위치로 용접해 한 값(법선 = 인접 안면 면적 가중 평균 · ZI_SMOOTH_N발) → 인접 용접점 평균 ZI_SMOOTH_ITER회. 곡면(아치 천장)에서 정점 보간이 매끄러운 명암이 되게.
+      //   면마다 단색(ziFlatTop/All)의 모자이크와 정점 노이즈 줄무늬 둘 다의 답 — 값이 매끄러운 장(field)이면 보간은 병이 아니다. 걷는 판 상면(ZI_TREAD_LIT 규칙 정점)은 그대로 둔다.
+      if (smoothMe) {
+        //  ★219-y(2026.09.13 현도 7차 화면 + 덤프): 용접·평활을 **메시별**로 돌리면 메시 경계에서 값이 끊긴다 — LightShaft 칼라 밑면(천장 평면 · r 1.05~1.5 · 정점 576)이 이웃 천장(BoredBox · 다른 메시)과 평균되지 못해
+        //   0.86~1.00으로 튀는 고리(구멍 둘레 방사 자글거림)가 됐다. ⇒ 용접점을 **구역 I 전 메시 공통**(GW)으로 모으고, 모든 부재 처리 뒤 한 번에 광선·평활·기록(finishSmooth). 같은 위치 = 같은 값 · 이웃 = 메시 무관.
+        const key = (i) => { v.fromBufferAttribute(P, i).applyMatrix4(o.matrixWorld); return `${Math.round(v.x * 1e3)},${Math.round(v.y * 1e3)},${Math.round(v.z * 1e3)}` }
+        const wOf = new Int32Array(P.count).fill(-1); let nLocal = 0
+        let ti3 = 0
+        eachTri(g, (a, b, c) => { const t = ti3++; const s0 = triSide[t]; if (s0 !== 1 && s0 !== -1) return
+          const Wt = triWorld(o, g, a, b, c); const n = triN(Wt); if (!n) return
+          const e1 = [Wt[1][0] - Wt[0][0], Wt[1][1] - Wt[0][1], Wt[1][2] - Wt[0][2]], e2 = [Wt[2][0] - Wt[0][0], Wt[2][1] - Wt[0][1], Wt[2][2] - Wt[0][2]]
+          const ar = 0.5 * Math.hypot(e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0])
+          const want = [n[0] * s0, n[1] * s0, n[2] * s0]; const ff = zoneIFillFace(triC(Wt), want, B.spec)
+          //  용접 = 같은 위치(1e-3) **+ 면 방향 일치(cos > ZI_WELD_COS)**: 판 윗면과 아치 밑면처럼 한 자리에서 만나는 다른 면은 따로(메시 경계를 넘자 그런 합침이 아치 옆면을 0.22까지 끌어내렸다). 곡면은 이웃 면끼리 10°씩이라 한 뭉치로 이어진다.
+          const ids = [a, b, c].map((i, j) => { let w = wOf[i]; if (w < 0) { const k = key(i); let lst = GWmap.get(k); if (!lst) { lst = []; GWmap.set(k, lst) }
+              for (const cand of lst) { const q = GW[cand], L = Math.hypot(q.n[0], q.n[1], q.n[2]) || 1; if ((q.n[0] * want[0] + q.n[1] * want[1] + q.n[2] * want[2]) / L > ZI_WELD_COS) { w = cand; break } }
+              if (w < 0) { w = GW.length; lst.push(w); GW.push({ pos: Wt[j], n: [0, 0, 0], w: 0, fill: false, walkUp: false, idx: [], adj: new Set() }); nLocal++ }
+              wOf[i] = w; if (side[i] !== 0) GW[w].idx.push({ col, i }) } return w })
+          for (const w of ids) { const q = GW[w]; q.n[0] += want[0] * ar; q.n[1] += want[1] * ar; q.n[2] += want[2] * ar; q.w += ar; q.fill = q.fill || ff; q.walkUp = q.walkUp || (walkMesh && want[1] > 0); for (const w2 of ids) if (w2 !== w) q.adj.add(w2) } })
+        GWgeos.push(g); g.userData.ziSmooth = nLocal
       }
       let colAttr = new THREE.BufferAttribute(col, 3)
       //  ★219-q ziFlatTop(무릎길 몸): 안면 ∧ 위 향 삼각형 = **정점 분리 + 중심값 한 톤**(★219-n 어법). 폭 11m 삼각형의 모서리 정점(난간 발치·관 벽 안쪽)값이 보이는 선반 전체로 보간되던 띠 얼룩 차단.
       //   삼각형 수·순서 불변(색인만 사본으로 재지정) → triSide·records 정합. 다른 삼각형·원래 정점 무접촉.
-      if (ZI_BODY_FLAT_ON && o.userData.ziFlatTop === true && g.index) {
+      //  ★219-w′ ziFlatAll(Lookout 몸): 안면 삼각형 **전부** 정점 분리 + 면당 표본 평균(중심 + 세 변 중점 · ZI_FLAT_ALL_SAMP=4 → 64발) 한 톤 — 아치 천장 띠마다 값이 1/16 단위로 튀던 줄무늬(현도 2차 화면) 차단. ziFlatTop은 위 향·중심 한 점(구판 그대로).
+      const flatAll = ZI_FLAT_ALL_ON && o.userData.ziFlatAll === true
+      if (((ZI_BODY_FLAT_ON && o.userData.ziFlatTop === true) || flatAll) && g.index) {
         const flats = []; let ti2 = 0
         eachTri(g, (a, b, c) => { const t = ti2++; const s0 = triSide[t]; if (s0 !== 1 && s0 !== -1) return
-          const W = triWorld(o, g, a, b, c); const n = triN(W); if (!n) return; const want = [n[0] * s0, n[1] * s0, n[2] * s0]; if (want[1] <= 0) return
-          const cc = triC(W); flats.push({ t, a, b, c, tone: zoneIShadeAt(cc, want, rayFn, B, false, zoneIFillFace(cc, want, B.spec)) }) })
+          const W = triWorld(o, g, a, b, c); const n = triN(W); if (!n) return; const want = [n[0] * s0, n[1] * s0, n[2] * s0]; if (!flatAll && want[1] <= 0) return
+          const cc = triC(W); const ff = zoneIFillFace(cc, want, B.spec)
+          let tone
+          if (flatAll) { const pts4 = [cc, [0, 1, 2].map((k) => (W[0][k] + W[1][k]) / 2), [0, 1, 2].map((k) => (W[1][k] + W[2][k]) / 2), [0, 1, 2].map((k) => (W[2][k] + W[0][k]) / 2)].slice(0, ZI_FLAT_ALL_SAMP)
+            tone = pts4.reduce((acc, q) => acc + zoneIShadeAt(q, want, rayFn, B, false, ff), 0) / pts4.length }
+          else tone = zoneIShadeAt(cc, want, rayFn, B, false, ff)
+          flats.push({ t, a, b, c, tone }) })
         if (flats.length) {
           const oldN = P.count, add = flats.length * 3, names = Object.keys(g.attributes)
           const grown = {}; for (const k of names) { const A = g.attributes[k], sz = A.itemSize, arr = new Float32Array((oldN + add) * sz); arr.set(A.array.subarray(0, oldN * sz)); grown[k] = { arr, sz } }
@@ -195,6 +257,7 @@ export function ZoneILight() {
       mats.forEach((m) => { m.vertexColors = true; m.needsUpdate = true }); nMesh++
     }
     for (const m of members) bakeMesh(m)
+    const nGW = finishSmooth()   // ★219-y 공통 용접점 평활(메시 경계 넘어)
     const tM = bootNow()
     //  ⑶ 판 인스턴스 — 방 천장 위(zoneIOwns)만 덧쓴다(방 안 = E 값 그대로)
     for (const p of plates) { const c = new THREE.Color(); let n = 0
@@ -262,11 +325,17 @@ export function ZoneILight() {
     addEventListener('keydown', key)
     return () => { removeEventListener('keydown', key); box.remove() }
   }, [B, boreMat])
+  //  ★219-x′ 진단 키 B(개발 전용): 볼륨 조각을 하나씩 끈다 — 0 전부 · 1 관 속 원판 소등 · 2 전실 통 소등 · 3 전실 원판 소등 · 4 볼륨 전부 소등. 화면 무늬가 어느 층인지 파일 수정 없이 가른다(★219-w~x 교훈: 층 분리부터).
+  const [volDbg, setVolDbg] = useState(0)
+  useEffect(() => { const key = (ev) => { if (ev.code === 'KeyB' && !ev.repeat) setVolDbg((v) => (v + 1) % 5) }; addEventListener('keydown', key); return () => removeEventListener('keydown', key) }, [])
+  useEffect(() => { const names = ['볼륨 전부 ON', '관 속 원판 OFF', '전실 통 OFF', '전실 원판 OFF', '볼륨 전부 OFF']; console.info('[ZI vol dbg B] ' + names[volDbg]); let el = document.getElementById('zi-vol-dbg'); if (!el) { el = document.createElement('div'); el.id = 'zi-vol-dbg'; el.style.cssText = 'position:fixed;right:16px;top:16px;font:13px monospace;color:#c33;background:rgba(255,255,255,.7);padding:4px 8px;z-index:20'; document.body.appendChild(el) } el.textContent = volDbg ? `B: ${names[volDbg]}` : ''; el.style.display = volDbg ? 'block' : 'none' }, [volDbg])
   if (!geos) return null
+  const off = (k) => volDbg === 4 || volDbg === k
   return (
     <>
-      <mesh geometry={geos.bore} material={boreMat} userData={{ lightVolume: true, walkable: false }} frustumCulled={false} renderOrder={10} />
-      <mesh geometry={geos.shaft} material={mat} userData={{ lightVolume: true, walkable: false }} frustumCulled={false} renderOrder={10} />
+      {!off(1) && <mesh geometry={geos.bore} material={boreMat} userData={{ lightVolume: true, walkable: false }} frustumCulled={false} renderOrder={10} />}
+      {!off(2) && <mesh geometry={geos.shaft} material={shaftTubeMat} userData={{ lightVolume: true, walkable: false }} frustumCulled={false} renderOrder={10} />}
+      {geos.shaftDiscs && !off(3) && <mesh geometry={geos.shaftDiscs} material={shaftDiscMat} userData={{ lightVolume: true, walkable: false }} frustumCulled={false} renderOrder={10} />}
     </>
   )
 }

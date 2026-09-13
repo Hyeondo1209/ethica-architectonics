@@ -1777,9 +1777,9 @@ export function dskirtTris(strands, { radiusK = 1, sides = DSK_TUBE_SEG } = {}) 
 //   세계좌표 정점은 ziToLocal로 넘겨 재고, 결과는 좌표계 무관 스칼라. 소속 판정(관 안면 삼각형 · 방 천장 위)만 세계좌표(friezeRoomCeil)를 같이 본다.
 //  ⚠1차 근사 선언: ⓐ②의 가림은 광선 한 발 = 명중/미명중(부분 가림 없음) ⓑ관 안면은 아가리(yTop)부터 위로 전부 발광(그루터기 연속 · 관 끝은 무한) ⓒ①의 관 벽은 가림에서 제외(통로) ⓓ2차 반사는 전실 바닥 한 원판만.
 import { ZI_ON, ZI_GLOW_ON, ZI_BEAM_ON, ZI_HOLE_ON, ZI_R, ZI_DIM, ZI_GAMMA, ZI_K, ZI_WALL_SELF, ZI_STUB_FADE, ZI_AO_N, ZI_BEAM_N, ZI_HOLE_N, ZI_GLOW_K, ZI_BEAM_K, ZI_HOLE_K, ZI_HOLE_LOBE, ZI_BOUNCE,
-  ZI_SRC_DIST, ZI_VOL_R, ZI_VOL_LEN, ZI_VOL_DY, ZI_VOL_SEG, ZI_DISC_R, ZI_VOL_K, RM_SHAFT_OP, FRL_NORM_ON, ZI_WALL_DIP, ZI_WALL_DIP_RAMP, ZI_RAY_EPS, ZI_TREAD_REFL, ZI_ROOM_FILL, ZI_KW_PTS_ON, ZI_KW_STEP, ZI_KW_ZOFF, ZI_VOL_PROFILE, ZI_VOL_RIM, ZI_VOL_RIM_F, ZI_VOL_FLOOR, ZI_VOL_FEATHER, ZI_DISC_DY, ZI_FAR_ON, ZI_VOL_K_FAR, ZI_FAR_POW, ZI_FAR_LEN, ZI_FAR_NEAR, ZI_DISC_GROW, ZI_WALL_RISE_ON, ZI_WALL_RISE_POW, ZI_FADE_POW, RIB_DEST_PHI, RIB_DEST_K, SHELL_RIB_R, RIB_WALL_T, RIB_RADIAL_SEG, PASS_FLOOR_Y, RM_ROOF, RM_X0, RM_X1, RM_Z0, RM_Z1,
+  ZI_SRC_DIST, ZI_VOL_R, ZI_VOL_LEN, ZI_VOL_DY, ZI_VOL_SEG, ZI_DISC_R, ZI_VOL_K, RM_SHAFT_OP, FRL_NORM_ON, ZI_WALL_DIP, ZI_WALL_DIP_RAMP, ZI_RAY_EPS, ZI_TREAD_REFL, ZI_ROOM_FILL, ZI_UNDER_TREAD_ON, ZI_UNDER_TREAD_D, WARCH_HW, ZI_KW_PTS_ON, ZI_KW_STEP, ZI_KW_ZOFF, ZI_VOL_PROFILE, ZI_VOL_RIM, ZI_VOL_RIM_F, ZI_VOL_FLOOR, ZI_VOL_FEATHER, ZI_DISC_DY, ZI_FAR_ON, ZI_VOL_K_FAR, ZI_FAR_POW, ZI_FAR_LEN, ZI_FAR_NEAR, ZI_DISC_GROW, ZI_WALL_RISE_ON, ZI_WALL_RISE_POW, ZI_FADE_POW, RIB_DEST_PHI, RIB_DEST_K, SHELL_RIB_R, RIB_WALL_T, RIB_RADIAL_SEG, PASS_FLOOR_Y, RM_ROOF, RM_X0, RM_X1, RM_Z0, RM_Z1,
   PASS_HW, PASS_T, JCT_DN_Z, PASS_X_CHEEK, CHEEK_TOP_NZ } from './constants.js'   // FRL_STUB_MG는 ★214 절 import에 이미 있다
-import { lightShaftSpec } from './junctionGeometry.js'   // ★71 빛 기둥 실기하 정본(판 윗면·관 안지름·오큘러스 — 사본 0)
+import { lightShaftSpec, archCutProfile } from './junctionGeometry.js'   // ★219-w′ 아치 공동(계단 매스 밑 반원 볼트) 프로파일 정본 — 사본 0   // ★71 빛 기둥 실기하 정본(판 윗면·관 안지름·오큘러스 — 사본 0)
 
 /** 세계 → 상부 여정 그룹 로컬(Ry(+φ)) · 로컬 → 세계(Ry(−φ)) — RibStair toDest와 같은 식의 역·정변환 */
 export const ziToLocal = (p, phi = RIB_DEST_PHI) => { const c = Math.cos(phi), s = Math.sin(phi); return [p[0] * c + p[2] * s, p[1], -p[0] * s + p[2] * c] }
@@ -1809,7 +1809,19 @@ export function zoneISpec() {
   const zc = JCT_DN_Z, zw = PASS_HW + PASS_T / 2
   const room = { x0: RM_X0, x1: RM_X1, z0: RM_Z0, z1: RM_Z1, y0: PASS_FLOOR_Y, y1: PASS_FLOOR_Y + RM_ROOF }
   const chan = { x0: RM_X1, x1: PASS_X_CHEEK, z0: zc - zw, z1: zc + zw, y0: PASS_FLOOR_Y, y1: CHEEK_TOP_NZ }
-  return { yMouth: rd.yTop, R: ZI_R, rIn: SHELL_RIB_R - RIB_WALL_T, wallT: RIB_WALL_T, uDisc, top, dUp, src, srcR: ZI_R, hole, oculus, spot, room, chan, shaft: S }
+  //  ★219-w′(2026.09.12 현도 화면 "아치 윗면 검정 얼룩 여전") 아치 공동 = 계단 매스(Lookout) 밑을 하강이 지나는 반원 볼트(archCutProfile — x 스테이션마다 floor·crown · 반폭 WARCH_HW).
+  //   착지판 상면 위(y > chan.y1)에 있어 방·채널 상자 어느 쪽에도 안 들었다 → 그 안쪽 면(아치 천장)은 채움을 못 받아 정점이 0.28~0.52로 갈렸다. 공극 셋째 항으로 등록한다.
+  const arch = { hw: WARCH_HW, st: archCutProfile().filter((q) => q.open) }
+  return { yMouth: rd.yTop, R: ZI_R, rIn: SHELL_RIB_R - RIB_WALL_T, wallT: RIB_WALL_T, uDisc, top, dUp, src, srcR: ZI_R, hole, oculus, spot, room, chan, arch, shaft: S }
+}
+/** ★219-w′ 아치 공동 안인가(로컬 점) — 가장 가까운 x 스테이션의 반원 볼트(archRing과 같은 식: spring = max(floor+0.05, crown−hw) · y ≤ spring + (crown−spring)·√(1−(z/hw)²)) */
+export function zoneIInArch(p, Z = zoneISpec(), e = 0) {
+  if (!Z || !Z.arch || !Z.arch.st.length) return false
+  const A = Z.arch, hw = A.hw + e; if (Math.abs(p[2]) > hw) return false
+  let q = null, best = Infinity; for (const s of A.st) { const d = Math.abs(s.x - p[0]); if (d < best) { best = d; q = s } }
+  const dx = A.st.length > 1 ? Math.abs(A.st[1].x - A.st[0].x) : 0; if (best > dx / 2 + e) return false
+  const spring = Math.max(q.floor + 0.05, q.crown - A.hw), u = Math.min(1, Math.abs(p[2]) / A.hw)
+  return p[1] >= q.floor - e && p[1] <= spring + (q.crown - spring) * Math.sqrt(1 - u * u) + e
 }
 const inBox = (p, B, e = 1e-3) => p[0] >= B.x0 - e && p[0] <= B.x1 + e && p[2] >= B.z0 - e && p[2] <= B.z1 + e && p[1] >= B.y0 - e && p[1] <= B.y1 + e
 /** 관 안면인가(로컬 점 · 수직 거리 ≤ 안면 + 살 3/4 — 안면 5.78 안 · 절단면(5.89) 안 · 바깥면(6.0) 밖) */
@@ -1860,7 +1872,7 @@ export function zoneIWallTri(cw, nw, Z = zoneISpec()) {
  *  ⚠상자는 **비어 있는 속**을 뜻한다(벽·바닥 살은 그 밖) — 그래서 벽면의 안쪽 면만 이 판정을 통과한다. */
 export function zoneIInterior(pl, Z = zoneISpec()) {
   if (!Z) return false
-  return inBox(pl, Z.room, 0) || inBox(pl, Z.chan, 0) || ziNearest(pl).d < Z.rIn
+  return inBox(pl, Z.room, 0) || inBox(pl, Z.chan, 0) || zoneIInArch(pl, Z) || ziNearest(pl).d < Z.rIn   // ★219-w′ 아치 공동 포함
 }
 /** ★219-g 실내 대표점 — 구역 I가 빛을 도는 **공간의 뼈대**: 관 축(아가리~전망 판, 관 지름 간격) + 전실 방·하강 채널 상자 중심 격자.
  *  가시성 판정(zoneIVisibleFromInside)의 표적이다. 좌표 상자 판정이 아니라 **실제 기하로 광선을 쏴서** 안팎을 가르기 위한 것. */
@@ -1872,6 +1884,8 @@ export function zoneIInteriorPoints(Z = zoneISpec()) {
   const g = (B, nx, ny, nz) => { for (let i = 1; i <= nx; i++) for (let j = 1; j <= ny; j++) for (let k = 1; k <= nz; k++)
     out.push([B.x0 + (B.x1 - B.x0) * i / (nx + 1), B.y0 + (B.y1 - B.y0) * j / (ny + 1), B.z0 + (B.z1 - B.z0) * k / (nz + 1)]) }
   g(Z.room, 3, 2, 3); g(Z.chan, 2, 2, 1)
+  //  ★219-w′ 아치 공동 축점(열린 스테이션을 ~2m 간격으로 · 높이 = floor·crown 중간) — 아치 천장면의 가시성 표적
+  if (Z.arch) { let last = -Infinity; for (const q of Z.arch.st) { if (Math.abs(q.x - last) < 2) continue; last = q.x; out.push([q.x, (q.floor + q.crown) / 2, 0]) } }
   //  ★219-p 보행자 눈 경로(무릎길 전 구간) — 무릎길 복도에 대표점이 없어 벽이 흰색↔음영으로 갈리던 얼룩(실측 438㎡)의 수리. 좌표 = 무릎길 설계 프레임 = 구역 I 로컬(스파인 z=0).
   if (ZI_KW_PTS_ON) for (let x = KNEE_XB; x <= KNEE_XA + 1e-9; x += ZI_KW_STEP) { const y = kneeSurfaceY(x) + EYE; for (const z of [0, -ZI_KW_ZOFF, ZI_KW_ZOFF]) out.push([x, y, z]) }
   return out
@@ -1881,17 +1895,22 @@ export function zoneIInteriorPoints(Z = zoneISpec()) {
  *   상자·법선 판정은 70㎡ 벽 하나를 통째로 놓쳤다. 실제 기하로 재면 그 면이 방 안에서 보이는지가 곧 답이다.
  *  ray(o, d, maxDist) → 명중이면 {dist, kind}. 자기 면을 맞히지 않게 양쪽으로 살짝 띄워 두 번 쏜다(감김을 안 믿는다).
  *  반환 {inward, side}: side = +1이면 법선 쪽이 실내 · −1이면 반대쪽 · 0이면 바깥면. */
-export function zoneIVisibleFromInside(cw, nw, ray, pts, Z = zoneISpec(), d = ZI_RAY_EPS) {
+export function zoneIVisibleFromInside(cw, nw, ray, pts, Z = zoneISpec(), d = ZI_RAY_EPS, underD = ZI_UNDER_TREAD_ON ? ZI_UNDER_TREAD_D : 0) {
   if (!Z || !ray || !pts || !pts.length) return { inward: false, side: 0 }
   const cl = ziToLocal(cw), nl = ziToLocal(nw)
   for (const sgn of [1, -1]) {
     const o = [cl[0] + nl[0] * d * sgn, cl[1] + nl[1] * d * sgn, cl[2] + nl[2] * d * sgn]
+    //  ★219-w 걷는 판이 앉은 면(★219-d의 짝): 위 향 후보 방향(sgn·n_y > 0.5)에서 광선이 'tread'에 **판 두께 안**(수직 성분 dist·n_y ≤ underD)에서 막히면 그 면은 판 밑 실내 바닥면이다 — 막힘이 아니라 실내.
+    //   ⚠호출자(ZoneI)가 **ziUnderTread 태그 몸에만** underD를 준다(그 외 0): 걷는 판 자신(밑면이 제 상판에 막혀 위로 뒤집힘)·전실 봉인 슬랩 밑면(위에 걷는 판이 파묻힘 — 거리·방향이 램프와 같다) 등 판 아래 다른 부재를 잡지 않도록. ★219-q ziFlatTop과 같은 태그 어법.
+    //   왜(실측 09.12): Lookout 램프 윗면은 디딤판이 0.06 파묻혀 앉아 위로 쏜 광선이 전부 상자 안에서(0.01~0.29) 막혔고, 판정이 그것을 '바깥'으로 읽어 램프 177㎡ 전부를 아래 실내(매스 속)로 뒤집었다.
+    const ny = nl[1] * sgn, underOK = underD > 0 && ny > 0.5
     for (const q of pts) {
       const dx = q[0] - o[0], dy = q[1] - o[1], dz = q[2] - o[2], L = Math.hypot(dx, dy, dz)
       if (L < 1e-6) return { inward: true, side: sgn }
       if ((nl[0] * dx + nl[1] * dy + nl[2] * dz) * sgn <= 0) continue          // 그 면이 등지고 있는 점은 셈에서 뺀다
       const h = ray(o, [dx / L, dy / L, dz / L], L - d)
       if (!h) return { inward: true, side: sgn }
+      if (underOK && h.kind === 'tread' && h.dist * (dy / L) <= underD) return { inward: true, side: sgn }   // 수직 성분 = 광선 방향 y(면 법선 아님)
     }
   }
   return { inward: false, side: 0 }
@@ -1988,7 +2007,7 @@ export function zoneIBake() {
 export function zoneIFillFace(cw, nw, Z = zoneISpec(), d = ZI_RAY_EPS) {
   if (!Z || !(ZI_ROOM_FILL > 0)) return false
   const c = ziToLocal(cw), n = ziToLocal(nw), q = [c[0] + n[0] * d, c[1] + n[1] * d, c[2] + n[2] * d]
-  return inBox(q, Z.room, 0) || inBox(q, Z.chan, 0)
+  return inBox(q, Z.room, PASS_T + 1e-3) || inBox(q, Z.chan, PASS_T + 1e-3) || zoneIInArch(q, Z)   // ★219-w′ · ★219-w⁗ 여유 = 벽 두께 PASS_T(상자 상수는 벽 안쪽 — 천장·벽 가장자리 0.6m 띠가 채움 밖으로 떨어지던 병 · zoneIInterior와 같은 여유)
 }
 /** ★219-j 관 안면 발광 톤(세계 점) = ZI_WALL_SELF · (1 − (1 − DIP)·smoothstep(0, RAMP, h)) — h = 전망 판(축 위 uDisc 점) 위 **높이**(세계 y 차).
  *  ⛔첫 판(09.10)은 축에 수직 투영한 호길이 s를 썼다 — 관이 30° 기울어 같은 높이의 좌우 벽 s가 ~5.8m 달라 톤이 ~0.2 어긋나 "비대칭"으로 읽혔다(현도 화면). 눈은 수직을 기준으로 보므로 높이로 잰다.
@@ -2023,7 +2042,7 @@ export function zoneIShadeAt(pw, nw, ray, B = zoneIBake(), emitter = false, face
   {
     const q = [pl[0] + nl[0] * ZI_RAY_EPS, pl[1] + nl[1] * ZI_RAY_EPS, pl[2] + nl[2] * ZI_RAY_EPS]
     //   ★219-h faceFill: 이 정점이 속한 **면**이 공극에 면하면(zoneIFillFace — 베이크가 삼각형 중심으로 정한다) 점이 상자 밖 귀퉁이라도 채움을 받는다(벽 상자면 43㎡가 0.04로 보간되던 병).
-    if (ZI_ROOM_FILL > 0 && (faceFill || inBox(q, B.spec.room, 0) || inBox(q, B.spec.chan, 0))) E += ZI_ROOM_FILL
+    if (ZI_ROOM_FILL > 0 && (faceFill || inBox(q, B.spec.room, PASS_T + 1e-3) || inBox(q, B.spec.chan, PASS_T + 1e-3) || zoneIInArch(q, B.spec))) E += ZI_ROOM_FILL   // ★219-w′ 아치 공동도 채움 · ★219-w⁗ 여유 PASS_T
   }
   const sh = ZI_DIM + (1 - ZI_DIM) * ZI_K * Math.pow(Math.min(1, Math.max(0, E)), ZI_GAMMA)
   return zoneIStubBlend(pw, sh, B.spec)
@@ -2057,16 +2076,23 @@ export function zoneIFarLen(s) {
 /** ★219-i 관 속 빛기둥 = 축 단면 **원판 적층**(축 방향 시선용 — 옆면 튜브는 facing이 죽는다 · 실측 constants ZI_VOL_BORE 주석).
  *  원판마다 부채꼴 sides장: 중심 uv.x = 0.5 · 림 uv.x = 0 ⇒ 셰이더 xf = smoothstep(0, uXF, min(uv.x, 1−uv.x)·2) = smoothstep(0, uXF, 1 − r/rad) — 림에서 0, 안쪽 uXF 구간이 깃털(★189 경계 없음).
  *  법선 = 축 접선(전부 같은 값 · 올려다보면 facing=1, 옆에서는 0) · uv.y = s/L(길이 소멸 · 근원 불가시). 반지름 = ZI_DISC_R. */
-export function zoneIDiscTris(Z = zoneISpec(), { sides = ZI_VOL_SEG, dy = ZI_DISC_DY, rad = ZI_DISC_R } = {}) {   // ★219-r′ 간격 = ZI_DISC_DY(1/8)
+/** ★219-x 전실 빛기둥 축(판 구멍 → 바닥 스팟 · 수직 · 호길이 s) — zoneITubeTris 'shaft'와 같은 점열(정본 하나) */
+export function zoneIShaftAxis(Z = zoneISpec(), dy = ZI_VOL_DY) {
+  const pts = []; const y0 = Z.hole.c[1], y1 = Z.spot[1], L = y0 - y1
+  for (let s = 0; s < L - 1e-9; s += dy) pts.push({ p: [Z.hole.c[0], y0 - s, Z.hole.c[2]], t: [0, -1, 0], s }); pts.push({ p: [Z.hole.c[0], y1, Z.hole.c[2]], t: [0, -1, 0], s: L })
+  return pts
+}
+export function zoneIDiscTris(Z = zoneISpec(), { sides = ZI_VOL_SEG, dy = ZI_DISC_DY, rad = ZI_DISC_R, part = 'bore' } = {}) {   // ★219-r′ 간격 = ZI_DISC_DY(1/8) · ★219-x part 'shaft' = 전실 빛기둥 원판(반경 = 오큘러스 · 길이 소멸 = 덩어리식)
   if (!Z) return null
-  const pts = zoneIBoreAxis(Z, dy), L = pts[pts.length - 1].s, pos = [], uv = [], nrm = []
+  const shaft = part === 'shaft'; if (shaft) rad = Math.max(0.05, Z.oculus.r - ZI_RAY_EPS)
+  const pts = shaft ? zoneIShaftAxis(Z, dy) : zoneIBoreAxis(Z, dy), L = pts[pts.length - 1].s, pos = [], uv = [], nrm = []
   const push = (p, ux, n, s) => { pos.push(p[0], p[1], p[2]); uv.push(ux, s / L); nrm.push(n[0], n[1], n[2]) }
   for (const q of pts) { const { t, b } = frameOf(q.t)
     const rim = (k) => { const a = (k / sides) * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a); const nn = [t[0] * ca + b[0] * sa, t[1] * ca + b[1] * sa, t[2] * ca + b[2] * sa]; return [q.p[0] + nn[0] * rad, q.p[1] + nn[1] * rad, q.p[2] + nn[2] * rad] }
     for (let k = 0; k < sides; k++) { push(q.p, 0.5, q.t, q.s); push(rim(k), 0, q.t, q.s); push(rim(k + 1), 0, q.t, q.s) } }
   //  ★219-s 축 방향 적산 정규화 몫: 한 장의 길이 가중 합(대기 = (s/L)^FAR_POW · 덩어리 = (1−s/L)^FADE_POW) — uOpacity = 총량 / lenSum
   //  ★219-s′ 대기 len = min(1, s/FAR_LEN)^POW · 정규화 합은 FAR_LEN 안의 장만(축 시선이 FAR_LEN에서 총량 = RM_SHAFT_OP·K_FAR ≥ 1에 닿고 그 너머는 클램프 백색)
-  const lenSum = pts.reduce((a, q) => a + (ZI_FAR_ON ? zoneIFarLen(q.s) : Math.pow(1 - q.s / L, ZI_FADE_POW)), 0)
+  const lenSum = pts.reduce((a, q) => a + ((ZI_FAR_ON && !shaft) ? zoneIFarLen(q.s) : Math.pow(1 - q.s / L, ZI_FADE_POW)), 0)   // ★219-x 전실 원판은 대기가 아니라 덩어리(구멍에서 밝고 바닥으로 소멸)
   return { pos, uv, nrm, len: L, rings: pts.length, discs: pts.length, lenSum }
 }
 /** ★219-i 원판 한 장의 세기 = ★215-b 겹 정규화 승계: 축 시선은 원판 n장을 전부 지나므로 총량 RM_SHAFT_OP(×ZI_VOL_K 판정 배율)를 n으로 나눈다. FRL_NORM_ON=false면 정규화 없음(E 규칙 그대로) */
@@ -2084,8 +2110,7 @@ export function zoneITubeTris(Z = zoneISpec(), part = 'bore', { sides = ZI_VOL_S
   const pos = [], uv = [], nrm = []
   let pts = [], rad
   if (part === 'bore') { rad = ZI_VOL_R; pts = zoneIBoreAxis(Z, dy) }
-  else { rad = Math.max(0.05, Z.oculus.r - ZI_RAY_EPS); const y0 = Z.hole.c[1], y1 = Z.spot[1], L = y0 - y1
-    for (let s = 0; s < L - 1e-9; s += dy) pts.push({ p: [Z.hole.c[0], y0 - s, Z.hole.c[2]], t: [0, -1, 0], s }); pts.push({ p: [Z.hole.c[0], y1, Z.hole.c[2]], t: [0, -1, 0], s: L }) }
+  else { rad = Math.max(0.05, Z.oculus.r - ZI_RAY_EPS); pts = zoneIShaftAxis(Z, dy) }   // ★219-x 축 점열 정본 하나(원판과 공유)
   const L = pts[pts.length - 1].s
   const ring = (q, k) => { const { t, b } = frameOf(q.t), a = (k / sides) * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a)
     const nn = [t[0] * ca + b[0] * sa, t[1] * ca + b[1] * sa, t[2] * ca + b[2] * sa]; return { p: [q.p[0] + nn[0] * rad, q.p[1] + nn[1] * rad, q.p[2] + nn[2] * rad], n: nn } }

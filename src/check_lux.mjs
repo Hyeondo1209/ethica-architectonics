@@ -2781,7 +2781,7 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
       !LM.zoneIVisibleFromInside(wIn2, nIn2, null, pts, Z).inward && !LM.zoneIVisibleFromInside(wIn2, nIn2, miss2, [], Z).inward)
     { const ziG = readFileSync(new URL('./ZoneI.jsx', import.meta.url), 'utf8')
       T('배선 — ZoneI bakeMesh: 삼각형마다 가시성으로 안팎을 가르고(좌표 상자 아님) 바깥면은 1.0으로 되돌린다 · 그 결과가 정한 방향으로 음영을 낸다(정점 법선이 어긋나면 뒤집는다) · 실내 대표점은 한 번만 만든다',
-        /const vis = zoneIVisibleFromInside\(triC\(W\), n, rayFn, ipts, B\.spec\)/.test(ziG) && /if \(!vis\.inward\) \{ nOut \+= 3; return \}/.test(ziG)
+        /const vis = \(visOf && parentOf\) \? \(visOf\[parentOf\[t\]\] \|\| \{ inward: false, side: 0 \}\) : zoneIVisibleFromInside\(triC\(W\), n, rayFn, ipts, B\.spec, undefined, underD\)/.test(ziG) && /if \(!vis\.inward\) \{ nOut \+= 3; return \}/.test(ziG)   // ★219-w 판 밑 규칙 태그 게이트 · ★219-w‴ 세분 자식 = 부모 판정
         && /if \(side\[i\] === 0\) \{ col\[i \* 3\] = col\[i \* 3 \+ 1\] = col\[i \* 3 \+ 2\] = 1; continue \}/.test(ziG)
         && /if \(side\[i\] < 0\) nm\.negate\(\)/.test(ziG) && /const ipts = zoneIInteriorPoints\(B\.spec\)/.test(ziG)) }
   }
@@ -2813,8 +2813,9 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
     const sBore = LM.zoneIShadeAt(wallAt(kwL[1], 0).p, LM.ziToWorld([0, 1, 0]), allB3, B)        // 관 축상 점 = 전가림 → DIM(채움 없음)
     //  ⚠경계면 위 정점(벽·바닥)도 채움을 받아야 한다 — 점 자신이 아니라 법선 쪽 한 발짝으로 묻기 때문. 바깥면(법선이 밖)은 못 받는다.
     const wallPt = LM.ziToWorld([(Z.room.x0 + Z.room.x1) / 2, Z.room.y0 + 3, Z.room.z0]), nInRoom = LM.ziToWorld([0, 0, 1]), nOutRoom = LM.ziToWorld([0, 0, -1])
-    const sWallIn = LM.zoneIShadeAt(wallPt, nInRoom, allB3, B), sWallOut = LM.zoneIShadeAt(wallPt, nOutRoom, allB3, B)
-    T(`⛔반증 — 전 방향 가림에서도 전실 ${sRoom.toFixed(3)} · 채널 ${sChan.toFixed(3)} · **경계면 위 벽 안면** ${sWallIn.toFixed(3)} = 채움(${K.ZI_ROOM_FILL})으로 DIM(${K.ZI_DIM})보다 밝다 · 같은 벽 **바깥 향 법선** ${sWallOut.toFixed(3)} = DIM(밖은 안 받는다) · 관 속 ${sBore.toFixed(3)} = DIM(발광 벽이 채운다) · 채움 = ZI_BOUNCE 파생`,
+    //  ★219-w⁗ 채움 여유 = 벽 두께(PASS_T): 경계면에서 벽 두께 안까지는 공극(벽 속 숨은 정점이 안면 정점과 용접·보간되므로) · 그 밖(1.5t)은 안 받는다.
+    const sWallIn = LM.zoneIShadeAt(wallPt, nInRoom, allB3, B), sWallOut = LM.zoneIShadeAt(LM.ziToWorld([(Z.room.x0 + Z.room.x1) / 2, Z.room.y0 + 3, Z.room.z0 - 1.5 * K.PASS_T]), nOutRoom, allB3, B)
+    T(`⛔반증 — 전 방향 가림에서도 전실 ${sRoom.toFixed(3)} · 채널 ${sChan.toFixed(3)} · **경계면 위 벽 안면** ${sWallIn.toFixed(3)} = 채움(${K.ZI_ROOM_FILL})으로 DIM(${K.ZI_DIM})보다 밝다 · 같은 벽 밖 1.5t **바깥 향** ${sWallOut.toFixed(3)} = DIM(벽 두께 밖은 안 받는다 · ★219-w⁗ 여유 = PASS_T) · 관 속 ${sBore.toFixed(3)} = DIM(발광 벽이 채운다) · 채움 = ZI_BOUNCE 파생`,
       sRoom > K.ZI_DIM + 0.1 && sChan > K.ZI_DIM + 0.1 && sWallIn > K.ZI_DIM + 0.1 && Math.abs(sWallOut - K.ZI_DIM) < 1e-9 && Math.abs(sBore - K.ZI_DIM) < 1e-9 && K.ZI_ROOM_FILL === K.ZI_BOUNCE)
   }
   //  ⑼ʰ ★219-h 벽 상자면 **귀퉁이** 채움 = 면 단위 — 전수 대조(_probe_zoneI --verify) 실측: −x벽 상자면(Dome.jsx RevealPassage `wall(RM_X0 − t/2, …, RM_ROOF + 2t, RM_Z1 − RM_Z0 + 2t)`)의
@@ -2826,15 +2827,17 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
     const allB4 = () => ({ dist: 0.5, kind: 'body' })
     const cw = LM.ziToWorld(corner).map((x) => Math.fround(x)), nIn = LM.ziToWorld([1, 0, 0]), nOut = LM.ziToWorld([-1, 0, 0])   // float32 정점(베이크가 보는 것)
     const sPt = LM.zoneIShadeAt(cw, nIn, allB4, B), sFace = LM.zoneIShadeAt(cw, nIn, allB4, B, false, true)
-    const fIn = LM.zoneIFillFace(LM.ziToWorld(faceC), nIn, Z), fOut = LM.zoneIFillFace(LM.ziToWorld(faceC), nOut, Z), fCorner = LM.zoneIFillFace(cw, nIn, Z)
-    T(`⛔귀퉁이 반증 — −x벽 상자면 귀퉁이(builder 식 · 상자 밖 z+${(corner[2] - Z.room.z1).toFixed(2)} y+${(corner[1] - Z.room.y1).toFixed(2)}): 점 규칙 ${sPt.toFixed(3)} = DIM(여유 0) · 면 규칙(faceFill) ${sFace.toFixed(3)} = 채움(${K.ZI_ROOM_FILL}) · 면 중심 안 향 = 공극 면(${fIn}) · 바깥 향 = 아님(${fOut}) · 귀퉁이 점 자신은 면이 아니다(${fCorner})`,
-      Math.abs(sPt - K.ZI_DIM) < 1e-9 && sFace > K.ZI_DIM + 0.1 && Math.abs(sFace - sPt - (1 - K.ZI_DIM) * K.ZI_K * K.ZI_ROOM_FILL) < 1e-9 && fIn && !fOut && !fCorner)
+    const fIn = LM.zoneIFillFace(LM.ziToWorld(faceC), nIn, Z), fOut = LM.zoneIFillFace(LM.ziToWorld([faceC[0] - 1.5 * t, faceC[1], faceC[2]]), nOut, Z), fCorner = LM.zoneIFillFace(cw, nIn, Z)
+    //  ★219-w⁗: 귀퉁이(상자 밖 t)는 이제 점 규칙으로도 채움(여유 = PASS_T · 천장 가장자리 0.6m 띠의 어둠·자글거림이 이 귀퉁이 병의 일반형이었다). 면 규칙과 같은 값. 2t 밖은 여전히 DIM.
+    const sFar = LM.zoneIShadeAt(LM.ziToWorld([K.RM_X0, K.PASS_FLOOR_Y + K.RM_ROOF + 2 * t, K.RM_Z1 + 2 * t]), nIn, allB4, B)
+    T(`⛔귀퉁이 반증 — −x벽 상자면 귀퉁이(builder 식 · 상자 밖 z+${(corner[2] - Z.room.z1).toFixed(2)} y+${(corner[1] - Z.room.y1).toFixed(2)}): 점 규칙 ${sPt.toFixed(3)} = 면 규칙(faceFill) ${sFace.toFixed(3)} = 채움(${K.ZI_ROOM_FILL}) — ★219-w⁗ 여유 PASS_T · 2t 밖 ${sFar.toFixed(3)} = DIM · 면 중심 안 향 = 공극 면(${fIn}) · 벽 밖 1.5t 바깥 향 = 아님(${fOut} — 벽 두께 안은 바깥 향도 채움 대상이나 바깥면은 side 0이라 안 칠한다) · 귀퉁이 점도 여유 안(${fCorner})`,
+      Math.abs(sPt - sFace) < 1e-9 && sFace > K.ZI_DIM + 0.1 && Math.abs(sFar - K.ZI_DIM) < 1e-9 && Math.abs(sFace - K.ZI_DIM - (1 - K.ZI_DIM) * K.ZI_K * K.ZI_ROOM_FILL) < 1e-9 && fIn && !fOut && fCorner)
     const lmG = readFileSync(new URL('./lightingModel.js', import.meta.url), 'utf8'), ziG2 = readFileSync(new URL('./ZoneI.jsx', import.meta.url), 'utf8'), prG = readFileSync(new URL('./_probe_zoneI.mjs', import.meta.url), 'utf8')
-    T('배선 — zoneIShadeAt 채움 = faceFill ∨ 점 규칙(여유 0) 한 곳 · ZoneI bakeMesh는 안면 삼각형마다 zoneIFillFace(중심·want)로 fillV를 표시해 정점 음영에 넘기고, 삼각형별 판정(triSide)을 records로 남겨 window.__ethicaZi에 rayFn·B·ipts와 함께 단다 · _probe_zoneI --verify가 그것으로 전 삼각형 판정↔값을 대조한다(장면 있는 검사 = [521] 한계의 반쪽)',
-      /faceFill \|\| inBox\(q, B\.spec\.room, 0\) \|\| inBox\(q, B\.spec\.chan, 0\)/.test(lmG) && !/ZI_FILL_MG|zoneIFillIn/.test(lmG)
+    T('배선 — zoneIShadeAt 채움 = faceFill ∨ 점 규칙(여유 PASS_T · ★219-w⁗) 한 곳 · ZoneI bakeMesh는 안면 삼각형마다 zoneIFillFace(중심·want)로 fillV를 표시해 정점 음영에 넘기고, 삼각형별 판정(triSide)을 records로 남겨 window.__ethicaZi에 rayFn·B·ipts와 함께 단다 · _probe_zoneI --verify가 그것으로 전 삼각형 판정↔값을 대조한다(장면 있는 검사 = [521] 한계의 반쪽)',
+      /faceFill \|\| inBox\(q, B\.spec\.room, PASS_T \+ 1e-3\) \|\| inBox\(q, B\.spec\.chan, PASS_T \+ 1e-3\)/.test(lmG) && !/ZI_FILL_MG|zoneIFillIn/.test(lmG)
       && /if \(zoneIFillFace\(triC\(W\), want, B\.spec\)\) \{ fillV\[a\] = 1; fillV\[b\] = 1; fillV\[c\] = 1 \}/.test(ziG2) && /rayFn, B, false, fillV\[i\] === 1\)/.test(ziG2)
       && /records\.push\(\{ o, g, triSide \}\)/.test(ziG2) && /Object\.assign\(window\.__ethicaZi, \{ records, rayFn, B, ipts \}\)/.test(ziG2)
-      && /VERIFY = ARGS\.includes\('--verify'\)/.test(prG) && /_probe_zoneI_verify\.mjs/.test(prG) && /process\.exit\(okA && okB && okD && V\.nSwap === 0 \? 0 : 1\)/.test(prG) && /Ⓓ 리브 관 안면\(판 위 · ★219-o 안면만\)/.test(prG))   // ★219-m Ⓓ 리브 항 추가
+      && /VERIFY = ARGS\.includes\('--verify'\)/.test(prG) && /_probe_zoneI_verify\.mjs/.test(prG) && /process\.exit\(okA && okB && okD && okH && V\.nSwap === 0 \? 0 : 1\)/.test(prG) && /Ⓓ 리브 관 안면\(판 위 · ★219-o 안면만\)/.test(prG))   // ★219-m Ⓓ 리브 항 추가
   }
   //  ⑼′ ★219-b 그루터기 이음 — 관 속: 천장 바로 위 = 1 · 천장+FADE/2 = 중간 · 천장+FADE 이상 = I 값 그대로 · 관 밖(전실 바닥점) = 그대로
   {
@@ -2965,8 +2968,8 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
         K.ZI_TOPF * K.ZI_VOL_LEN < 2 && (!K.ZI_FAR_ON || /if \(ZI_FAR_ON\) boreMat\.uniforms\.uTopF\.value = ZI_TOPF \* ZI_VOL_LEN \/ boreT\.len/.test(ziU))) }
     T('ⓛ 배선 — Dome KneeWalk 몸 메시 userData.ziFlatTop · ZoneI bakeMesh: ZI_BODY_FLAT_ON ∧ ziFlatTop ∧ g.index → 안면(±1) ∧ 위 향(want[1] > 0) 삼각형만 정점 분리(색인 재지정 · 삼각형 수·순서 불변) + 중심 zoneIShadeAt 한 톤 · 발광 톤 덮어쓰기는 colAttr(분리 뒤 배열) · 노브 불리언 · --look 프로브 존재',
       typeof K.ZI_BODY_FLAT_ON === 'boolean' && /<mesh geometry=\{bodyGeo\} userData=\{\{ ziFlatTop: true \}\}>/.test(dmQ)
-      && /if \(ZI_BODY_FLAT_ON && o\.userData\.ziFlatTop === true && g\.index\) \{/.test(ziQ) && /if \(s0 !== 1 && s0 !== -1\) return/.test(ziQ) && /if \(want\[1\] <= 0\) return/.test(ziQ)
-      && /tone: zoneIShadeAt\(cc, want, rayFn, B, false, zoneIFillFace\(cc, want, B\.spec\)\)/.test(ziQ) && /idx\[f\.t \* 3 \+ j\] = dst/.test(ziQ) && /colAttr\.setXYZ\(i, tone, tone, tone\)/.test(ziQ)
+      && /if \(\(\(ZI_BODY_FLAT_ON && o\.userData\.ziFlatTop === true\) \|\| flatAll\) && g\.index\) \{/.test(ziQ) && /if \(s0 !== 1 && s0 !== -1\) return/.test(ziQ) && /if \(!flatAll && want\[1\] <= 0\) return/.test(ziQ)   // ★219-w′ flatAll 합류
+      && /else tone = zoneIShadeAt\(cc, want, rayFn, B, false, ff\)/.test(ziQ) && /const ff = zoneIFillFace\(cc, want, B\.spec\)/.test(ziQ) && /idx\[f\.t \* 3 \+ j\] = dst/.test(ziQ) && /colAttr\.setXYZ\(i, tone, tone, tone\)/.test(ziQ)
       && /--look=/.test(prQ)) }
   //  ⓜ ★219-r 원판 림 봉우리 단면 — 시야 91발 적산 실측: 빈 통(껍질)은 관 속 3~10배 더 밝아 기각 · 두 시점을 가르는 건 반경(관 속 = 중심 · 갈림길 = 중심~림). 단면 = 중심 0 → RIM에서 1 → 림 RIM_F 깃털 0.
   { const pf = (u) => LM.zoneIDiscProfile(u, 'rim'), core = (u) => LM.zoneIDiscProfile(u, 'core'), sm = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t) }
@@ -2984,6 +2987,89 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
       && /if \(ZI_VOL_PROFILE === 'rim'\) \{ const xfOld = 'float xf = uXF > 0\.0 \? smoothstep\(0\.0, uXF, min\(vUv\.x, 1\.0 - vUv\.x\) \* 2\.0\) : 1\.0;'/.test(ziR)
       && /throw new Error\('★219-r/.test(ziR) && /m\.uniforms\.uRim = \{ value: new THREE\.Vector3\(ZI_VOL_RIM, ZI_VOL_RIM_F, ZI_VOL_FLOOR\) \}/.test(ziR)
       && /float uR = 1\.0 - min\(vUv\.x, 1\.0 - vUv\.x\) \* 2\.0; float xf = \(uRim\.z \+ \(1\.0 - uRim\.z\) \* smoothstep\(0\.0, uRim\.x, uR\)\) \* smoothstep\(0\.0, uRim\.y, 1\.0 - uR\);/.test(ziR) && /uniform vec3 uRim;/.test(ziR)) }
+  //  ⓝ ★219-w 판이 앉은 면 = 실내 바닥면(★219-d 준광원의 짝) — 실측(09.12 현도 "아치 부분 검정 얼룩" · --look·판정 덤프): Lookout 램프 윗면 177㎡ 전부가 side −1로 뒤집혀 있었다.
+  //   디딤판이 0.06 파묻혀 앉으니 위로 쏜 가시성 광선이 판 상자 안에서(0.01~0.29) 전부 막혔고, 판정은 명중 = 막힘이라 아래(매스 속 → 아치 공동 누출 1발)를 실내로 잡았다.
+  //   규칙: 위 향 후보(sgn·n_y > 0.5)의 광선이 'tread'에 수직 ≤ ZI_UNDER_TREAD_D에서 막히면 실내. 태그 게이트(ziUnderTread — 전실 봉인 슬랩 밑면이 같은 거리·방향이라 태그로 가른다). 장면 재현 = _probe_zoneI --verify Ⓗ.
+  {
+    const pts5 = LM.zoneIInteriorPoints(Z), upW = LM.ziToWorld([0, 1, 0]), fw5 = LM.ziToWorld([(Z.room.x0 + Z.room.x1) / 2, Z.room.y0 + 0.01, (Z.room.z0 + Z.room.z1) / 2])
+    const uD = K.ZI_UNDER_TREAD_D
+    //  가짜 광선 = 명중의 **수직 높이**를 고정(dist = V/(d_y)) — 규칙이 재는 것이 수직 성분임을 검사가 그대로 따른다. 아래 향 광선(d_y ≤ 0)은 body.
+    const atV = (V, kind) => (o, d) => (d[1] > 1e-6 ? { dist: V / d[1], kind } : { dist: 0.3, kind: 'body' })
+    const treadNear = atV(0.5 * uD, 'tread'), treadFar = atV(1.5 * uD, 'tread'), bodyNear = atV(0.5 * uD, 'body')
+    T(`ⓝ 파생 — ZI_UNDER_TREAD_D = TREAD_THICK + KW_BODY_TOP + ZI_RAY_EPS = ${uD.toFixed(3)}(판 두께 + 파묻힘 + 광선 오프셋 · 손 수치 0) · 스위치 boolean`,
+      Math.abs(uD - (K.TREAD_THICK + K.KW_BODY_TOP + K.ZI_RAY_EPS)) < 1e-12 && uD > 0 && uD < 1 && typeof K.ZI_UNDER_TREAD_ON === 'boolean')
+    const vUp = (ray, under) => LM.zoneIVisibleFromInside(fw5, upW, ray, pts5, Z, undefined, under)
+    T('ⓝ 성질 — 위 향 면: 수직 0.5D 위 tread 명중 = 실내(+1) · 수직 1.5D 위 tread = 막힘 · 같은 높이 body = 막힘 · underD=0(태그 없음) = 구판(막힘) — 규칙이 종류·수직 거리·태그 셋에 실제로 의존한다',
+      vUp(treadNear, uD).inward && vUp(treadNear, uD).side === 1 && !vUp(treadFar, uD).inward && !vUp(bodyNear, uD).inward && !vUp(treadNear, 0).inward)
+    //  후보 방향이 아래인 쪽에는 안 걸린다: 법선이 아래인 면도 **위 방향(sgn −1)** 후보에서만 규칙이 살고, 그때 side는 −1(위)로 나온다 — 그래서 판 밑면 부재는 태그로 뺀다(주석).
+    T('ⓝ 성질 — 규칙은 후보 방향이 위(sgn·n_y > 0.5)일 때만: 법선 아래 면은 +1(아래)로는 안 잡히고 −1(위)에서 잡힌다 · 수직 성분은 광선 방향 y로 잰다(같은 명중 거리라도 가파른 광선은 막힘·완만한 광선은 통과)',
+      LM.zoneIVisibleFromInside(fw5, LM.ziToWorld([0, -1, 0]), treadNear, pts5, Z, undefined, uD).side === -1
+      && !vUp((o, d) => ({ dist: 1.2 * uD, kind: 'tread' }), uD).inward === (pts5.every((q) => { const dy = q[1] - fw5[1]; const L = Math.hypot(q[0] - fw5[0], dy, q[2] - fw5[2]); return dy <= 0 || 1.2 * uD * dy / L > uD }))
+      && vUp((o, d) => ({ dist: 1.2 * uD, kind: 'tread' }), uD).inward === !pts5.every((q) => { const dy = q[1] - fw5[1]; const L = Math.hypot(q[0] - fw5[0], dy, q[2] - fw5[2]); return dy <= 0 || 1.2 * uD * dy / L > uD }))
+    { const ziW = readFileSync(new URL('./ZoneI.jsx', import.meta.url), 'utf8'), dmW = readFileSync(new URL('./Dome.jsx', import.meta.url), 'utf8'), lmW = readFileSync(new URL('./lightingModel.js', import.meta.url), 'utf8'), pvW = readFileSync(new URL('./_probe_zoneI_verify.mjs', import.meta.url), 'utf8')
+      T('ⓝ 배선 — Dome Lookout 몸 메시 userData.ziUnderTread · ZoneI가 태그 몸에만 underD를 넘긴다 · lightingModel 규칙 = tread ∧ dist·(dy/L) ≤ underD ∧ ny > 0.5 · 기본 = ZI_UNDER_TREAD_ON ? D : 0 · 프로브 Ⓗ 재현 항 존재',
+        /<mesh geometry=\{geo\} castShadow receiveShadow userData=\{\{ ziUnderTread: true, ziFlatAll: true, ziSmooth: true \}\}>/.test(dmW)
+        && /const underD = o\.userData\.ziUnderTread === true \? undefined : 0/.test(ziW)
+        && /underD = ZI_UNDER_TREAD_ON \? ZI_UNDER_TREAD_D : 0/.test(lmW) && /const ny = nl\[1\] \* sgn, underOK = underD > 0 && ny > 0\.5/.test(lmW)
+        && /if \(underOK && h\.kind === 'tread' && h\.dist \* \(dy \/ L\) <= underD\) return \{ inward: true, side: sgn \}/.test(lmW)
+        && /Hface/.test(pvW) && /ZI_UNDER_TREAD_D/.test(pvW)) }
+  }
+  //  ⓞ ★219-w′ 아치 공동 = 공극 셋째 항 + ziFlatAll(면당 4표본 평균) — 현도 2차 화면(아치 천장 띠마다 0.28~0.82). 공동은 착지판 위라 방·채널 상자 밖이었다.
+  {
+    const A = Z.arch; const st = A.st; const mid = st[Math.floor(st.length / 2)]
+    const inA = (p) => LM.zoneIInArch(p, Z)
+    T(`ⓞ 아치 공동 — 스펙 존재(열린 스테이션 ${st.length} · 반폭 ${A.hw} = WARCH_HW) · 축점(floor·crown 중간) 안 · crown 위 밖 · |z| > hw 밖 · floor 아래 밖 · 방·채널 상자 밖에 있는 공극(chan.y1 위)`,
+      st.length > 10 && A.hw === K.WARCH_HW && inA([mid.x, (mid.floor + mid.crown) / 2, 0]) && !inA([mid.x, mid.crown + 0.5, 0]) && !inA([mid.x, (mid.floor + mid.crown) / 2, A.hw + 0.2]) && !inA([mid.x, mid.floor - 0.5, 0])
+      && st.some((q) => q.crown > Z.chan.y1 + 1))
+    const pts6 = LM.zoneIInteriorPoints(Z)
+    T('ⓞ 채움·실내·대표점 — 아치 축점이 zoneIInterior · zoneIFillFace(축점 향 면) · 실내 대표점에 아치 축점 포함(≥ 2)',
+      LM.zoneIInterior([mid.x, (mid.floor + mid.crown) / 2, 0], Z) && LM.zoneIFillFace(LM.ziToWorld([mid.x, mid.crown - 0.02, 0]), LM.ziToWorld([0, -1, 0]), Z)
+      && pts6.filter((q) => Math.abs(q[2]) < 1e-9 && inA(q)).length >= 2)
+    { const ziF = readFileSync(new URL('./ZoneI.jsx', import.meta.url), 'utf8'), dmF = readFileSync(new URL('./Dome.jsx', import.meta.url), 'utf8'), lmF = readFileSync(new URL('./lightingModel.js', import.meta.url), 'utf8')
+      T(`ⓞ 배선 — Lookout 몸 ziFlatAll 태그 · ZoneI: flatAll이면 안면 전부(want[1] 조건 우회) + 표본 ${K.ZI_FLAT_ALL_SAMP}점 평균 · zoneIShadeAt 채움에 zoneIInArch · 노브 위생`,
+        /ziUnderTread: true, ziFlatAll: true/.test(dmF) && /const flatAll = ZI_FLAT_ALL_ON && o\.userData\.ziFlatAll === true/.test(ziF) && /if \(!flatAll && want\[1\] <= 0\) return/.test(ziF)
+        && /\.slice\(0, ZI_FLAT_ALL_SAMP\)/.test(ziF) && /\|\| zoneIInArch\(q, B\.spec\)\)\) E \+= ZI_ROOM_FILL/.test(lmF)
+        && typeof K.ZI_FLAT_ALL_ON === 'boolean' && Number.isInteger(K.ZI_FLAT_ALL_SAMP) && K.ZI_FLAT_ALL_SAMP >= 1 && K.ZI_FLAT_ALL_SAMP <= 4) }
+  }
+  //  ⓟ ★219-w″ ziSmooth — 곡면(아치 천장)에서 면마다 단색 = 모자이크(현도 3차 화면). 정점을 위치로 용접 + 인접 안면 법선 평균 + 64발 + 이웃 평균 2회 = 매끄러운 장. ZI_FLAT_ALL_ON은 false(보존계)로 물러난다.
+  { const ziS = readFileSync(new URL('./ZoneI.jsx', import.meta.url), 'utf8'), dmS = readFileSync(new URL('./Dome.jsx', import.meta.url), 'utf8')
+    T(`ⓟ ziSmooth 배선·노브 — Lookout 몸 태그 · 용접 키 1e-3 · 법선 면적 가중 · zoneIHemiDirs(ZI_SMOOTH_N=${K.ZI_SMOOTH_N}) · 이웃 평균 ${K.ZI_SMOOTH_ITER}회 · 바깥면(side 0) 무접촉 · ★219-w′ 면 단색은 소등(ZI_FLAT_ALL_ON=false)`,
+      /ziSmooth: true/.test(dmS) && /if \(smoothMe\) \{/.test(ziS) && /const smoothMe = ZI_SMOOTH_ON && \(ZI_SMOOTH_SCOPE === 'all' \? o\.userData\.ziFlatTop !== true : ZI_SMOOTH_SCOPE === 'tag' && o\.userData\.ziSmooth === true\)/.test(ziS) && /Math\.round\(v\.x \* 1e3\)/.test(ziS) && /q\.n\[0\] \+= want\[0\] \* ar/.test(ziS)
+      && /dirs: zoneIHemiDirs\(ZI_SMOOTH_N\)/.test(ziS) && /for \(let it = 0; it < ZI_SMOOTH_ITER; it\+\+\)/.test(ziS) && /for \(const \{ col, i \} of GW\[w\]\.idx\) \{ col\[i \* 3\]/.test(ziS) && /if \(side\[i\] !== 0\) GW\[w\]\.idx\.push\(\{ col, i \}\)/.test(ziS) && /> ZI_WELD_COS\) \{ w = cand; break \}/.test(ziS) && /const nGW = finishSmooth\(\)/.test(ziS) && K.ZI_WELD_COS > 0 && K.ZI_WELD_COS < 1   // ★219-y 공통 용접(메시 경계 무관 · 위치+법선)
+      && typeof K.ZI_SMOOTH_ON === 'boolean' && K.ZI_SMOOTH_N >= 16 && Number.isInteger(K.ZI_SMOOTH_ITER) && K.ZI_SMOOTH_ITER >= 0 && K.ZI_FLAT_ALL_ON === false)
+    //  ⓡ ★219-w⁗ 채움 여유 = 벽 두께 — 방·채널 상자 상수는 벽 안쪽이라 천장·벽 가장자리 0.6m 띠(로컬 z −4.95 vs 상자 −4.35)가 채움 밖으로 떨어져 0.09~0.45 → 가장자리 어둠·자글거림(현도 5차 화면). 채움 두 판정 모두 zoneIInterior와 같은 PASS_T 여유.
+    { const lmR = readFileSync(new URL('./lightingModel.js', import.meta.url), 'utf8'); const eW = LM.ziToWorld([Z.room.x0 - K.PASS_T * 0.9, Z.room.y1 - 0.02, (Z.room.z0 + Z.room.z1) / 2])
+      T(`ⓡ 채움 여유 — 방 상자 밖 벽 두께 안 점(x0 − 0.9·PASS_T)이 채움 대상 · 벽 두께 밖(x0 − 1.5·PASS_T)은 아님 · 두 판정(zoneIFillFace·zoneIShadeAt) 모두 PASS_T`,
+        LM.zoneIFillFace(eW, LM.ziToWorld([0, -1, 0]), Z) && !LM.zoneIFillFace(LM.ziToWorld([Z.room.x0 - K.PASS_T * 1.5, Z.room.y1 - 0.02, (Z.room.z0 + Z.room.z1) / 2]), LM.ziToWorld([0, -1, 0]), Z)
+        && /return inBox\(q, Z\.room, PASS_T \+ 1e-3\) \|\| inBox\(q, Z\.chan, PASS_T \+ 1e-3\) \|\| zoneIInArch\(q, Z\)/.test(lmR) && /\(faceFill \|\| inBox\(q, B\.spec\.room, PASS_T \+ 1e-3\) \|\| inBox\(q, B\.spec\.chan, PASS_T \+ 1e-3\) \|\| zoneIInArch\(q, B\.spec\)\)\) E \+= ZI_ROOM_FILL/.test(lmR)) }
+    //  ⓠ ★219-w‴ 적록 세분 — 도구 자기검증: 합성 사각형(2삼각형 · 변 4m)을 L=1로 나누면 (a) 변 전부 ≤ L (b) 면적 보존 (c) 공유 변 중점 공유 = T-접합 0(모든 변이 정확히 두 삼각형에 속함 — 경계 변은 하나) (d) 위치 이동 0(모든 새 정점이 원 사각형 평면 위) · 부모 배열 길이 = 삼각형 수
+    { const { subdivideLongEdges } = await import('./ziSubdivide.js')
+      const THREE = await import('three'); const gq = new THREE.BufferGeometry()
+      gq.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0, 4, 0, 0, 4, 0, 4, 0, 0, 4]), 3)); gq.setAttribute('normal', new THREE.BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]), 3)); gq.setIndex([0, 1, 2, 0, 2, 3])
+      const g2 = subdivideLongEdges(gq, 1), P2 = g2.attributes.position, I2 = g2.index.array; let maxE = 0, area = 0, offPlane = 0; const edges = new Map()
+      for (let i = 0; i + 2 < I2.length; i += 3) { const ids = [I2[i], I2[i + 1], I2[i + 2]]; const pts = ids.map((id) => [P2.getX(id), P2.getY(id), P2.getZ(id)])
+        for (let k = 0; k < 3; k++) { const a = ids[k], b = ids[(k + 1) % 3]; const key = a < b ? a + ',' + b : b + ',' + a; edges.set(key, (edges.get(key) || 0) + 1); maxE = Math.max(maxE, Math.hypot(pts[k][0] - pts[(k + 1) % 3][0], pts[k][2] - pts[(k + 1) % 3][2])) }
+        const u = [pts[1][0] - pts[0][0], pts[1][2] - pts[0][2]], w = [pts[2][0] - pts[0][0], pts[2][2] - pts[0][2]]; area += Math.abs(u[0] * w[1] - u[1] * w[0]) / 2 }
+      for (let i = 0; i < P2.count; i++) if (Math.abs(P2.getY(i)) > 1e-9) offPlane++
+      const cnt = [...edges.values()], bad = cnt.filter((c) => c !== 1 && c !== 2).length, boundary = cnt.filter((c) => c === 1).length
+      T(`ⓠ 세분 도구 자기검증 — 합성 4m 사각형(2장) → L=1: 변 최대 ${maxE.toFixed(3)} ≤ 1 · 면적 ${area.toFixed(3)} = 16 · 위치 이동 0 · 변마다 삼각형 1(경계)/2(내부)뿐 = T-접합 0(경계 변 ${boundary} = 16) · 부모 배열 = 삼각형 수 · 노브 위생`,
+        maxE <= 1 + 1e-9 && Math.abs(area - 16) < 1e-9 && offPlane === 0 && bad === 0 && boundary === 16 && g2.userData.ziParent.length === I2.length / 3 && g2.userData.ziParent.every((pp) => pp === 0 || pp === 1)
+        && ['all', 'tag', 'off'].includes(K.ZI_SMOOTH_SCOPE) && K.ZI_SMOOTH_EDGE > 0 && /import \{ subdivideLongEdges \} from '\.\/ziSubdivide\.js'/.test(ziS) && /const g2 = subdivideLongEdges\(g0, ZI_SMOOTH_EDGE\)/.test(ziS)) }
+  }
+  //  ⓢ ★219-x 전실 빛기둥 = 통 + 원판 교차 페이드 — 현도 A/B(ZI_VOL_ON=false → 방사 무늬 소멸)로 무늬 층을 확정: 통(40분할)을 축 방향으로 볼 때의 부채살. 원판 적층은 ★219-i 어법 승계.
+  { const T2 = LM.zoneIDiscTris(Z, { part: 'shaft' }), Tt = LM.zoneITubeTris(Z, 'shaft'), ax = LM.zoneIShaftAxis(Z, K.ZI_DISC_DY)   // 원판 간격 = ZI_DISC_DY(관 속과 같음) · 통은 ZI_VOL_DY
+    const rad = Math.hypot(T2.pos[3] - T2.pos[0], T2.pos[4] - T2.pos[1], T2.pos[5] - T2.pos[2])   // 첫 삼각형 중심→림
+    const lenSumRef = ax.reduce((a, q) => a + Math.pow(1 - q.s / ax[ax.length - 1].s, K.ZI_FADE_POW), 0)
+    T(`ⓢ 전실 원판 — 축 점열 = 통과 공유(원판 ${ax.length}장 · 간격 ZI_DISC_DY · 길이 ${T2.len.toFixed(2)} = 통 ${Tt.len.toFixed(2)}) · 반경 ${rad.toFixed(2)} = 오큘러스 − eps · 원판 수 = 점 수 · 삼각형 = 원판·SEG · lenSum = Σ(1−s/L)^FADE_POW(대기 아님 · 덩어리식) · 통 축과 동일`,
+      T2.discs === ax.length && Math.abs(T2.len - Tt.len) < 1e-9 && Math.abs(rad - Math.max(0.05, Z.oculus.r - K.ZI_RAY_EPS)) < 1e-6 && T2.pos.length / 9 === ax.length * K.ZI_VOL_SEG && Math.abs(T2.lenSum - lenSumRef) < 1e-9 && ax.every((q) => Math.abs(q.p[0] - Z.hole.c[0]) < 1e-9 && q.t[1] === -1))
+    const ziX = readFileSync(new URL('./ZoneI.jsx', import.meta.url), 'utf8'), lmX = readFileSync(new URL('./lightingModel.js', import.meta.url), 'utf8')
+    T(`ⓢ 배선·노브 — 두 재질 모두 gl_FragColor 한 줄 파생 치환(ag = 통 1−smoothstep · 원판 smoothstep · 대상 없으면 throw) · 공유 FRL_TUBE_FRAG 무접촉(구판 문자열 존재) · 원판 uXF = FEATHER · uOpacity = RM_SHAFT_OP·K/lenSum · 0 ≤ AX0(${K.ZI_SHAFT_AX0}) < AX1(${K.ZI_SHAFT_AX1}) ≤ 1 · K > 0 · 통 shaftTubeMat · 원판 mesh 조건부`,
+      /const axGate = \(m, sign\) => \{ const old = 'gl_FragColor = vec4\(uColor, uOpacity \* edge \* xf \* top \* len \* cf\);'/.test(ziX) && /throw new Error\('★219-x/.test(ziX)
+      && /float ag = uAxGate\.z > 0\.5 \? smoothstep\(uAxGate\.x, uAxGate\.y, ax\) : 1\.0 - smoothstep\(uAxGate\.x, uAxGate\.y, ax\);/.test(ziX) && /\* cf \* ag\);/.test(ziX)
+      && /m\.uniforms\.uXF\.value = ZI_VOL_FEATHER; return axGate\(m, 1\)/.test(ziX) && /return axGate\(m, 0\) \}/.test(ziX)
+      && /uOpacity\.value = RM_SHAFT_OP \* ZI_SHAFT_K \/ Math\.max\(1e-9, T\.lenSum\)/.test(ziX) && /material=\{shaftTubeMat\}/.test(ziX) && /geos\.shaftDiscs && !off\(3\) && <mesh geometry=\{geos\.shaftDiscs\} material=\{shaftDiscMat\}/.test(ziX) && /ev\.code === 'KeyB'/.test(ziX)   // ★219-x′ 진단 키 B
+      && /pts = zoneIShaftAxis\(Z, dy\) \}/.test(lmX) && /gl_FragColor = vec4\(uColor, uOpacity \* edge \* xf \* top \* len \* cf\);/.test(readFileSync(new URL('./Corridor.jsx', import.meta.url), 'utf8'))
+      && K.ZI_SHAFT_AX0 >= 0 && K.ZI_SHAFT_AX0 < K.ZI_SHAFT_AX1 && K.ZI_SHAFT_AX1 <= 1 && K.ZI_SHAFT_K > 0 && typeof K.ZI_SHAFT_DISCS_ON === 'boolean') }
   if (K.FREEZE_I_ON) T(`★★동결 — 구역 I 지문(미구현 — 현도 동결 선언 시 S-19 어법으로 세운다)`, false)
   else console.log(`  (구역 I 동결 대조 보류 — FREEZE_I_ON=${K.FREEZE_I_ON} · 현도 선언 대기)`)
 }
