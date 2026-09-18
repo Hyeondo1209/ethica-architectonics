@@ -41,13 +41,14 @@ export const useState = (v) => [typeof v === 'function' ? v() : v, () => {}]
 export const useEffect = () => {}
 export const useLayoutEffect = () => {}
 export const useCallback = (f) => f
+export const useSyncExternalStore = (sub, get) => get()   // ★221-d 튜너 스토어 구독(대역: 현재값 즉시)
 export const useContext = () => ({})
 export const createContext = () => ({ Provider: () => null })
 export const forwardRef = (f) => f
 export const memo = (f) => f
 export const Fragment = 'Fragment'
 export const createElement = (t, p, ...c) => ({ __el: t, props: { ...p, children: c } })
-export default { useMemo, useRef, useState, useEffect, useLayoutEffect, useCallback, forwardRef, memo, Fragment, createElement }
+export default { useMemo, useRef, useState, useEffect, useLayoutEffect, useCallback, useSyncExternalStore, forwardRef, memo, Fragment, createElement }
 `)
 writeFileSync(join(dir, 'jsx-runtime.mjs'), `
 export const Fragment = 'Fragment'

@@ -3,7 +3,7 @@
 //            RevealPassage(회랑판: 방 → +z 회랑 → 스텁 → 문 = 1p11 공개) / Terrace
 //  ★1-③B(2026.07.05): 상부 구간 구현 — 관내 잔류(§1) 완성. LandingPad·StraightFlight 폐기 제거.
 //  ★1-③A(2026.07.04): 탐험 리브 분리(72→71+1) + −x면 CSG 문 + 나선 재정의 + 폴 절단(1p7)
-import { useRef, useMemo, useLayoutEffect } from 'react'
+import { useRef, useMemo, useLayoutEffect, useEffect, useSyncExternalStore } from 'react'
 import * as THREE from 'three'
 import { Brush, Evaluator, HOLLOW_SUBTRACTION, SUBTRACTION } from 'three-bvh-csg'
 import {
@@ -22,7 +22,7 @@ import {
   CL_ROOF_Y, CL_HEAD_Y, CL_WALL_BOT, CL_FLOOR_END, CL_STAIR_MID, CL_STAIR_HPHI,   // ★78-2 계단 바닥
   CL_STEP_RISE, clLandingY, clFloorSegments, clSillBands, CL_WIN_MODE, clSillSlopeY,   // ★78-3
   CL_WALL_T, CL_R_IN2, CL_R_OUT2, CL_SEG_DROP, clSillY,   // ★78-4 벽 두께
-  RM_X0, RM_X1, RM_Z0, RM_Z1, RM_ROOF, RM_MOUTH_H, PASS_FUSE,
+  RM_X0, RM_X1, RM_Z0, RM_Z1, RM_ROOF, RM_MOUTH_H, PASS_FUSE, CLM_ARCH_ON, LR_R0, LR_LEN, LR_POW,
   ST_ON, ST_PHI, ST_HW, ST_ROOF,
   LAMP_RIBS, LAMP_R, LAMP_TUBE_R, LAMP_ENTRY_Y, LAMP_TOP_Y, LAMP_MOUTH_Y0, LAMP_MOUTH_Y1, LAMP_FUNNEL_H, LAMP_MOUTH_R, LAMP_POOL_R,
   TERRACE_Y, TERRACE_RIN, TERRACE_ROUT, TERRACE_ARC,   // ⚠구 링(보존계 — ★80이 폐기, 그리지 않는다)
@@ -56,7 +56,8 @@ import { buildRibShell, makeRibCurve, RIB_TUB_SEG, buildViceWedge, viceSplitInde
 import { buildKneeBody, buildKneePlinth } from './kneeBodyGeometry'
 import { buildTerrace, buildTerraceLink } from './terraceGeometry'   // ★85 부채꼴 · ★89 계단화 · ★90 리드 연결
 import { buildCupBowl, buildCupStraps, buildCupRing } from './drumCupGeometry'   // ★92 드럼 하판(반구 + 기둥) · ★93 고리판
-import { buildJunctionKnot, buildLightShaft, shaftCutSolid, lightShaftSpec, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, apronSteps, buildRoomMouthWall, ribArchCutSolid, radialPlate } from './junctionGeometry'   // ★70 매듭 · ★71 빛 기둥 · ★75 넓은 계단
+import { buildLampRoot, lampRootTune } from './lampRootGeometry'
+import { buildJunctionKnot, buildLightShaft, shaftCutSolid, lightShaftSpec, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, apronSteps, buildRoomMouthWall, buildCloisterMouthWall, ribArchCutSolid, radialPlate } from './junctionGeometry'   // ★70 매듭 · ★71 빛 기둥 · ★75 넓은 계단
 import { kneeTreads, kneeStairSpec } from './kneeStair'   // ★66 계단 규격·참
 import { buildFlareShell } from './exitFlareGeometry'   // ★80 S자 나팔
 import { PropStele } from './Steles'
@@ -851,11 +852,21 @@ export function RevealPassage() {
   // ★입(mouth) x경계 = 회랑 단면보다 0.3 안쪽(rIn+0.3 ~ rOut−0.3) — 방 벽(좌우 조각)이 회랑 벽 시작(rIn/rOut, φ0)을
   //  0.3씩 덮어 직육면체↔원호 옆 이음매 봉인. 구 −0.4(입이 더 넓음)는 벽 너머 빈 공간 노출 → 반전. 통행폭 4.6(회랑 5.2보다 좁은 문틀).
   const mX0 = CL_R - CL_HW + 0.3, mX1 = CL_R + CL_HW - 0.3
-  wall((RM_X0 - t + mX0) / 2, floor + RM_ROOF / 2, RM_Z1 + t / 2, mX0 - (RM_X0 - t), RM_ROOF + 2 * t, t)
-  wall((mX1 + RM_X1 + t) / 2, floor + RM_ROOF / 2, RM_Z1 + t / 2, (RM_X1 + t) - mX1, RM_ROOF + 2 * t, t)
+  //  ★★★220(2026.09.13 현도 "아치형 문으로 좀 작게"): 좌·우 조각 두 박스 → **한 장 패널 + 아치 감산**
+  //   (정본 = junctionGeometry.buildCloisterMouthWall · +x 문 ★75-h와 같은 기계). 아래 렌더에서 별도 mesh.
+  //   ⛔`CLM_ARCH_ON=false`면 구 직사각 두 조각 그대로(보존계).
+  if (!CLM_ARCH_ON) {
+    wall((RM_X0 - t + mX0) / 2, floor + RM_ROOF / 2, RM_Z1 + t / 2, mX0 - (RM_X0 - t), RM_ROOF + 2 * t, t)
+    wall((mX1 + RM_X1 + t) / 2, floor + RM_ROOF / 2, RM_Z1 + t / 2, (RM_X1 + t) - mX1, RM_ROOF + 2 * t, t)
+  }
   // 회랑 입 위 트랜섬/소핏: 방 천장(RM_ROOF)↔회랑 천장(CL_ROOF) 단차를 막음. ★CL_ROOF>RM_ROOF면 상승 소핏,
   //  반대면 구 헤더 — Math.abs로 양쪽 안전(음수 붕괴 방지). 낮은 천장서 시작해 높은 천장 위로 +t 물림(틈 봉인).
-  wall((mX0 + mX1) / 2, floor + (RM_ROOF + CL_ROOF + t) / 2, RM_Z1 + t / 2, mX1 - mX0, Math.abs(CL_ROOF - RM_ROOF) + t, t)
+  //  ★220: 아치 패널 체제에서는 패널이 개구 전폭을 RM_ROOF+t까지 덮으므로 트랜섬은 **그 위에서 맞댄다**
+  //   (구 체제처럼 RM_ROOF에서 시작하면 패널과 t만큼 겹쳐 앞·뒷면이 공면 = z-파이팅).
+  {
+    const y0 = floor + Math.min(CL_ROOF, RM_ROOF) + (CLM_ARCH_ON ? t : 0), y1 = floor + Math.max(CL_ROOF, RM_ROOF) + t
+    wall((mX0 + mX1) / 2, (y0 + y1) / 2, RM_Z1 + t / 2, mX1 - mX0, y1 - y0, t)
+  }
   //  ★75-h 입 구간 +x벽 = 아치 감산 패널(박스 배열 B가 아니라 별도 mesh — CSG가 필요하다)
   //  ★71 지붕 = 빛 기둥이 뚫고 지나는 유일한 면 → 자르개로 구멍을 낸다(아래 렌더에서 CSG).
   //   ⚠밀폐(스포 3중 ③)는 **관 자신이 마개를 겸해** 유지된다 — 구멍이 관보다 SHAFT_FUSE만큼 작아 융착된다.
@@ -1017,6 +1028,8 @@ export function RevealPassage() {
       ))}
       {/* ★75-h 방 입구 = **아치** — 볼트를 지나온 몸이 각진 문틀을 만나지 않게(현도 2026.07.26) */}
       <MouthWall />
+      {/* ★220 회랑 입 = **아치문**(+z벽) — "크게 뚫린 직사각형이라 회랑이 너무 쉽게 보인다"(현도 2026.09.13) */}
+      <CloisterMouthWall />
       {/* ★74 +z 볼벽 — ★75에서 레이크를 걷어내고 −z와 같은 높이로 대칭화했다 */}
       <PzCheek />
       {/* ★71 빛 기둥 — 전망 반원 판 → 이 방. 리브 껍질·지붕·판 셋을 같은 자르개로 뚫는다. */}
@@ -1059,6 +1072,22 @@ function MouthWall() {
   ) : null
 }
 
+// ── ★220 +z벽(회랑 입) 아치 패널 ──
+function CloisterMouthWall() {
+  const geo = useMemo(() => buildCloisterMouthWall(), [])   // CLM_ARCH_ON=false면 null → 구 박스 두 조각이 대신 선다
+  return geo ? (
+    <mesh geometry={geo}>
+      <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+    </mesh>
+  ) : null
+}
+
+//  ★221-d 등불 방 뿌리 목 = 화면 튜너 구독판(초기값 constants LR_RM10_* · 튜너가 없으면 그 값 그대로)
+function LampRootTuned() {
+  const t = useSyncExternalStore(lampRootTune.subscribe, lampRootTune.get)
+  return <LampRoot r0K={t.r0 / LR_R0} lenK={t.len / LR_LEN} pow={t.pow} />
+}
+
 function PzCheek() {
   const geo = useMemo(() => buildPzCheek(), [])
   return (
@@ -1097,6 +1126,17 @@ function LightShaft() {
 //  각 등불 = 발광 관 + 깔때기 갓 + 갓 입 발광면 + 바닥 웅덩이 2겹 + 하향 점광(무그림자).
 //  ⚠광량·색은 Phase 3 전면 재조정 전제(전부 노브). 1p10 정리 텍스트(비석/각인)는 별도 세션.
 // 등불 봉: 정점 색 세로 기울기(진입고에서 목까지 밝음→어둠 보간, 진입고 위 = 상단색 고정) — 튜닝 노브 = 아래 두 색
+// ── ★221 뿌리 목 — 리브 재질 공유(리브의 연장) · 기하 1회 생성 후 9기 공유(useMemo는 등불마다 도니 모듈 캐시가 정본) ──
+function LampRoot({ r0K = 1, lenK = 1, pow = LR_POW }) {
+  const geo = useMemo(() => buildLampRoot(r0K, lenK, pow), [r0K, lenK, pow])
+  useEffect(() => () => geo?.dispose?.(), [geo])   // 튜너로 갈아끼울 때 옛 기하 폐기
+  return geo ? (
+    <mesh geometry={geo}>
+      <meshStandardMaterial {...RIB_MAT} onBeforeCompile={ribTintOBC} />
+    </mesh>
+  ) : null
+}
+
 function LampRod({ y0, y1 }) {
   const geo = useMemo(() => {
     const g = new THREE.CylinderGeometry(LAMP_TUBE_R, LAMP_TUBE_R, y1 - y0, 12, 24)
@@ -1141,6 +1181,9 @@ export function CloisterLamps() {
                 구 3분절 스택은 발광값이 분절 상수라 경계 띠가 노출 — 정점 색은 정점 간 보간 = 이음매 없음.
                 unlit(meshBasicMaterial) = 조명 안 받는 자체 발광체로 읽힘. 색 2값 = LampRod 안 노브 */}
             <LampRod y0={neckY} y1={LAMP_TOP_Y} />
+            {/* ★★★221 뿌리 목(2026.09.14 · 현도 스케치 09.13): 리브 밑면이 뿌리처럼 흘러내려 관이 된다. 정본 = lampRootGeometry.
+                리브 재질 그대로(= 리브의 연장으로 읽히게) · 관은 곧게 유지(현도) · 등불 9기 같은 기하(로컬 프레임 동일) */}
+            <LampRoot />
             {/* ★접합부 점광(2026.07.11): 관이 리브 밑면에 꽂히는 자리를 밝힘 — 리브 밑면·상부 벽에
                 후광이 생겨 광원이 '리브'로 읽히게(현행 하향 점광만으로는 봉 끝이 광원으로 오독).
                 강도·거리 = 튜닝 노브 */}
@@ -1416,6 +1459,9 @@ export function LampRoom() {
         {/* 중앙 등불 — 회랑 등불과 **같은 어법**(관 + 깔때기 갓 + 웅덩이). 다른 건 관이 훨씬 길다는 것뿐 */}
         <group>
           <LampRod y0={RM10_CENTER_Y + LAMP_MOUTH_Y1 + LAMP_FUNNEL_H} y1={LAMP_TOP_Y} />
+          {/* ★221-b(2026.09.18 현도 "마지막 등불방 조명에도 똑같이"): 뿌리 목 — 로컬 프레임(관 축 = 리브 #10 방위의 r=CL_R)이
+              회랑 등불과 동일. ★221-c: 관 36m·천장 282라 같은 목이 너무 작게 읽혀(현도) 방 전용 배율 LR_RM10_R0K·LENK */}
+          <LampRootTuned />
           <pointLight position={[0, LAMP_ENTRY_Y - 1.2, 0]} color={LAMP_LGT_JOINT_COL} intensity={LAMP_LGT_JOINT_I} distance={15} decay={2} />
           <mesh position={[0, RM10_CENTER_Y + LAMP_MOUTH_Y1 + LAMP_FUNNEL_H / 2, 0]}>
             <cylinderGeometry args={[LAMP_TUBE_R, LAMP_MOUTH_R, LAMP_FUNNEL_H, 24, 1, true]} />

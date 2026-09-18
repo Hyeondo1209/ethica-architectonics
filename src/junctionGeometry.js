@@ -32,6 +32,7 @@ import {
   WARCH_ON, WARCH_HW, WARCH_FUSE, JCT_SLOT_MARGIN, CHANNEL_HW, VAULT_HW, CLEAR_HW, WARCH_HEAD, WARCH_CLEAR, WARCH_DROP, WARCH_H_MAX, WARCH_RISE_ABOVE,
   X_DESC0, X_DESC_END, DESC_SLOPE, PASS_FLOOR_Y as PASS_FLOOR_Y2, TREAD_THICK, KW_BODY_TOP,
   RM_X1 as RM_X1_G, RM_MOUTH_H, RM_ROOF as RM_ROOF_G, PASS_FUSE, RM_MOUTH_REVEAL,
+  RM_X0, RM_Z1, CL_R, CLM_ARCH_ON, CLM_HW, CLM_H,
 } from './constants.js'
 import { kneeStairSpec } from './kneeStair.js'
 import { innerTubeSolid } from './kneeBodyGeometry.js'
@@ -752,6 +753,44 @@ export function buildRoomMouthWall() {
   const g = new THREE.BoxGeometry(th, RM_ROOF_G + 2 * PASS_T, 2 * zw)
   g.translate(RM_X1_G + PASS_T / 2 - RM_MOUTH_REVEAL / 2, floor + RM_ROOF_G / 2, JCT_DN_Z)
   const cut = roomMouthCutSolid()
+  const ev = new Evaluator(); ev.attributes = ['position', 'normal']
+  const a = new Brush(g.toNonIndexed()), b = new Brush(cut)
+  a.updateMatrixWorld(); b.updateMatrixWorld()
+  const out = ev.evaluate(a, b, SUBTRACTION).geometry
+  g.dispose(); cut.dispose()
+  return out
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ★★★220 회랑 입(+z벽) = **아치문** (2026.09.13 현도: "직사각형 · 크게 뚫려 회랑이 너무 쉽게 보인다 — 아치형으로 좀 작게")
+// ════════════════════════════════════════════════════════════════════════════
+//  ⚠구판은 +z벽을 좌·우 조각 + 트랜섬 세 박스로 짜서 개구가 4.6×7.0 직사각이었다(★75-h가 +x벽에서 고친 것과 같은 병).
+//  ★+x 문(★75-h)과 **같은 `archRing`·같은 감산 기계** — 한 방의 두 문이 한 어휘. 치수 = constants `CLM_*`(승계 · 규율 12).
+//  ★좌표: 이 벽은 xy 평면에 서고 두께가 z다 → Shape를 (x, y)에 그대로 그리고 +z로 압출한다(+x 문의 rotateY 함정 없음).
+export function cloisterMouthArch() {
+  return { floor: PASS_FLOOR_Y, crown: PASS_FLOOR_Y + CLM_H, hw: CLM_HW, cx: CL_R }
+}
+//  개구 자르개 — +z벽을 관통하는 아치 프리즘
+export function cloisterMouthCutSolid() {
+  const A = cloisterMouthArch()
+  const ring = archRing({ floor: A.floor - 0.4, crown: A.crown }, A.hw)   // 바닥은 슬랩 속으로 물린다(★75-h 어법)
+  const sh = new THREE.Shape()
+  sh.moveTo(A.cx + ring[0][0], ring[0][1])
+  for (const q of ring) sh.lineTo(A.cx + q[0], q[1])
+  sh.closePath()
+  const g = new THREE.ExtrudeGeometry(sh, { depth: PASS_T * 3, bevelEnabled: false })
+  g.translate(0, 0, RM_Z1 - PASS_T)                     // z ∈ [RM_Z1−t, RM_Z1+2t] → 벽(RM_Z1~RM_Z1+t)을 확실히 관통
+  return g.toNonIndexed()
+}
+//  +z벽(입 구간 패널) — 구 좌·우 조각의 발자국(x RM_X0−t~RM_X1+t · y floor−t~floor+RM_ROOF+t · z RM_Z1~RM_Z1+t)을
+//  한 장으로 짓고 아치를 감산한다. 트랜섬(RM_ROOF+t 위)은 Dome.jsx 박스 대장에 그대로 남는다(맞대기 — 겹침 0).
+export function buildCloisterMouthWall() {
+  if (!CLM_ARCH_ON) return null
+  const t = PASS_T, floor = PASS_FLOOR_Y
+  const x0 = RM_X0 - t, x1 = RM_X1_G + t
+  const g = new THREE.BoxGeometry(x1 - x0, RM_ROOF_G + 2 * t, t)
+  g.translate((x0 + x1) / 2, floor + RM_ROOF_G / 2, RM_Z1 + t / 2)
+  const cut = cloisterMouthCutSolid()
   const ev = new Evaluator(); ev.attributes = ['position', 'normal']
   const a = new Brush(g.toNonIndexed()), b = new Brush(cut)
   a.updateMatrixWorld(); b.updateMatrixWorld()

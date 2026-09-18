@@ -129,5 +129,59 @@ for (const k of LAMP_RIBS) {
     `#${k}(${(phi * 180 / Math.PI).toFixed(1)}°) ∉ 스텁 입(${((ST_PHI - mPhi) * 180 / Math.PI).toFixed(2)}~${((ST_PHI + mPhi) * 180 / Math.PI).toFixed(2)}°)`)
 }
 
+// ── ★★★221 뿌리 목(2026.09.14) — 리브 밑면 → 관 수렴 셸. 등불 9기 공통 기하(로컬 프레임 동일) ──
+console.log('— F. ★221 뿌리 목 —')
+{
+  const K = await import('./constants.js')
+  const { buildLampRoot, lampRootSpec } = await import('./lampRootGeometry.js')
+  if (!K.LR_ON) ok(buildLampRoot() === null, '⏸ ★221 보존계(LR_ON=false) — 뿌리 목 미생성 · 관만 꽂힌다')
+  else {
+    const S = lampRootSpec(), g = buildLampRoot(), P = g.attributes.position
+    ok(S.tops.every(t => t !== null), `★221 모선 ${S.tops.length}개 전부 리브 밑면을 찾았다(반경 ${S.r0.toFixed(2)} 원 위)`)
+    //  위끝은 전부 리브 살 속(LR_LAP만큼 박힘) — 틈 봉인(규율 6)
+    let inside = 0
+    for (let i = 0; i < S.tops.length; i++) {
+      const th = i / S.tops.length * Math.PI * 2, px = LAMP_R + Math.cos(th) * S.r0, pz = Math.sin(th) * S.r0
+      if (distToCenterline3(px, S.tops[i] + K.LR_LAP, pz) < SHELL_RIB_R - 0.05) inside++
+    }
+    ok(inside === S.tops.length, `★221 모선 위끝 ${inside}/${S.tops.length} 리브 살 속(중심선 거리 < ${SHELL_RIB_R}−0.05)`)
+    const tMin = Math.min(...S.tops), tMax = Math.max(...S.tops)
+    ok(tMax - tMin > 3, `★221 긴 꼬리 = 기하에서 나온다: 밑면 높이 편차 ${(tMax - tMin).toFixed(2)}m(안쪽 r<${LAMP_R} 높음 ${tMax.toFixed(1)} / 바깥 낮음 ${tMin.toFixed(1)}) — 현도 "비대칭 의도"`)
+    ok(tMax + K.LR_LAP < roofTop - 0.3, `★221 셸 최고점 ${(tMax + K.LR_LAP).toFixed(2)} < 회랑 지붕 ${roofTop.toFixed(2)}−0.3 — 지붕을 안 뚫는다`)
+    //  아래끝 = 관 밖 여유 · 가장 짧은 관(등불 #1 · 첫 층계참)의 갓 목보다 위
+    const neck1 = clLandingY(0) + LAMP_MOUTH_Y0 + LAMP_FUNNEL_H
+    ok(S.yEnd > neck1 + 0.3, `★221 목 끝 ${S.yEnd.toFixed(2)} > 등불#1 갓 목 ${neck1.toFixed(2)}+0.3 — 가장 짧은 관에서도 맨 관이 ${(S.yEnd - neck1).toFixed(2)}m 보인다 ⚠판정 대상`)
+    ok(Math.abs(S.rEnd - (LAMP_TUBE_R + K.LR_FUSE)) < 1e-9 && K.LR_FUSE > 0, `★221 목 끝 반경 ${S.rEnd} = 관 ${LAMP_TUBE_R} + ${K.LR_FUSE}(공면 회피)`)
+    ok(S.r0 < CL_HW - 0.2, `★221 목 시작 반경 ${S.r0.toFixed(2)} < 회랑 반폭 ${CL_HW}−0.2 — 벽에 안 닿는다`)
+    let v = 0
+    for (let i = 0; i < P.count; i += 3) {
+      const a = [P.getX(i), P.getY(i), P.getZ(i)], b = [P.getX(i + 1), P.getY(i + 1), P.getZ(i + 1)], c = [P.getX(i + 2), P.getY(i + 2), P.getZ(i + 2)]
+      v += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6
+    }
+    ok(v > 0, `★221 부호부피 +${v.toFixed(1)} — 감김 바깥 향함`)
+    const Nn = g.attributes.normal; let bad = 0
+    for (let k = 0; k < K.LR_SEG * 16 * 6; k++) { const x = P.getX(k), z = P.getZ(k); if (Nn.getX(k) * x + Nn.getZ(k) * z < 0) bad++ }
+    ok(bad === 0, `★221 셸 법선 안쪽 향함 0 (${K.LR_SEG * 16 * 6}개 중)`)
+    //  ★221-b 등불 방(1p10) 중앙 등불에도 같은 기하: 로컬 프레임 동일 조건(방 축 반경 = LAMP_R · 관 진입고 공통)을 잠근다
+    ok(Math.abs(K.RM10_AX_R - LAMP_R) < 1e-9, `★221-b 등불 방 축 반경 ${K.RM10_AX_R} = LAMP_R — 리브 #${K.RM10_K} 밑면 기하가 회랑 등불과 동일`)
+    //  ★221-c 방 전용 배율 스펙(현도 09.18 "너무 작게 읽혀 — 따로 늘려라")
+    const R = lampRootSpec(K.LR_RM10_R0K, K.LR_RM10_LENK), gR = buildLampRoot(K.LR_RM10_R0K, K.LR_RM10_LENK)
+    ok(R.tops.every(t => t !== null) && gR.attributes.position.count > 0, `★221-c 등불 방 목(반경 ${R.r0.toFixed(2)} · 끝 ${R.yEnd.toFixed(1)}) 모선 ${R.tops.length}개 전부 리브 밑면 확보`)
+    ok(R.r0 >= S.r0 - 1e-9 && R.yEnd < S.yEnd, `★221-c 방 목: 반경 ${R.r0.toFixed(2)}(회랑 ${S.r0.toFixed(2)}) · 길이 ${(LAMP_ENTRY_Y - R.yEnd).toFixed(1)} > 회랑 ${(LAMP_ENTRY_Y - S.yEnd).toFixed(1)} — ★221-d 튜너 확정값(현도 09.18)`)
+    ok(R.r0 < K.RM10_RHO - 1.0, `★221-c 방 목 반경 ${R.r0.toFixed(2)} < 방 반지름 ${K.RM10_RHO}−1`)
+    let insR = 0
+    for (let i = 0; i < R.tops.length; i++) { const th = i / R.tops.length * Math.PI * 2; if (distToCenterline3(LAMP_R + Math.cos(th) * R.r0, R.tops[i] + K.LR_LAP, Math.sin(th) * R.r0) < SHELL_RIB_R - 0.05) insR++ }
+    ok(insR === R.tops.length, `★221-c 방 목 위끝 ${insR}/${R.tops.length} 리브 살 속`)
+    const neckRm = K.RM10_CENTER_Y + LAMP_MOUTH_Y1 + LAMP_FUNNEL_H
+    ok(R.yEnd > neckRm + 0.2, `★221-c 목 끝 ${R.yEnd.toFixed(2)} > 등불 방 갓 목 ${neckRm.toFixed(2)}+0.2 — 목이 갓에 닿지 않는다(여유 ${(R.yEnd - neckRm).toFixed(2)}m)`)
+    ok(Math.max(...R.tops) + K.LR_LAP < K.RM10_ROOF_Y, `★221-c 셸 최고점 ${(Math.max(...R.tops) + K.LR_LAP).toFixed(2)} < 등불 방 천장 ${K.RM10_ROOF_Y}`)
+  }
+}
+function distToCenterline3(pr, py, pz) {
+  let best = 1e9
+  for (let i = 0; i <= 3000; i++) { const u = i / 3000 * 0.5; const d = Math.hypot(rOf(u) - pr, H * u - py, pz); if (d < best) best = d }
+  return best
+}
+
 console.log(fail === 0 ? `\n전부 통과 (${n}항)` : `\n실패 ${fail}/${n}`)
 process.exit(fail === 0 ? 0 : 1)

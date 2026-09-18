@@ -17,7 +17,8 @@ import { DefAxiomRoom } from './Room'
 import { Corridor } from './Corridor'
 import { RadialRooms } from './Radial'
 import { RadialEvents } from './RadialEvents'
-import { PoseProbe, CoordHud, BootProbe } from './CoordHud'   // ★99 좌표 HUD · ★216 부팅 계측(개발 도구 — DEV_TELEPORT로 일괄 차단)
+import { PoseProbe, CoordHud, BootProbe } from './CoordHud'
+import { LampRootTuner } from './LampRootTuner'   // ★221-d 뿌리 목 화면 튜너(개발 도구)   // ★99 좌표 HUD · ★216 부팅 계측(개발 도구 — DEV_TELEPORT로 일괄 차단)
 import { SurveyRig, SurveyLights, SURVEY_ORDER } from './Survey'   // ★108 조형 검토 모드(⚠조명 아님)
 
 // ============================================================
@@ -191,6 +192,7 @@ export default function App() {
       </Canvas>
 
       <CoordHud />{/* ★99 좌표 HUD — C 복사 · Shift+C 웨이포인트 줄 · V 접기 */}
+      <LampRootTuner />{/* ★221-d 등불 방 뿌리 목 슬라이더(반경·길이·오목) */}
 
       <div style={{
         position: 'fixed', left: 24, bottom: 22, maxWidth: 380, pointerEvents: 'none',

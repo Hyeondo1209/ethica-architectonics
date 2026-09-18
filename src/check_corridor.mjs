@@ -84,7 +84,7 @@ import { Brush, Evaluator, HOLLOW_SUBTRACTION, SUBTRACTION } from 'three-bvh-csg
 import { kneeBodySamples, kneeBodySpec, kneeWalkY, kneeBodyHalfWidth, prismGeometry, innerTubeSolid, buildKneeBody, buildKneePlinth, kneeWallHalfAt } from './kneeBodyGeometry.js'
 import { kneeStairSpec, kneeTreads, kneeTreadW, kneeSurfaceY, kneeSpineY, kneeHeadroom, KNEE_NOSE, KNEE_SX, KNEE_XA, KNEE_XB, KNEE_YA, KNEE_YB, KNEE_RUN, KNEE_CLIMB } from './kneeStair.js'   // ★66   // ★65 무릎길 몸
 import { castDoorFan, doorArch } from './viewProbe.js'   // ★83 원근 시야 광선 정본(구 _probe_view)
-import { buildJunctionKnot, junctionKnotSpec, buildLightShaft, lightShaftSpec, shaftCutSolid, buildShaftGrate, discSolid, buildJunctionPlate, junctionPlateOutline, plateMaxHalf, JCT_PLATE_TOP, buildPzCheek, pzCheekProfile, cheekTopPzAt, descFloorAt, descPierceX, axisDistAt, buildRoomMouthWall, roomMouthArch, inRibArchCut, wideStairTreads } from './junctionGeometry.js'   // ★70 매듭 · ★71 빛 기둥
+import { buildJunctionKnot, junctionKnotSpec, buildLightShaft, lightShaftSpec, shaftCutSolid, buildShaftGrate, discSolid, buildJunctionPlate, junctionPlateOutline, plateMaxHalf, JCT_PLATE_TOP, buildPzCheek, pzCheekProfile, cheekTopPzAt, descFloorAt, descPierceX, axisDistAt, buildRoomMouthWall, roomMouthArch, buildCloisterMouthWall, cloisterMouthArch, inRibArchCut, wideStairTreads } from './junctionGeometry.js'   // ★70 매듭 · ★71 빛 기둥
 import { buildRibShell, makeRibCurve, RIB_TUB_SEG, shellVolumeApprox, signedVolume, buildViceWedge, viceSplitIndex, newelSpec, viceBottomY, VICE_DTHETA, sillSpec, buildSill, freeSplitRange, freeNewelSpec, destCut, floorKnotSpec, buildFloorCollar, buildFloorLanding, openRimSpec, isOpenRib, ribHoleSolid } from './ribGeometry.js'
 
 let n = 0, fail = 0
@@ -2498,6 +2498,47 @@ if (!RIB_XFER_ON) {
         const A = roomMouthArch()
         ok(Math.abs(A.hw - (PASS_HW + PASS_FUSE)) < 1e-9,
            `입구 반폭 ${r2(A.hw)} = 채널 반폭 + 융착 — 채널을 바꾸면 문이 따라온다`)
+        //  ★★★220 회랑 입(+z벽) 아치문(2026.09.13 현도 "직사각형 · 크게 뚫려 회랑이 너무 쉽게 보인다 — 아치형으로 좀 작게")
+        //   같은 방의 +x 문(★75-h)과 **같은 archRing·같은 감산 기계** — 치수 승계는 항등으로 잠근다(규율 12 · 현도가 노브를 돌리면 이 두 항만 붉어진다).
+        {
+          const K = await import('./constants.js')
+          const C = cloisterMouthArch()
+          //  ⚠규율 13′: 보존계(`CLM_ARCH_ON=false`)에서는 패널이 안 지어지므로 아래 항들을 게이트한다 — 보존계도 green이어야 한다.
+          if (!K.CLM_ARCH_ON) ok(buildCloisterMouthWall() === null, `⏸ ★220 보존계(CLM_ARCH_ON=false) — 패널 미생성 · 구 직사각 두 조각이 선다`)
+          else {
+          ok(Math.abs(C.hw - A.hw) < 1e-9, `★220 문 반폭 ${r2(C.hw)} = +x 아치문 반폭 ${r2(A.hw)} — 한 방 두 문 = 한 어휘(승계 항등)`)
+          ok(Math.abs((C.crown - C.floor) - K.RM_MOUTH_H) < 1e-9, `★220 크라운 높이 ${r2(C.crown - C.floor)} = K.RM_MOUTH_H ${K.RM_MOUTH_H}(+x 문 하한 승계)`)
+          //  ★기하 구속 둘 — 어겨도 조용히 지나가는 것들이라 여기서 잠근다
+          ok(C.hw < K.CL_HW - 0.3 - 1e-9, `★220 문 반폭 ${r2(C.hw)} < 구 개구 반폭 ${r2(K.CL_HW - 0.3)} — 회랑 벽 시작을 덮는 0.3 물림(★75 반전)이 산다`)
+          ok(C.crown < K.PASS_FLOOR_Y + K.RM_ROOF - 1e-9, `★220 크라운 ${r2(C.crown)} < 방 천장 ${r2(K.PASS_FLOOR_Y + K.RM_ROOF)} — 아치가 트랜섬(RM_ROOF+t 위 맞대기)을 안 건드린다`)
+          ok(Math.abs(C.cx - K.CL_R) < 1e-9 && C.cx - C.hw > K.CL_R - K.CL_HW + 0.3 && C.cx + C.hw < K.CL_R + K.CL_HW - 0.3,
+             `★220 문 중심 x${r2(C.cx)} = 회랑 중심선 · 문이 구 개구 안(${r2(K.CL_R - K.CL_HW + 0.3)}~${r2(K.CL_R + K.CL_HW - 0.3)})에 든다`)
+          //  ★실기하 광선(규율 30 — 함수가 아니라 지어진 메시로): 문 안은 통과 · 구 개구였던 자리는 막힘
+          const wall2 = buildCloisterMouthWall()
+          ok(wall2 && wall2.attributes.position.count > 100, `★220 +z벽이 아치로 뚫렸다 — 패널 정점 ${wall2 ? wall2.attributes.position.count : 0}(순수 박스면 36)`)
+          if (wall2) {
+            const m = new THREE.Mesh(wall2), rc = new THREE.Raycaster()
+            const hit = (x, y) => { rc.set(new THREE.Vector3(x, y, K.RM_Z1 - 3), new THREE.Vector3(0, 0, 1)); return rc.intersectObject(m).length > 0 }
+            const f = C.floor, sp = C.crown - C.hw
+            ok(!hit(C.cx, f + 1.6) && !hit(C.cx, C.crown - 0.05) && !hit(C.cx - C.hw + 0.05, f + 1),
+               `★220 문 안(눈높이·크라운 밑·문설주 안쪽) 광선 통과`)
+            ok(hit(C.cx, C.crown + 0.05) && hit(C.cx - C.hw - 0.05, f + 1) && hit(C.cx - C.hw + 0.02, sp + 0.5),
+               `★220 크라운 위·문설주 바깥·**스프링라인 위 모서리** 막힘 — 위가 둥글다(직사각이면 모서리가 뚫린다)`)
+            ok(hit(K.CL_R - K.CL_HW + 0.5, f + 6.5) && hit(K.CL_R + K.CL_HW - 0.5, f + 6.5),
+               `★220 구 개구(4.6×7.0)의 위 모서리 자리가 이제 살이다 — "크게 뚫림"이 실제로 줄었다`)
+            let v = 0
+            const P = wall2.attributes.position
+            for (let i = 0; i < P.count; i += 3) {
+              const a = [P.getX(i), P.getY(i), P.getZ(i)], b = [P.getX(i + 1), P.getY(i + 1), P.getZ(i + 1)], c = [P.getX(i + 2), P.getY(i + 2), P.getZ(i + 2)]
+              v += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6
+            }
+            const t = K.PASS_T, box = (K.RM_X1 + t - (K.RM_X0 - t)) * (K.RM_ROOF + 2 * t) * t
+            const arch = 2 * C.hw * (sp - (f - 0.4)) + Math.PI * C.hw * C.hw / 2
+            ok(Math.abs(v - (box - arch * t)) < 0.05,
+               `★220 패널 부호부피 ${r2(v)} ≈ 상자 − 아치 프리즘 ${r2(box - arch * t)}(18각 근사 오차 이내) — 감김·팬텀 없음`)
+          }
+          }
+        }
         //  ★75-k **볼트 안 청결**(2026.07.26 현도: "갈림판 쪽, 출구 반대편에서 약간 튀어나온다").
         //   ⛔사고: 하강 계단우물(슬롯) 반폭과 볼트 반폭이 **정확히 같아서**(둘 다 1.80) 정션 판·매듭이
         //    볼트 벽면에 두께 0.04짜리 **날개**로 남았다. 스치는 각도에서 그게 튀어나와 보인다.

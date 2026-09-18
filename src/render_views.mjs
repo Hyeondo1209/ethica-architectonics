@@ -27,7 +27,8 @@ import { WAYPOINTS, EYE } from './waypoints.js'
 import { buildViceWedge, viceSplitIndex, buildSill, buildFloorCollar, buildFloorLanding, freeSplitRange, freeNewelSpec, destCut, openRimSpec, isOpenRib, ribHoleSolid, makeRibCurve, buildRibShell } from './ribGeometry.js'   // ★2026.07.29 전역 리브 굽기
 import { buildCupBowl, buildCupStraps, buildCupRing, pierBodyTris } from './drumCupGeometry.js'   // ★92 드럼 하판 · ★92-b 피어 몸(정본) · ★93 고리판
 import { buildKneeBody, innerTubeSolid, kneeWalkY } from './kneeBodyGeometry.js'
-import { buildJunctionKnot, buildLightShaft, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, radialPlate } from './junctionGeometry.js'
+import { buildLampRoot } from './lampRootGeometry.js'
+import { buildJunctionKnot, buildLightShaft, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, radialPlate, buildCloisterMouthWall } from './junctionGeometry.js'
 import { terraceRuns, terraceLinkSpec } from './terraceGeometry.js'   // ★89 계단 · ★90 리드 연결 — 정본 직접(사본 금지)
 import { buildFlareShell } from './exitFlareGeometry.js'   // ★80 — 사본이 아니라 정본을 부른다
 import { kneeTreads, kneeStairSpec } from './kneeStair.js'                          // ★66 계단 규격·참   // ★60 매듭 · ★61 자립 나선 · ★62 바닥 매듭
@@ -579,6 +580,19 @@ const extraFor = (id) => (id === 'lookout' || id === 'terrace' || id === 'reveal
     box((C.RM_X0 + C.RM_X1) / 2, floor - t / 2, (C.RM_Z0 + C.RM_Z1 + 0.6) / 2, C.RM_X1 - C.RM_X0, t, C.RM_Z1 - C.RM_Z0 + 0.6, [130, 120, 108])
     box(C.RM_X0 - t / 2, floor + C.RM_ROOF / 2, (C.RM_Z0 + C.RM_Z1) / 2, t, C.RM_ROOF + 2 * t, C.RM_Z1 - C.RM_Z0 + 2 * t, [130, 120, 108])
     box((C.RM_X0 + C.RM_X1) / 2, floor + C.RM_ROOF / 2, C.RM_Z0 - t / 2, C.RM_X1 - C.RM_X0 + 2 * t, C.RM_ROOF + 2 * t, t, [130, 120, 108])
+    //  ★220 +z벽 = 회랑 입 **아치 패널**(정본 = junctionGeometry.buildCloisterMouthWall — 사본 0) + 트랜섬(RM_ROOF+t 위 맞대기).
+    //   ⚠구판은 +z벽·+x 입 벽을 아예 안 구웠다(방에서 회랑 쪽을 보면 뚫려 있었다) — 이번 조형의 판정 시점이 바로 거기라 얹는다.
+    //   트랜섬 박스는 Dome.jsx와 두 벌(기존 '벽 목록 두 벌' 중복의 일부 — §종료 보고 참조).
+    { const g = buildCloisterMouthWall(); if (g) { g.rotateY(-phi); addGeo(g, DIAG ? [130, 120, 108] : NEU) } }
+    {
+      const mX0 = C.CL_R - C.CL_HW + 0.3, mX1 = C.CL_R + C.CL_HW - 0.3
+      const y0 = floor + Math.min(C.CL_ROOF, C.RM_ROOF) + (C.CLM_ARCH_ON ? t : 0), y1 = floor + Math.max(C.CL_ROOF, C.RM_ROOF) + t
+      box((mX0 + mX1) / 2, (y0 + y1) / 2, C.RM_Z1 + t / 2, mX1 - mX0, y1 - y0, t, [130, 120, 108])
+      if (!C.CLM_ARCH_ON) {   // 보존계: 구 좌·우 직사각 조각
+        box((C.RM_X0 - t + mX0) / 2, floor + C.RM_ROOF / 2, C.RM_Z1 + t / 2, mX0 - (C.RM_X0 - t), C.RM_ROOF + 2 * t, t, [130, 120, 108])
+        box((mX1 + C.RM_X1 + t) / 2, floor + C.RM_ROOF / 2, C.RM_Z1 + t / 2, (C.RM_X1 + t) - mX1, C.RM_ROOF + 2 * t, t, [130, 120, 108])
+      }
+    }
   }
 
   //  ④-5 ★71 빛 기둥 — 전망 판 → 전실 방. ⚠전실 방 자체는 이 도구가 안 굽는다(드럼 권역 근사).
@@ -749,6 +763,9 @@ const extraFor = (id) => (id === 'lookout' || id === 'terrace' || id === 'reveal
         rod.translate(lx, (neckY + C.LAMP_TOP_Y) / 2, lz); rod.rotateY(-phi); addGeo(rod, [232, 196, 140])
         const fun = new THREE.CylinderGeometry(C.LAMP_TUBE_R, C.LAMP_MOUTH_R, C.LAMP_FUNNEL_H, 16, 1, true)
         fun.translate(lx, (mouthY + neckY) / 2, lz); fun.rotateY(-phi); addGeo(fun, [246, 214, 160])
+        //  ★221 뿌리 목 — 정본 lampRootGeometry(로컬: 관 축 원점) → 등불 자리로 회전·이동. 리브 색.
+        const root = buildLampRoot()
+        if (root) { root.rotateY(a); root.rotateY(-phi); addGeo(root, [150, 138, 120]) }
       })
     }
 
@@ -866,6 +883,7 @@ const extraFor = (id) => (id === 'lookout' || id === 'terrace' || id === 'reveal
         rod.translate(0, (ny + C.LAMP_TOP_Y) / 2, 0); addGeo(place(rod), [232, 196, 140])
         const fun = new THREE.CylinderGeometry(C.LAMP_TUBE_R, C.LAMP_MOUTH_R, C.LAMP_FUNNEL_H, 16, 1, true)
         fun.translate(0, (my + ny) / 2, 0); addGeo(place(fun), [246, 214, 160])
+        const root = buildLampRoot(C.LR_RM10_R0K, C.LR_RM10_LENK); if (root) addGeo(place(root), [150, 138, 120])   // ★221-b/c 등불 방 뿌리 목(방 전용 배율)
       }
     }
   }
