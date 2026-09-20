@@ -33,6 +33,8 @@ import {
   X_DESC0, X_DESC_END, DESC_SLOPE, PASS_FLOOR_Y as PASS_FLOOR_Y2, TREAD_THICK, KW_BODY_TOP,
   RM_X1 as RM_X1_G, RM_MOUTH_H, RM_ROOF as RM_ROOF_G, PASS_FUSE, RM_MOUTH_REVEAL,
   RM_X0, RM_Z1, CL_R, CLM_ARCH_ON, CLM_HW, CLM_H,
+  CL_HW, CL_R_IN2, CL_R_OUT2, CL_WALL_T, CL_ROOF,   // ★222 트랜섬 폭 = 회랑 단면에서 파생
+  CL_WALL_BOT, CL_PHI0,                             // ★223 시작 끝캡
 } from './constants.js'
 import { kneeStairSpec } from './kneeStair.js'
 import { innerTubeSolid } from './kneeBodyGeometry.js'
@@ -799,6 +801,44 @@ export function buildCloisterMouthWall() {
   return out
 }
 
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ★★★222 회랑 입 위 **트랜섬** — 폭 정본 (2026.09.18 현도: "이 벽 양옆에 틈이 있어 외부가 보인다")
+// ════════════════════════════════════════════════════════════════════════════
+//  ⛔병: 트랜섬 x가 **개구 폭**(mX0 = rIn+0.3 ~ mX1 = rOut−0.3)을 그대로 쓰고 있었다. 개구는 통행보다 좁아야
+//   옳지만(문틀 — ★75-h 어법) 트랜섬은 **방 천장↔회랑 천장 단차를 막는 판**이라 통행 **전폭**을 덮어야 한다.
+//   그래서 양옆에 폭 0.30 · 높이 13.00 슬릿이 남았고, 그 대역은 방 지붕(y255.63) **위**라 그대로 외부였다.
+//   실측(현도 HUD 시점 광선 1305발): 빠져나간 광선 3 — 전부 바깥쪽 슬릿(x172.44~172.52). 양 슬릿 대칭 0.30×13.00.
+//  ★수리 = **덮는 판**(규율 5·4 — 삼키는 쪽이 판이므로 판이 넓어야 한다): 양 끝을 **벽 살 한복판**까지.
+//   물림 = CL_WALL_T/2(0.75) → ⓐ통행 전폭을 덮고 ⓑ벽 안쪽면과 공면이 아니며(z-파이팅 없음)
+//   ⓒ벽 바깥면(CL_R_OUT2)까지 0.75 남아 **실루엣이 안 커진다**. 손 수치 0 — 전부 회랑 단면 파생.
+//  ⚠개구 폭(mX0/mX1)은 손대지 않는다 — 보존계(`CLM_ARCH_ON=false`)의 좌·우 조각이 그 값으로 문틀을 만든다.
+//  ★★★223 회랑 **시작 끝캡**(2026.09.18 현도: "밖에서 보면 이 종잇장 벽들이 보여 이상하다 — 면으로 딱 막아줘")
+//  ⛔병: 끝캡이 **φ1(끝)에만** 있었다(★79-2). φ0(시작) 쪽은 방 바닥 슬랩 **위**만 닫혀 있고(패널 ★220 + 트랜섬 ★222),
+//   슬랩 **밑** 단면 8.20 × 10.20(r165.9~174.1 · y237.83~248.03)은 통째로 열려 있었다. 그래서 바깥에서 회랑 시작을
+//   올려다보면 안벽·바깥벽 두 겹이 **두께 없는 종잇장**으로 서 있고 그 사이 빈 속과 하강 계단이 들여다보였다.
+//  ★수리 = φ1 끝캡과 **같은 어휘**(방사 회전 박스 · 사본 아님 — 여기 한 곳에서 파생해 Dome·render_views·검사가 함께 쓴다).
+//   세로 = 밑판 밑(CL_WALL_BOT−t)부터 방 바닥 슬랩 **살 속**(PASS_FLOOR_Y · 물림 t)까지 — 위는 슬랩이 이미 닫는다.
+//   가로 = 벽 바깥면끼리(CL_R_IN2~CL_R_OUT2) = φ1 캡과 같은 폭. 손 수치 0.
+export function cloisterStartCapSpec() {
+  const t = PASS_T
+  return {
+    rc: (CL_R_IN2 + CL_R_OUT2) / 2, rw: CL_R_OUT2 - CL_R_IN2,
+    y0: CL_WALL_BOT - t, y1: PASS_FLOOR_Y, thick: t, phi: CL_PHI0,
+  }
+}
+
+export function cloisterTransomSpec() {
+  const t = PASS_T, floor = PASS_FLOOR_Y
+  const rIn = CL_R - CL_HW, rOut = CL_R + CL_HW
+  return {
+    x0: (CL_R_IN2 + rIn) / 2, x1: (rOut + CL_R_OUT2) / 2,        // 벽 살 한복판
+    y0: floor + Math.min(CL_ROOF, RM_ROOF) + (CLM_ARCH_ON ? t : 0),   // 아치 패널 위 맞대기(구 체제는 RM_ROOF에서)
+    y1: floor + Math.max(CL_ROOF, RM_ROOF) + t,                  // 높은 천장 위로 t 물림
+    z0: RM_Z1, z1: RM_Z1 + t,
+    lap: CL_WALL_T / 2, rIn, rOut,
+  }
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 //  ★75-i 리브 구멍을 **아치 단면**으로 (2026.07.26 현도)

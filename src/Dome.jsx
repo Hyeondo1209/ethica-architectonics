@@ -57,7 +57,7 @@ import { buildKneeBody, buildKneePlinth } from './kneeBodyGeometry'
 import { buildTerrace, buildTerraceLink } from './terraceGeometry'   // ★85 부채꼴 · ★89 계단화 · ★90 리드 연결
 import { buildCupBowl, buildCupStraps, buildCupRing } from './drumCupGeometry'   // ★92 드럼 하판(반구 + 기둥) · ★93 고리판
 import { buildLampRoot, lampRootTune } from './lampRootGeometry'
-import { buildJunctionKnot, buildLightShaft, shaftCutSolid, lightShaftSpec, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, apronSteps, buildRoomMouthWall, buildCloisterMouthWall, ribArchCutSolid, radialPlate } from './junctionGeometry'   // ★70 매듭 · ★71 빛 기둥 · ★75 넓은 계단
+import { buildJunctionKnot, buildLightShaft, shaftCutSolid, lightShaftSpec, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, apronSteps, buildRoomMouthWall, buildCloisterMouthWall, cloisterTransomSpec, cloisterStartCapSpec, ribArchCutSolid, radialPlate } from './junctionGeometry'   // ★70 매듭 · ★71 빛 기둥 · ★75 넓은 계단
 import { kneeTreads, kneeStairSpec } from './kneeStair'   // ★66 계단 규격·참
 import { buildFlareShell } from './exitFlareGeometry'   // ★80 S자 나팔
 import { PropStele } from './Steles'
@@ -863,9 +863,11 @@ export function RevealPassage() {
   //  반대면 구 헤더 — Math.abs로 양쪽 안전(음수 붕괴 방지). 낮은 천장서 시작해 높은 천장 위로 +t 물림(틈 봉인).
   //  ★220: 아치 패널 체제에서는 패널이 개구 전폭을 RM_ROOF+t까지 덮으므로 트랜섬은 **그 위에서 맞댄다**
   //   (구 체제처럼 RM_ROOF에서 시작하면 패널과 t만큼 겹쳐 앞·뒷면이 공면 = z-파이팅).
+  //  ★★★222(2026.09.18 현도 "양옆에 틈 — 외부가 보인다"): 폭이 **개구 폭**(mX0~mX1)이라 양옆에 0.30×13.00 슬릿이
+  //   남아 방 지붕 위 외부가 보였다 → 통행 전폭 + 벽 살 한복판 물림. 폭·높이 정본 = junctionGeometry.cloisterTransomSpec(사본 0).
   {
-    const y0 = floor + Math.min(CL_ROOF, RM_ROOF) + (CLM_ARCH_ON ? t : 0), y1 = floor + Math.max(CL_ROOF, RM_ROOF) + t
-    wall((mX0 + mX1) / 2, (y0 + y1) / 2, RM_Z1 + t / 2, mX1 - mX0, y1 - y0, t)
+    const T = cloisterTransomSpec()
+    wall((T.x0 + T.x1) / 2, (T.y0 + T.y1) / 2, (T.z0 + T.z1) / 2, T.x1 - T.x0, T.y1 - T.y0, T.z1 - T.z0)
   }
   //  ★75-h 입 구간 +x벽 = 아치 감산 패널(박스 배열 B가 아니라 별도 mesh — CSG가 필요하다)
   //  ★71 지붕 = 빛 기둥이 뚫고 지나는 유일한 면 → 자르개로 구멍을 낸다(아래 렌더에서 CSG).
@@ -965,6 +967,18 @@ export function RevealPassage() {
           </mesh>
         )
       })}
+      {/* ★★★223 **시작 끝캡**(2026.09.18 현도 "밖에서 종잇장 벽이 보인다 — 면으로 딱 막아줘").
+          φ0 쪽은 방 바닥 슬랩 위만 닫혀 있었고(패널·트랜섬) 슬랩 밑 단면 8.20×10.20이 열려 있었다.
+          φ1 끝캡과 같은 어휘(방사 회전 박스) · 치수 정본 = junctionGeometry.cloisterStartCapSpec(사본 0). */}
+      {(() => {
+        const S = cloisterStartCapSpec()
+        return (
+          <mesh position={[S.rc * Math.cos(S.phi), (S.y0 + S.y1) / 2, S.rc * Math.sin(S.phi)]} rotation-y={-S.phi}>
+            <boxGeometry args={[S.rw, S.y1 - S.y0, S.thick]} />
+            <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+          </mesh>
+        )
+      })()}
       {/* ★79-2 끝캡 = **문 뚫린 네 조각**(현도 적발: "방으로 들어가는 문이 안 뚫려 있음").
           구판은 통짜 방사 평면이라 방 벽을 비워도 여기가 막고 있었다 — 방 벽만 보고 뚫었다고 착각한 것.
           문 = 통행폭 5.2 × RM10_DOOR_H, 문턱 = 회랑 최저 바닥. 방 쪽 개구(각반폭 asin(CL_HW/ρ))와
@@ -1083,8 +1097,9 @@ function CloisterMouthWall() {
 }
 
 //  ★221-d 등불 방 뿌리 목 = 화면 튜너 구독판(초기값 constants LR_RM10_* · 튜너가 없으면 그 값 그대로)
-function LampRootTuned() {
-  const t = useSyncExternalStore(lampRootTune.subscribe, lampRootTune.get)
+//  ★221-e: 표적 인자 — 'rm10'(등불 방) / 'cl'(회랑 9기). 튜너가 없으면 constants 값 그대로 = 화면 무변.
+function LampRootTuned({ target = 'rm10' }) {
+  const t = useSyncExternalStore(lampRootTune.subscribe, lampRootTune.get)[target]
   return <LampRoot r0K={t.r0 / LR_R0} lenK={t.len / LR_LEN} pow={t.pow} />
 }
 
@@ -1182,8 +1197,9 @@ export function CloisterLamps() {
                 unlit(meshBasicMaterial) = 조명 안 받는 자체 발광체로 읽힘. 색 2값 = LampRod 안 노브 */}
             <LampRod y0={neckY} y1={LAMP_TOP_Y} />
             {/* ★★★221 뿌리 목(2026.09.14 · 현도 스케치 09.13): 리브 밑면이 뿌리처럼 흘러내려 관이 된다. 정본 = lampRootGeometry.
-                리브 재질 그대로(= 리브의 연장으로 읽히게) · 관은 곧게 유지(현도) · 등불 9기 같은 기하(로컬 프레임 동일) */}
-            <LampRoot />
+                리브 재질 그대로(= 리브의 연장으로 읽히게) · 관은 곧게 유지(현도) · 등불 9기 같은 기하(로컬 프레임 동일)
+                ★221-e(09.18): 튜너 'cl' 표적 구독 — 초기값 = LR_R0·LR_LEN·LR_POW라 튜너를 안 만지면 종전과 동일 */}
+            <LampRootTuned target="cl" />
             {/* ★접합부 점광(2026.07.11): 관이 리브 밑면에 꽂히는 자리를 밝힘 — 리브 밑면·상부 벽에
                 후광이 생겨 광원이 '리브'로 읽히게(현행 하향 점광만으로는 봉 끝이 광원으로 오독).
                 강도·거리 = 튜닝 노브 */}
@@ -1461,7 +1477,7 @@ export function LampRoom() {
           <LampRod y0={RM10_CENTER_Y + LAMP_MOUTH_Y1 + LAMP_FUNNEL_H} y1={LAMP_TOP_Y} />
           {/* ★221-b(2026.09.18 현도 "마지막 등불방 조명에도 똑같이"): 뿌리 목 — 로컬 프레임(관 축 = 리브 #10 방위의 r=CL_R)이
               회랑 등불과 동일. ★221-c: 관 36m·천장 282라 같은 목이 너무 작게 읽혀(현도) 방 전용 배율 LR_RM10_R0K·LENK */}
-          <LampRootTuned />
+          <LampRootTuned target="rm10" />
           <pointLight position={[0, LAMP_ENTRY_Y - 1.2, 0]} color={LAMP_LGT_JOINT_COL} intensity={LAMP_LGT_JOINT_I} distance={15} decay={2} />
           <mesh position={[0, RM10_CENTER_Y + LAMP_MOUTH_Y1 + LAMP_FUNNEL_H / 2, 0]}>
             <cylinderGeometry args={[LAMP_TUBE_R, LAMP_MOUTH_R, LAMP_FUNNEL_H, 24, 1, true]} />

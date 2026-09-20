@@ -112,14 +112,19 @@ function smoothShellNormals(g, N, M, S, pow) {
   nrmA.needsUpdate = true
 }
 
-//  ★221-d 화면 튜너 스토어(개발 도구 · 2026.09.18 현도 "화면 내에서 조절") — React 밖 잎 스토어. 등불 방 LampRoot만 구독한다.
-//   값이 바뀌면 그 mesh 하나만 다시 짓는다(씬 전체 리렌더 0 — ★99/★135 원칙). 초기값 = constants LR_RM10_*.
-let _tune = { r0: LR_R0 * LR_RM10_R0K, len: LR_LEN * LR_RM10_LENK, pow: LR_RM10_POW }   // 절대치(m · m · 지수)
+//  ★221-d/e 화면 튜너 스토어(개발 도구 · 2026.09.18 현도 "화면 내에서 조절") — React 밖 잎 스토어. 표적 둘:
+//   rm10 = 등불 방(1p10) 중앙 등불 · cl = 회랑 등불 9기(★221-e — 현도 "회랑 뿌리도 튜너로 잡아보자"). 초기값 = constants.
+//   값이 바뀌면 그 표적의 mesh만 다시 짓는다(씬 전체 리렌더 0 — ★99/★135 원칙). 회랑은 9기가 각자 제 mesh를 다시 짓되
+//   스펙(리브 밑면 스캔 0.33s)은 `_specs` 캐시를 공유하므로 비용은 한 번이다.
+let _tune = {
+  rm10: { r0: LR_R0 * LR_RM10_R0K, len: LR_LEN * LR_RM10_LENK, pow: LR_RM10_POW },   // 절대치(m · m · 지수)
+  cl:   { r0: LR_R0,               len: LR_LEN,               pow: LR_POW },
+}
 const _subs = new Set()
 //  ⚠useSyncExternalStore는 get()의 **참조 동일성**으로 변화를 판단한다 — 같은 객체를 Object.assign으로 고치면
-//   구독자가 깨어나도 "안 바뀜"으로 보고 리렌더를 건너뛴다(1차 오작동: 화면 무반응). 반드시 새 객체.
+//   구독자가 깨어나도 "안 바뀜"으로 보고 리렌더를 건너뛴다(1차 오작동: 화면 무반응). 반드시 새 객체 — 바깥·안쪽 둘 다.
 export const lampRootTune = {
   get: () => _tune,
-  set: (patch) => { _tune = { ..._tune, ...patch }; for (const f of _subs) f() },
+  set: (target, patch) => { _tune = { ..._tune, [target]: { ..._tune[target], ...patch } }; for (const f of _subs) f() },
   subscribe: (f) => { _subs.add(f); return () => _subs.delete(f) },
 }

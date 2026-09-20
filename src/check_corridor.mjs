@@ -84,7 +84,7 @@ import { Brush, Evaluator, HOLLOW_SUBTRACTION, SUBTRACTION } from 'three-bvh-csg
 import { kneeBodySamples, kneeBodySpec, kneeWalkY, kneeBodyHalfWidth, prismGeometry, innerTubeSolid, buildKneeBody, buildKneePlinth, kneeWallHalfAt } from './kneeBodyGeometry.js'
 import { kneeStairSpec, kneeTreads, kneeTreadW, kneeSurfaceY, kneeSpineY, kneeHeadroom, KNEE_NOSE, KNEE_SX, KNEE_XA, KNEE_XB, KNEE_YA, KNEE_YB, KNEE_RUN, KNEE_CLIMB } from './kneeStair.js'   // ★66   // ★65 무릎길 몸
 import { castDoorFan, doorArch } from './viewProbe.js'   // ★83 원근 시야 광선 정본(구 _probe_view)
-import { buildJunctionKnot, junctionKnotSpec, buildLightShaft, lightShaftSpec, shaftCutSolid, buildShaftGrate, discSolid, buildJunctionPlate, junctionPlateOutline, plateMaxHalf, JCT_PLATE_TOP, buildPzCheek, pzCheekProfile, cheekTopPzAt, descFloorAt, descPierceX, axisDistAt, buildRoomMouthWall, roomMouthArch, buildCloisterMouthWall, cloisterMouthArch, inRibArchCut, wideStairTreads } from './junctionGeometry.js'   // ★70 매듭 · ★71 빛 기둥
+import { buildJunctionKnot, junctionKnotSpec, buildLightShaft, lightShaftSpec, shaftCutSolid, buildShaftGrate, discSolid, buildJunctionPlate, junctionPlateOutline, plateMaxHalf, JCT_PLATE_TOP, buildPzCheek, pzCheekProfile, cheekTopPzAt, descFloorAt, descPierceX, axisDistAt, buildRoomMouthWall, roomMouthArch, buildCloisterMouthWall, cloisterMouthArch, cloisterTransomSpec, cloisterStartCapSpec, inRibArchCut, wideStairTreads } from './junctionGeometry.js'   // ★70 매듭 · ★71 빛 기둥
 import { buildRibShell, makeRibCurve, RIB_TUB_SEG, shellVolumeApprox, signedVolume, buildViceWedge, viceSplitIndex, newelSpec, viceBottomY, VICE_DTHETA, sillSpec, buildSill, freeSplitRange, freeNewelSpec, destCut, floorKnotSpec, buildFloorCollar, buildFloorLanding, openRimSpec, isOpenRib, ribHoleSolid } from './ribGeometry.js'
 
 let n = 0, fail = 0
@@ -2537,6 +2537,81 @@ if (!RIB_XFER_ON) {
             ok(Math.abs(v - (box - arch * t)) < 0.05,
                `★220 패널 부호부피 ${r2(v)} ≈ 상자 − 아치 프리즘 ${r2(box - arch * t)}(18각 근사 오차 이내) — 감김·팬텀 없음`)
           }
+          }
+        }
+        //  ★★★222 회랑 입 위 **트랜섬 폭**(2026.09.18 현도: "이 벽 양옆에 틈이 있어 외부가 보인다")
+        //   ⛔병: 트랜섬이 **개구 폭**(rIn+0.3 ~ rOut−0.3)을 써서 양옆에 0.30 × 13.00 슬릿이 남았고, 그 대역은
+        //    방 지붕 위라 그대로 외부였다. 개구는 문틀이라 좁아야 하지만 트랜섬은 단차를 막는 판이라 **전폭**이어야 한다.
+        //   ★아래 항들은 체제 무관(보존계 `CLM_ARCH_ON=false`에서도 성립 — y0만 달라진다).
+        {
+          const K = await import('./constants.js')
+          const T = cloisterTransomSpec()
+          const rIn = K.CL_R - K.CL_HW, rOut = K.CL_R + K.CL_HW
+          //  ⑴ 통행 전폭을 덮는다 — 구 값(rIn+0.3 / rOut−0.3)으로 되돌리면 이 항이 문다
+          ok(T.x0 <= rIn - 1e-9 && T.x1 >= rOut + 1e-9,
+             `★222 트랜섬 x ${r2(T.x0)}~${r2(T.x1)}가 통행 전폭 ${r2(rIn)}~${r2(rOut)}을 덮는다(구 개구 폭이면 양옆 0.30 슬릿)`)
+          //  ⑵ 물림 = 벽 살 한복판(파생 항등 · 손 수치 0)
+          ok(Math.abs((rIn - T.x0) - K.CL_WALL_T / 2) < 1e-9 && Math.abs((T.x1 - rOut) - K.CL_WALL_T / 2) < 1e-9,
+             `★222 양끝 물림 ${r2(rIn - T.x0)} = 벽 두께/2 ${r2(K.CL_WALL_T / 2)} — 공면 회피(z-파이팅 없음)`)
+          //  ⑶ 벽 바깥면을 넘지 않는다 = 실루엣 불변(넓히는 방향의 상한)
+          ok(T.x0 >= K.CL_R_IN2 + 1e-9 && T.x1 <= K.CL_R_OUT2 - 1e-9,
+             `★222 판이 벽 살 안에서 끝난다(${r2(K.CL_R_IN2)} < ${r2(T.x0)} · ${r2(T.x1)} < ${r2(K.CL_R_OUT2)}) — 밖에서 본 실루엣 무변`)
+          //  ⑷ 세로: 낮은 천장(+아치 패널 위 맞대기)에서 시작해 높은 천장 위로 t 물림
+          ok(Math.abs(T.y0 - (K.PASS_FLOOR_Y + Math.min(K.CL_ROOF, K.RM_ROOF) + (K.CLM_ARCH_ON ? K.PASS_T : 0))) < 1e-9
+             && Math.abs(T.y1 - (K.PASS_FLOOR_Y + Math.max(K.CL_ROOF, K.RM_ROOF) + K.PASS_T)) < 1e-9,
+             `★222 트랜섬 y ${r2(T.y0)}~${r2(T.y1)} — 체제 인지(패널 위 맞대기) · 높은 천장 위로 ${r2(K.PASS_T)} 물림`)
+          //  ⑸ ⛔슬릿 실측(병 재현 대조): 구 폭이면 노출 표본 > 0, 현행이면 0.
+          //   표본 = 두 슬릿 대역(통행 폭 안 · 트랜섬 y대역) — 트랜섬·방 지붕 어느 쪽에도 안 막히면 외부가 보인다.
+          const roofY0 = K.PASS_FLOOR_Y + K.RM_ROOF, roofY1 = roofY0 + K.PASS_T
+          const exposed = (x0, x1) => {
+            let n = 0
+            for (const [a, b] of [[rIn, x0], [x1, rOut]]) {
+              for (let x = Math.min(a, b) + 0.01; x < Math.max(a, b); x += 0.02)
+                for (let y = T.y0 + 0.1; y < T.y1; y += 0.25) {
+                  const inT = x >= x0 && x <= x1, inRoof = y >= roofY0 && y <= roofY1
+                  if (!inT && !inRoof) n++
+                }
+            }
+            return n
+          }
+          ok(exposed(T.x0, T.x1) === 0 && exposed(rIn + 0.3, rOut - 0.3) > 0,
+             `★222 슬릿 노출 표본 0(구 개구 폭이면 ${exposed(rIn + 0.3, rOut - 0.3)}) — 병 재현이 함께 산다`)
+          //  ⑹ 배선: 두 소비자(Dome.jsx·render_views)가 **정본 함수**를 부른다(사본 0 — 규율 33)
+          const src = await import('node:fs').then(m => m.promises.readFile('./src/Dome.jsx', 'utf8'))
+          const rv = await import('node:fs').then(m => m.promises.readFile('./src/render_views.mjs', 'utf8'))
+          ok(/cloisterTransomSpec\(\)/.test(src) && /cloisterTransomSpec\(\)/.test(rv)
+             && !/Math\.min\(CL_ROOF, RM_ROOF\)/.test(src),
+             `★222 Dome.jsx·render_views 둘 다 cloisterTransomSpec()를 부른다(Dome의 구 인라인 유도 소멸)`)
+        }
+        //  ★★★223 회랑 **시작 끝캡**(2026.09.18 현도: "밖에서 종잇장 벽들이 보인다 — 면으로 딱 막아줘")
+        //   ⛔병: 끝캡이 φ1에만 있어(★79-2) φ0 쪽 **방 바닥 슬랩 밑** 단면 8.20 × 10.20이 열려 있었다.
+        {
+          const K = await import('./constants.js')
+          const S = cloisterStartCapSpec(), t = K.PASS_T
+          ok(Math.abs(S.rw - (K.CL_R_OUT2 - K.CL_R_IN2)) < 1e-9 && Math.abs(S.rc - (K.CL_R_IN2 + K.CL_R_OUT2) / 2) < 1e-9,
+             `★223 캡 폭 ${r2(S.rw)} = 벽 바깥면끼리(${r2(K.CL_R_IN2)}~${r2(K.CL_R_OUT2)}) = φ1 끝캡과 같은 폭`)
+          ok(Math.abs(S.y0 - (K.CL_WALL_BOT - t)) < 1e-9, `★223 캡 밑끝 ${r2(S.y0)} = 밑판 밑(CL_WALL_BOT−t) — 아래로 틈 0`)
+          ok(S.y1 >= K.PASS_FLOOR_Y - t - 1e-9 && Math.abs(S.y1 - K.PASS_FLOOR_Y) < 1e-9,
+             `★223 캡 윗끝 ${r2(S.y1)} = 방 바닥 슬랩 살 속(밑면 ${r2(K.PASS_FLOOR_Y - t)} 위로 ${r2(t)} 물림) — 위로 틈 0`)
+          ok(Math.abs(S.phi - K.CL_PHI0) < 1e-9, `★223 캡이 회랑 시작 방사면 φ0(${r2(S.phi * 180 / Math.PI)}°)에 선다`)
+          //  ⛔노출 표본(병 재현 대조): φ0 단면에서 캡이 안 덮는 점 = 밖에서 보이는 빈 속
+          const exposed = (cap) => {
+            let n = 0
+            for (let r = K.CL_R_IN2 + 0.05; r < K.CL_R_OUT2; r += 0.1)
+              for (let y = K.CL_WALL_BOT + 0.05; y < K.PASS_FLOOR_Y - t; y += 0.2) {
+                const covered = cap && r >= cap.rc - cap.rw / 2 && r <= cap.rc + cap.rw / 2 && y >= cap.y0 && y <= cap.y1
+                if (!covered) n++
+              }
+            return n
+          }
+          ok(exposed(S) === 0 && exposed(null) > 0,
+             `★223 φ0 단면 노출 표본 0(캡 없으면 ${exposed(null)}) — 밖에서 본 '종잇장 두 겹 + 빈 속'이 면으로 닫힌다`)
+          ok(S.y1 <= K.PASS_FLOOR_Y + 1e-9, `★223 캡이 걷는 면(${r2(K.PASS_FLOOR_Y)}) 위로 안 올라온다 — 통행 무방해`)
+          {
+            const src = await import('node:fs').then(m => m.promises.readFile('./src/Dome.jsx', 'utf8'))
+            const rv = await import('node:fs').then(m => m.promises.readFile('./src/render_views.mjs', 'utf8'))
+            ok(/cloisterStartCapSpec\(\)/.test(src) && /cloisterStartCapSpec\(\)/.test(rv),
+               `★223 Dome.jsx·render_views 둘 다 cloisterStartCapSpec()를 부른다(사본 0)`)
           }
         }
         //  ★75-k **볼트 안 청결**(2026.07.26 현도: "갈림판 쪽, 출구 반대편에서 약간 튀어나온다").

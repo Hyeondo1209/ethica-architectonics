@@ -28,7 +28,7 @@ import { buildViceWedge, viceSplitIndex, buildSill, buildFloorCollar, buildFloor
 import { buildCupBowl, buildCupStraps, buildCupRing, pierBodyTris } from './drumCupGeometry.js'   // ★92 드럼 하판 · ★92-b 피어 몸(정본) · ★93 고리판
 import { buildKneeBody, innerTubeSolid, kneeWalkY } from './kneeBodyGeometry.js'
 import { buildLampRoot } from './lampRootGeometry.js'
-import { buildJunctionKnot, buildLightShaft, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, radialPlate, buildCloisterMouthWall } from './junctionGeometry.js'
+import { buildJunctionKnot, buildLightShaft, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, radialPlate, buildCloisterMouthWall, cloisterTransomSpec, cloisterStartCapSpec } from './junctionGeometry.js'
 import { terraceRuns, terraceLinkSpec } from './terraceGeometry.js'   // ★89 계단 · ★90 리드 연결 — 정본 직접(사본 금지)
 import { buildFlareShell } from './exitFlareGeometry.js'   // ★80 — 사본이 아니라 정본을 부른다
 import { kneeTreads, kneeStairSpec } from './kneeStair.js'                          // ★66 계단 규격·참   // ★60 매듭 · ★61 자립 나선 · ★62 바닥 매듭
@@ -585,9 +585,9 @@ const extraFor = (id) => (id === 'lookout' || id === 'terrace' || id === 'reveal
     //   트랜섬 박스는 Dome.jsx와 두 벌(기존 '벽 목록 두 벌' 중복의 일부 — §종료 보고 참조).
     { const g = buildCloisterMouthWall(); if (g) { g.rotateY(-phi); addGeo(g, DIAG ? [130, 120, 108] : NEU) } }
     {
-      const mX0 = C.CL_R - C.CL_HW + 0.3, mX1 = C.CL_R + C.CL_HW - 0.3
-      const y0 = floor + Math.min(C.CL_ROOF, C.RM_ROOF) + (C.CLM_ARCH_ON ? t : 0), y1 = floor + Math.max(C.CL_ROOF, C.RM_ROOF) + t
-      box((mX0 + mX1) / 2, (y0 + y1) / 2, C.RM_Z1 + t / 2, mX1 - mX0, y1 - y0, t, [130, 120, 108])
+      const mX0 = C.CL_R - C.CL_HW + 0.3, mX1 = C.CL_R + C.CL_HW - 0.3   // 개구 폭(보존계 조각용 — 트랜섬 폭이 아니다)
+      const T = cloisterTransomSpec()                                     // ★222 트랜섬 폭·높이 정본(Dome.jsx와 같은 함수)
+      box((T.x0 + T.x1) / 2, (T.y0 + T.y1) / 2, (T.z0 + T.z1) / 2, T.x1 - T.x0, T.y1 - T.y0, T.z1 - T.z0, [130, 120, 108])
       if (!C.CLM_ARCH_ON) {   // 보존계: 구 좌·우 직사각 조각
         box((C.RM_X0 - t + mX0) / 2, floor + C.RM_ROOF / 2, C.RM_Z1 + t / 2, mX0 - (C.RM_X0 - t), C.RM_ROOF + 2 * t, t, [130, 120, 108])
         box((mX1 + C.RM_X1 + t) / 2, floor + C.RM_ROOF / 2, C.RM_Z1 + t / 2, (C.RM_X1 + t) - mX1, C.RM_ROOF + 2 * t, t, [130, 120, 108])
@@ -687,6 +687,9 @@ const extraFor = (id) => (id === 'lookout' || id === 'terrace' || id === 'reveal
       rbox((rOut + C.CL_R_OUT2) / 2 * Math.cos(ph), (sy + C.CL_HEAD_Y) / 2,
            (rOut + C.CL_R_OUT2) / 2 * Math.sin(ph), C.CL_WALL_T, C.CL_HEAD_Y - sy, t, -ph, SHELL)
     }
+    //  ★223 시작 끝캡(φ0) — 정본 spec(Dome과 같은 함수). 밖에서 본 '종잇장 두 겹'을 면으로 막는다.
+    { const S = cloisterStartCapSpec()
+      rbox(S.rc * Math.cos(S.phi), (S.y0 + S.y1) / 2, S.rc * Math.sin(S.phi), S.rw, S.y1 - S.y0, S.thick, -S.phi, SHELL) }
     //  ★79-2 끝캡 = 문 뚫린 네 조각(Dome과 같은 규칙)
     {
       const cap = (rc, rw, y0, y1) => { if (rw > 1e-6 && y1 - y0 > 1e-6)
