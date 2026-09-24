@@ -660,20 +660,31 @@ export const TERR_COL       = st(ACH_WARM.TERR)      // 테라스 판(등불 갓
 export const APEX_LGT_COL   = ACH_ON ? '#ffffff' : '#ffe3b0' // 정점 점광(렌즈 일습 — 현도 지시로 무채 전환) — Dome Apex + Lens("구 Apex 점광 계승 · 색·강도 동일")
 export const APEX_LGT_I     = 2.2
 export const APEX_GLOW_COL  = ACH_ON ? '#f2f5f8' : '#fff1d4' // 정점 발광구(렌즈 일습)
-export const LAMP_LGT_JOINT_COL = lampCool ? '#eaf0f6' : '#ffc27a' // 등불 접합부 점광(관이 리브 밑면에 꽂히는 자리)
+//  ★★★233 등불 색 = **색상·채도 두 노브에서 파생**(2026.09.24 현도 "빛이 너무 주황빛 — 노란빛과 백색광 사이, 세련된 색으로 은은히").
+//   구판 웜 9색은 손 헥스(#ffce8a·#c08a48 …)였고 봉 아랫끝·갓이 주황-갈색으로 기울었다. ⇒ 기준색 하나(HSV · 명도 1) → 부품별로 **백색 혼합 / 같은 색상 명도 낮춤**만.
+//   ⛔첫 시도 = 흑체 색온도(4300K) — sRGB에서 흑체는 노랑이 아니라 **복숭아색**(#ffd5b3 실측)으로 읽혀 "노랑과 백색 사이"를 못 맞췄다 → 색상각을 직접 쥔다.
+//   한색 후보(lampCool)는 무접촉. 등불 빛기둥 LB_COL = LAMP_LGT_MOUTH_COL이라 함께 따라온다.
+export const LAMP_HUE = 42             // ★Claude 초기값(규율 12) 색상각(°) — 30 주황 · 42 금빛 · 50 노랑 · 현도 판정 노브
+export const LAMP_SAT = 0.28           // ★Claude 초기값 채도 — 0 = 백색 · 1 = 순색. 0.28 = 노랑과 백색 사이(샴페인·크림) · 현도 판정 노브
+const _hsv = (h, s) => { const f = (n) => { const k = (n + h / 60) % 6; return 255 * (1 - s * Math.max(0, Math.min(k, 4 - k, 1))) }; return [f(5), f(3), f(1)] }
+const _hex = (c) => '#' + c.map((x) => Math.round(Math.max(0, Math.min(255, x))).toString(16).padStart(2, '0')).join('')
+const _mixW = (c, w) => c.map((x) => x + (255 - x) * w)          // 백색 쪽으로 w
+const _dim = (c, k) => c.map((x) => x * k)                        // 같은 색상 · 명도 k
+const _lampK = _hsv(LAMP_HUE, LAMP_SAT)
+export const LAMP_LGT_JOINT_COL = lampCool ? '#eaf0f6' : _hex(_lampK) // 등불 접합부 점광(관이 리브 밑면에 꽂히는 자리) — ★233 기준색
 export const LAMP_LGT_JOINT_I   = 22
-export const LAMP_LGT_MOUTH_COL = lampCool ? '#e4ecf4' : '#ffce8a' // 등불 갓 입 하향 점광
+export const LAMP_LGT_MOUTH_COL = lampCool ? '#e4ecf4' : _hex(_lampK) // 등불 갓 입 하향 점광(= 빛기둥 LB_COL) — ★233 기준색
 export const LAMP_LGT_MOUTH_I   = 14
-export const LAMP_SHADE_COL     = lampCool ? '#cfd3d8' : '#caa161' // 갓(뒤집힌 깔때기)
-export const LAMP_SHADE_EMIS    = lampCool ? '#dfe9f2' : '#ffb45c' // 갓 발광색
+export const LAMP_SHADE_COL     = lampCool ? '#cfd3d8' : _hex(_dim(_mixW(_lampK, 0.35), 0.82)) // 갓(뒤집힌 깔때기) — ★233 기준색 · 백색 35% · 명도 0.82(재질색)
+export const LAMP_SHADE_EMIS    = lampCool ? '#dfe9f2' : _hex(_lampK) // 갓 발광색 — ★233 기준색
 export const LAMP_SHADE_EMIS_I  = 0.55
-export const LAMP_GLOW_MOUTH_COL = lampCool ? '#f2f5f8' : '#fff1d4' // 갓 입 발광면(정점 발광구와 같은 값 — 기록 없음 → 분리)
-export const LAMP_POOL_CORE_COL = lampCool ? '#e8eef4' : '#ffdc9a' // 바닥 웅덩이 코어
+export const LAMP_GLOW_MOUTH_COL = lampCool ? '#f2f5f8' : _hex(_mixW(_lampK, 0.7)) // 갓 입 발광면 — ★233 백색 70%
+export const LAMP_POOL_CORE_COL = lampCool ? '#e8eef4' : _hex(_mixW(_lampK, 0.5)) // 바닥 웅덩이 코어(★232 회랑 메시 소등 · 등불 방 헤일로만 사용) — ★233 백색 50%
 export const LAMP_POOL_CORE_OP  = 0.5
-export const LAMP_POOL_HALO_COL = lampCool ? '#dce4ec' : '#ffce7d' // 바닥 웅덩이 헤일로
+export const LAMP_POOL_HALO_COL = lampCool ? '#dce4ec' : _hex(_mixW(_lampK, 0.35)) // 바닥 웅덩이 헤일로 — ★233 백색 35%
 export const LAMP_POOL_HALO_OP  = 0.22
-export const LAMP_ROD_TOP_COL   = lampCool ? '#eef2f6' : '#ffedc4' // 봉 그라데이션: 진입고(리브 쪽) — 밝음
-export const LAMP_ROD_BOT_COL   = lampCool ? '#9aa3ad' : '#c08a48' // 봉 그라데이션: 목(아래끝) — 어두움
+export const LAMP_ROD_TOP_COL   = lampCool ? '#eef2f6' : _hex(_mixW(_lampK, 0.4)) // 봉 그라데이션: 진입고(리브 쪽) — 밝음 · ★233 백색 40%
+export const LAMP_ROD_BOT_COL   = lampCool ? '#9aa3ad' : _hex(_dim(_mixW(_lampK, 0.2), 0.78)) // 봉 그라데이션: 목(아래끝) — 어두움 · ★233 **같은 색상**(백색 20% · 명도 0.78)(구판 #c08a48 주황-갈색 폐기)
 
 //  ── ⑹ 담체(Steles — 전 계열 소등 중 · 권역 ⑬) ──────────────────────────────────
 export const STELE_INK_TAG  = '#ece0c6' // 각자(刻字) 머리표 잉크
@@ -2152,6 +2163,19 @@ export function clSillY(phi) {
   let y = PASS_FLOOR_Y
   for (let i = 0; i < CL_STAIR_MID.length; i++) if (phi >= CL_STAIR_MID[i] + CL_STAIR_HPHI) y -= CL_SEG_DROP
   return y + CL_SILL
+}
+//  ★★★226 등불 명세 **정본**(2026.09.24 — CloisterLamps(렌더)와 빛 구획 F 베이크(lightingModel clf*)가 같은 함수를 읽는다 · 사본 0).
+//   구판은 CloisterLamps 안의 인라인 식이었다 — 베이크가 그 식을 다시 적으면 규율 33(정본 교체 시 검사·사본 동반)의 병이 된다.
+//   좌표 = 회랑 로컬(상부 여정 그룹 안 · φ = k·5° · 등불은 반경 LAMP_R 위).
+export function clLampSpecs() {
+  const n = LAMP_RIBS.length
+  return LAMP_RIBS.map((k, i) => {
+    const phi = k * 2 * Math.PI / MERIDIANS
+    const floor = clLandingY(i)                                          // ★78-2 그 등불의 층계참
+    const fr = n > 1 ? i / (n - 1) : 0                                   // 진행률(걷는 방향 = 배열 순)
+    const mouthY = floor + LAMP_MOUTH_Y0 + (LAMP_MOUTH_Y1 - LAMP_MOUTH_Y0) * fr   // 갓 입(아래끝) — 하강 램프
+    return { k, i, phi, x: LAMP_R * Math.cos(phi), z: LAMP_R * Math.sin(phi), floor, mouthY, neckY: mouthY + LAMP_FUNNEL_H }
+  })
 }
 
 // ── 테라스(중앙, 도착) (반지름 ×SCALE · y는 통로에서 파생 — 자유 요소의 접속 해소) ──
@@ -6143,3 +6167,54 @@ export const LB_DESAT    = 0.6                   // ★Claude 초기값(규율 1
 //   ⇒ 일반 알파 합성: 두 겹 = 1−(1−a)² · 상한 = 빛기둥 색. 같은 색끼리는 순서 무관(대칭식)이라 투명 정렬도 필요 없다.
 //   ⚠대가: 이미 그 색보다 밝은 배경(흰 벽)에서는 아무것도 안 보인다 — 물리적으로 옳고(베일은 흰색을 더 희게 못 만든다), 회랑 명암(F-4) 뒤에 제대로 드러난다.
 export const LB_BLEND    = 'normal'              // 'additive' = 첨탑 어법(보존계 · 겹침 가산) · 'normal' = 포화 합성
+
+// ══ ★★★226 빛 구획 F — 회랑(1p9) 내부 명암 베이크 (2026.09.24 · 조명 헌장 Ⅱ · 권역 ⑩) ════════════════════════════════
+//  현도 09.24: "지금 너무 흰색 덩어리 느낌." 헌장 Ⅰ F행 = **등불들**. 헌장 Ⅱ = 명암은 공급지 방향·거리·코사인에서 **유도**해 표면에 굽는다.
+//  ⚠명칭: 동결 [499]의 코드 라벨 'D+F'의 F는 **프리즈 방**(헌장 표기로는 E)이다 — 충돌을 피해 이 구획의 식별자는 CLF_*(CLoister-F)로 쓴다.
+//  공급지(전부 파생 · 손 좌표 0):
+//   ① 빛기둥(직사) — 갓 입 원판(LAMP_MOUTH_R) → 층계참 웅덩이(LAMP_POOL_R)로 벌어지는 ★225 원뿔 안 = 위 향 면에 직사(웅덩이 = 빛이 앉는 곳).
+//   ② 웅덩이 되쏨 — 웅덩이 원판이 위로 램버트 발광(★183 A구획 2차 광원과 같은 어법). 벽·계단·천장을 밝히는 **주 광원**이다.
+//      관이 리브 빛을 곧게 끌어내리므로(★224 도관) 갓 입의 빛은 좁은 원뿔로만 나온다 — 벽은 직사가 아니라 웅덩이 반사로 밝혀진다.
+//   ③ 창(바깥벽 개구) — ⚠**헌장 F행에 없는 항이다(Claude 추가 · 현도 확인 대상).** 밝은 돔 공간으로 난 개구를 막힌 벽처럼 두면
+//      창 맞은편 안벽이 창 바로 앞에서 캄캄해지는 비물리 화면이 된다. 한 줄로 끈다(CLF_WIN_ON=false = 헌장 문자 그대로).
+//   ④ 채움 — 흰 벽으로 닫힌 통로의 상호반사 바닥(구역 I ZI_ROOM_FILL과 같은 뜻).
+//  수학 = 해석적 다각형 조도(★186 polyIrradiance · 수신 평면으로 **클리핑**한 판 — 곡면 안벽의 볼록성이 곧 차폐다) · 광선 0.
+//  안팎 = 회랑 공극 체적(고리꼴 섹터 + 창 인방)의 해석적 판정 · 외면 불변 = 정점색을 **실내 쪽 면에만** 곱하는 gl_FrontFacing 게이트(두께 0 양면 판).
+export const CLF_ON       = true                      // ⛔false = 베이크 없음(구 체제 — 흰색 덩어리)
+export const CLF_PTL_ON   = false                     // 회랑 등불 점광 18개(접합부 9 · 하향 9) — 헌장 Ⅱ 체제 귀결: 공간 명암은 베이크가 맡는다. ⛔true = 구 점광 복귀
+export const CLF_DIM      = ZI_DIM                    // 어둠의 바닥(0.04) = D·E·I 승계(한 어둠)
+export const CLF_GAMMA    = ZI_GAMMA                  // 응답 지수(1 = 선형 · 확장 광원 — ★219-b)
+export const CLF_FILL     = 0.14                      // ★Claude 값(규율 12) ④ 채움 — 어느 공급지도 못 보는 면의 바닥(천장 한복판 등). 현도 판정 노브
+export const CLF_POOL_K   = 1.0                       // ★Claude 값 ② 웅덩이 되쏨 세기 — 기준점(등불 옆 안벽 · 층계참 위 1.0 · 벽 향)에서 E=K. 현도 판정 노브
+export const CLF_POOL_REF_H = 1.0                     // ② 기준점 높이(층계참 위) — 정규화 위치(값을 바꾸면 전체 스케일이 따라 움직인다)
+export const CLF_BEAM_K   = 0                         // ① 빛기둥 직사 세기. ⛔★226-b(현도 화면 "조명 아래가 얼룩처럼"): 1이면 발 원(r1.7 · 가장자리 0.25m)이 바닥 정점 격자(~0.7m)에서 각진 큰 얼룩이 된다 —
+                                                      //   빛이 앉는 자리는 **웅덩이 메시(코어·헤일로 원)가 이미 그린다**(이중 표현). 0 = 베이크는 웅덩이의 되쏨(벽·계단)만. 1 = 구판(한 줄 복귀)
+export const CLF_BEAM_EDGE = 0.25                     // ① 원뿔 가장자리 부드러움(m · 반경 방향 smoothstep 폭)
+export const CLF_WIN_ON   = true                      // ③ 창 항 — ⚠헌장 밖 추가(현도 확인 대상 · 위 주석)
+export const CLF_WIN_K    = 0.45                      // ★Claude 값 ③ 창 세기 — 기준점(창 맞은편 안벽 · 눈높이 · 호 중앙)에서 E=K. 현도 판정 노브
+export const CLF_WIN_DPHI = 1.0 * Math.PI / 180       // ③ 창 다각형 조각 폭(원통을 평면 조각으로 — 1° 현의 처짐 0.007m)
+export const CLF_WIN_REACH = 2 * Math.acos((CL_R - CL_HW) / (CL_R + CL_HW))   // ③ 창 조각 컬링 각(수신점 φ ± 이 값) = 28.20° **파생** — 통로 안 어느 점에서도 이 각 밖의 창은 안벽(볼록)에 가린다(현이 r<rIn을 지남). ⛔첫 판 손값 28°는 0.2° 모자라 실제 창빛을 잘랐다(check_lux ⓕ가 적발)
+export const CLF_POOL_REACH = 40                      // ② 웅덩이 컬링 거리(m) — 기준점 대비 기여 < 1e-2 인 거리(검사가 잰다)
+export const CLF_SUBDIV   = 0.75                      // 정점색 해상도 — 수광 면을 이 변 길이 이하로 세분(적록 세분 ★219-w‴ 도구 재사용 · 위치 이동 0)
+export const CLF_EPS      = 0.05                      // 안팎 판정 한 발짝(m) — 판 두께 PASS_T(0.6)보다 충분히 작고 Float32 정밀도(1e-4·r170)보다 충분히 크다
+
+// ══ ★★★227 전실 톤 이음 — 무릎길(밝음) → 하강 계단 → 전실(중간) → 회랑(★226) (2026.09.24 현도) ══════════════════════
+//  현도 09.24(HUD free:180.69,251.89,31.54): "전실이 무릎길 내부와 명암이 똑같아서 회랑과 연결되는 지점이 어색하다 — 하강 계단에서부터 슬며시
+//   명암을 조절하기 시작해서 회랑이랑 톤이 이어지도록." ⇒ 구역 I의 **하강 영역**(하강 채널 · 아치 공동 · 전실 — ZI 채움과 같은 공극 판정)에서만
+//   주변광(관 발광 AO · 하강광 · 채움)에 경로 상한 a(u)를 씌운다. 전실 빛기둥 직사(구멍 조도)는 상한 밖(방의 광원 — 웅덩이는 그대로 밝다).
+//  경로 u(0→1) = 하강 계단 위(X_DESC0) → 하강 끝(X_DESC_END) → 회랑 입 중심(CL_R, RM_Z1) 꺾은선 호길이. 개형 = smoothstep.
+//  목표 T = **회랑 입 1m 안의 평균 명암**(lightingModel.clfMouthTone — 안벽·바깥벽·바닥·천장 · ★226 CLF 값에서 파생 · 손 숫자 0).
+//   u=0 → 상한 1(구 값과 **비트 동일** — 영역 밖은 구 코드 경로) · u=1 → 직사 없는 면 = 정확히 T. CLF_ON=false면 T=1(변화 없음).
+export const ZI_PATH_ON = true                   // ⛔false = 구 체제(전실 = 무릎길과 같은 밝기)
+// ★★★232 회랑 등불 바닥 빛 자국(현도 09.24) — 노란 동심원 메시 소등 · 전실과 같은 모양 표 · 반경 = LB_FOOT_R(빛기둥 발)
+export const LAMP_POOL_MESH_ON = false            // ⛔true = 구 웅덩이 메시(코어·헤일로 원 두 장) 복귀 — 회랑 등불만(등불 방 G는 무접촉)
+export const CLF_MARK_K = 0.32                    // 빛 자국 세기(E 공간) — ⛔★233(현도 "너무 밝고 뚜렷 — 흰 원을 그린 느낌"): 구 1.0은 중심이 백색으로 포화 → 0.32(바닥 기저 ~0.3 위에 더해 포화하지 않는다 · Claude 값 · K 튜너)
+export const CLF_MARK_POW = 2.0                   // ★233 빛 자국 모양 (1 − x²)^p · x = 거리/빛기둥 발 반경 — 평탄 코어 없는 종 모양(구판 = 전실 반영 표 = 평탄 코어 + 가장자리). 클수록 중심에 모인다 · K 튜너
+// ★★★236 전실 벽 구운 값 공간 평활(2026.09.24 현도 "벽면에 이상한 대각선 무늬") — 가우스 반경(σ = R/2) · 같은 향 면만(법선 내적 > 0.9)
+//  구역 I 정점값의 삼각형 크기 결(표본 AO·관 발광)이 CSG 패널의 긴 변 사슬에서 선형 보간돼 대각 주름이 된다(★227 전엔 백색 포화로 불가시). 큰 구조(구석 어둠)는 남는다.
+export const ZI_PATH_BLUR_R = 1.2                 // ★Claude 값(규율 12) · 0 = 끔(구 값)
+// ★★★237 갓 두께(2026.09.24 현도 "갓과 내부 관 사이 미세한 틈 — 다각형을 원으로 감쌀 때 생기는 틈 · 갓 두께를 아주 미세하게"):
+//  관(Lathe 12각) 바깥 변의 평평한 면은 반경 R·cos(π/12) = 0.676까지 들어가고 갓(원기둥 24각 · 두께 0)의 벽은 ≥ 0.694 → 12 변마다 ~2cm 조각 틈으로 갓 위가 보였다.
+//  ⇒ 갓 = 얇은 셸(바깥 불변 · 안벽을 관 12각의 변 안쪽까지 · 위를 고리로 닫음). 두께 = 관 다각형 처짐 + 여유 — 틈을 덮는 최소치(파생).
+export const LAMP_ROD_SEG  = 12                                                        // 관 둘레 분할(LampRod Lathe) — 갓 두께 파생의 근거
+export const LAMP_SHADE_T  = LAMP_TUBE_R * (1 - Math.cos(Math.PI / LAMP_ROD_SEG)) + 0.004   // ≈0.028 — 안벽 반경 0.672 < 관 변 0.676

@@ -2591,8 +2591,8 @@ if (!RIB_XFER_ON) {
           ok(Math.abs(S.rw - (K.CL_R_OUT2 - K.CL_R_IN2)) < 1e-9 && Math.abs(S.rc - (K.CL_R_IN2 + K.CL_R_OUT2) / 2) < 1e-9,
              `★223 캡 폭 ${r2(S.rw)} = 벽 바깥면끼리(${r2(K.CL_R_IN2)}~${r2(K.CL_R_OUT2)}) = φ1 끝캡과 같은 폭`)
           ok(Math.abs(S.y0 - (K.CL_WALL_BOT - t)) < 1e-9, `★223 캡 밑끝 ${r2(S.y0)} = 밑판 밑(CL_WALL_BOT−t) — 아래로 틈 0`)
-          ok(S.y1 >= K.PASS_FLOOR_Y - t - 1e-9 && Math.abs(S.y1 - K.PASS_FLOOR_Y) < 1e-9,
-             `★223 캡 윗끝 ${r2(S.y1)} = 방 바닥 슬랩 살 속(밑면 ${r2(K.PASS_FLOOR_Y - t)} 위로 ${r2(t)} 물림) — 위로 틈 0`)
+          ok(S.y1 > K.PASS_FLOOR_Y - t + 1e-6 && S.y1 < K.PASS_FLOOR_Y - 1e-6,
+             `★223·★228 캡 윗끝 ${r2(S.y1)} = 방 바닥 슬랩 **살 속**(밑면 ${r2(K.PASS_FLOOR_Y - t)} < y1 < 윗면 ${r2(K.PASS_FLOOR_Y)} · 엄격) — 위로 틈 0 ∧ 슬랩 윗면과 공면 아님(⛔구판은 y1 = 윗면 = z-파이팅을 정답으로 박았다)`)
           ok(Math.abs(S.phi - K.CL_PHI0) < 1e-9, `★223 캡이 회랑 시작 방사면 φ0(${r2(S.phi * 180 / Math.PI)}°)에 선다`)
           //  ⛔노출 표본(병 재현 대조): φ0 단면에서 캡이 안 덮는 점 = 밖에서 보이는 빈 속
           const exposed = (cap) => {

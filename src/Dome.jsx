@@ -20,11 +20,11 @@ import {
   PASS_DOOR_W, PASS_DOOR_H,
   PASS_X_END, CL_R, CL_HW, CL_PHI0, CL_PHI1, CL_ROOF, CL_SILL, CL_HEAD, CL_OP_P0, CL_OP_P1,
   CL_ROOF_Y, CL_HEAD_Y, CL_WALL_BOT, CL_FLOOR_END, CL_STAIR_MID, CL_STAIR_HPHI,   // ★78-2 계단 바닥
-  CL_STEP_RISE, clLandingY, clFloorSegments, clSillBands, CL_WIN_MODE, clSillSlopeY,   // ★78-3
+  CL_STEP_RISE, clFloorSegments, clSillBands, CL_WIN_MODE, clSillSlopeY,   // ★78-3
   CL_WALL_T, CL_R_IN2, CL_R_OUT2, CL_SEG_DROP, clSillY,   // ★78-4 벽 두께
   RM_X0, RM_X1, RM_Z0, RM_Z1, RM_ROOF, RM_MOUTH_H, PASS_FUSE, CLM_ARCH_ON, LR_POW,
   ST_ON, ST_PHI, ST_HW, ST_ROOF,
-  LAMP_RIBS, LAMP_R, LAMP_TUBE_R, LAMP_ENTRY_Y, LAMP_TOP_Y, LAMP_MOUTH_Y0, LAMP_MOUTH_Y1, LAMP_FUNNEL_H, LAMP_MOUTH_R, LAMP_POOL_R,
+  LAMP_R, LAMP_TUBE_R, LAMP_ENTRY_Y, LAMP_TOP_Y, LAMP_MOUTH_Y1, LAMP_FUNNEL_H, LAMP_MOUTH_R, LAMP_POOL_R,
   TERRACE_Y, TERRACE_RIN, TERRACE_ROUT, TERRACE_ARC,   // ⚠구 링(보존계 — ★80이 폐기, 그리지 않는다)
   RM10_ON, RM10_K, RM10_PHI, RM10_AX_R, RM10_RHO, RM10_WALL_T, RM10_FLOOR_Y, RM10_ROOF_Y,   // ★79 등불 방
   RM10_DOOR_H, RM10_ENTRY_TH, RM10_DOOR_HTH, RM10_FLOOR_OPEN_R, rm10Steps,
@@ -37,7 +37,8 @@ import {
   RIB_TINT_COL, RIB_TINT_AMT, RIB_TINT_EMIS, RIB_TINT_Y0, RIB_TINT_Y1,
   RIB_CUT_ON, RIB_CUT_MODE, RIB_CUT_BOX_HW, RIB_CUT_CAP_T,   // ★56 리브 절단(1p7)
   RIB_WALL_ON, RIB_WALL_T, RIB_WALL_SCOPE,                   // ★57 리브 벽 두께
-  LAMP_CONDUIT_ON, LAMP_TUBE_T, LAMP_WORLD_KS, LR_RM10_R0K, LR_RM10_LENK, LR_RM10_POW,   // ★224 등불 = 도관 · 등불 방 뿌리 목 배율
+  LAMP_CONDUIT_ON, LAMP_TUBE_T, LAMP_WORLD_KS, LR_RM10_R0K, LR_RM10_LENK, LR_RM10_POW,
+  CLF_PTL_ON, clLampSpecs, LAMP_POOL_MESH_ON, LAMP_ROD_SEG, LAMP_SHADE_T,   // ★226 빛 구획 F — 점광 스위치 · 등불 명세 정본 · ★232 웅덩이 메시 스위치   // ★224 등불 = 도관 · 등불 방 뿌리 목 배율
   RIB_VICE_ON, RIB_NEWEL_R, RIB_POLE_ON, ribCenter, spiralU,  // ★58 중세 나선(vice)
   FR_SILL_MAT, TEMPLE_COLOR,                                  // ★60 문지방(나선↔프리즈 방 매듭)
   RIB_XFER_ON, RIB_DEST_K, RIB_DEST_PHI, RIB_FREE_MODE, FR_FLOOR_Y,          // ★61 리브 갈아타기
@@ -57,7 +58,8 @@ import { buildRibShell, makeRibCurve, RIB_TUB_SEG, buildViceWedge, viceSplitInde
 import { buildKneeBody, buildKneePlinth } from './kneeBodyGeometry'
 import { buildTerrace, buildTerraceLink } from './terraceGeometry'   // ★85 부채꼴 · ★89 계단화 · ★90 리드 연결
 import { buildCupBowl, buildCupStraps, buildCupRing } from './drumCupGeometry'   // ★92 드럼 하판(반구 + 기둥) · ★93 고리판
-import { buildLampRoot, buildLampRib } from './lampRootGeometry'   // ★224 리브 껍질 구멍(등불 = 도관)
+import { buildLampRoot, buildLampRib } from './lampRootGeometry'
+import { ribClfGLSL } from './lightingModel.js'   // ★238   // ★224 리브 껍질 구멍(등불 = 도관)
 import { buildLampBeam, lampBeamMaterial } from './lampBeam'   // ★225 등불 빛기둥(원뿔대 · 첨탑 셰이더 사본)
 import { buildJunctionKnot, buildLightShaft, shaftCutSolid, lightShaftSpec, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, apronSteps, buildRoomMouthWall, buildCloisterMouthWall, cloisterTransomSpec, cloisterStartCapSpec, ribArchCutSolid, radialPlate } from './junctionGeometry'   // ★70 매듭 · ★71 빛 기둥 · ★75 넓은 계단
 import { kneeTreads, kneeStairSpec } from './kneeStair'   // ★66 계단 규격·참
@@ -199,22 +201,26 @@ function RibCutCaps({ cuts }) {
 //  세계 y로 알베도 워시 + 미발광 — '위(렌즈)에서 내려온 굴절광이 무릎으로 잦아듦'.
 //  셰이더 패치라 기하·CSG 무접촉 → 탐험 리브 #0(CSG 2컷)과 나머지 71(인스턴스)이 자동 동일(형태·재질 LOCKED 안전).
 //  두 재질 인스턴스에 같은 함수를 걸어 시각 동일 보장. 끄기 = constants에서 AMT·EMIS 0.
+const RIB_CLF = ribClfGLSL()   // ★238
 const ribTintOBC = (RIB_TINT_AMT > 0 || RIB_TINT_EMIS > 0) ? (shader) => {
   shader.uniforms.uEthTintCol = { value: new THREE.Color(RIB_TINT_COL) }
   shader.uniforms.uEthTintY0  = { value: RIB_TINT_Y0 }
   shader.uniforms.uEthTintY1  = { value: RIB_TINT_Y1 }
   shader.uniforms.uEthTintAmt = { value: RIB_TINT_AMT }
   shader.uniforms.uEthTintEms = { value: RIB_TINT_EMIS }
-  shader.vertexShader = 'varying float vEthWY;\n' + shader.vertexShader.replace(
+  shader.vertexShader = 'varying float vEthWY;\nvarying vec3 vEthW;\n' + shader.vertexShader.replace(
     '#include <begin_vertex>',
     `#include <begin_vertex>
     { vec3 ethP = transformed;
       #ifdef USE_INSTANCING
         ethP = (instanceMatrix * vec4(ethP, 1.0)).xyz;
       #endif
-      vEthWY = (modelMatrix * vec4(ethP, 1.0)).y; }`
+      vEthWY = (modelMatrix * vec4(ethP, 1.0)).y; vEthW = (modelMatrix * vec4(ethP, 1.0)).xyz; }`   // ★238 월드 위치(회랑 부피 판정)
   )
-  shader.fragmentShader = ('varying float vEthWY;\n' +
+  //  ★238 회랑 부피 안 리브 조각 = 점광 차단(지붕이 막는다 · 안 A) — 판정 = lightingModel.ribInCloister와 같은 식 · 대상 줄 없으면 throw(three 갱신 가드)
+  if (!THREE.ShaderChunk.lights_fragment_begin.includes(RIB_CLF.anchor)) throw new Error('★238: three lights_fragment_begin 점광 줄 없음')
+  shader.fragmentShader = shader.fragmentShader.replace('#include <lights_fragment_begin>', RIB_CLF.head + THREE.ShaderChunk.lights_fragment_begin.replace(RIB_CLF.anchor, RIB_CLF.inject))
+  shader.fragmentShader = ('varying float vEthWY;\nvarying vec3 vEthW;\n' + RIB_CLF.fn + '\n' +
     'uniform vec3 uEthTintCol; uniform float uEthTintY0; uniform float uEthTintY1; uniform float uEthTintAmt; uniform float uEthTintEms;\n' +
     shader.fragmentShader
       .replace('#include <color_fragment>',
@@ -913,7 +919,7 @@ export function RevealPassage() {
   const doorHW2 = PASS_DOOR_W / 2, sideW = ST_HW - doorHW2
   const stX1 = rIn + 0.4, stL = stX1 - PASS_X_END   // 스텁 반경 구간(안벽 물림 0.4)
   const ring = (key, r0, r1, y, p0, p1, walk) => (
-    <mesh key={key} position={[0, y, 0]} rotation-x={-Math.PI / 2} userData={walk ? { walkable: true } : undefined}>
+    <mesh key={key} position={[0, y, 0]} rotation-x={-Math.PI / 2} userData={walk ? { walkable: true } : key === 'rf' ? { clfRoofHole: true } : undefined}>   {/* ★235 지붕 = 등불 축 구멍(CloisterLight 셰이더) */}
       <ringGeometry args={[r0, r1, 64, 1, -p1, p1 - p0]} />
       <meshStandardMaterial {...(walk ? FLOOR_MAT : SHELL_MAT)} side={THREE.DoubleSide} />
     </mesh>
@@ -929,6 +935,8 @@ export function RevealPassage() {
   const clSillBandList = clSillBands()
   return (
     <group>
+      {/* ★★★226 빛 구획 F(회랑 1p9) 소속 — CloisterLight가 장면에서 이 태그를 찾아 실내 면에 정점색을 굽는다(A·B = 구역 I는 아래 zoneI 그룹) */}
+      <group userData={{ clf: true }}>
       {/* ★78-2 바닥 = 층계참 9 + 계단 8(각 5단) — 평평한 링 하나를 계단 프로필로 교체 */}
       {clFloorSegs.map((f, i) => ring('fl' + i, rIn - t, rOut + t, f.y - 0.02, f.p0, f.p1, true))}
       {/* 챌판(riser): φ 고정 방사면 = 끝캡과 같은 어휘(회전 박스). 윗면은 디딤판과 같은 높이,
@@ -1053,6 +1061,7 @@ export function RevealPassage() {
           <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
         </mesh>
       </group>}
+      </group>{/* ★226 clf 그룹 끝 */}
       {/* A(하강 채널) + B(방) 박스 대장 — 위 수식으로 채워진 B[] 일괄 렌더 */}
       <group userData={{ zoneI: true }}>{/* ★219 구역 I 소속(★218 Ⅳ: RevealPassage 중 A 하강 채널 + B 전실 방 · C 회랑·D 스텁은 F) — 정점색 베이크 대상 */}
       {B.map((b, i) => (
@@ -1192,7 +1201,7 @@ function LampRod({ y0, y1 }) {
           for (let j = 0; j <= M; j++) pts.push(new THREE.Vector2(rO, -h / 2 + h * j / M))
           for (let j = M; j >= 0; j--) pts.push(new THREE.Vector2(rI, -h / 2 + h * j / M))
           pts.push(new THREE.Vector2(rO, -h / 2))
-          const l = new THREE.LatheGeometry(pts, 12)
+          const l = new THREE.LatheGeometry(pts, LAMP_ROD_SEG)   // ★237 분할 = 상수(갓 두께 파생의 근거)
           l.computeVertexNormals()
           return l
         })()
@@ -1218,18 +1227,19 @@ function LampRod({ y0, y1 }) {
   )
 }
 
+//  ★237 갓 셸(회전체 단면 · 등불 9기 공유): 입 바깥 → 목 바깥 → 목 안(위 고리) → 입 안 → 입 바깥(아래 고리). 바깥 = 구 원기둥과 같은 반경·24분할
+const SHADE_GEO = (() => { const H = LAMP_FUNNEL_H, t = LAMP_SHADE_T, pts = [
+  new THREE.Vector2(LAMP_MOUTH_R, -H / 2), new THREE.Vector2(LAMP_TUBE_R, H / 2), new THREE.Vector2(LAMP_TUBE_R - t, H / 2),
+  new THREE.Vector2(LAMP_MOUTH_R - t, -H / 2), new THREE.Vector2(LAMP_MOUTH_R, -H / 2)]
+  return new THREE.LatheGeometry(pts, 24) })()
 export function CloisterLamps() {
   //  ★78-2: 바닥이 계단으로 내려가므로 **등불마다 제 층계참을 딛는다**(구판은 전부 PASS_FLOOR_Y).
   //   갓 입 높이·웅덩이가 그 층계참 기준 → '걸을수록 등불이 내려온다'는 국소 관계로 보존된다.
   //   ⚠부작용(의도됨): 리브 진입고 LAMP_ENTRY_Y는 절대치라 관이 뒤로 갈수록 길어진다(4.5 → 21.4).
-  const n = LAMP_RIBS.length
+  //  ★226: 층계참·갓 입·목 = constants.clLampSpecs(정본 — 빛 구획 F 베이크가 같은 함수를 읽는다 · 식은 구판 인라인과 항등)
   return (
     <group>
-      {LAMP_RIBS.map((k, i) => {
-        const floor = clLandingY(i)                                        // ★78-2 그 등불의 층계참
-        const fr = n > 1 ? i / (n - 1) : 0                                  // 진행률(걷는 방향 = 배열 순)
-        const mouthY = floor + LAMP_MOUTH_Y0 + (LAMP_MOUTH_Y1 - LAMP_MOUTH_Y0) * fr  // 갓 입(아래끝) — 하강 램프
-        const neckY = mouthY + LAMP_FUNNEL_H                                // 갓 목 = 관 시작
+      {clLampSpecs().map(({ k, floor, mouthY, neckY }) => {
         return (
         <group key={k} rotation-y={-(k / MERIDIANS) * Math.PI * 2}>
           <group position={[LAMP_R, 0, 0]}>
@@ -1245,10 +1255,10 @@ export function CloisterLamps() {
             {/* ★접합부 점광(2026.07.11): 관이 리브 밑면에 꽂히는 자리를 밝힘 — 리브 밑면·상부 벽에
                 후광이 생겨 광원이 '리브'로 읽히게(현행 하향 점광만으로는 봉 끝이 광원으로 오독).
                 강도·거리 = 튜닝 노브 */}
-            <pointLight position={[0, LAMP_ENTRY_Y - 1.2, 0]} color={LAMP_LGT_JOINT_COL} intensity={LAMP_LGT_JOINT_I} distance={15} decay={2} />
+            {CLF_PTL_ON && <pointLight position={[0, LAMP_ENTRY_Y - 1.2, 0]} color={LAMP_LGT_JOINT_COL} intensity={LAMP_LGT_JOINT_I} distance={15} decay={2} />}{/* ★226 헌장 Ⅱ: 공간 명암은 베이크(CloisterLight) — 점광은 구 체제 스위치 */}
             {/* 갓: 뒤집힌 깔때기(위 좁음 → 아래 벌어짐), 열린 원뿔대 */}
-            <mesh position={[0, (mouthY + neckY) / 2, 0]}>
-              <cylinderGeometry args={[LAMP_TUBE_R, LAMP_MOUTH_R, LAMP_FUNNEL_H, 24, 1, true]} />
+            {/* ★237 갓 = 얇은 셸(두께 LAMP_SHADE_T · 위 고리로 닫힘) — 관 12각 변과 갓 24각 벽 사이 조각 틈을 덮는다(현도 09.24) */}
+            <mesh position={[0, (mouthY + neckY) / 2, 0]} geometry={SHADE_GEO}>
               <meshStandardMaterial color={LAMP_SHADE_COL} roughness={0.6} emissive={LAMP_SHADE_EMIS} emissiveIntensity={LAMP_SHADE_EMIS_I} side={THREE.DoubleSide} />
             </mesh>
             {/* ★225 빛기둥: 갓 입(mouthY) → 층계참(floor) 원뿔대 — 발 = 웅덩이 반경 */}
@@ -1260,7 +1270,8 @@ export function CloisterLamps() {
                 <meshBasicMaterial color={LAMP_GLOW_MOUTH_COL} side={THREE.DoubleSide} />
               </mesh>
             )}
-            {/* 바닥 웅덩이(코어+헤일로) — 바닥 링(floor−0.02) 위 0.015 부양(z파이팅 회피 전례) */}
+            {/* 바닥 웅덩이(코어+헤일로) — ⛔★232 LAMP_POOL_MESH_ON=false(현도 "노란 동심원이 빛 자국을 꾸며낸다") → 회랑 바닥 명암의 픽셀 빛 자국(CloisterLight)이 대신 */}
+            {LAMP_POOL_MESH_ON && <>
             <mesh position={[0, floor - 0.005, 0]} rotation-x={-Math.PI / 2}>
               <circleGeometry args={[LAMP_POOL_R * 0.55, 32]} />
               <meshBasicMaterial color={LAMP_POOL_CORE_COL} transparent opacity={LAMP_POOL_CORE_OP} />
@@ -1269,8 +1280,9 @@ export function CloisterLamps() {
               <circleGeometry args={[LAMP_POOL_R, 32]} />
               <meshBasicMaterial color={LAMP_POOL_HALO_COL} transparent opacity={LAMP_POOL_HALO_OP} />
             </mesh>
-            {/* 하향 점광 — 무그림자(성능). 강도·거리 = 로컬 튜닝 노브 */}
-            <pointLight position={[0, mouthY - 0.25, 0]} color={LAMP_LGT_MOUTH_COL} intensity={LAMP_LGT_MOUTH_I} distance={11} decay={2} />
+            </>}
+            {/* 하향 점광 — 무그림자(성능). ★226 CLF_PTL_ON=false면 없음(명암 = 베이크 ①② — 웅덩이·빛기둥은 그대로) */}
+            {CLF_PTL_ON && <pointLight position={[0, mouthY - 0.25, 0]} color={LAMP_LGT_MOUTH_COL} intensity={LAMP_LGT_MOUTH_I} distance={11} decay={2} />}
           </group>
         </group>
         )
@@ -1525,8 +1537,8 @@ export function LampRoom() {
               회랑 등불과 동일. ★221-c: 관 36m·천장 282라 같은 목이 너무 작게 읽혀(현도) 방 전용 배율 LR_RM10_R0K·LENK */}
           <LampRoot r0K={LR_RM10_R0K} lenK={LR_RM10_LENK} pow={LR_RM10_POW} />
           <pointLight position={[0, LAMP_ENTRY_Y - 1.2, 0]} color={LAMP_LGT_JOINT_COL} intensity={LAMP_LGT_JOINT_I} distance={15} decay={2} />
-          <mesh position={[0, RM10_CENTER_Y + LAMP_MOUTH_Y1 + LAMP_FUNNEL_H / 2, 0]}>
-            <cylinderGeometry args={[LAMP_TUBE_R, LAMP_MOUTH_R, LAMP_FUNNEL_H, 24, 1, true]} />
+          <mesh geometry={SHADE_GEO} position={[0, RM10_CENTER_Y + LAMP_MOUTH_Y1 + LAMP_FUNNEL_H / 2, 0]}>
+            {/* ★237 등불 방 갓도 같은 셸(같은 관·같은 틈) */}
             <meshStandardMaterial color={LAMP_SHADE_COL} roughness={0.6} emissive={LAMP_SHADE_EMIS} emissiveIntensity={LAMP_SHADE_EMIS_I} side={THREE.DoubleSide} />
           </mesh>
           {/* ★225 빛기둥(등불 방): 갓 입(CENTER+MOUTH_Y1) → 방 바닥(CENTER_Y) */}

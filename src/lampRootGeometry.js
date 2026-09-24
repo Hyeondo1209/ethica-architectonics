@@ -78,8 +78,13 @@ export function buildLampRoot(r0K = 1, lenK = 1, pow = LR_POW) {
     push(a, c, b); push(a, d, c)                 // 바깥을 향하는 감김(밖에서 볼 때 반시계)
   }
   //  위 뚜껑(리브 속에 묻힘 · 솔리드로 읽히게) + 아래 뚜껑(관이 지나가는 고리 — 관 반경까지 뚫린 링)
-  const topC = [0, Math.max(...S.tops) + LR_LAP, 0]
-  for (let i = 0; i < N; i++) push(P(i, 0), P(i + 1, 0), topC)
+  //  ⛔★235(09.24 현도 "조명 위를 올려다보면 검은 판이 막고 있다 — 위로 뻥 뚫려 있어야"): 구판 위 뚜껑 = **꽉 찬 원판**(★221 "솔리드로 읽히게") —
+  //   ★224가 관을 속 빈 도관으로 바꾼 뒤 그 원판이 관 바로 위를 막았다. ⇒ 아래 뚜껑과 같은 **고리**(관 바깥 반경까지 뚫림) — 관 밖 몫은 그대로 닫힌다.
+  const topY = Math.max(...S.tops) + LR_LAP
+  for (let i = 0; i < N; i++) {
+    const th0 = i / N * Math.PI * 2, th1 = ((i + 1) % N) / N * Math.PI * 2
+    const ai = [Math.cos(th0) * LAMP_TUBE_R, topY, Math.sin(th0) * LAMP_TUBE_R], bi = [Math.cos(th1) * LAMP_TUBE_R, topY, Math.sin(th1) * LAMP_TUBE_R]
+    push(P(i, 0), P(i + 1, 0), bi); push(P(i, 0), bi, ai) }
   for (let i = 0; i < N; i++) {
     const a = P(i, M), b = P(i + 1, M)
     const th0 = i / N * Math.PI * 2, th1 = ((i + 1) % N) / N * Math.PI * 2   // 모듈로: 마지막 조각이 첫 정점과 비트 동일(열린 에지 방지)

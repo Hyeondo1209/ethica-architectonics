@@ -2802,7 +2802,7 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
     T(`⛔반증 — 걷는 판 명중은 **준광원**(ZI_TREAD_REFL ${K.ZI_TREAD_REFL}): 전 명중 tread = ${LM.zoneIGlowAt([0, 200, 0], [0, 1, 0], allT, dirs2).toFixed(2)} · 전 명중 body = 0 · 하강광은 판을 **통과 못 한다**(직사 그림자 존치) · 판 상면 백색 배선(ZI_TREAD_LIT)`,
       Math.abs(LM.zoneIGlowAt([0, 200, 0], [0, 1, 0], allT, dirs2) - K.ZI_TREAD_REFL) < 1e-12 && LM.zoneIGlowAt([0, 200, 0], [0, 1, 0], allB2, dirs2) === 0
       && LM.zoneIBeamAt(Z.top, [0, 1, 0], allT, bs, Z) === 0 && K.ZI_TREAD_LIT === true
-      && /if \(ZI_TREAD_LIT && o\.userData\.walkable === true\) return ZI_WALL_SELF/.test(ziS2) && /const kind = \(W\) => \{ const k = kindOfTri\(W\); return k === 'glow' \? k : \(walk \? 'tread' : 'body'\) \}/.test(ziS2))
+      && /if \(ZI_TREAD_LIT && o\.userData\.walkable === true\) return zoneITreadTone\(instTop\(o, k\), \[0, 1, 0\], rayFn, B\)/.test(ziS2)   /* ★227 규칙 일반화(영역 밖 = ZI_WALL_SELF — zoneITreadTone이 돌려준다) */ && /const kind = \(W\) => \{ const k = kindOfTri\(W\); return k === 'glow' \? k : \(walk \? 'tread' : 'body'\) \}/.test(ziS2))
   }
   //  ⑼ᶠ ★219-f 전실 채움 — 방 안 점은 직사 0이어도 DIM이 아니다(적분 공동) · 관 속 점은 채움 없음(발광 벽이 채운다) · 채움은 파생(ZI_BOUNCE)
   {
@@ -2830,8 +2830,9 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
     const fIn = LM.zoneIFillFace(LM.ziToWorld(faceC), nIn, Z), fOut = LM.zoneIFillFace(LM.ziToWorld([faceC[0] - 1.5 * t, faceC[1], faceC[2]]), nOut, Z), fCorner = LM.zoneIFillFace(cw, nIn, Z)
     //  ★219-w⁗: 귀퉁이(상자 밖 t)는 이제 점 규칙으로도 채움(여유 = PASS_T · 천장 가장자리 0.6m 띠의 어둠·자글거림이 이 귀퉁이 병의 일반형이었다). 면 규칙과 같은 값. 2t 밖은 여전히 DIM.
     const sFar = LM.zoneIShadeAt(LM.ziToWorld([K.RM_X0, K.PASS_FLOOR_Y + K.RM_ROOF + 2 * t, K.RM_Z1 + 2 * t]), nIn, allB4, B)
-    T(`⛔귀퉁이 반증 — −x벽 상자면 귀퉁이(builder 식 · 상자 밖 z+${(corner[2] - Z.room.z1).toFixed(2)} y+${(corner[1] - Z.room.y1).toFixed(2)}): 점 규칙 ${sPt.toFixed(3)} = 면 규칙(faceFill) ${sFace.toFixed(3)} = 채움(${K.ZI_ROOM_FILL}) — ★219-w⁗ 여유 PASS_T · 2t 밖 ${sFar.toFixed(3)} = DIM · 면 중심 안 향 = 공극 면(${fIn}) · 벽 밖 1.5t 바깥 향 = 아님(${fOut} — 벽 두께 안은 바깥 향도 채움 대상이나 바깥면은 side 0이라 안 칠한다) · 귀퉁이 점도 여유 안(${fCorner})`,
-      Math.abs(sPt - sFace) < 1e-9 && sFace > K.ZI_DIM + 0.1 && Math.abs(sFar - K.ZI_DIM) < 1e-9 && Math.abs(sFace - K.ZI_DIM - (1 - K.ZI_DIM) * K.ZI_K * K.ZI_ROOM_FILL) < 1e-9 && fIn && !fOut && fCorner)
+    const capC = LM.zoneIPathTone(LM.ziToLocal(cw), [1, 0, 0], Z)   // ★227 전실 톤 이음 상한(영역 밖이면 null)
+    T(`⛔귀퉁이 반증 — −x벽 상자면 귀퉁이(builder 식 · 상자 밖 z+${(corner[2] - Z.room.z1).toFixed(2)} y+${(corner[1] - Z.room.y1).toFixed(2)}): 점 규칙 ${sPt.toFixed(3)} = 면 규칙(faceFill) ${sFace.toFixed(3)} = 채움(${K.ZI_ROOM_FILL}) — ★229 베이크 구 값 · 경로는 셰이더 곱(영역 안 ${capC !== null}) — ★219-w⁗ 여유 PASS_T · 2t 밖 ${sFar.toFixed(3)} = DIM · 면 중심 안 향 = 공극 면(${fIn}) · 벽 밖 1.5t 바깥 향 = 아님(${fOut} — 벽 두께 안은 바깥 향도 채움 대상이나 바깥면은 side 0이라 안 칠한다) · 귀퉁이 점도 여유 안(${fCorner})`,
+      Math.abs(sPt - sFace) < 1e-9 && sFace > K.ZI_DIM + 0.1 && Math.abs(sFar - K.ZI_DIM) < 1e-9 && Math.abs(sFace - K.ZI_DIM - (1 - K.ZI_DIM) * K.ZI_K * K.ZI_ROOM_FILL) < 1e-9 && fIn && !fOut && fCorner && capC !== null)   // ★229 베이크 = 구 값(경로는 셰이더 곱) · 귀퉁이는 경로 영역 안(capC ≠ null)
     const lmG = readFileSync(new URL('./lightingModel.js', import.meta.url), 'utf8'), ziG2 = readFileSync(new URL('./ZoneI.jsx', import.meta.url), 'utf8'), prG = readFileSync(new URL('./_probe_zoneI.mjs', import.meta.url), 'utf8')
     T('배선 — zoneIShadeAt 채움 = faceFill ∨ 점 규칙(여유 PASS_T · ★219-w⁗) 한 곳 · ZoneI bakeMesh는 안면 삼각형마다 zoneIFillFace(중심·want)로 fillV를 표시해 정점 음영에 넘기고, 삼각형별 판정(triSide)을 records로 남겨 window.__ethicaZi에 rayFn·B·ipts와 함께 단다 · _probe_zoneI --verify가 그것으로 전 삼각형 판정↔값을 대조한다(장면 있는 검사 = [521] 한계의 반쪽)',
       /faceFill \|\| inBox\(q, B\.spec\.room, PASS_T \+ 1e-3\) \|\| inBox\(q, B\.spec\.chan, PASS_T \+ 1e-3\)/.test(lmG) && !/ZI_FILL_MG|zoneIFillIn/.test(lmG)
@@ -3113,6 +3114,239 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
   //  ★217-b 메모 = 값 동일: 같은 점을 두 번 물어 첫 값과 둘째 값이 `===`, 그리고 메모 없는 원문 경로(Raw는 비공개)와는 봉인(_probe_bake --diff 1635)이 대조했다
   const Zs = LM.zoneABakeSpec(); const q = [3.1, 95.2, -2.7], nn = [0.6, 0.8, 0]
   T('★217-b zoneAShadeAt 메모 — 같은 입력 두 번 = 같은 double(===) · 유한값', LM.zoneAShadeAt(q, nn, Zs) === LM.zoneAShadeAt(q, nn, Zs) && Number.isFinite(LM.zoneAShadeAt(q, nn, Zs)))
+}
+
+// ───────────────────────── S-21. ★226 빛 구획 F(회랑 1p9) 명암 — 도구·판정·정규화·재격자·배선 (2026.09.24) ─────────────────────────
+//  ⚠현재값 단언 금지(이 스위트 규율): 전부 도구 자기검증·유도식 대조·불변식. 세기 노브(FILL·POOL_K·WIN_K·GAMMA)는 현도 판정 대상이라 값이 아니라 위생만 문다.
+{
+  console.log('\n── S-21. ★226 빛 구획 F — 회랑 명암 ──')
+  const K = await import('./constants.js'), THREE = await import('three'), CG = await import('./clfGrid.js')
+  const S = LM.clfSpec(), F = S ? S.F : null
+  if (!K.CLF_ON) T('★226 보존계(CLF_ON=false) — 명세 null · 정점 값 = 1(구 체제 그대로) · 나머지 절 보류(체제 분기로 항 수가 준다 — 규율 28)', S === null && LM.clfShadeAt([170, 250, 0], [0, 1, 0], S) === 1)
+  else {
+  T('★226 명세 존재(CLF_ON) · 등불 수 = LAMP_RIBS · 창 조각 > 0 · 기준 조도 둘 다 양수', !!S && S.lamps.length === K.LAMP_RIBS.length && S.win.length > 0 && S.poolRef > 0 && S.winRef > 0)
+  //  ⓐ 클리핑 도구 — 합성 정사각형(수신 평면 y=0 · 위 향)
+  { const sq = (y0, y1) => [[-1, y0, 2], [1, y0, 2], [1, y1, 2], [-1, y1, 2]], p = [0, 0, 0], n = [0, 1, 0]
+    const a = LM.clipPolyToPlane(sq(1, 3), p, n), b = LM.clipPolyToPlane(sq(-3, -1), p, n), c = LM.clipPolyToPlane(sq(-1, 1), p, n)
+    const ys = c.map((q) => q[1])
+    T('ⓐ clipPolyToPlane — 전부 앞 = 그대로(4점) · 전부 뒤 = 빈 다각형 · 걸침 = 평면에서 잘린 사각형(최저 y = 0)', a.length === 4 && b.length === 0 && c.length === 4 && Math.abs(Math.min(...ys)) < 1e-9 && Math.max(...ys) === 1) }
+  //  ⓑ 클리핑 조도 = 수치 적분(격자 · 앞쪽만 · ∫cosθr·cosθs/d² dA — polyIrradiance의 정규화와 같은 식) — 걸친 발광면에서 클리핑 없는 원식은 과소평가
+  { const p = [0, 0, 0], n = [0, 1, 0], sn = [0, 0, -1], poly = [[-1, -1, 2], [1, -1, 2], [1, 2, 2], [-1, 2, 2]]
+    let I = 0; const N = 600
+    for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) { const x = -1 + 2 * (i + 0.5) / N, y = -1 + 3 * (j + 0.5) / N; if (y <= 0) continue
+      const d = [x, y, 2], L = Math.hypot(...d), cr = y / L, cs = 2 / L; I += cr * cs / (L * L) * (2 / N) * (3 / N) }
+    const Ec = LM.polyIrradianceClip(p, n, poly, sn), Eu = LM.polyIrradiance(p, n, poly, sn)
+    T(`ⓑ 클리핑 조도 = 격자 적분(${I.toFixed(5)}) — 클리핑 ${Ec.toFixed(5)}(오차 ${(100 * Math.abs(Ec - I) / I).toFixed(2)}%) · 원식 ${Eu.toFixed(5)}(뒤쪽 몫을 음수로 섞어 과소)`, Math.abs(Ec - I) / I < 0.01 && Eu < I * 0.99) }
+  //  ⓒ 등불 명세 정본 = 구판 인라인 식과 항등(리팩터가 값을 안 바꿨다) · 렌더가 정본을 읽는다(배선)
+  { const n = K.LAMP_RIBS.length, sp = K.clLampSpecs(); let bad = 0
+    K.LAMP_RIBS.forEach((k, i) => { const fl = K.clLandingY(i), fr = n > 1 ? i / (n - 1) : 0, my = fl + K.LAMP_MOUTH_Y0 + (K.LAMP_MOUTH_Y1 - K.LAMP_MOUTH_Y0) * fr
+      if (sp[i].k !== k || sp[i].floor !== fl || sp[i].mouthY !== my || sp[i].neckY !== my + K.LAMP_FUNNEL_H) bad++ })
+    const dome = readFileSync(new URL('./Dome.jsx', import.meta.url), 'utf-8'), cl = dome.slice(dome.indexOf('export function CloisterLamps'), dome.indexOf('export function Terrace'))
+    T(`ⓒ clLampSpecs = 구판 인라인 식(=== · ${n}기 불일치 ${bad}) · CloisterLamps가 정본을 읽고 인라인 식은 없다`, bad === 0 && /clLampSpecs\(\)\.map/.test(cl) && !/LAMP_MOUTH_Y0 \+ \(LAMP_MOUTH_Y1/.test(cl)) }
+  //  ⓓ 공극 판정 — 경계 엄격 · 창 인방 포함 · 바닥·천장·끝 밖
+  { const at = (ph, r, y) => [r * Math.cos(ph), y, r * Math.sin(ph)], sp = K.clLampSpecs(), L4 = sp[4], ph = L4.phi
+    const oks = [LM.clfInterior(at(ph, K.CL_R, L4.floor + 1.6)), !LM.clfInterior(at(ph, K.CL_R, L4.floor - 0.1)), !LM.clfInterior(at(ph, K.CL_R, F.roof + 0.01)),
+      !LM.clfInterior(at(ph, F.rIn - 0.01, L4.floor + 2)), !LM.clfInterior(at(ph, K.CL_R_IN2, L4.floor + 2)),
+      !LM.clfInterior(at(ph, F.rOut + 0.75, K.clSillActiveY(ph) + 1)), !LM.clfInterior(at(ph, F.rOut + 0.75, K.clSillActiveY(ph) - 0.1)), !LM.clfInterior(at(ph, F.rOut + 0.75, F.head + 0.1)),   // ★226-b 창 인방 = 밖
+      !LM.clfInterior(at(F.phi0 - 0.001, K.CL_R, 250)), !LM.clfInterior(at(F.phi1 + 0.001, K.CL_R, 245)), !LM.clfInterior(at(ph, F.rOut, L4.floor + 1.0))]   // 마지막 = 파라펫 벽 판 위(창턱 밑) · ⛔첫 판은 floor+2(창턱 위 = 개구 안 — 거기엔 벽이 없다)를 골라 검사가 틀렸다
+    T(`ⓓ clfInterior — 통로 안 ✓ · 바닥 밑·천장 위·안벽 밖·안벽 바깥면·창턱 밑·위턱 위·양 끝 밖·파라펫 벽 판 위 = 밖 ✓ · ★226-b 창 인방 = 밖 ✓ (${oks.filter(Boolean).length}/${oks.length})`, oks.every(Boolean)) }
+  //  ⓔ 면 방향 — 감김 기준 부호: 안벽(+반경 향) · 같은 삼각형 역감김 = 부호 반전 · 안벽 바깥면(r=rIn2) = 0 · 지붕 판 = 아래쪽
+  { const sp = K.clLampSpecs(), ph = sp[3].phi, y = sp[3].floor + 3, c = Math.cos(ph), s = Math.sin(ph), tx = [-s, 0, c]
+    const tri = (r, yy) => [[r * c, yy, r * s], [r * c + tx[0] * 0.5, yy, r * s + tx[2] * 0.5], [r * c, yy + 0.5, r * s]]
+    const W = tri(F.rIn, y), nw = (() => { const u = [W[1][0] - W[0][0], W[1][1] - W[0][1], W[1][2] - W[0][2]], v = [W[2][0] - W[0][0], W[2][1] - W[0][1], W[2][2] - W[0][2]]; return [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]] })()
+    const sIn = LM.clfFaceSide(W), sRev = LM.clfFaceSide([W[0], W[2], W[1]]), sOut = LM.clfFaceSide(tri(K.CL_R_IN2, y))
+    const expIn = (nw[0] * c + nw[2] * s) > 0 ? 1 : -1                     // 감김 법선이 +반경(통로 쪽)이면 +1
+    const R0 = [[K.CL_R * c, F.roof, K.CL_R * s], [(K.CL_R + 0.5) * c, F.roof, (K.CL_R + 0.5) * s], [K.CL_R * c + tx[0] * 0.5, F.roof, K.CL_R * s + tx[2] * 0.5]]
+    const rn = (() => { const u = [R0[1][0] - R0[0][0], R0[1][1] - R0[0][1], R0[1][2] - R0[0][2]], v = [R0[2][0] - R0[0][0], R0[2][1] - R0[0][1], R0[2][2] - R0[0][2]]; return u[2] * v[0] - u[0] * v[2] })()
+    T(`ⓔ clfFaceSide — 안벽 ${sIn}(기대 ${expIn}) · 역감김 ${sRev} · 안벽 바깥면 ${sOut} · 지붕 판 = 아래 향 쪽`, sIn === expIn && sRev === -expIn && sOut === 0 && LM.clfFaceSide(R0) === (rn < 0 ? 1 : -1)) }
+  //  ⓕ 정규화 — 기준점에서 원시 항 = 1(그 등불 웅덩이 단독) · 창 컬링은 기준점 값을 안 바꾼다(안벽에서 보이는 창은 ±acos(rIn/rOut) 안)
+  { const L0 = S.lamps[0], e0 = LM.polyIrradianceClip(S.poolRefP, S.poolRefN, L0.pool.v, L0.pool.n) / S.poolRef, Tw = LM.clfTermsAt(S.winRefP, S.winRefN, S)
+    const reachMin = 2 * Math.acos(F.rIn / F.rOut)
+    T(`ⓕ 기준점 — 웅덩이 단독 ${e0} · 창(컬링 적용) ${Tw.win.toFixed(12)} = 1 · 컬링각 ${(K.CLF_WIN_REACH * 180 / Math.PI).toFixed(1)}° ≥ 2·acos(rIn/rOut) ${(reachMin * 180 / Math.PI).toFixed(2)}°`,
+      Math.abs(e0 - 1) < 1e-12 && Math.abs(Tw.win - 1) < 1e-9 && K.CLF_WIN_REACH >= reachMin - 1e-12) }
+  //  ⓖ 웅덩이 컬링 거리 — 그 거리의 최선 방향(웅덩이를 정면으로 보는 점) 기여 < 1% · 윗 웅덩이 평면 아래 점은 그 웅덩이에서 0(계단 차폐가 식에서 나온다)
+  { const L0 = S.lamps[0], d = K.CLF_POOL_REACH, q = [L0.x + d, L0.floor + 0.5, L0.z], nq = [-1, 0, 0]
+    const far = LM.polyIrradianceClip(q, LM.nrm([L0.x - q[0], L0.floor - q[1], L0.z - q[2]]), L0.pool.v, L0.pool.n) / S.poolRef
+    const L1 = S.lamps[1], below = [L1.x, L1.floor + 1, L1.z], ph0 = LM.polyIrradianceClip(below, [0, 1, 0], L0.pool.v, L0.pool.n)
+    T(`ⓖ 웅덩이 컬링 ${d}m 최선 방향 기여 ${far.toExponential(2)} < 1e-2 · 아랫 층계참(1.2 낮음) 점은 윗 웅덩이 평면 밑 → ${ph0}`, far < 1e-2 && ph0 === 0 && nq) }
+  //  ⓗ 빛기둥 — 등불 축 바닥 1 · 발 반경 밖 0 · 갓 입 위 0 · 아래 향 면 0 · 가장자리 부드러움 단조
+  { const L = S.lamps[5], b = (dx, y, n = [0, 1, 0]) => LM.clfBeamAt([L.x + dx, y, L.z], n, L)
+    const ramp = [0, 0.5, 1.0, 1.4, 1.5, 1.6, 1.7].map((r) => b(r, L.floor))
+    T(`ⓗ clfBeamAt — 축 ${b(0, L.floor)} · 발 밖 ${b(K.LAMP_POOL_R + 0.05, L.floor)} · 입 위 ${b(0, L.mouthY + 0.1)} · 아래 향 ${b(0, L.floor, [0, -1, 0])} · 반경 단조 [${ramp.map((x) => x.toFixed(2)).join(',')}]`,
+      b(0, L.floor) === 1 && b(K.LAMP_POOL_R + 0.05, L.floor) === 0 && b(0, L.mouthY + 0.1) === 0 && b(0, L.floor, [0, -1, 0]) === 0 && ramp.every((x, i) => i === 0 || x <= ramp[i - 1])) }
+  //  ⓘ 물리 개형 — 안벽 눈높이 웅덩이 항이 등불에서 이웃 등불 중점까지 단조 감소(두 등불 사이가 어둡다)
+  { const A = S.lamps[3], B = S.lamps[4], vals = []
+    for (let k = 0; k <= 10; k++) { const ph = A.phi + (B.phi - A.phi) / 2 * k / 10, c = Math.cos(ph), s = Math.sin(ph)
+      vals.push(LM.polyIrradianceClip([F.rIn * c, A.floor + 1.6, F.rIn * s], [c, 0, s], A.pool.v, A.pool.n)) }
+    T(`ⓘ 웅덩이 항 단조 — 등불 옆 → 중점 [${vals.map((x) => (x / S.poolRef).toFixed(3)).join(',')}]`, vals.every((x, i) => i === 0 || x < vals[i - 1]) && vals[10] < vals[0] * 0.5) }
+  //  ⓙ 합성 — 무광 = DIM+(1−DIM)·FILL^γ · 포화 = 1 · 창 끄기 = 창 몫 제거 · clfShadeAt = clfCompose(clfTermsAt) 항등
+  { const k0 = { ...LM.CLF_TUNE }, z = { pool: 0, win: 0, beam: 0 }
+    const d0 = LM.clfCompose(z, k0), dS = LM.clfCompose({ pool: 50, win: 0, beam: 0 }, k0), w1 = LM.clfCompose({ pool: 0, win: 1, beam: 0 }, { ...k0, WIN_ON: true }), w0 = LM.clfCompose({ pool: 0, win: 1, beam: 0 }, { ...k0, WIN_ON: false })
+    const q = [F.rIn * Math.cos(0.4), 246, F.rIn * Math.sin(0.4)], nq = [Math.cos(0.4), 0, Math.sin(0.4)]
+    T(`ⓙ clfCompose — 무광 ${d0.toFixed(4)} = DIM+(1−DIM)·FILL^γ · 포화 ${dS} · 창 끄기 ${w0.toFixed(4)} < 켜기 ${w1.toFixed(4)} · clfShadeAt 항등`,
+      Math.abs(d0 - (K.CLF_DIM + (1 - K.CLF_DIM) * Math.pow(K.CLF_FILL, K.CLF_GAMMA))) < 1e-12 && dS === 1 && w0 === d0 && w1 > w0 && LM.clfShadeAt(q, nq, S) === LM.clfCompose(LM.clfTermsAt(q, nq, S))) }
+  //  ⓚ 원시 재격자 — 면 동일(새 정점 → 원래 면 최단거리 ≤ 1e-4) · 면적 동일 · 최장변 ≤ √2·L · 안벽 삼각형 수 상한(★226 폭발 수리의 회귀 방지)
+  { const t = K.PASS_T, rIn = F.rIn, rOut = F.rOut, L = K.CLF_SUBDIV, segs = K.clFloorSegments().segs, tr = segs.find((x) => x.kind === 'tread'), b = K.clSillBands()[0]
+    const cases = [['디딤판', new THREE.RingGeometry(rIn - t, rOut + t, 64, 1, -tr.p1, tr.p1 - tr.p0)], ['지붕', new THREE.RingGeometry(K.CL_R_IN2, K.CL_R_OUT2, 64, 1, -K.CL_PHI1, K.CL_PHI1 - K.CL_PHI0)],
+      ['안벽', new THREE.CylinderGeometry(rIn, rIn, F.roof - K.CL_WALL_BOT, 64, 1, true, 0.3, K.CL_PHI1 - K.CL_PHI0)], ['파라펫', new THREE.CylinderGeometry(rOut, rOut, b.y - K.CL_WALL_BOT, 64, 1, true, 0, b.p1 - b.p0)],
+      ['챌판', new THREE.BoxGeometry(2 * K.CL_HW + 2 * t, K.CL_STEP_RISE + t, t)]]
+    const area = (g) => { const P = g.attributes.position, I = g.index; let a = 0; const A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3()
+      for (let i = 0; i < I.count; i += 3) { A.fromBufferAttribute(P, I.getX(i)); B.fromBufferAttribute(P, I.getX(i + 1)); C.fromBufferAttribute(P, I.getX(i + 2)); a += B.clone().sub(A).cross(C.clone().sub(A)).length() / 2 } return a }
+    let worst = 0, badA = 0, maxE = 0, nWall = 0
+    for (const [nm, g0] of cases) { const g = CG.regridPrimitive(g0, L), P = g.attributes.position, I = g.index.array, P0 = g0.attributes.position, I0 = g0.index
+      const tri = new THREE.Triangle(), cp = new THREE.Vector3(), Q = new THREE.Vector3(), A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3()
+      for (let i = 0; i < P.count; i += 7) { Q.fromBufferAttribute(P, i); let best = Infinity
+        for (let j = 0; j < I0.count; j += 3) { A.fromBufferAttribute(P0, I0.getX(j)); B.fromBufferAttribute(P0, I0.getX(j + 1)); C.fromBufferAttribute(P0, I0.getX(j + 2)); tri.set(A, B, C); tri.closestPointToPoint(Q, cp); best = Math.min(best, cp.distanceTo(Q)) }
+        worst = Math.max(worst, best) }
+      if (Math.abs(area(g) - area(g0)) > 1e-3 * area(g0)) badA++
+      for (let i = 0; i < I.length; i += 3) for (const [x, y] of [[I[i], I[i + 1]], [I[i + 1], I[i + 2]], [I[i + 2], I[i]]]) maxE = Math.max(maxE, Math.hypot(P.getX(x) - P.getX(y), P.getY(x) - P.getY(y), P.getZ(x) - P.getZ(y)))
+      if (nm === '안벽') nWall = I.length / 3 }
+    T(`ⓚ regridPrimitive — 원래 면까지 최대거리 ${worst.toExponential(1)} ≤ 1e-4 · 면적 불일치 ${badA} · 최장변 ${maxE.toFixed(3)} ≤ √2·L · 안벽 ${nWall}장 ≤ 20000(★226 변 세분 165,888 회귀 방지)`,
+      worst <= 1e-4 && badA === 0 && maxE <= Math.SQRT2 * L + 1e-9 && nWall > 0 && nWall <= 20000) }
+  //  ⓝ ★226-b 창 가장자리 특이점 회귀 방지 — ① 인방 밑면·창턱 윗면(법선이 창에 수직)의 안쪽 모서리 점은 한 발짝 띄워도 공극 밖(굽지 않는다)
+  //   ② 반례 실재: 그 모서리를 굽는다면 값이 튄다(위턱 밑면 안쪽 모서리 0.3cm 앞 vs 0.75m 안쪽 — 이 항이 특이점을 **재현**해야 ①이 의미를 갖는다)
+  //   ③ 창과 같은 평면 벽(위턱 위 바깥벽)의 위턱선 정점은 0.75m 위 이웃과 연속(차 < 0.05)
+  { const sp = K.clLampSpecs(), ph = (sp[3].phi + sp[4].phi) / 2, c = Math.cos(ph), s = Math.sin(ph), q = (r, y) => [r * c, y, r * s], dn = [0, -1, 0], up = [0, 1, 0], inw = [-c, 0, -s]
+    const sill = K.clSillActiveY(ph)
+    const outA = !LM.clfInterior([F.rOut * c + 0.0, F.head - K.CLF_EPS, F.rOut * s]) && !LM.clfInterior(q(F.rOut + 0.4, F.head - K.CLF_EPS)) && !LM.clfInterior(q(F.rOut + 0.4, sill + K.CLF_EPS))
+    //  반례 좌표 = 현도 화면 톱니의 실제 정점(프로브 --dump 실측: #691 정점 r 172.597 · φ 5.293° · 구운 값 0.955)
+    const fb = 5.293 * Math.PI / 180, qb = (r, y) => [r * Math.cos(fb), y, r * Math.sin(fb)]
+    const tEdge = LM.clfShadeAt(qb(172.597, F.head), dn, S), tIn = LM.clfShadeAt(qb(F.rOut + 0.75, F.head), dn, S)
+    const wEdge = LM.clfShadeAt(q(F.rOut - 0.003, F.head), inw, S), wUp = LM.clfShadeAt(q(F.rOut - 0.003, F.head + 0.75), inw, S)
+    T(`ⓝ ★226-b 창 가장자리 — 인방 밑면·창턱 윗면 모서리 = 공극 밖 ✓ · 반례(굽는다면 · 실측 톱니 정점): 위턱 밑면 모서리 값 ${tEdge.toFixed(3)} vs 0.75m 안 ${tIn.toFixed(3)} · 같은 평면 벽 위턱선 ${wEdge.toFixed(3)} ≈ 0.75m 위 ${wUp.toFixed(3)}`,
+      outA && tEdge > 0.9 && tEdge - tIn > 0.5 && Math.abs(wEdge - wUp) < 0.05 && up) }
+  //  ⓞ ★227 전실 톤 이음 — 경로 명세 파생 · 끝점 항등 · 단조 · 영역 한정 · 직사 보존 · 배선
+  if (!K.ZI_PATH_ON) T('ⓞ ★227 보존계(ZI_PATH_ON=false) — 상한 없음(전 표본 null · 구 체제) · 나머지 ⓞ 보류(체제 분기 — 규율 28)', [[180, 249, 0], [172, 248.2, 0], [170, 248.2, 4.5]].every((p) => LM.zoneIPathTone(p, [0, 1, 0]) === null))
+  else { const P = LM.zoneIPathSpec(), Zi = LM.zoneISpec()
+    const Tref = LM.clfMouthTone(), aT = P.aOf(P.T), shT = K.ZI_DIM + (1 - K.ZI_DIM) * K.ZI_K * Math.pow(Math.min(1, aT), K.ZI_GAMMA)
+    T(`ⓞ① ★227 경로 파생 — P0 = (X_DESC0, JCT_DN_Z) · P1 = (X_DESC_END, ·) · P2 = (CL_R, RM_Z1) · 목표 T = clfMouthTone ${P.T.toFixed(4)} · 끝 상한으로 구운 명암 ${shT.toFixed(12)} = T(항등)`,
+      P.P[0][0] === K.X_DESC0 && P.P[1][0] === K.X_DESC_END && P.seg.x0 === K.CL_R - K.CL_HW && P.seg.x1 === K.CL_R + K.CL_HW && P.seg.z === K.RM_Z1 && LM.zoneIPathU([K.CL_R - K.CL_HW + 0.01, 250, K.RM_Z1]) === 1 && LM.zoneIPathU([K.CL_R + K.CL_HW - 0.01, 250, K.RM_Z1]) === 1 &&   /* ★235 입 선분 전체 u = 1 */ P.T === Tref && Math.abs(shT - P.T) < 1e-12 && P.T > K.ZI_DIM && P.T < 1)
+    const us = [], as = []; for (let k = 0; k <= 20; k++) { const t = k / 20, x = K.X_DESC0 + (K.X_DESC_END - K.X_DESC0) * t; us.push(LM.zoneIPathU([x, 250, 0])) }
+    for (let k = 0; k <= 20; k++) { const t = k / 20, p = [K.X_DESC_END + (K.CL_R - K.X_DESC_END) * t, 248.2, K.JCT_DN_Z + (K.RM_Z1 - 0.5 - K.JCT_DN_Z) * t]; const a = LM.zoneIPathTone(p, [0, 1, 0], Zi); as.push(a) }
+    T(`ⓞ② 단조 — 하강 축 u 0→${us[20].toFixed(3)} 증가 · 전실 대각 상한 ${as[0].toFixed(3)} → ${as[20].toFixed(3)} 감소(전 표본 영역 안)`, us.every((u, i) => i === 0 || u > us[i - 1]) && as.every((a, i) => a !== null && (i === 0 || a <= as[i - 1] + 1e-12)) && as[0] > as[20])
+    //  ★228 u 연속(립시츠) — 이웃 h 간 차 ≤ 2h/(L1+L2)(두 항 각 기울기 ≤ 1/(L1+L2)). ⛔'가까운 조각' 판은 전환선에서 뛰었다(천장 대각선)
+    { const h = 0.1, bound = 2 * h / (P.L1 + P.L2); let worst = 0
+      for (let x = 164; x <= 191; x += h) for (let z = -5; z <= 6; z += h) { const u = LM.zoneIPathU([x, 250, z]); worst = Math.max(worst, Math.abs(LM.zoneIPathU([x + h, 250, z]) - u), Math.abs(LM.zoneIPathU([x, 250, z + h]) - u)) }
+      T(`ⓞ②′ ★228 u 연속 — 전실·채널 격자(0.1m) 이웃 최대 차 ${worst.toFixed(5)} ≤ 립시츠 한계 ${bound.toFixed(5)}`, worst <= bound + 1e-12) }
+    //  ★228 중간톤 정의 — 전실 중심(방 상자 중심 · 바닥 위 1.6)의 직사 없는 명암 = (1 + T)/2 · 지수 p 파생(ln 0.5 / ln u_c)
+    { const c = [(K.RM_X0 + K.RM_X1) / 2, K.PASS_FLOOR_Y + 1.6, (K.RM_Z0 + K.RM_Z1) / 2], a = LM.zoneIPathTone(c, [0, 1, 0], Zi), sh = K.ZI_DIM + (1 - K.ZI_DIM) * K.ZI_K * Math.pow(Math.min(1, a), K.ZI_GAMMA)
+      T(`ⓞ②″ ★228 전실 = 중간톤 — 방 중심 명암 ${sh.toFixed(6)} = (1 + T)/2 ${((1 + P.T) / 2).toFixed(6)} · p = ln0.5/ln u_c = ${P.p.toFixed(4)}(u_c ${P.uc.toFixed(4)})`,
+        Math.abs(sh - (1 + P.T) / 2) < 1e-9 && Math.abs(P.p - Math.log(0.5) / Math.log(P.uc)) < 1e-12 && P.p > 0) }
+    const outs = [[[200, 262, 0], [0, 1, 0]], [[195, 258, 0], [0, 1, 0]], [[170, 250, 8], [0, 1, 0]]]
+    T('ⓞ③ 영역 한정 — 무릎길 관 속 · 하강 위 판 너머 · 회랑 안(z>RM_Z1+PASS_T) = null(구 코드 경로 · 비트 동일)', outs.every(([p, n]) => LM.zoneIPathTone(p, n, Zi) === null))
+    //  ④ 직사 보존: 빛기둥 밑 바닥은 상한이 낮아도 구멍 조도로 밝다(합성 광선 = 무가림) · 상한 적용 식 = min(E_주변, a) + E_직사
+    const Bz = LM.zoneIBake(), spot = LM.ziToWorld([Zi.spot[0], Zi.spot[1] + 0.001, Zi.spot[2]]), noRay = () => null
+    const tSpot = LM.zoneITreadTone(spot, [0, 1, 0], noRay, Bz), aSpot = LM.zoneIPathTone(LM.ziToLocal(spot), [0, 1, 0], Zi)
+    const src = readFileSync(new URL('./lightingModel.js', import.meta.url), 'utf-8'), zsrc = readFileSync(new URL('./ZoneI.jsx', import.meta.url), 'utf-8')
+    T(`ⓞ④ 직사 보존 — 빛기둥 밑 상한 ${aSpot.toFixed(3)}인데 걷는 판 톤 ${tSpot.toFixed(3)}(직사가 더해져 밝다) · ★229 zoneIShadeAt에 경로 없음(베이크 = 구 값 · 벽·천장은 셰이더 곱) · 걷는 판 정점 = 직사만 굽고 a는 셰이더가 더함`,
+      tSpot > K.ZI_DIM + (1 - K.ZI_DIM) * aSpot + 0.3 && !/zoneIPathTone\(/.test(src.slice(src.indexOf('export function zoneIShadeAt'), src.indexOf('export function zoneIStubBlend'))) && src.includes('if (holeOnly) return ZI_DIM + (1 - ZI_DIM) * Math.min(1, eh)'))
+    T('ⓞ⑤ 배선 — ZoneI 걷는 판 규칙 3곳(인스턴스·평활·부재) 모두 zoneITreadTone · ZI_WALL_SELF 직접 반환 0 · 스위치 ZI_PATH_ON 불리언',
+      (zsrc.match(/zoneITreadTone\(/g) || []).length === 1 && !/walkable === true\) return ZI_WALL_SELF/.test(zsrc) && typeof K.ZI_PATH_ON === 'boolean') }   // ★231 인스턴스(전체 식) 1곳 · 정점 판의 직사 = 셰이더 해석 프로파일 · 정점색 = ZI_WALL_SELF(구 값)
+  //  ⓟ ★227 이음매 패스 배선(장면이 필요한 실측은 _probe_zoneI --verify Ⓑ 예외 계수 · _probe_clf 이음매 목록이 한다)
+  { const cs = readFileSync(new URL('./CloisterLight.jsx', import.meta.url), 'utf-8'), vs = readFileSync(new URL('./_probe_zoneI_verify.mjs', import.meta.url), 'utf-8')
+    T('ⓟ ★227 이음매 패스 — 구역 I 기록(__ethicaZi.records)을 기다림 · 대상 = triSide 0 ∧ clfFaceSide ≠ 0(규칙 선택 · 부재 목록 없음) · 공유 정점 복제(★227-b · 색인만 고침) · 쓴 정점 = userData.clfSeam · 구역 I 전수 대조 Ⓑ가 그 집합만 명시 예외로 센다',
+      /Zh\.records/.test(cs) && cs.includes('s = (triSide[t] === 0 || (triSide[t] === s0 && Math.abs(n[1]) < 0.5)) ? s0 : 0') && cs.includes('dupOf.set(id, P.count + add++)') && cs.includes('loc = (i) => v.fromBufferAttribute(g.attributes.position, i)') && cs.includes('if (!Number.isFinite(val)) { nNaN++; return }') && cs.includes('terms[3 * id] = T.pool; terms[3 * id + 1] = T.win; terms[3 * id + 2] = T.beam\n') &&   /* ★234 */ cs.includes('g.userData.clfSeam = Int32Array.from(written)')
+      && vs.includes("new Set(g.userData.clfSeam || [])") && vs.includes('if (!vIn[id] && seamSet.has(id)) { nSeam++; continue }')) }
+  //  ⓞ⑥ ★229 셰이더 = 순수 함수 — GLSL 식을 유니폼 위에서 그대로 옮겨(여기가 유일한 사본 = 대조용) zoneIPathA와 400점 대조 · 배선
+  if (K.ZI_PATH_ON) { const G = LM.zoneIPathGLSL(), [p1x, p2x, p2z, dMax] = G.uniforms.uZiPath, [pp, TT, DD] = G.uniforms.uZiPath2, [c, s] = G.uniforms.uZiRot
+    //  ⛔첫 판은 여기에 식을 **손으로 다시 적어** zoneIPathA와 대조했다 — GLSL 문자열을 안 읽어 반증(셰이더에서 smoothstep 삭제)이 안 물렸다(공허 가드 · 규율 26·27).
+    //   ⇒ GLSL 함수 **본문 텍스트를 기계 번역해 실행**한다(length(vec2(a,b)) → hypot · clamp · pow · 유니폼 치환). 번역 불가 구문이 남으면 throw.
+    const fnOf = (name) => { const i0 = G.fn.indexOf('float ' + name + '('), b0 = G.fn.indexOf('{', i0), b1 = G.fn.indexOf('\n}', b0); if (i0 < 0 || b1 < 0) throw new Error('ⓞ GLSL 함수 없음 ' + name); return G.fn.slice(b0 + 1, b1) }   // ★231 함수 이름으로 잘라낸다(둘 이상)
+    const body = fnOf('ziPathA')
+    //  ★235 번역 = GLSL 내장 함수를 JS로 **정의**하고 본문을 그대로 실행(정규식 치환은 중첩 괄호에서 깨졌다) — 유니폼 이름만 값으로 묶는다
+    const js = body.replace(/float /g, 'let ')
+    if (/[^\w.](int|bool|vec3)\s/.test(js)) throw new Error('ⓞ⑥ GLSL 번역 불가 구문: ' + js)
+    const lib = { vec2: (a, b) => [a, b], length: (v) => Math.hypot(...v), clamp: (x, a, b) => Math.min(b, Math.max(a, x)), pow: Math.pow }
+    const glsl = new Function('w', 'uZiRot', 'uZiPath', 'uZiPath2', 'vec2', 'length', 'clamp', 'pow', js)
+    const V4 = (a) => ({ x: a[0], y: a[1], z: a[2], w: a[3] })
+    const glslAt = (w3) => glsl({ x: w3[0], y: w3[1], z: w3[2] }, { x: c, y: s }, V4(G.uniforms.uZiPath), V4(G.uniforms.uZiPath2), lib.vec2, lib.length, lib.clamp, lib.pow)
+    let worst = 0; for (let i = 0; i < 400; i++) { const l = [164 + 27 * ((i * 37) % 400) / 400, 250, -5 + 11 * ((i * 91) % 400) / 400]; worst = Math.max(worst, Math.abs(glslAt(LM.ziToWorld(l)) - LM.zoneIPathA(l))) }
+    const zs = readFileSync(new URL('./ZoneI.jsx', import.meta.url), 'utf-8'), cls = readFileSync(new URL('./CloisterLight.jsx', import.meta.url), 'utf-8')
+    T(`ⓞ⑥ ★229 픽셀 경로 — **GLSL 본문 텍스트를 번역·실행**한 값 = zoneIPathA 400점 최대 차 ${worst.toExponential(1)} · 유니폼 DIM ${DD} = ZI_DIM · ZoneI: aZiPath 1/2 표시·셰이더 패치·걷는 판 holeOnly 2곳 · 이음매 정점 aZiPath 0`,
+      worst < 1e-9 && DD === K.ZI_DIM && K.ZI_GAMMA === 1 && K.ZI_K === 1 && zs.includes("g.setAttribute('aZiPath', new THREE.BufferAttribute(pathF, 3))") && zs.includes("chain(m, pathPatch, '|zipath')") && (zs.match(/\? ZI_WALL_SELF : zoneIShadeAt\(/g) || []).length === 2
+      && G.color.includes('ziVc *= mix(1.0, ziA, clamp(vZiPath.x, 0.0, 1.0))') && G.color.includes('ziVc = mix(ziVc, vec3(ziT), clamp(vZiPath.y, 0.0, 1.0))') && cls.includes('AP.setXYZ(id, 0, 0, 0)')) }
+  //  ⓞ⑦ ★231 웅덩이 해석 프로파일 — 중심 = ZI_HOLE_K(항등) · 단조 감소 · 끝 = 0 = 기하 한계 ρ_max · 표 보간 ↔ 직접 적분 · **GLSL ziHole 본문 번역·실행** = zoneIHoleProfileAt · 원식(16표본)은 가림 없이 넓다(모양 = 가림)
+  if (K.ZI_PATH_ON) { const H = LM.zoneIHoleProfile(), G = LM.zoneIPathGLSL(), Zs = LM.zoneISpec(), o = Zs.oculus, hh = Zs.hole, yF = Zs.spot[1]
+    const rMaxGeo = o.r + (hh.r + o.r) * (o.c[1] - yF) / (hh.c[1] - o.c[1]), v = H.vals, rBeam = LM.zoneIShaftBeamR(Zs)
+    let interpErr = 0; for (const rho of [0.3, 0.7, 1.1, 1.5, 1.9]) interpErr = Math.max(interpErr, Math.abs(LM.zoneIHoleProfileAt([H.cx + rho, 0, H.cz]) - H.E(rho)))
+    const i0 = G.fn.indexOf('float ziHole('), b0 = G.fn.indexOf('{', i0), b1 = G.fn.indexOf('\n}', b0), body = G.fn.slice(b0 + 1, b1)
+    let js = body.replace(/float /g, 'let ').replace(/int i = int\(floor\(r\)\);/, 'let i = Math.floor(r);').replace(/float\(i\)/g, 'i').replace(/length\(vec2\(([^()]*)\)\)/g, 'Math.hypot($1)')
+      .replace(/mix\(uZiHole\[i\], uZiHole\[i \+ 1\], f\)/, '(HV[i] + (HV[i + 1] - HV[i]) * f)').replace(/uZiRot\.x/g, 'c').replace(/uZiRot\.y/g, 's').replace(/uZiHoleC\.x/g, 'hx').replace(/uZiHoleC\.y/g, 'hz').replace(/uZiHoleC\.z/g, 'hr').replace(/uZiHoleC\.w/g, 'hn')
+      .replace(/w\.x/g, 'w[0]').replace(/w\.z/g, 'w[2]')
+    if (/vec|uZi|length\(|mix\(|int\(/.test(js)) throw new Error('ⓞ⑦ GLSL 번역 불가: ' + js)
+    const [c, s] = G.uniforms.uZiRot, [hx, hz, hr, hn] = G.uniforms.uZiHoleC, HV = G.uniforms.uZiHole
+    const fz = new Function('w', 'c', 's', 'hx', 'hz', 'hr', 'hn', 'HV', js)
+    let par = 0; for (let i = 0; i < 300; i++) { const l = [H.cx - 2.5 + 5 * ((i * 37) % 300) / 300, 248, H.cz - 2.5 + 5 * ((i * 91) % 300) / 300]; par = Math.max(par, Math.abs(fz(LM.ziToWorld(l), c, s, hx, hz, hr, hn, HV) - LM.zoneIHoleProfileAt(l))) }
+    const B0 = LM.zoneIBake(), wide = K.ZI_HOLE_K * LM.zoneIHoleIrradianceAt([Zs.spot[0] + 1.9, yF, Zs.spot[2]], [0, 1, 0], B0.hole.filter((q) => q.kind === 'hole')) / B0.eRefHole
+    T(`ⓞ⑦ ★231 웅덩이 — 중심 ${v[0]} = ZI_HOLE_K · 단조 · 끝 0 · ★232 바깥 반경 ${H.rMax.toFixed(4)} = 빛기둥 볼륨 바닥 반경(물리 반영 끝 ${H.rPhys.toFixed(3)}에서 축소 · 모양 표 불변) · 표 보간 오차 ${interpErr.toExponential(1)} · GLSL ziHole 번역 = JS ${par.toExponential(1)} · ρ1.9 프로파일 ${H.E(1.9).toFixed(3)} ≪ 가림 없는 원식 ${wide.toFixed(3)}(모양 = 가림)`,
+      Math.abs(v[0] - K.ZI_HOLE_K) < 1e-12 && v.every((x, i) => i === 0 || x <= v[i - 1] + 1e-12) && v[v.length - 1] === 0 && Math.abs(H.rPhys - rMaxGeo) < 1e-12 && Math.abs(H.rMax - rBeam) < 1e-12 && rBeam > 0.5 && rBeam < H.rPhys && interpErr < 0.02 && par < 1e-9 && H.E(1.9) < 0.5 * wide
+      && G.color.includes('ziHole(vZiW)') && G.uniforms.uZiHole.length === H.vals.length) }
+  //  ⓠ ★232 회랑 등불 바닥 빛 자국 — 모양 = 전실 표/ZI_HOLE_K(공유) · 반경 = LB_FOOT_R(빛기둥 발) · 등불 = clLampSpecs · **GLSL clfPool 본문 번역·실행** = clfPoolAt · 웅덩이 메시 스위치 · 바닥 가중 배선
+  { const P = LM.clfPoolSpec(), G = LM.clfPoolGLSL(P), H = LM.zoneIHoleProfile(), sp = K.clLampSpecs()
+    const b0 = G.fn.indexOf('{'), b1 = G.fn.lastIndexOf('\n}'), body = G.fn.slice(b0 + 1, b1)
+    let js = body.replace(/float /g, 'let ').replace(/for \(int k = 0;/, 'for (let k = 0;').replace(/int i = int\(floor\(r\)\);/, 'let i = Math.floor(r);').replace(/float\(i\)/g, 'i')
+      .replace(/d = min\(d, length\(vec2\(([^()]*)\)\)\)/, 'd = Math.min(d, Math.hypot($1))').replace(/uClfLamps\[k\]\.x/g, 'LP[k][0]').replace(/uClfLamps\[k\]\.y/g, 'LP[k][1]')
+      .replace(/mix\(uClfPool\[i\], uClfPool\[i \+ 1\], f\)/, '(SH[i] + (SH[i + 1] - SH[i]) * f)').replace(/uClfRot\.x/g, 'c').replace(/uClfRot\.y/g, 's').replace(/uClfPoolR/g, 'R').replace(/w\.x/g, 'w[0]').replace(/w\.z/g, 'w[2]')
+    if (/vec|uClf|length\(|mix\(|int |min\(d, l/.test(js)) throw new Error('ⓠ GLSL 번역 불가: ' + js)
+    const [c, s] = G.uniforms.uClfRot, fz = new Function('w', 'c', 's', 'R', 'LP', 'SH', js)
+    let par = 0; for (let i = 0; i < 400; i++) { const L = sp[i % sp.length], l = [L.x - 2.2 + 4.4 * ((i * 37) % 400) / 400, L.floor, L.z - 2.2 + 4.4 * ((i * 91) % 400) / 400]
+      par = Math.max(par, Math.abs(fz(LM.ziToWorld(l), c, s, G.uniforms.uClfPoolR, G.uniforms.uClfLamps, G.uniforms.uClfPool) - LM.clfPoolAt(l, P))) }
+    const cl = readFileSync(new URL('./CloisterLight.jsx', import.meta.url), 'utf-8'), dm = readFileSync(new URL('./Dome.jsx', import.meta.url), 'utf-8'), lamps = dm.slice(dm.indexOf('export function CloisterLamps'), dm.indexOf('export function Terrace'))
+    const at0 = LM.clfPoolAt([sp[4].x, sp[4].floor, sp[4].z], P), atR = LM.clfPoolAt([sp[4].x + K.LB_FOOT_R, sp[4].floor, sp[4].z], P)
+    T(`ⓠ ★232·★233 회랑 빛 자국 — 모양 = 종 (1−x²)^${K.CLF_MARK_POW}(평탄 코어 없음) · 세기 ${K.CLF_MARK_K} · 반경 ${P.R} = LB_FOOT_R · 등불 ${P.lamps.length}기 = clLampSpecs · 중심 ${at0} · 발 반경 ${atR} · GLSL 번역 = JS ${par.toExponential(1)} · 웅덩이 메시 LAMP_POOL_MESH_ON=${K.LAMP_POOL_MESH_ON} 뒤 · 바닥 가중 aClfMark`,
+      P.shape.every((v, i) => Math.abs(v - Math.pow(Math.max(0, 1 - (i / (P.shape.length - 1)) ** 2), K.CLF_MARK_POW)) < 1e-15) && P.shape.length === H.vals.length && P.R === K.LB_FOOT_R && P.lamps.length === sp.length && P.lamps.every(([x, z], i) => x === sp[i].x && z === sp[i].z)
+      && Math.abs(at0 - 1) < 1e-12 && Math.abs(atR) < 1e-12 && par < 1e-9 && typeof K.LAMP_POOL_MESH_ON === 'boolean' && /\{LAMP_POOL_MESH_ON && <>/.test(lamps) && (lamps.match(/LAMP_POOL_(CORE|HALO)_COL/g) || []).length === 2
+      && cl.includes("g.setAttribute('aClfMark'") && cl.includes('if (nv.y > 0.9) mark[i] = 1') && Math.abs(G.uniforms.uClfPoolK - K.CLF_MARK_K * (1 - K.CLF_DIM)) < 1e-15) }
+  //  ⓡ ★233 공극 안 평가 — 공극 안 점은 항등 · 밖(벽 뒤·바닥 밑·끝 밖)은 공극 경계 안쪽으로 물림 · 배선(본 베이크·이음매 둘 다)
+  { const F = LM.clfFrame(), at = (ph, r, y) => [r * Math.cos(ph), y, r * Math.sin(ph)], ph = 0.3, fl = K.clFloorY(ph)
+    const inP = at(ph, K.CL_R, fl + 3), a = LM.clfClampToVolume(inP), bIn = LM.clfClampToVolume(at(ph, F.rIn - 1.2, fl + 3)), bLow = LM.clfClampToVolume(at(ph, K.CL_R, fl - 2)), bEnd = LM.clfClampToVolume(at(F.phi0 - 0.02, K.CL_R, 250))
+    const cl = readFileSync(new URL('./CloisterLight.jsx', import.meta.url), 'utf-8')
+    T(`ⓡ ★233 공극 안 평가 — 안 점 항등 · 안벽 1.2m 뒤 → r ${Math.hypot(bIn[0], bIn[2]).toFixed(3)} · 바닥 2m 밑 → y ${bLow[1].toFixed(3)} · 시작 끝 밖 → φ 안 · 본 베이크·이음매 둘 다 물린 점으로 잰다`,
+      a.every((v, i) => Math.abs(v - inP[i]) < 1e-9) && Math.abs(Math.hypot(bIn[0], bIn[2]) - (F.rIn + 2e-3)) < 1e-9 && Math.abs(bLow[1] - (fl - 0.02 + 2e-3)) < 1e-9 && Math.atan2(bEnd[2], bEnd[0]) > F.phi0
+      && [bIn, bLow].every((q) => LM.clfInterior(q)) && cl.includes('clfTermsAt(clfClampToVolume(p)') && cl.includes('clfTermsAt(clfClampToVolume(W[k])')) }
+  //  ⓢ ★236 전실 벽 평활(순수 함수) — 상수장 불변 · 평면 안 선형장 내부 불변(대칭 가우스) · 다른 향 면과 안 섞임 · 톱니(교대) 결은 줄어든다 · 배선
+  { const pts = [], nrs = [], lin = [], cst = [], saw = []
+    for (let i = 0; i <= 20; i++) for (let j = 0; j <= 10; j++) { const x = i * 0.4, y = j * 0.4; pts.push([x, y, 0]); nrs.push([0, 0, 1]); lin.push(0.2 + 0.03 * x + 0.01 * y); cst.push(0.7); saw.push((i + j) % 2 ? 0.6 : 0.8) }
+    const other = pts.length; pts.push([4, 2, 0.01]); nrs.push([1, 0, 0]); lin.push(5); cst.push(5); saw.push(5)   // 다른 향 이상치(섞이면 안 됨)
+    const R = K.ZI_PATH_BLUR_R, bl = LM.zoneIBlurVals(pts, nrs, lin, R), bc = LM.zoneIBlurVals(pts, nrs, cst, R), bs = LM.zoneIBlurVals(pts, nrs, saw, R)
+    const inner = (k) => { const x = pts[k][0], y = pts[k][1]; return k < other && x >= R && x <= 8 - R && y >= R && y <= 4 - R }
+    let eL = 0, eC = 0, sawIn = 0, sawOut = 0; for (let k = 0; k < other; k++) { eC = Math.max(eC, Math.abs(bc[k] - 0.7)); if (inner(k)) { eL = Math.max(eL, Math.abs(bl[k] - lin[k])); sawIn = Math.max(sawIn, Math.abs(saw[k] - 0.7)); sawOut = Math.max(sawOut, Math.abs(bs[k] - 0.7)) } }
+    const zs = readFileSync(new URL('./ZoneI.jsx', import.meta.url), 'utf-8')
+    T(`ⓢ ★236 전실 벽 평활 R ${R} — 상수장 오차 ${eC.toExponential(1)} · 선형장 내부 오차 ${eL.toExponential(1)} · 다른 향 이상치(5) 안 섞임 · 교대 결 진폭 ${sawIn.toFixed(2)} → ${sawOut.toFixed(3)} · 배선(경로 벽 가중 정점만)`,
+      eC < 1e-12 && eL < 1e-9 && bc[other] === 5 && sawOut < 0.25 * sawIn && R > 0 && zs.includes('if (AZ.getX(i) > 0.5) { ids.push(i)') && zs.includes('zoneIBlurVals(pts, nrs, vals, ZI_PATH_BLUR_R)')) }
+  //  ⓣ ★237 갓 두께 — 갓 안벽(24각 외접 반경 = 꼭짓점) < 관 12각의 변(내접 반경) → 아래에서 올려다본 어떤 광선도 둘 사이로 못 빠진다(기하 증명) · 두께 = 처짐 + 여유(파생) · 배선
+  { const Rt = K.LAMP_TUBE_R, rodApo = Rt * Math.cos(Math.PI / K.LAMP_ROD_SEG), shadeIn = Rt - K.LAMP_SHADE_T, dm = readFileSync(new URL('./Dome.jsx', import.meta.url), 'utf-8')
+    //  갓 위 고리는 [안벽, 바깥] = [shadeIn, Rt] 전 둘레를 덮는다 · 관 아래 고리는 [안반경, 관 12각] — 관 12각의 변까지 합치면 반경 [안반경, Rt] 전부가 막힌다 ⇔ shadeIn ≤ rodApo
+    const oldGap = Rt * Math.cos(Math.PI / 24) - rodApo
+    T(`ⓣ ★237 갓 두께 ${K.LAMP_SHADE_T.toFixed(4)} — 갓 안벽 반경 ${shadeIn.toFixed(4)} ≤ 관 12각 변 ${rodApo.toFixed(4)}(구판 틈 폭 ${(oldGap * 100).toFixed(1)}cm → 0) · 두께 = R(1−cos π/12)+0.004 파생 · Dome: SHADE_GEO(셸·24분할)·LampRod 분할 = LAMP_ROD_SEG`,
+      shadeIn <= rodApo - 0.003 && oldGap > 0.01 && K.LAMP_SHADE_T < 0.05 && Math.abs(K.LAMP_SHADE_T - (Rt * (1 - Math.cos(Math.PI / K.LAMP_ROD_SEG)) + 0.004)) < 1e-15
+      && dm.includes('new THREE.LatheGeometry(pts, LAMP_ROD_SEG)') && dm.includes('geometry={SHADE_GEO}') && !/cylinderGeometry args=\{\[LAMP_TUBE_R, LAMP_MOUTH_R, LAMP_FUNNEL_H/.test(dm)) }
+  //  ⓤ ★238 회랑 안 리브 = 점광 차단 — three 청크 대상 줄 존재 · 부피 경계 = 상수 파생 · **GLSL ethInCloister 본문 실행** = ribInCloister · 표본(회랑 안/창 밖/지붕 위/시작 전) · Dome 배선
+  { const THREE = await import('three'), V = LM.ribClfVolume(), G = LM.ribClfGLSL(V), dm = readFileSync(new URL('./Dome.jsx', import.meta.url), 'utf-8')
+    const i0 = G.fn.indexOf('{'), i1 = G.fn.lastIndexOf('\n}'), body = G.fn.slice(i0 + 1, i1).replace(/float /g, 'let ')
+    const lib = { vec2: (a, b) => [a, b], length: (v) => Math.hypot(...v), atan: (y, x) => Math.atan2(y, x) }
+    const fz = new Function('w', 'vec2', 'length', 'atan', body)
+    const toW = (l) => LM.ziToWorld(l), at = (ph, r, y) => toW([r * Math.cos(ph), y, r * Math.sin(ph)]), ph = 0.3
+    const S = [[at(ph, K.CL_R, 255), 1], [at(ph, K.CL_R + K.CL_HW + 1.5, 255), 0], [at(ph, K.CL_R, K.CL_ROOF_Y + 1), 0], [at(K.CL_PHI0 - 0.01, K.CL_R, 255), 0], [at(ph, K.CL_R - K.CL_HW - 0.3, 255), 0]]
+    //  경계 1mm 안 점은 제외(셰이더 리터럴 반올림이 경계 위의 편을 정한다 — 실측 불일치 2점 = r 정확히 167.4·172.6 격자점) · 제외 수를 센다
+    let par = 0, nEx = 0; for (let i = 0; i < 500; i++) { const ph2 = -0.1 + 1.0 * ((i * 37) % 500) / 500, r2 = 160 + 20 * ((i * 91) % 500) / 500, y2 = 230 + 45 * ((i * 53) % 500) / 500
+      if ([r2 - V.r0, r2 - V.r1, y2 - V.y0, y2 - V.y1, (ph2 - V.p0) * r2, (ph2 - V.p1) * r2].some((d) => Math.abs(d) < 1e-3)) { nEx++; continue }
+      const w = at(ph2, r2, y2); par += Math.abs(fz({ x: w[0], y: w[1], z: w[2] }, lib.vec2, lib.length, lib.atan) - LM.ribInCloister(w)) }
+    T(`ⓤ ★238 회랑 안 리브 점광 차단 — three r${THREE.REVISION} 청크에 대상 줄 있음 · 부피 r ${V.r0}~${V.r1} · y ${V.y0.toFixed(2)}~${V.y1.toFixed(2)} · φ ${V.p0.toFixed(4)}~${V.p1.toFixed(4)} · GLSL 실행 = JS 불일치 ${par}/${500 - nEx}(경계 1mm 제외 ${nEx}) · 표본 5 · Dome 배선(청크 치환·가드·월드 위치 varying)`,
+      THREE.ShaderChunk.lights_fragment_begin.includes(G.anchor) && V.r0 === K.CL_R - K.CL_HW && V.r1 === K.CL_R + K.CL_HW && V.y0 === K.CL_WALL_BOT && V.y1 === K.CL_ROOF_Y && V.p0 === K.CL_PHI0 && V.p1 === K.CL_PHI1
+      && par === 0 && nEx < 20 && S.every(([w, e]) => LM.ribInCloister(w) === e) && dm.includes("THREE.ShaderChunk.lights_fragment_begin.replace(RIB_CLF.anchor, RIB_CLF.inject)") && dm.includes("throw new Error('★238") && dm.includes('vEthW = (modelMatrix * vec4(ethP, 1.0)).xyz;')
+      && G.inject.includes('directLight.color = vec3( 0.0 )') && !/dirLight|directionalLights/.test(G.inject)) }
+  //  ⓛ 노브 위생 — 세기 노브는 값이 아니라 대역만(현도 판정 대상)
+  T('ⓛ 노브 위생 — CLF_ON·CLF_PTL_ON·CLF_WIN_ON 불리언 · 0 ≤ DIM < 1 · FILL∈[0,1) · POOL_K·WIN_K·BEAM_K ≥ 0 · GAMMA > 0 · SUBDIV∈(0.1,2] · EPS∈(1e-3, PASS_T/2) · CLF_TUNE 초기값 = constants',
+    typeof K.CLF_ON === 'boolean' && typeof K.CLF_PTL_ON === 'boolean' && typeof K.CLF_WIN_ON === 'boolean' && K.CLF_DIM >= 0 && K.CLF_DIM < 1 && K.CLF_FILL >= 0 && K.CLF_FILL < 1 && K.CLF_POOL_K >= 0 && K.CLF_WIN_K >= 0 && K.CLF_BEAM_K >= 0 && K.CLF_GAMMA > 0 && K.CLF_SUBDIV > 0.1 && K.CLF_SUBDIV <= 2 && K.CLF_EPS > 1e-3 && K.CLF_EPS < K.PASS_T / 2
+    && LM.CLF_TUNE.FILL === K.CLF_FILL && LM.CLF_TUNE.POOL_K === K.CLF_POOL_K && LM.CLF_TUNE.WIN_K === K.CLF_WIN_K && LM.CLF_TUNE.GAMMA === K.CLF_GAMMA && LM.CLF_TUNE.WIN_ON === K.CLF_WIN_ON)
+  //  ⓜ 배선 — 게이트 한 줄(gl_FrontFacing · vClf) · color_fragment 치환 · 회랑 태그 · 마운트 · 점광 2개가 스위치 뒤 · 원시 재격자 사용
+  { const src = readFileSync(new URL('./CloisterLight.jsx', import.meta.url), 'utf-8'), app = readFileSync(new URL('./App.jsx', import.meta.url), 'utf-8'), dome = readFileSync(new URL('./Dome.jsx', import.meta.url), 'utf-8')
+    const cl = dome.slice(dome.indexOf('export function CloisterLamps'), dome.indexOf('export function Terrace'))
+    T('ⓜ 배선 — 게이트 = vClf·gl_FrontFacing 한 줄 · color_fragment 치환 · Dome clf 그룹 1개 · App 마운트 · CloisterLamps 점광 2개 모두 CLF_PTL_ON 뒤 · regridPrimitive 경로',
+      src.includes("'if (vClf * (gl_FrontFacing ? 1.0 : -1.0) > 0.5) { vec3 clfC = vColor.rgb; if (vClfMark > 1e-4) clfC = min(vec3(1.0), clfC + uClfPoolK * clfPool(vClfW) * vClfMark); diffuseColor.rgb *= clfC; }'") && src.includes(".replace('#include <color_fragment>'") && (dome.match(/userData=\{\{ clf: true \}\}/g) || []).length === 1
+      && /<CloisterLight \/>/.test(app) && (cl.match(/<pointLight/g) || []).length === 2 && (cl.match(/CLF_PTL_ON && <pointLight/g) || []).length === 2 && /regridPrimitive\(g, CLF_SUBDIV\)/.test(src)) }
+  }
 }
 
 console.log(`\n전체 ${pass + fail}항 중 ${pass}항 통과 ${fail ? '❌ ' + fail + '항 실패' : '✅'}`)

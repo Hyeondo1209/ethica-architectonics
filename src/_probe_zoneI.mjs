@@ -302,7 +302,7 @@ if (VERIFY) {
   const okA = V.nA === 0, okB = V.nB === 0
   console.log(`${okA ? '✓' : '✗'} Ⓐ 안면인데 어둠(세 정점 ≤ DIM · 중심 재계산은 밝음) = ${V.nA}면 ${V.areaA}㎡ (기대 0)`)
   for (const f of V.Aface) console.log(`     ${f.comp.padEnd(14)} ${String(f.ar).padStart(7)}㎡ 재계산${f.ref} side${f.side} 중심${JSON.stringify(f.c)} 법선${JSON.stringify(f.n)}`)
-  console.log(`${okB ? '✓' : '✗'} Ⓑ 바깥면인데 칠함(안면과 공유하지 않는 정점 값 ≠ 1) = ${V.nB}정점 (기대 0)`)
+  console.log(`${okB ? '✓' : '✗'} Ⓑ 바깥면인데 칠함(안면과 공유하지 않는 정점 값 ≠ 1) = ${V.nB}정점 (기대 0) · ★227 회랑 이음매 명시 예외 ${V.nSeam ?? 0}정점(회랑 쪽 면 — CloisterLight 기록)`)
   for (const b of V.Bvert) console.log(`     ${b.comp.padEnd(14)} #${b.id} 값${b.col} ${JSON.stringify(b.p)}`)
   const okH = V.nH === 0
   console.log(`${okH ? '✓' : '✗'} Ⓗ 판 밑 바닥면 오판(위 향 면인데 위가 실내로 안 잡힘 · 위 광선이 tread에 판 두께 안에서 막힘) = ${V.nH}면 ${V.areaH}㎡ (기대 0 · ★219-w 이전 Lookout 램프 59장 177㎡ · ZI_UNDER_TREAD_ON=false면 보류)`)

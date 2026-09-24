@@ -13,13 +13,13 @@
 import { createRequire } from 'module'
 const require = createRequire(import.meta.url)
 import { ZI_DIM, ZI_UNDER_TREAD_ON, ZI_UNDER_TREAD_D, ZI_RAY_EPS } from './constants.js'
-import { zoneIShadeAt, zoneIWallTri, zoneIInteriorPoints, ziToLocal } from './lightingModel.js'
+import { zoneIShadeAt, zoneIWallTri, zoneIInteriorPoints, ziToLocal, zoneIPathA, zoneIHoleProfileAt } from './lightingModel.js'
 
 export function verifyZoneI(THREE, H) {
   const { records, rayFn, B } = H
   const EPS = 1e-3, LIT = ZI_DIM + 0.1   // "밝다" = 어둠 바닥에서 0.1 이상 위(안면 최저 채움 0.52·관 속 gl≥0.1 대역과 DIM 0.04 사이)
   const v = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3()
-  const rows = [], Aface = [], Bvert = [], Cface = [], diffs = []
+  const rows = [], Aface = [], Bvert = [], Cface = [], diffs = []; let nSeam = 0
   let nTri = 0, nIn = 0, nOut = 0, nDeg = 0, areaIn = 0, areaOut = 0, areaA = 0, nSwap = 0
   //  ★219-w Ⓗ 판 밑 바닥면 오판 재현 — 위 향 면(감김 법선 y > 0.5 · ziUnderTread 태그 몸)인데 판정이 '아래 실내(−1)' 또는 바깥(0)이고, 위로 쏜 광선이 'tread'에 판 두께 안(수직 ≤ ZI_UNDER_TREAD_D)에서 막히는 삼각형 = 0이어야.
   //   수리 전 실측 = Lookout 램프 59장 177㎡(그 정점 0.04↔1.0 보간 = 아치 둘레 검은 얼룩). 보존계(ZI_UNDER_TREAD_ON=false)에서는 보류(규율 13').
@@ -32,6 +32,8 @@ export function verifyZoneI(THREE, H) {
     //  정점이 안면 삼각형에 속하는가(공유 정점은 Ⓑ에서 제외 — 안면이 그 정점을 칠하는 것이 정상)
     const vIn = new Uint8Array(P.count)
     for (let t = 0, i = 0; i + 2 < nn; i += 3, t++) if (triSide[t] === 1 || triSide[t] === -1) { vIn[idx(i)] = 1; vIn[idx(i + 1)] = 1; vIn[idx(i + 2)] = 1 }
+    //  ★227 명시 예외: 회랑 이음매 패스(CloisterLight)가 쓴 정점 = 회랑 쪽 면(구역 I 기준 바깥면이지만 회랑 실내) — 센다(nSeam)
+    const seamSet = new Set(g.userData.clfSeam || [])
     let mIn = 0, mOut = 0, mA = 0, mB = 0, arA = 0
     for (let t = 0, i = 0; i + 2 < nn; i += 3, t++) {
       nTri++
@@ -40,14 +42,18 @@ export function verifyZoneI(THREE, H) {
       a.fromBufferAttribute(P, ia).applyMatrix4(o.matrixWorld); b.fromBufferAttribute(P, ib).applyMatrix4(o.matrixWorld); c.fromBufferAttribute(P, ic).applyMatrix4(o.matrixWorld)
       const n = b.clone().sub(a).cross(c.clone().sub(a)), ar = n.length() / 2
       if (s === 2) { nDeg++; continue }
-      const cols = [C.getX(ia), C.getX(ib), C.getX(ic)]
+      //  ★229 **유효값** = 셰이더와 같은 식(aZiPath 1: 값 × A(u) · 2: DIM+(1−DIM)·min(1, a + 구운 직사)) — 저장값만 읽으면 걷는 판(직사만 구움)이 DIM으로 보여 Ⓐ가 오판한다
+      const AZ = g.attributes.aZiPath, eff = (id) => { const c0 = C.getX(id); if (!AZ) return c0; const wW = AZ.getX(id), wT = AZ.getY(id); if (!(wW + wT > 1e-4)) return c0   // ★230 vec3 가중(셰이더와 같은 식)
+        const pl = ziToLocal(v.fromBufferAttribute(P, id).applyMatrix4(o.matrixWorld).toArray()), h = zoneIHoleProfileAt(pl), A = zoneIPathA(pl), c1 = c0 * (1 + (A - 1) * Math.min(1, wW)), tT = ZI_DIM + (1 - ZI_DIM) * Math.min(1, (A - ZI_DIM) / (1 - ZI_DIM) + h)
+        return c1 + (tT - c1) * Math.min(1, wT) }
+      const cols = [eff(ia), eff(ib), eff(ic)]
       if (ZI_UNDER_TREAD_ON && s !== 1 && o.userData.ziUnderTread === true) { const fn = n.clone().normalize(); if (fn.y > 0.5) {   // 감김 법선 위 향인데 위가 실내로 안 잡힘
           const cl = ziToLocal(a.clone().add(b).add(c).multiplyScalar(1 / 3).toArray()), nl = ziToLocal(fn.toArray()), oo = [cl[0] + nl[0] * ZI_RAY_EPS, cl[1] + nl[1] * ZI_RAY_EPS, cl[2] + nl[2] * ZI_RAY_EPS]; let under = false
           for (const q of ipts) { const dx = q[0] - oo[0], dy = q[1] - oo[1], dz = q[2] - oo[2], L = Math.hypot(dx, dy, dz); if (nl[0] * dx + nl[1] * dy + nl[2] * dz <= 0) continue; const h = rayFn(oo, [dx / L, dy / L, dz / L], L - ZI_RAY_EPS); if (h && h.kind === 'tread' && h.dist * (dy / L) <= ZI_UNDER_TREAD_D) { under = true; break } }
           if (under) { areaH += ar; Hface.push({ comp, ar: +ar.toFixed(2), side: s, c: a.clone().add(b).add(c).multiplyScalar(1 / 3).toArray().map((x) => +x.toFixed(2)) }) } } }
       if (s === 0) {
         nOut++; mOut++; areaOut += ar
-        for (const [id, col] of [[ia, cols[0]], [ib, cols[1]], [ic, cols[2]]]) if (!vIn[id] && Math.abs(col - 1) > EPS) { mB++; Bvert.push({ comp, id, col: +col.toFixed(3), p: v.fromBufferAttribute(P, id).applyMatrix4(o.matrixWorld).toArray().map((x) => +x.toFixed(2)) }) }
+        for (const [id, col] of [[ia, cols[0]], [ib, cols[1]], [ic, cols[2]]]) { if (!vIn[id] && seamSet.has(id)) { nSeam++; continue } if (!vIn[id] && Math.abs(col - 1) > EPS) { mB++; Bvert.push({ comp, id, col: +col.toFixed(3), p: v.fromBufferAttribute(P, id).applyMatrix4(o.matrixWorld).toArray().map((x) => +x.toFixed(2)) }) } }
         continue
       }
       nIn++; mIn++; areaIn += ar
@@ -74,6 +80,6 @@ export function verifyZoneI(THREE, H) {
     require('fs').writeFileSync(process.env.ZI_DUMP, JSON.stringify(D)) }
   diffs.sort((x, y) => x - y)
   const q = (p) => (diffs.length ? +diffs[Math.min(diffs.length - 1, Math.floor(p * diffs.length))].toFixed(3) : null)
-  return { nH: Hface.length, areaH: +areaH.toFixed(1), Hface: Hface.sort((x, y) => y.ar - x.ar).slice(0, 12), nSwap, nTri, nIn, nOut, nDeg, areaIn: +areaIn.toFixed(1), areaOut: +areaOut.toFixed(1), areaA: +areaA.toFixed(3), nA: Aface.length, nB: Bvert.length,
+  return { nSeam, nH: Hface.length, areaH: +areaH.toFixed(1), Hface: Hface.sort((x, y) => y.ar - x.ar).slice(0, 12), nSwap, nTri, nIn, nOut, nDeg, areaIn: +areaIn.toFixed(1), areaOut: +areaOut.toFixed(1), areaA: +areaA.toFixed(3), nA: Aface.length, nB: Bvert.length,
     diff: { n: diffs.length, p01: q(0.01), p10: q(0.1), p50: q(0.5), p90: q(0.9), p99: q(0.99), min: q(0), max: q(0.999999) }, rows, Aface: Aface.sort((x, y) => y.ar - x.ar).slice(0, 20), Bvert: Bvert.slice(0, 20), Cface: Cface.sort((x, y) => y.ar - x.ar).slice(0, 12), nC: Cface.length }
 }

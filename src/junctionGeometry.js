@@ -824,7 +824,7 @@ export function cloisterStartCapSpec() {
   const t = PASS_T
   return {
     rc: (CL_R_IN2 + CL_R_OUT2) / 2, rw: CL_R_OUT2 - CL_R_IN2,
-    y0: CL_WALL_BOT - t, y1: PASS_FLOOR_Y, thick: t, phi: CL_PHI0,
+    y0: CL_WALL_BOT - t, y1: PASS_FLOOR_Y - t / 2, thick: t, phi: CL_PHI0,   // ⛔★228(09.24 현도 "벽·바닥 사이 우글우글 + 흰 테두리"): 구판 y1 = PASS_FLOOR_Y = 슬랩 **윗면**과 공면 → 캡 윗면이 전실 바닥과 z-파이팅(★227 전까지는 둘 다 흰색이라 안 보였다). 살 한복판(t/2)으로 — 봉인은 그대로(슬랩 밑면 PASS_FLOOR_Y−t 위로 t/2 물림)
   }
 }
 

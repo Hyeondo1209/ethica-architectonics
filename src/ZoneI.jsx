@@ -7,7 +7,9 @@ import { useMemo, useRef, useEffect, useState } from 'react'
 import * as THREE from 'three'
 import { useFrame, useThree, invalidate } from '@react-three/fiber'
 import { MeshBVH } from 'three-mesh-bvh'
+import { ZI_PATH_BLUR_R } from './constants.js'   // ★236
 import { ZI_ON, ZI_VOL_ON, ZI_OP, ZI_FADE_POW, ZI_TOPF, ZI_COLOR, ZI_WALL_SELF, ZI_TREAD_LIT, DSK_ON, ZI_VOL_BORE, ZI_VOL_FEATHER, ZI_WALL_UNLIT, ZI_WALL_FACET_ON, ZI_BODY_FLAT_ON, ZI_VOL_PROFILE, ZI_VOL_RIM, ZI_VOL_RIM_F, ZI_VOL_FLOOR, ZI_FAR_ON, ZI_FAR_POW, ZI_FAR_LEN, ZI_FAR_NEAR, ZI_DISC_DY, ZI_VOL_LEN, ZI_FLAT_ALL_ON, ZI_FLAT_ALL_SAMP, ZI_SMOOTH_ON, ZI_SMOOTH_N, ZI_SMOOTH_ITER, ZI_SMOOTH_SCOPE, ZI_SMOOTH_EDGE, ZI_SHAFT_DISCS_ON, ZI_SHAFT_K, ZI_SHAFT_AX0, ZI_SHAFT_AX1, RM_SHAFT_OP, ZI_WELD_COS } from './constants.js'
+import { zoneITreadTone, zoneIPathRegion, zoneIPathGLSL, zoneIBlurVals } from './lightingModel.js'   // ★230 걷는 판 정점색 = ZI_WALL_SELF(구 값) · 직사 몫은 aZiPath.z   // ★227 걷는 판 = 경로 톤(하강 영역 밖은 ZI_WALL_SELF 그대로)
 import { ZI_TUNE, zoneIFarLen, zoneIBake, zoneIHemiDirs, zoneIShadeAt, zoneIWallTone, zoneIWallTri, zoneIEmitTri, zoneIVisibleFromInside, zoneIFillFace, zoneIInteriorPoints, zoneIOwns, zoneITubeTris, zoneIDiscTris, zoneIDiscOpacity, ziToLocal, zoneIBoreAxis } from './lightingModel.js'
 import { FRL_TUBE_VERT, FRL_TUBE_FRAG } from './Corridor.jsx'
 import { bootNow, bootPass } from './bootProbe.js'
@@ -132,7 +134,7 @@ export function ZoneILight() {
       const cx = (bbox.min.x + bbox.max.x) / 2, cz = (bbox.min.z + bbox.max.z) / 2, hx = (bbox.max.x - bbox.min.x) * 0.3, hz = (bbox.max.z - bbox.min.z) * 0.3, y = bbox.max.y
       return [[cx, y, cz], [cx - hx, y, cz - hz], [cx + hx, y, cz - hz], [cx - hx, y, cz + hz], [cx + hx, y, cz + hz]] }
     //  ★219-d′ 걷는 판 = 발광 벽과 같은 밝기(현도 지시 "상단면들은 전부 흰색"). 노브 끄면 다점 평균 AO로 돌아간다.
-    const shadeInstance = (o, k) => { if (ZI_TREAD_LIT && o.userData.walkable === true) return ZI_WALL_SELF
+    const shadeInstance = (o, k) => { if (ZI_TREAD_LIT && o.userData.walkable === true) return zoneITreadTone(instTop(o, k), [0, 1, 0], rayFn, B)
       const ss = instTopSamples(o, k); let a = 0; for (const p of ss) a += zoneIShadeAt(p, [0, 1, 0], rayFn, B); return a / ss.length }
     //  ⑵ 부재 정점색(세계 p·n → 모델) · 인스턴스 = 중심점·위 향
     const ipts = zoneIInteriorPoints(B.spec)
@@ -141,6 +143,7 @@ export function ZoneILight() {
     let nMesh = 0, nInst = 0, nVert = 0, nEmit = 0, nExt = 0
     //  ★219-y 구역 I 공통 용접점(메시 경계 무관) — bakeMesh가 모으고 finishSmooth가 한 번에 광선·평활·기록
     const GW = [], GWmap = new Map(), GWgeos = []
+    const pathMeshes = new Set()   // ★229 경로 셰이더 대상
     const finishSmooth = () => { if (!GW.length) return
       const Bs = { ...B, dirs: zoneIHemiDirs(ZI_SMOOTH_N) }
       let sh = new Float32Array(GW.length)
@@ -170,7 +173,7 @@ export function ZoneILight() {
         const g2 = subdivideLongEdges(g0, ZI_SMOOTH_EDGE); if (g2.userData.ziSubdiv) { o.geometry = g2; g = g2 } else visOf = null }
       const parentOf = g.userData.ziParent || null
       nMat.getNormalMatrix(o.matrixWorld)
-      const P = g.attributes.position, N = g.attributes.normal, col = new Float32Array(P.count * 3)
+      const P = g.attributes.position, N = g.attributes.normal, col = new Float32Array(P.count * 3), pathF = new Float32Array(P.count * 3)   // ★229·★230 vec3
       //  ★219-g 삼각형 한 장마다 **가시성**으로 안팎을 먼저 가르고(좌표 상자 아님), 그 결과가 정하는 **방향**으로 음영을 낸다.
       //   ⛔이 순서를 뒤집었던 것이 09.09의 병: 판정은 감김 법선, 음영은 정점 법선을 써서 서로 반대를 가리켰다 —
       //    "안면이라 안 되돌리는데 빛은 못 받는" 면이 생겨 70㎡ 벽이 통째로 0.04로 남았다(실측). 이제 둘이 같은 방향을 쓴다.
@@ -194,6 +197,10 @@ export function ZoneILight() {
         v.fromBufferAttribute(P, i).applyMatrix4(o.matrixWorld); nm.fromBufferAttribute(N, i).applyMatrix3(nMat).normalize()
         //  정점 법선이 가시성이 정한 쪽과 어긋나면 뒤집어 쓴다(부드러운 법선의 뉘앙스는 살리고 방향만 바로잡는다)
         if (side[i] < 0) nm.negate()
+        //  ★229·★230 경로 가중(vec3: 벽 가중 · 판 가중 · 직사 몫) — 셰이더가 픽셀마다 혼합(보간 안전 · 정점색은 구 값 그대로)
+        if (zoneIPathRegion(ziToLocal([v.x, v.y, v.z]), ziToLocal([nm.x, nm.y, nm.z]), B.spec)) {
+          if (ZI_TREAD_LIT && walkMesh && nm.y > 0) { pathF[3 * i + 1] = 1 }   // ★231 직사 몫은 셰이더가 해석 프로파일로(ziHole) — z 채널 미사용(0)
+          else pathF[3 * i] = 1 }
         //  ★219-p ★219-d′ 규칙의 구현 누락 보완: "걷는 판 상면 = 백색"이 인스턴스 디딤판(shadeInstance)에만 있었다 — 참 상자·정션 판 같은 **비인스턴스 걷는 판**은
         //   여태 '바깥면'이라 우연히 1.0이었고, 눈 경로 대표점이 생기자 '안면'이 되어 AO 귀퉁이 0.04(--verify Ⓐ 2면 17㎡ · 첫 참 0.16 정점)로 갈라졌다. 위 향 정점 = ZI_WALL_SELF.
         const sh = smoothMe ? 1 : (ZI_TREAD_LIT && walkMesh && nm.y > 0) ? ZI_WALL_SELF : zoneIShadeAt([v.x, v.y, v.z], [nm.x, nm.y, nm.z], rayFn, B, false, fillV[i] === 1)   // ★219-w‴ 평활 부재는 아래 용접 패스가 안면 정점 전부를 다시 쓴다(광선 중복 방지)
@@ -220,6 +227,7 @@ export function ZoneILight() {
           for (const w of ids) { const q = GW[w]; q.n[0] += want[0] * ar; q.n[1] += want[1] * ar; q.n[2] += want[2] * ar; q.w += ar; q.fill = q.fill || ff; q.walkUp = q.walkUp || (walkMesh && want[1] > 0); for (const w2 of ids) if (w2 !== w) q.adj.add(w2) } })
         GWgeos.push(g); g.userData.ziSmooth = nLocal
       }
+      if (pathF.some((x) => x > 0)) { g.setAttribute('aZiPath', new THREE.BufferAttribute(pathF, 3)); pathMeshes.add(o) }   // ★229 flat 분리 전에 달아 두면 분리가 함께 복제한다
       let colAttr = new THREE.BufferAttribute(col, 3)
       //  ★219-q ziFlatTop(무릎길 몸): 안면 ∧ 위 향 삼각형 = **정점 분리 + 중심값 한 톤**(★219-n 어법). 폭 11m 삼각형의 모서리 정점(난간 발치·관 벽 안쪽)값이 보이는 선반 전체로 보간되던 띠 얼룩 차단.
       //   삼각형 수·순서 불변(색인만 사본으로 재지정) → triSide·records 정합. 다른 삼각형·원래 정점 무접촉.
@@ -258,6 +266,22 @@ export function ZoneILight() {
     }
     for (const m of members) bakeMesh(m)
     const nGW = finishSmooth()   // ★219-y 공통 용접점 평활(메시 경계 넘어)
+    //  ★229 경로 셰이더(하강 영역 부재만) — 유니폼 = zoneIPathGLSL(명세 파생) · color_fragment 한 청크 치환(대상 없으면 throw)
+    if (pathMeshes.size) { const G = zoneIPathGLSL(), U = { uZiPath: { value: new THREE.Vector4(...G.uniforms.uZiPath) }, uZiPath2: { value: new THREE.Vector4(...G.uniforms.uZiPath2) }, uZiRot: { value: new THREE.Vector2(...G.uniforms.uZiRot) }, uZiHole: { value: G.uniforms.uZiHole }, uZiHoleC: { value: new THREE.Vector4(...G.uniforms.uZiHoleC) } }
+      const pathPatch = (sh) => { if (!sh.fragmentShader.includes('#include <color_fragment>')) throw new Error('★229: color_fragment 없음')
+        Object.assign(sh.uniforms, U)
+        sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 aZiPath; varying vec3 vZiPath; varying vec3 vZiW;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvZiPath = aZiPath; vZiW = (modelMatrix * vec4(transformed, 1.0)).xyz;')
+        sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + G.decl + '\n' + G.fn).replace('#include <color_fragment>', G.color) }
+      for (const o of pathMeshes) [].concat(o.material).forEach((m) => { m.defaultAttributeValues = { ...(m.defaultAttributeValues || {}), aZiPath: [0, 0, 0] }; chain(m, pathPatch, '|zipath'); m.needsUpdate = true })
+      console.info(`[ZI] ★229 경로 셰이더: 부재 ${pathMeshes.size}`)
+      //  ★236 전실 벽 구운 값 공간 평활 — 경로 벽 가중(aZiPath.x > 0.5) 정점만 · 부재 안 · 같은 향 면 · 정점색만 고친다(가중·위치 무접촉)
+      if (ZI_PATH_BLUR_R > 0) { let nB = 0
+        for (const o of pathMeshes) { const g = o.geometry, P = g.attributes.position, C = g.attributes.color, N = g.attributes.normal, AZ = g.attributes.aZiPath; if (!AZ || !N) continue
+          o.updateWorldMatrix(true, false); const nmM = new THREE.Matrix3().getNormalMatrix(o.matrixWorld), v3 = new THREE.Vector3(), ids = [], pts = [], nrs = [], vals = []
+          for (let i = 0; i < P.count; i++) if (AZ.getX(i) > 0.5) { ids.push(i); pts.push(v3.fromBufferAttribute(P, i).applyMatrix4(o.matrixWorld).toArray()); nrs.push(v3.fromBufferAttribute(N, i).applyMatrix3(nmM).normalize().toArray()); vals.push(C.getX(i)) }
+          if (!ids.length) continue
+          const out = zoneIBlurVals(pts, nrs, vals, ZI_PATH_BLUR_R); ids.forEach((id, k) => C.setXYZ(id, out[k], out[k], out[k])); C.needsUpdate = true; nB += ids.length }
+        console.info(`[ZI] ★236 전실 벽 평활: 정점 ${nB} · R ${ZI_PATH_BLUR_R}`) } }
     const tM = bootNow()
     //  ⑶ 판 인스턴스 — 방 천장 위(zoneIOwns)만 덧쓴다(방 안 = E 값 그대로)
     for (const p of plates) { const c = new THREE.Color(); let n = 0

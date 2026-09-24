@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import GraphScaffold from './GraphScaffold'
 import { ZoneILight } from './ZoneI.jsx'   // ★219 구역 I 빛
+import { CloisterLight } from './CloisterLight.jsx'   // ★226 빛 구획 F(회랑 1p9) 명암
 import { SCALE, RIB_XFER_ON, RIB_DEST_PHI, TERRACE_ON, SURVEY_START,
   LGT_BG, LGT_FOG_COL, LGT_FOG_NEAR, LGT_FOG_FAR, LGT_HEMI_SKY, LGT_HEMI_GND, LGT_HEMI_I,
   LGT_AMB_I, LGT_DIR_COL, LGT_DIR_I, RND_TONEMAP, RND_EXPOSURE, RND_SHADOWS, RND_LINEAR,
@@ -173,6 +174,7 @@ export default function App() {
                 <RevealPassage />
                 <ZoneILight />{/* ★219 구역 I 빛 — 베이크(DSK 뒤) + 볼륨(로컬 좌표 = 이 그룹 안) */}
                 <CloisterLamps />
+                <CloisterLight />{/* ★226 빛 구획 F — 회랑 실내 면 정점색 베이크(Dome RevealPassage의 clf 그룹) */}
                 <LampRoom />{/* ★79 1p10의 집 */}
                 {TERRACE_ON && <Terrace />}
               </group>
