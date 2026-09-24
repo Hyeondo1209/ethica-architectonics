@@ -11,7 +11,9 @@
 //   · 위끝을 LR_LAP만큼 리브 속으로 더 밀어 넣어 표면 틈을 봉인한다(규율 6 · 리브는 불투명 솔리드).
 //  ⚠리브 밑면 높이는 constants.rOf/H(리브 중심선)로 잰다 — check_lamps와 같은 방법(사본 아님: 같은 함수).
 import * as THREE from 'three'
-import { rOf, H, SHELL_RIB_R, LAMP_R, LAMP_TUBE_R, LAMP_ENTRY_Y, LR_ON, LR_R0, LR_POW, LR_LEN, LR_LAP, LR_FUSE, LR_SEG, LR_RM10_R0K, LR_RM10_LENK, LR_RM10_POW } from './constants.js'
+import { Brush, Evaluator, HOLLOW_SUBTRACTION } from 'three-bvh-csg'
+import { buildRibShell, makeRibCurve } from './ribGeometry.js'
+import { rOf, H, SHELL_RIB_R, LAMP_R, LAMP_TUBE_R, LAMP_ENTRY_Y, LAMP_HOLE_CLR, LAMP_HOLE_Y0, LAMP_HOLE_Y1, LAMP_CONDUIT_ON, LR_ON, LR_R0, LR_POW, LR_LEN, LR_LAP, LR_FUSE, LR_SEG } from './constants.js'
 
 //  리브 중심선까지 최단거리 — 리브 로컬 평면(반경 pr, 높이 py) + 평면 밖 오프셋 pz(작다).
 function distToCenterline(pr, py, pz) {
@@ -112,19 +114,27 @@ function smoothShellNormals(g, N, M, S, pow) {
   nrmA.needsUpdate = true
 }
 
-//  ★221-d/e 화면 튜너 스토어(개발 도구 · 2026.09.18 현도 "화면 내에서 조절") — React 밖 잎 스토어. 표적 둘:
-//   rm10 = 등불 방(1p10) 중앙 등불 · cl = 회랑 등불 9기(★221-e — 현도 "회랑 뿌리도 튜너로 잡아보자"). 초기값 = constants.
-//   값이 바뀌면 그 표적의 mesh만 다시 짓는다(씬 전체 리렌더 0 — ★99/★135 원칙). 회랑은 9기가 각자 제 mesh를 다시 짓되
-//   스펙(리브 밑면 스캔 0.33s)은 `_specs` 캐시를 공유하므로 비용은 한 번이다.
-let _tune = {
-  rm10: { r0: LR_R0 * LR_RM10_R0K, len: LR_LEN * LR_RM10_LENK, pow: LR_RM10_POW },   // 절대치(m · m · 지수)
-  cl:   { r0: LR_R0,               len: LR_LEN,               pow: LR_POW },
+//  ★221-d/e 화면 튜너 스토어 — ★224(2026.09.20 현도 "철거")로 제거. 확정값은 constants LR_*·LR_RM10_*에 남아 있다(연대기 = 일지).
+
+// ══ ★★★224 등불 = 도관 — 리브 껍질 구멍 (2026.09.20) ═════════════════════════════════════════════════
+//  자르개 = 관 축(LAMP_R, ·, 0)의 닫힌 수직 원기둥, 반경 = 관 + 헤어라인, y = [LAMP_HOLE_Y0, LAMP_HOLE_Y1](= 관 상단).
+//  대상 = φ=0 정본 리브 한 벌(열린 관 · 벽 0)에 HOLLOW_SUBTRACTION 한 번 → 9기 인스턴스 회전(등불 로컬 프레임이
+//  리브 프레임과 같으므로 기하 사본 0 · CSG 1회). 상단 위 껍질은 남는다(관이 닿지 않는 곳을 뚫으면 관 밖 틈).
+export function lampHoleSolid() {
+  const r = LAMP_TUBE_R + LAMP_HOLE_CLR, h = LAMP_HOLE_Y1 - LAMP_HOLE_Y0
+  const g = new THREE.CylinderGeometry(r, r, h, 24, 1, false)
+  g.translate(LAMP_R, (LAMP_HOLE_Y0 + LAMP_HOLE_Y1) / 2, 0)
+  return g
 }
-const _subs = new Set()
-//  ⚠useSyncExternalStore는 get()의 **참조 동일성**으로 변화를 판단한다 — 같은 객체를 Object.assign으로 고치면
-//   구독자가 깨어나도 "안 바뀜"으로 보고 리렌더를 건너뛴다(1차 오작동: 화면 무반응). 반드시 새 객체 — 바깥·안쪽 둘 다.
-export const lampRootTune = {
-  get: () => _tune,
-  set: (target, patch) => { _tune = { ..._tune, [target]: { ..._tune[target], ...patch } }; for (const f of _subs) f() },
-  subscribe: (f) => { _subs.add(f); return () => _subs.delete(f) },
+let _lampRib = null
+export function buildLampRib() {                     // 모듈 캐시(Dome·검사·렌더가 같은 기하)
+  if (_lampRib) return _lampRib
+  const { geometry: tube } = buildRibShell(makeRibCurve(), 0)
+  if (!LAMP_CONDUIT_ON) return (_lampRib = tube)
+  const ev = new Evaluator(); ev.attributes = ['position', 'normal']
+  const a = new Brush(tube), b = new Brush(lampHoleSolid())
+  a.updateMatrixWorld(); b.updateMatrixWorld()
+  const out = ev.evaluate(a, b, HOLLOW_SUBTRACTION).geometry
+  tube.dispose()
+  return (_lampRib = out)
 }

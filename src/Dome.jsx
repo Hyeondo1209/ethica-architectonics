@@ -3,7 +3,7 @@
 //            RevealPassage(회랑판: 방 → +z 회랑 → 스텁 → 문 = 1p11 공개) / Terrace
 //  ★1-③B(2026.07.05): 상부 구간 구현 — 관내 잔류(§1) 완성. LandingPad·StraightFlight 폐기 제거.
 //  ★1-③A(2026.07.04): 탐험 리브 분리(72→71+1) + −x면 CSG 문 + 나선 재정의 + 폴 절단(1p7)
-import { useRef, useMemo, useLayoutEffect, useEffect, useSyncExternalStore } from 'react'
+import { useRef, useMemo, useLayoutEffect, useEffect } from 'react'
 import * as THREE from 'three'
 import { Brush, Evaluator, HOLLOW_SUBTRACTION, SUBTRACTION } from 'three-bvh-csg'
 import {
@@ -22,7 +22,7 @@ import {
   CL_ROOF_Y, CL_HEAD_Y, CL_WALL_BOT, CL_FLOOR_END, CL_STAIR_MID, CL_STAIR_HPHI,   // ★78-2 계단 바닥
   CL_STEP_RISE, clLandingY, clFloorSegments, clSillBands, CL_WIN_MODE, clSillSlopeY,   // ★78-3
   CL_WALL_T, CL_R_IN2, CL_R_OUT2, CL_SEG_DROP, clSillY,   // ★78-4 벽 두께
-  RM_X0, RM_X1, RM_Z0, RM_Z1, RM_ROOF, RM_MOUTH_H, PASS_FUSE, CLM_ARCH_ON, LR_R0, LR_LEN, LR_POW,
+  RM_X0, RM_X1, RM_Z0, RM_Z1, RM_ROOF, RM_MOUTH_H, PASS_FUSE, CLM_ARCH_ON, LR_POW,
   ST_ON, ST_PHI, ST_HW, ST_ROOF,
   LAMP_RIBS, LAMP_R, LAMP_TUBE_R, LAMP_ENTRY_Y, LAMP_TOP_Y, LAMP_MOUTH_Y0, LAMP_MOUTH_Y1, LAMP_FUNNEL_H, LAMP_MOUTH_R, LAMP_POOL_R,
   TERRACE_Y, TERRACE_RIN, TERRACE_ROUT, TERRACE_ARC,   // ⚠구 링(보존계 — ★80이 폐기, 그리지 않는다)
@@ -37,6 +37,7 @@ import {
   RIB_TINT_COL, RIB_TINT_AMT, RIB_TINT_EMIS, RIB_TINT_Y0, RIB_TINT_Y1,
   RIB_CUT_ON, RIB_CUT_MODE, RIB_CUT_BOX_HW, RIB_CUT_CAP_T,   // ★56 리브 절단(1p7)
   RIB_WALL_ON, RIB_WALL_T, RIB_WALL_SCOPE,                   // ★57 리브 벽 두께
+  LAMP_CONDUIT_ON, LAMP_TUBE_T, LAMP_WORLD_KS, LR_RM10_R0K, LR_RM10_LENK, LR_RM10_POW,   // ★224 등불 = 도관 · 등불 방 뿌리 목 배율
   RIB_VICE_ON, RIB_NEWEL_R, RIB_POLE_ON, ribCenter, spiralU,  // ★58 중세 나선(vice)
   FR_SILL_MAT, TEMPLE_COLOR,                                  // ★60 문지방(나선↔프리즈 방 매듭)
   RIB_XFER_ON, RIB_DEST_K, RIB_DEST_PHI, RIB_FREE_MODE, FR_FLOOR_Y,          // ★61 리브 갈아타기
@@ -56,7 +57,8 @@ import { buildRibShell, makeRibCurve, RIB_TUB_SEG, buildViceWedge, viceSplitInde
 import { buildKneeBody, buildKneePlinth } from './kneeBodyGeometry'
 import { buildTerrace, buildTerraceLink } from './terraceGeometry'   // ★85 부채꼴 · ★89 계단화 · ★90 리드 연결
 import { buildCupBowl, buildCupStraps, buildCupRing } from './drumCupGeometry'   // ★92 드럼 하판(반구 + 기둥) · ★93 고리판
-import { buildLampRoot, lampRootTune } from './lampRootGeometry'
+import { buildLampRoot, buildLampRib } from './lampRootGeometry'   // ★224 리브 껍질 구멍(등불 = 도관)
+import { buildLampBeam, lampBeamMaterial } from './lampBeam'   // ★225 등불 빛기둥(원뿔대 · 첨탑 셰이더 사본)
 import { buildJunctionKnot, buildLightShaft, shaftCutSolid, lightShaftSpec, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, apronSteps, buildRoomMouthWall, buildCloisterMouthWall, cloisterTransomSpec, cloisterStartCapSpec, ribArchCutSolid, radialPlate } from './junctionGeometry'   // ★70 매듭 · ★71 빛 기둥 · ★75 넓은 계단
 import { kneeTreads, kneeStairSpec } from './kneeStair'   // ★66 계단 규격·참
 import { buildFlareShell } from './exitFlareGeometry'   // ★80 S자 나팔
@@ -239,6 +241,9 @@ const KNEE_RAIL_MAT = { color: KNEE_RAIL_COL, roughness: 0.95 }
 //  (탐험 리브 #0 분리의 전례 확장). ⚠좌표 규약: rotation.set(0, a, 0)은 관을 방위각 −a에 놓는다
 //  (rotateY: z' = −x·sin a) → '방위각 +k·5°의 리브' = 인스턴스 i ≡ −k (mod 72). 제외 = i ∈ {1, 2, 70, 71}.
 const HALL_SKIP = new Set([1, 2, MERIDIANS - 2, MERIDIANS - 1])   // 방위각 −5°·−10°·+10°·+5°
+//  ★224(2026.09.20): 등불이 꽂히는 리브 9기(월드 #3~#11) + ★224-b 등불 방 리브 #12도 인스턴스에서 빼고 LampRibs(껍질 구멍 판)로 대체. 인스턴스 i ≡ −k (mod 72).
+const LAMP_SKIP = new Set(LAMP_CONDUIT_ON ? LAMP_WORLD_KS.map((k) => (MERIDIANS - k) % MERIDIANS) : [])
+const DOME_RIB_N = MERIDIANS - 1 - HALL_SKIP.size - LAMP_SKIP.size   // 72 − 1 − 4 − 10 = 57
 export function DomeRibs() {
   const ribRef = useRef()
   const curve = useMemo(() => makeRibCurve(), [])
@@ -246,7 +251,7 @@ export function DomeRibs() {
     const dummy = new THREE.Object3D()
     let n = 0
     for (let i = 1; i < MERIDIANS; i++) {            // i=0(φ=0, 탐험 리브) + HALL_SKIP 제외 → 67개, 각도 체계 불변
-      if (HALL_SKIP.has(i)) continue
+      if (HALL_SKIP.has(i) || LAMP_SKIP.has(i)) continue
       dummy.rotation.set(0, (i / MERIDIANS) * Math.PI * 2, 0)
       dummy.updateMatrix()
       ribRef.current.setMatrixAt(n++, dummy.matrix)
@@ -254,8 +259,28 @@ export function DomeRibs() {
     ribRef.current.instanceMatrix.needsUpdate = true
   }, [curve])
   return (
-    <instancedMesh ref={ribRef} args={[undefined, undefined, MERIDIANS - 1 - HALL_SKIP.size]}>
+    <instancedMesh ref={ribRef} args={[undefined, undefined, DOME_RIB_N]}>
       <tubeGeometry args={[curve, RIB_TUB_SEG, SHELL_RIB_R, RIB_RADIAL_SEG, false]} />{/* ★87: 분할수 정본 소비 — 미러 연장분만큼 늘어 상반부 밀도 보존 */}
+      <meshStandardMaterial {...RIB_MAT} side={THREE.DoubleSide} onBeforeCompile={ribTintOBC} />
+    </instancedMesh>
+  )
+}
+
+// ── ★★★224 등불 리브 9기(월드 #3~#11 · 2026.09.20): 형태·재질 = 나머지와 완전 동일. 유일한 차이 = 리브 밑면에
+//  등불 관 단면만큼의 구멍 1(★71·★79 봉인 논리 — 관 자신이 마개 · 헤어라인 여유). 기하 = φ=0 정본 리브에 CSG 한 번
+//  (buildLampRib · 모듈 캐시) → 9기 인스턴스 회전. 구멍은 회랑 실내(천장 아래·벽 사이)라 밖에서 불가시 — check_lamps ★224절이 잠근다.
+export function LampRibs() {
+  const ref = useRef()
+  const { geo, ks } = useMemo(() => ({ geo: buildLampRib(), ks: LAMP_CONDUIT_ON ? [...LAMP_SKIP] : [] }), [])
+  useLayoutEffect(() => {
+    if (!ref.current) return
+    const dummy = new THREE.Object3D()
+    ks.forEach((i, n) => { dummy.rotation.set(0, (i / MERIDIANS) * Math.PI * 2, 0); dummy.updateMatrix(); ref.current.setMatrixAt(n, dummy.matrix) })
+    ref.current.instanceMatrix.needsUpdate = true
+  }, [geo, ks])
+  if (!ks.length) return null
+  return (
+    <instancedMesh ref={ref} args={[geo, undefined, ks.length]}>
       <meshStandardMaterial {...RIB_MAT} side={THREE.DoubleSide} onBeforeCompile={ribTintOBC} />
     </instancedMesh>
   )
@@ -1096,12 +1121,7 @@ function CloisterMouthWall() {
   ) : null
 }
 
-//  ★221-d 등불 방 뿌리 목 = 화면 튜너 구독판(초기값 constants LR_RM10_* · 튜너가 없으면 그 값 그대로)
-//  ★221-e: 표적 인자 — 'rm10'(등불 방) / 'cl'(회랑 9기). 튜너가 없으면 constants 값 그대로 = 화면 무변.
-function LampRootTuned({ target = 'rm10' }) {
-  const t = useSyncExternalStore(lampRootTune.subscribe, lampRootTune.get)[target]
-  return <LampRoot r0K={t.r0 / LR_R0} lenK={t.len / LR_LEN} pow={t.pow} />
-}
+//  ★221-d/e 화면 튜너 구독판(LampRootTuned)은 ★224(2026.09.20 현도 "철거")로 제거 — 확정값은 constants에 박혀 있다.
 
 function PzCheek() {
   const geo = useMemo(() => buildPzCheek(), [])
@@ -1152,9 +1172,31 @@ function LampRoot({ r0K = 1, lenK = 1, pow = LR_POW }) {
   ) : null
 }
 
+//  ★★★225 등불 빛기둥(2026.09.24 현도 "원뿔 형태로 퍼져나가는 · 은은히"): 갓 입 → 바닥 웅덩이로 벌어지는 원뿔대 볼륨(additive).
+//   기하·재질 정본 = lampBeam.js · 수치 = constants LB_*. 등불 로컬(관 축 원점 · 월드 y). ⛔LB_ON=false = 없음.
+function LampBeam({ mouthY, floorY }) {
+  const geo = useMemo(() => buildLampBeam(mouthY, floorY), [mouthY, floorY])
+  const mat = useMemo(() => lampBeamMaterial(), [])
+  return geo ? <mesh geometry={geo} material={mat} /> : null
+}
+
+//  ★★★224(2026.09.20 현도 "리브의 빛이 관을 **통해** 닿는다"): 관 = **속 빈 셸**(바깥 = 구 봉과 동일 r0.7 · 살 LAMP_TUBE_T · 위아래 고리로 닫힘).
+//   위끝은 리브 보어 안(LAMP_TOP_Y)이라 올려다보면 관 안 → 보어가 이어진다(리브 껍질 구멍 = LampRibs). 정점색 기울기는 그대로.
+//   ⛔LAMP_CONDUIT_ON=false = 구 속 찬 봉.
 function LampRod({ y0, y1 }) {
   const geo = useMemo(() => {
-    const g = new THREE.CylinderGeometry(LAMP_TUBE_R, LAMP_TUBE_R, y1 - y0, 12, 24)
+    const g = LAMP_CONDUIT_ON
+      ? (() => {                                            // 회전체 단면(r, y): 밖 아래 → 밖 위 → 안 위 → 안 아래 → 닫힘
+          const h = y1 - y0, rO = LAMP_TUBE_R, rI = LAMP_TUBE_R - LAMP_TUBE_T, M = 24
+          const pts = []
+          for (let j = 0; j <= M; j++) pts.push(new THREE.Vector2(rO, -h / 2 + h * j / M))
+          for (let j = M; j >= 0; j--) pts.push(new THREE.Vector2(rI, -h / 2 + h * j / M))
+          pts.push(new THREE.Vector2(rO, -h / 2))
+          const l = new THREE.LatheGeometry(pts, 12)
+          l.computeVertexNormals()
+          return l
+        })()
+      : new THREE.CylinderGeometry(LAMP_TUBE_R, LAMP_TUBE_R, y1 - y0, 12, 24)
     const pos = g.attributes.position
     const colors = new Float32Array(pos.count * 3)
     const cTop = new THREE.Color(LAMP_ROD_TOP_COL)   // 진입고(리브 쪽) — 밝음
@@ -1198,8 +1240,8 @@ export function CloisterLamps() {
             <LampRod y0={neckY} y1={LAMP_TOP_Y} />
             {/* ★★★221 뿌리 목(2026.09.14 · 현도 스케치 09.13): 리브 밑면이 뿌리처럼 흘러내려 관이 된다. 정본 = lampRootGeometry.
                 리브 재질 그대로(= 리브의 연장으로 읽히게) · 관은 곧게 유지(현도) · 등불 9기 같은 기하(로컬 프레임 동일)
-                ★221-e(09.18): 튜너 'cl' 표적 구독 — 초기값 = LR_R0·LR_LEN·LR_POW라 튜너를 안 만지면 종전과 동일 */}
-            <LampRootTuned target="cl" />
+                ★221-e(09.18) 튜너 확정값 = constants LR_R0·LR_LEN·LR_POW(튜너는 ★224에서 철거) */}
+            <LampRoot />
             {/* ★접합부 점광(2026.07.11): 관이 리브 밑면에 꽂히는 자리를 밝힘 — 리브 밑면·상부 벽에
                 후광이 생겨 광원이 '리브'로 읽히게(현행 하향 점광만으로는 봉 끝이 광원으로 오독).
                 강도·거리 = 튜닝 노브 */}
@@ -1209,11 +1251,15 @@ export function CloisterLamps() {
               <cylinderGeometry args={[LAMP_TUBE_R, LAMP_MOUTH_R, LAMP_FUNNEL_H, 24, 1, true]} />
               <meshStandardMaterial color={LAMP_SHADE_COL} roughness={0.6} emissive={LAMP_SHADE_EMIS} emissiveIntensity={LAMP_SHADE_EMIS_I} side={THREE.DoubleSide} />
             </mesh>
-            {/* 갓 입 발광면 — 광원으로 읽히는 면 */}
-            <mesh position={[0, mouthY + 0.02, 0]} rotation-x={-Math.PI / 2}>
-              <circleGeometry args={[LAMP_MOUTH_R * 0.82, 24]} />
-              <meshBasicMaterial color={LAMP_GLOW_MOUTH_COL} side={THREE.DoubleSide} />
-            </mesh>
+            {/* ★225 빛기둥: 갓 입(mouthY) → 층계참(floor) 원뿔대 — 발 = 웅덩이 반경 */}
+            <LampBeam mouthY={mouthY} floorY={floor} />
+            {/* 갓 입 발광면 — ★224: 도관 체제에서는 없다(입이 열려야 관 속·보어가 보인다). 구 체제에서만 */}
+            {!LAMP_CONDUIT_ON && (
+              <mesh position={[0, mouthY + 0.02, 0]} rotation-x={-Math.PI / 2}>
+                <circleGeometry args={[LAMP_MOUTH_R * 0.82, 24]} />
+                <meshBasicMaterial color={LAMP_GLOW_MOUTH_COL} side={THREE.DoubleSide} />
+              </mesh>
+            )}
             {/* 바닥 웅덩이(코어+헤일로) — 바닥 링(floor−0.02) 위 0.015 부양(z파이팅 회피 전례) */}
             <mesh position={[0, floor - 0.005, 0]} rotation-x={-Math.PI / 2}>
               <circleGeometry args={[LAMP_POOL_R * 0.55, 32]} />
@@ -1477,16 +1523,21 @@ export function LampRoom() {
           <LampRod y0={RM10_CENTER_Y + LAMP_MOUTH_Y1 + LAMP_FUNNEL_H} y1={LAMP_TOP_Y} />
           {/* ★221-b(2026.09.18 현도 "마지막 등불방 조명에도 똑같이"): 뿌리 목 — 로컬 프레임(관 축 = 리브 #10 방위의 r=CL_R)이
               회랑 등불과 동일. ★221-c: 관 36m·천장 282라 같은 목이 너무 작게 읽혀(현도) 방 전용 배율 LR_RM10_R0K·LENK */}
-          <LampRootTuned target="rm10" />
+          <LampRoot r0K={LR_RM10_R0K} lenK={LR_RM10_LENK} pow={LR_RM10_POW} />
           <pointLight position={[0, LAMP_ENTRY_Y - 1.2, 0]} color={LAMP_LGT_JOINT_COL} intensity={LAMP_LGT_JOINT_I} distance={15} decay={2} />
           <mesh position={[0, RM10_CENTER_Y + LAMP_MOUTH_Y1 + LAMP_FUNNEL_H / 2, 0]}>
             <cylinderGeometry args={[LAMP_TUBE_R, LAMP_MOUTH_R, LAMP_FUNNEL_H, 24, 1, true]} />
             <meshStandardMaterial color={LAMP_SHADE_COL} roughness={0.6} emissive={LAMP_SHADE_EMIS} emissiveIntensity={LAMP_SHADE_EMIS_I} side={THREE.DoubleSide} />
           </mesh>
-          <mesh position={[0, RM10_CENTER_Y + LAMP_MOUTH_Y1 + 0.02, 0]} rotation-x={-Math.PI / 2}>
-            <circleGeometry args={[LAMP_MOUTH_R * 0.82, 24]} />
-            <meshBasicMaterial color={LAMP_GLOW_MOUTH_COL} side={THREE.DoubleSide} />
-          </mesh>
+          {/* ★225 빛기둥(등불 방): 갓 입(CENTER+MOUTH_Y1) → 방 바닥(CENTER_Y) */}
+          <LampBeam mouthY={RM10_CENTER_Y + LAMP_MOUTH_Y1} floorY={RM10_CENTER_Y} />
+          {/* 갓 입 발광면 — ★224-b(09.24): 도관 체제에서는 없다(회랑 9기와 동일 · 리브 #12 구멍 = LampRibs 10번째) */}
+          {!LAMP_CONDUIT_ON && (
+            <mesh position={[0, RM10_CENTER_Y + LAMP_MOUTH_Y1 + 0.02, 0]} rotation-x={-Math.PI / 2}>
+              <circleGeometry args={[LAMP_MOUTH_R * 0.82, 24]} />
+              <meshBasicMaterial color={LAMP_GLOW_MOUTH_COL} side={THREE.DoubleSide} />
+            </mesh>
+          )}
           <mesh position={[0, RM10_CENTER_Y - 0.005, 0]} rotation-x={-Math.PI / 2}>
             <circleGeometry args={[LAMP_POOL_R, 32]} />
             <meshBasicMaterial color={LAMP_POOL_HALO_COL} transparent opacity={LAMP_POOL_HALO_OP} />

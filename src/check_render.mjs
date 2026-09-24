@@ -220,7 +220,7 @@ console.log(JSON.stringify({ called, bad, noted, keys, grounded }))
 
 //  ── ★87 접지 명단 소진(브리프 §5-3) — y≤0 요소 전부에 임시 판이 있는가 ──
 {
-  const RIB_COMPS = new Set(['DomeRibs', 'ExplorationRib', 'HallDoorRibs'])   // 리브 = 미러 그 자체(판 대상 아님)
+  const RIB_COMPS = new Set(['DomeRibs', 'LampRibs', 'ExplorationRib', 'HallDoorRibs'])   // 리브 = 미러 그 자체(판 대상 아님) · ★224 등불 리브 9기
   const PAD_COMPS = new Set(['MirrorPads', 'Ground'])                          // 판 자신·(스위치 복원 시) 구 지면
   if (!MIR_ON) {
     ok(true, '미러 꺼짐 — 접지 소진 검사 생략(구 지면이 전부 받는다)')

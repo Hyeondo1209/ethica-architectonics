@@ -11,14 +11,14 @@ import { SCALE, RIB_XFER_ON, RIB_DEST_PHI, TERRACE_ON, SURVEY_START,
   LGT_DIR_POS, LGT_DIR2_POS, LGT_DIR3_POS, LGT_DIR23_SHADOW, RND_SHDW_MAP23, SHDW_CAST_SCOPE } from './constants'   // ★173 무채 재편 · ★173-c 그림자 리그 · ★175 dir 정본화
 import { FirstPersonControls } from './FirstPersonControls'
 import { WAYPOINTS, WP_GROUPS, SPAWN_ID, DEV_TELEPORT, wpIndexOf } from './waypoints'
-import { Ground, MirrorPads, DrumCup, DomeRibs, ExplorationRib, HallDoorRibs, RibStair, KneeWalk, RibJunction, Lookout, RevealPassage, CloisterLamps, Terrace, LampRoom, FriezeCrossing } from './Dome'
+import { Ground, MirrorPads, DrumCup, DomeRibs, LampRibs, ExplorationRib, HallDoorRibs, RibStair, KneeWalk, RibJunction, Lookout, RevealPassage, CloisterLamps, Terrace, LampRoom, FriezeCrossing } from './Dome'
 import { ApexLens } from './Lens'
 import { DefAxiomRoom } from './Room'
 import { Corridor } from './Corridor'
 import { RadialRooms } from './Radial'
 import { RadialEvents } from './RadialEvents'
 import { PoseProbe, CoordHud, BootProbe } from './CoordHud'
-import { LampRootTuner } from './LampRootTuner'   // ★221-d 뿌리 목 화면 튜너(개발 도구)   // ★99 좌표 HUD · ★216 부팅 계측(개발 도구 — DEV_TELEPORT로 일괄 차단)
+//  ★221-d 뿌리 목 화면 튜너(LampRootTuner)는 ★224(2026.09.20 현도 "철거")로 제거   // ★99 좌표 HUD · ★216 부팅 계측(개발 도구 — DEV_TELEPORT로 일괄 차단)
 import { SurveyRig, SurveyLights, SURVEY_ORDER } from './Survey'   // ★108 조형 검토 모드(⚠조명 아님)
 
 // ============================================================
@@ -151,6 +151,7 @@ export default function App() {
               <MirrorPads />{/* ★87 임시 판 — ★92로 배열이 비어 아무것도 안 낸다(보존계) */}
               <DrumCup />{/* ★92 드럼 하판 = 반구 R63 + 감싸는 기둥(두 체제) */}
               <DomeRibs />
+              <LampRibs />{/* ★224 등불 리브 9기(#3~#11) — 껍질 구멍 · DomeRibs에서 빠진 분 */}
               <ExplorationRib />
               <HallDoorRibs />
               <DefAxiomRoom stairKind={stair} />
@@ -192,7 +193,6 @@ export default function App() {
       </Canvas>
 
       <CoordHud />{/* ★99 좌표 HUD — C 복사 · Shift+C 웨이포인트 줄 · V 접기 */}
-      <LampRootTuner />{/* ★221-d 등불 방 뿌리 목 슬라이더(반경·길이·오목) */}
 
       <div style={{
         position: 'fixed', left: 24, bottom: 22, maxWidth: 380, pointerEvents: 'none',
