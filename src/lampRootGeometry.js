@@ -38,6 +38,7 @@ export function ribUndersideY(pr, pz, y0 = LAMP_ENTRY_Y - 8, y1 = LAMP_ENTRY_Y +
 
 //  ★221-c 변형 계수 {r0K, lenK}: 회랑 등불 = {1,1} · 등불 방 = constants.LR_RM10_*. 스펙은 계수별로 한 번만 잰다(캐시).
 const _specs = new Map()
+export const LR_M = 16   // 모선 분할(★239-d 빛 안개가 셸 부분 정점 수 N·M·6을 같은 값으로 잘라 쓴다 — 값 무변)
 export function lampRootSpec(r0K = 1, lenK = 1) {
   const key = r0K + '|' + lenK
   if (_specs.has(key)) return _specs.get(key)
@@ -58,7 +59,7 @@ export function lampRootSpec(r0K = 1, lenK = 1) {
 export function buildLampRoot(r0K = 1, lenK = 1, pow = LR_POW) {
   if (!LR_ON) return null
   const S = lampRootSpec(r0K, lenK)
-  const N = LR_SEG, M = 16
+  const N = LR_SEG, M = LR_M
   const pos = [], nrm = []
   const P = (i, j) => {                       // i: 둘레, j: 모선(0 위끝 → M 아래끝)
     const th = (i % N) / N * Math.PI * 2, c = Math.cos(th), s = Math.sin(th)

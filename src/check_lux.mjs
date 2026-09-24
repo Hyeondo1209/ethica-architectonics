@@ -3349,5 +3349,128 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
   }
 }
 
+// ───────────────────────── S-22. ★239 빛 구획 G(등불 방 1p10) 명암 — 공극·규칙 동기·정규화·물리·재격자·배선 (2026.09.24 셋째 대화) ─────────────────────────
+//  ⚠현재값 단언 금지: 세기 노브(FILL·POOL_K·GAMMA·MARK_*)는 현도 판정 대상 — 위생만 문다. 나머지는 전부 유도·불변식·도구 자기검증.
+{
+  console.log('\n── S-22. ★239 빛 구획 G — 등불 방 명암 ──')
+  const K = await import('./constants.js'), THREE = await import('three'), CG = await import('./clfGrid.js')
+  const S = LM.rm10lSpec()
+  if (!K.RM10L_ON) T('★239 보존계(RM10L_ON=false) — 명세 null · 정점 값 = 1(구 체제 그대로) · 나머지 절 보류(체제 분기로 항 수가 준다 — 규율 28)', S === null && LM.rm10lShadeAt([0, 250, 0], [0, 1, 0], S) === 1)
+  else {
+  const F = S.F, deg = Math.PI / 180, at = (thD, r, y) => [r * Math.cos(thD * deg), y, r * Math.sin(thD * deg)]
+  //  ⓐ 정규화 = F와 같은 등불(같은 단위) — lampPoolRef ≡ clfSpec().poolRef(24각 방위 차만 · 상대 1e-6) · 명세 존재
+  { const Sf = LM.clfSpec(), rel = Sf ? Math.abs(S.poolRef - Sf.poolRef) / Sf.poolRef : 0
+    T(`ⓐ 기준 조도 = F와 같은 정의 — lampPoolRef ${S.poolRef.toFixed(6)} vs F ${Sf ? Sf.poolRef.toFixed(6) : '(F 꺼짐)'} · 상대 차 ${rel.toExponential(1)}(웅덩이 24각의 방위 차뿐)`,
+      S.poolRef > 0 && S.pool.v.length === 24 && Math.abs(S.pool.v[0][1] - K.RM10_CENTER_Y) < 1e-12 && (!Sf || rel < 1e-6)) }
+  //  ⓑ 규칙 동기 — faceSideBy(W, clfInterior)가 clfFaceSide(W)와 전수 항등(사본이 아니라 같은 규칙임을 F 술어로 증명 · 규율 33)
+  { let seed = 12345; const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648
+    const Ff = LM.clfFrame(); let n = 0, bad = 0, nz = 0
+    for (let i = 0; i < 600; i++) { const ph = Ff.phi0 + (Ff.phi1 - Ff.phi0) * rnd(), r = Ff.rIn - 1.5 + (Ff.rOut - Ff.rIn + 3.0) * rnd(), y = K.clFloorY(ph) - 1.5 + 16 * rnd()
+      const c = [r * Math.cos(ph), y, r * Math.sin(ph)], W = [0, 1, 2].map(() => [c[0] + 0.6 * (rnd() - 0.5), c[1] + 0.6 * (rnd() - 0.5), c[2] + 0.6 * (rnd() - 0.5)])
+      const a = LM.clfFaceSide(W), b = LM.faceSideBy(W, (o) => LM.clfInterior(o), K.CLF_EPS).side; n++; if (a !== b) bad++; if (a !== 0) nz++ }
+    T(`ⓑ 실내 쪽 규칙 동기 — faceSideBy(clfInterior) = clfFaceSide ${n - bad}/${n}(실내 판정 ${nz} · 바깥 ${n - nz} 둘 다 표본)`, bad === 0 && nz > 50 && n - nz > 50) }
+  //  ⓒ 공극 표본 — 원기둥·원뿔대·그릇 단·천장·입구/출구 문 살·벽 속
+  { const xs = at(90, K.rm10R(228) + 0.5, 228), cases = [
+      ['축 y224', [0, 224, 0], true], ['축 y250', [0, 250, 0], true], ['축 y281', [0, 281, 0], true], ['천장 위', [0, K.RM10_ROOF_Y + 0.5, 0], false],
+      ['원기둥 벽 속', at(0, K.RM10_RHO + 0.01, 250), false], ['원뿔 벽 속', at(0, K.rm10R(230) + 0.01, 230), false], ['원뿔 안', at(0, K.rm10R(230) - 0.01, 230), true],
+      ['바깥 겹 밑', at(10, 12, F.tiers[0].top - 0.1), false], ['바깥 겹 위', at(10, 12, F.tiers[0].top + 0.1), true], ['단 4 밑', at(0, 3, F.tiers[4].top - 0.2), false],
+      ['입구 문 살', at(-90, K.RM10_RHO + 0.6, 240), true], ['입구 문 살 끝 밖', at(-90, F.rO + 0.05, 240), false], ['입구 인방 위', at(-90, K.RM10_RHO + 0.6, F.doorTop + 0.2), false],
+      ['출구 문 살', xs, true], ['출구 문 살 밖', at(90, K.rm10R(228) + K.RM10_CONE_T + 0.05, 228), false], ['출구 인방 위', at(90, K.rm10R(232) + 0.5, F.xy1 + 0.3), false],
+      ['문 아닌 방위 벽 두께', at(0, K.RM10_RHO + 0.6, 240), false]]
+    const bad = cases.filter(([, q, e]) => LM.rm10lInterior(q) !== e).map(([k]) => k)
+    T(`ⓒ 등불 방 공극 표본 ${cases.length - bad.length}/${cases.length} — 원기둥·원뿔대·그릇 단·천장·문 살 두 개·벽 속${bad.length ? ' ✗ ' + bad.join(',') : ''}`, bad.length === 0) }
+  //  ⓓ 물리(유도식 대조) — 웅덩이 평면 위 위 향 면 = 0(클리핑) · 평면 아래 = 0 · 그릇 챌판은 반경 따라 단조 감소 · 원기둥 벽은 높이 따라 단조 감소 · 채움만 남는 곳 = FILL
+  { const E = (q, n) => LM.rm10lTermsAt(q, n, S).pool
+    const top = E(at(0, 3, F.tiers[4].top - 0.02), [0, 1, 0]), below = E([4, K.RM10_CENTER_Y - 0.5, 0], [-1, 0, 0])
+    const ris = F.tiers.slice(1).map((g) => E(at(0, g.r0, (g.top + F.tiers[g.i - 1].top) / 2), [-1, 0, 0])).reverse()   // 안쪽 챌판부터
+    const wall = [240, 250, 260, 270, 280].map((y) => E(at(30, K.RM10_RHO, y), [-1, 0, 0]))
+    const mono = (a) => a.every((v, i) => i === 0 || v < a[i - 1])
+    T(`ⓓ 물리 — 단 윗면(웅덩이 평면 위) ${top} · 평면 아래 ${below} · 챌판(안→밖) ${ris.map((v) => v.toFixed(3)).join(' > ')} · 원기둥 벽(y240→280) ${wall.map((v) => v.toFixed(4)).join(' > ')}`,
+      top === 0 && below === 0 && mono(ris) && mono(wall) && ris[0] > 0.5 && Math.abs(LM.rm10lCompose({ pool: 0 }) - (K.CLF_DIM + (1 - K.CLF_DIM) * Math.pow(LM.RM10L_TUNE.FILL, LM.RM10L_TUNE.GAMMA))) < 1e-15) }
+  //  ⓔ 공극 안 평가 — 무작위 점(방 둘레 상자) → 물린 점은 전부 공극 안 · 공극 안 점은 항등
+  { let seed = 777; const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648
+    let nOut = 0, bad = 0, nIn = 0, moved = 0
+    for (let i = 0; i < 1500; i++) { const th = 2 * Math.PI * rnd(), r = 17 * Math.sqrt(rnd()), y = 221 + 63 * rnd(), q = [r * Math.cos(th), y, r * Math.sin(th)], c = LM.rm10lClampToVolume(q)
+      if (LM.rm10lInterior(q)) { nIn++; if (c.some((v, k) => v !== q[k])) moved++ } else { nOut++; if (!LM.rm10lInterior(c)) bad++ } }
+    const ld = LM.rm10lClampToVolume(at(-90, F.rO + 0.3, 240))   // 입구 문 살 방향의 벽 너머 점 → 문 살 끝 안쪽(r = rO − 2e-3)
+    T(`ⓔ 공극 안 평가 — 밖 점 ${nOut}개 물린 결과 공극 밖 ${bad} · 안 점 ${nIn}개 이동 ${moved} · 입구 문 살 너머 → 문 살 안 r ${Math.hypot(ld[0], ld[2]).toFixed(4)}`, bad === 0 && moved === 0 && nOut > 300 && nIn > 300 && LM.rm10lDoorSlot(ld) === 'entry' && Math.abs(Math.hypot(ld[0], ld[2]) - (F.rO - 2e-3)) < 1e-9) }
+  //  ⓕ 원뿔대 재격자(★239 clfGrid 가지) — 원래 면까지 ≤ 1e-4 · 면적 동일 · 최장변 ≤ √2·L · 법선 = three 규약
+  { const L = K.RM10L_SUBDIV, g0 = new THREE.CylinderGeometry(K.rm10R(K.RM10_CONE_Y), K.rm10R(K.RM10_BOT_Y), K.RM10_CONE_Y - K.RM10_BOT_Y, 64, 1, true, 0.4, 5.2), g = CG.regridPrimitive(g0, L)
+    const area = (G) => { const P = G.attributes.position, I = G.index; let a = 0; const A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3()
+      for (let i = 0; i < I.count; i += 3) { A.fromBufferAttribute(P, I.getX(i)); B.fromBufferAttribute(P, I.getX(i + 1)); C.fromBufferAttribute(P, I.getX(i + 2)); a += B.clone().sub(A).cross(C.clone().sub(A)).length() / 2 } return a }
+    let worst = 0, maxE = 0, nBad = 0; const P = g.attributes.position, N = g.attributes.normal, I = g.index.array, P0 = g0.attributes.position, I0 = g0.index, N0 = g0.attributes.normal
+    const tri = new THREE.Triangle(), cp = new THREE.Vector3(), Q = new THREE.Vector3(), A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3()
+    for (let i = 0; i < P.count; i += 5) { Q.fromBufferAttribute(P, i); let best = Infinity, bj = 0
+      for (let j = 0; j < I0.count; j += 3) { A.fromBufferAttribute(P0, I0.getX(j)); B.fromBufferAttribute(P0, I0.getX(j + 1)); C.fromBufferAttribute(P0, I0.getX(j + 2)); tri.set(A, B, C); tri.closestPointToPoint(Q, cp); const d = cp.distanceTo(Q); if (d < best) { best = d; bj = j } }
+      worst = Math.max(worst, best); const nq = new THREE.Vector3().fromBufferAttribute(N, i), n0 = new THREE.Vector3().fromBufferAttribute(N0, I0.getX(bj)); if (nq.dot(n0) < 0.99) nBad++ }
+    for (let i = 0; i < I.length; i += 3) for (const [x, y] of [[I[i], I[i + 1]], [I[i + 1], I[i + 2]], [I[i + 2], I[i]]]) maxE = Math.max(maxE, Math.hypot(P.getX(x) - P.getX(y), P.getY(x) - P.getY(y), P.getZ(x) - P.getZ(y)))
+    const a0 = area(g0), a1 = area(g)
+    T(`ⓕ 원뿔대 재격자 — 원래 면까지 ${worst.toExponential(1)} · 면적 ${a1.toFixed(3)} vs ${a0.toFixed(3)} · 최장변 ${maxE.toFixed(3)} ≤ √2·L · 법선 불일치 ${nBad} · 삼각형 ${I.length / 3}`,
+      worst <= 1e-4 && Math.abs(a1 - a0) <= 1e-3 * a0 && maxE <= Math.SQRT2 * L + 1e-9 && nBad === 0) }
+  //  ⓖ 양면 판 판정 — 계단 디딤판·층계참(방 안 쪽)은 both · 벽·그릇 단 윗면은 한쪽
+  { const st = K.rm10Steps()[25], tm = (st.thA + st.thB) / 2, rm = (st.rIn + st.rOut) / 2, h = 0.2
+    const flat = (c, y) => [[c[0] - h, y, c[2] - h], [c[0] + h, y, c[2] - h], [c[0], y, c[2] + h]]   // 감김 법선 = −y(밑)
+    const tread = LM.rm10lFaceSide(flat(at(tm / deg, rm, 0), st.top)), land = LM.rm10lFaceSide(flat(at(-90, 7.0, 0), K.RM10_LAND_Y))
+    const tier = LM.rm10lFaceSide(flat(at(20, 3.3, 0), F.tiers[4].top - 0.02)), wv = at(30, K.RM10_RHO, 0), wall = LM.rm10lFaceSide([[wv[0], 250, wv[2]], [wv[0], 251, wv[2]], [wv[0] - 0.01, 250.5, wv[2] + 0.4]])
+    T(`ⓖ 양면 판 — 디딤판 both=${tread.both} · 층계참 both=${land.both} · 단 윗면 both=${tier.both}(쪽 ${tier.side}) · 원기둥 벽 both=${wall.both}`,
+      tread.both && tread.side !== 0 && land.both && !tier.both && tier.side === -1 && !wall.both && wall.side !== 0) }
+  //  ⓗ 바닥 빛 자국 — 회랑과 같은 GLSL 함수 · 등불 하나 = 방 축(상부 여정 로컬) · 반경 = LB_FOOT_R · 모양 표 = clfPoolShape(RM10L_MARK_POW)
+  { const P = LM.rm10lPoolSpec(), G = LM.clfPoolGLSL(P), up = LM.rm10lFromRoom([0, K.RM10_CENTER_Y, 0]), upR = LM.rm10lFromRoom([K.LB_FOOT_R, K.RM10_CENTER_Y, 0])
+    const src = readFileSync(new URL('./LampRoomLight.jsx', import.meta.url), 'utf-8')
+    T(`ⓗ 등불 방 빛 자국 — 등불 1기 = 방 축 (${P.lamps[0].map((v) => v.toFixed(3)).join(', ')}) · 반경 ${P.R} = LB_FOOT_R · 중심 ${LM.clfPoolAt(up, P)} · 발 반경 ${LM.clfPoolAt(upR, P).toExponential(1)} · 같은 GLSL(clfPoolGLSL) · 헤일로 메시 스위치`,
+      P.lamps.length === 1 && Math.abs(P.lamps[0][0] - F.AX) < 1e-12 && Math.abs(P.lamps[0][1] - F.AZ) < 1e-12 && P.R === K.LB_FOOT_R && P.shape.every((v, i) => v === LM.clfPoolShape(K.RM10L_MARK_POW)[i])
+      && Math.abs(LM.clfPoolAt(up, P) - 1) < 1e-12 && Math.abs(LM.clfPoolAt(upR, P)) < 1e-9 && G.uniforms.uClfLamps.length === 1 && src.includes('clfPoolGLSL(rm10lPoolSpec())') && typeof K.RM10L_POOL_MESH_ON === 'boolean') }
+  //  ⓝ ★239-c 챌판 쐐기 회귀 방지 — 실제 체인(재격자 → Float32 → 방 그룹 → 상부 로컬 → 방 로컬)의 그릇 챌판 **아랫변 전 정점이 같은 값**(구판: 144/192가 윗단 높이로 들려 1.44 · 48은 0)
+  { const CG2 = await import('./clfGrid.js'); let spread = 0, lifted = 0, nb = 0
+    for (const g of F.tiers.filter((t) => t.i < K.RM10_TIER_N - 1)) { const geo = CG2.regridPrimitive(new THREE.CylinderGeometry(g.r0, g.r0, K.RM10_TIER_RISE, 64, 1, true), K.RM10L_SUBDIV).toNonIndexed()
+      const M = new THREE.Matrix4().compose(new THREE.Vector3(F.AX, g.top + K.RM10_TIER_SIGN * K.RM10_TIER_RISE / 2, F.AZ), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -K.RM10_PHI, 0)), new THREE.Vector3(1, 1, 1))
+      const P = geo.attributes.position, w = new THREE.Vector3(), vals = []
+      for (let i = 0; i < P.count; i++) { w.fromBufferAttribute(P, i).applyMatrix4(M); const q = LM.rm10lToRoom(w.toArray()); if (q[1] > g.top - K.RM10_TIER_RISE + 1e-3) continue
+        const r = Math.hypot(q[0], q[2]), n = [-q[0] / r, 0, -q[2] / r], e = LM.rm10lEvalPoint(q, n); if (e[1] > q[1] + 0.1) lifted++; vals.push(LM.rm10lTermsAt(e, n, S).pool); nb++ }
+      spread = Math.max(spread, Math.max(...vals) - Math.min(...vals)) }
+    T(`ⓝ ★239-c 그릇 챌판 아랫변(단 경계 반경) — 정점 ${nb}개 · 윗단으로 들린 것 ${lifted} · 챌판 안 웅덩이 항 폭 ${spread.toExponential(1)} < 1e-3(웅덩이 24각의 방위 의존만 · 구판 1.44 = 검은 쐐기)`, nb > 500 && lifted === 0 && spread < 1e-3) }
+  //  ⓞ ★239-b 관 옆면 발광 — 기준점 = 1 · 등지면 0 · 반경 따라 단조 감소 · 관 위 끝 너머 급감 · 세기 분포 = 표시 그러데이션(아래/위 광도비) · 적분 수렴
+  { const Tb = S.tube
+    if (!K.RM10L_TUBE_ON) T('ⓞ ★239-b 보존계(RM10L_TUBE_ON=false) — 관 항 0', !Tb && LM.rm10lTermsAt([0, 250, 0], [1, 0, 0], S).tube === 0)
+    else { const mid = (Tb.y0 + Tb.y1) / 2, rad = (r, y, th = 0.7) => LM.rm10lTermsAt([r * Math.cos(th), y, r * Math.sin(th)], [-Math.cos(th), 0, -Math.sin(th)], S).tube
+      const axisBelow = LM.rm10lTermsAt([0, Tb.y0 - 2, 0], [0, 1, 0], S).tube   // 관 바로 아래 축에서 올려다보면 옆면이 안 보인다(sinφ = 0) — 원통 투영이 빠지면 양수(반증 8)
+      const ref = rad(K.RM10_RHO, mid), back = LM.rm10lTermsAt([K.RM10_RHO * Math.cos(0.7), mid, K.RM10_RHO * Math.sin(0.7)], [Math.cos(0.7), 0, Math.sin(0.7)], S).tube
+      const ring = [3, 5, 7, K.RM10_RHO].map((r) => rad(r, mid)), above = rad(K.RM10_RHO, Tb.y1 + 10)
+      const lin = (h) => { const n = parseInt(h.slice(1), 16), f = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4) }; return 0.2126 * f((n >> 16) & 255) + 0.7152 * f((n >> 8) & 255) + 0.0722 * f(n & 255) }
+      const q = [5.6, K.RM10_LAND_Y, 0], e1 = LM.rm10lTubeIrr(q, [0, 1, 0], Tb), e2 = LM.rm10lTubeIrr(q, [0, 1, 0], { ...Tb, N: 2048 }), conv = Math.abs(e1 - e2) / e2
+      T(`ⓞ ★239-b 관 발광 — 기준 ${ref.toFixed(12)} · 등진 면 ${back} · 관 바로 아래 축 ${axisBelow}(옆면 불가시) · 반경 3→5→7→8.4 ${ring.map((v) => v.toFixed(3)).join(' > ')} · 관 끝 10m 위 ${above.toFixed(3)} · 분포 아래/위 ${Tb.prof(Tb.y0).toFixed(3)} = 광도비 · 수렴 ${conv.toExponential(1)}`,
+        Math.abs(ref - 1) < 1e-12 && back === 0 && axisBelow === 0 && ring.every((v, i) => i === 0 || v < ring[i - 1]) && above < 0.3 && Math.abs(Tb.prof(Tb.y0) - lin(K.LAMP_ROD_BOT_COL) / lin(K.LAMP_ROD_TOP_COL)) < 1e-12 && Tb.prof(Tb.y1) === 1
+        && Math.abs(Tb.y0 - (K.RM10_CENTER_Y + K.LAMP_MOUTH_Y1 + K.LAMP_FUNNEL_H)) < 1e-12 && Tb.y1 === K.LAMP_TOP_Y && Tb.R === K.LAMP_TUBE_R && conv < 1e-2) } }
+  //  ⓟ ★240 입구 층계참 몸 — 밑면 = 첫 챌판 상자 밑면 − 0.02(파생 항등 · 공면 회피) · 계단 쪽 끝면이 0.2 챌판을 덮는다 · 회랑 바닥판 밑면과 공면 아님 · 밑을 지나는 계단 0 · 네 면이 방 공극 쪽 · Dome 배선
+  { const st0 = K.rm10Steps()[0], boxBot = st0.top - (K.CL_STEP_RISE + K.PASS_T), B = K.RM10_LAND_BOT, Tp = K.RM10_LAND_Y, at2 = (th, r, y) => [r * Math.cos(th), y, r * Math.sin(th)]
+    const under = K.rm10Steps().filter((s2) => Math.min(s2.thA, s2.thB) < F.eth1 - 1e-9 && Math.max(s2.thA, s2.thB) > F.eth0).length
+    const tri = (c, u, v) => [c, [c[0] + u[0], c[1] + u[1], c[2] + u[2]], [c[0] + v[0], c[1] + v[1], c[2] + v[2]]], m = (F.eth0 + F.eth1) / 2
+    const faces = [tri(at2(m, 7, B), [0.3, 0, 0], [0, 0, 0.3]), tri(at2(m, K.RM10_LAND_RIN, B + 0.5), [0, 0.3, 0], [Math.sin(m) * 0.3, 0, -Math.cos(m) * 0.3]), tri(at2(F.eth0, 7, B + 0.5), [Math.cos(F.eth0) * 0.3, 0, Math.sin(F.eth0) * 0.3], [0, 0.3, 0])].map((W) => LM.rm10lFaceSide(W).side)
+    const dm = readFileSync(new URL('./Dome.jsx', import.meta.url), 'utf-8'), lr = dm.slice(dm.indexOf('export function LampRoom'))
+    T(`ⓟ ★240 입구 층계참 몸 — 밑면 ${B.toFixed(3)} = 첫 챌판 상자 밑면 ${boxBot.toFixed(3)} − 0.02(층계참이 겹친 반쪽을 삼킴) · 두께 ${(Tp - B).toFixed(3)} · 끝면이 첫 단 위 ${(Tp - st0.top).toFixed(2)} 챌판을 덮음 · 회랑 바닥판(#697) 밑면 CL_FLOOR_END − 2·PASS_T와 ${(B - (K.CL_FLOOR_END - 2 * K.PASS_T)).toFixed(2)} 차 · 밑 계단 ${under} · 면 판정 ${faces.join(',')} · 배선`,
+      Math.abs(B - (boxBot - 0.02)) < 1e-12 && Math.abs(B - (K.CL_FLOOR_END - 2 * K.PASS_T)) > 0.05 && B < st0.top && Tp > st0.top && under === 0 && faces.every((x) => x !== 0)
+      && lr.includes("{ring('ldb', RM10_LAND_RIN, rO, RM10_LAND_BOT, th0, th1, false)}") && lr.includes("{cyl('ldi', RM10_LAND_RIN, RM10_LAND_BOT, RM10_LAND_Y, th0, th1)}") && lr.includes("{[th0, th1].map((a, i) => (\n          <mesh key={'lde' + i}")
+      && lr.includes("<planeGeometry args={[rO - RM10_LAND_RIN, RM10_LAND_Y - RM10_LAND_BOT]} />") && lr.includes("{ring('ld', RM10_LAND_RIN, rO, RM10_LAND_Y, th0, th1, true)}")) }
+  //  ⓛ 노브 위생
+  T('ⓛ 노브 위생 — RM10L_ON·PTL_ON·POOL_MESH_ON 불리언 · FILL∈[0,1) · POOL_K ≥ 0 · GAMMA > 0 · MARK_K∈[0,1] · SUBDIV∈(0.1,2] · EPS∈(1e-3, PASS_T/2) · RM10L_TUNE 초기값 = constants',
+    typeof K.RM10L_ON === 'boolean' && typeof K.RM10L_PTL_ON === 'boolean' && typeof K.RM10L_POOL_MESH_ON === 'boolean' && K.RM10L_FILL >= 0 && K.RM10L_FILL < 1 && K.RM10L_POOL_K >= 0 && K.RM10L_GAMMA > 0
+    && K.RM10L_MARK_K >= 0 && K.RM10L_MARK_K <= 1 && K.RM10L_SUBDIV > 0.1 && K.RM10L_SUBDIV <= 2 && K.RM10L_EPS > 1e-3 && K.RM10L_EPS < K.PASS_T / 2
+    && typeof K.RM10L_TUBE_ON === 'boolean' && K.RM10L_TUBE_K >= 0 && Number.isInteger(K.RM10L_TUBE_N) && K.RM10L_TUBE_N >= 32 && LM.RM10L_TUNE.TUBE_K === K.RM10L_TUBE_K
+    && LM.RM10L_TUNE.FILL === K.RM10L_FILL && LM.RM10L_TUNE.POOL_K === K.RM10L_POOL_K && LM.RM10L_TUNE.GAMMA === K.RM10L_GAMMA && LM.RM10L_TUNE.MARK_K === K.RM10L_MARK_K && LM.RM10L_TUNE.MARK_POW === K.RM10L_MARK_POW)
+  //  ⓜ 배선 — 게이트 한 줄(양면 판 뒷면 discard 포함) · color_fragment 치환 · LampRoom 태그·등불 제외 · 점광 2기·헤일로가 스위치 뒤 · App 마운트 · 재격자 · 공극 안 평가
+  { const src = readFileSync(new URL('./LampRoomLight.jsx', import.meta.url), 'utf-8'), app = readFileSync(new URL('./App.jsx', import.meta.url), 'utf-8'), dome = readFileSync(new URL('./Dome.jsx', import.meta.url), 'utf-8')
+    const lr = dome.slice(dome.indexOf('export function LampRoom'))
+    T('ⓜ 배선 — 게이트(vRm10l·gl_FrontFacing · 2 = 뒷면 discard) · color_fragment 치환 · LampRoom rm10l 그룹 1 · 등불 rm10lSkip 1 · 점광 2기 모두 RM10L_PTL_ON 뒤 · 헤일로 RM10L_POOL_MESH_ON 뒤 · App 마운트 · regridPrimitive · 물린 점으로 잰다 · 이음매 ⓘ(F 바깥면 → G · aClf 사본)·ⓘ′(F 미베이크 메시 → G)·ⓙ(방 부재 회랑 쪽 → F 정본)',
+      src.includes("'if (vRm10l > 1.5 && !gl_FrontFacing) discard; if (vRm10l * (gl_FrontFacing ? 1.0 : -1.0) > 0.5) { vec3 clfC = vColor.rgb; if (vClfMark > 1e-4) clfC = min(vec3(1.0), clfC + uClfPoolK * clfPool(vClfW) * vClfMark); diffuseColor.rgb *= clfC; }'")
+      && src.includes(".replace('#include <color_fragment>', '#ifdef USE_COLOR\\n  ' + RM10L_GATE + '\\n#endif')") && (lr.match(/userData=\{\{ rm10l: true \}\}/g) || []).length === 1 && (lr.match(/userData=\{\{ rm10lSkip: true \}\}/g) || []).length === 1
+      && (lr.match(/<pointLight/g) || []).length === 2 && (lr.match(/RM10L_PTL_ON && <pointLight/g) || []).length === 2 && /\{RM10L_POOL_MESH_ON && \(\s*<mesh position=\{\[0, RM10_CENTER_Y - 0\.005, 0\]\}/.test(lr)
+      && /<LampRoomLight \/>/.test(app) && /regridPrimitive\(g, RM10L_SUBDIV\)/.test(src) && src.includes('rm10lTermsAt(rm10lEvalPoint(p, nl), nl, S)') && src.includes('rm10lTermsAt(rm10lEvalPoint(W[j], nl), nl, SM.S)') && !src.includes('rm10lClampToVolume(') && src.includes("tri.push({ t, side: 2, copy: false }); tri.push({ t, side: 2, copy: true })")
+      && src.includes('if (r.seam || !r.triSide) continue') && src.includes("g.setAttribute('aClf', new THREE.BufferAttribute(side2, 1))") && src.includes('for (const o of extra) if (SM.bakeOne(o)) nX++') && src.includes('clfCompose(clfTermsAt(clfClampToVolume(pu), nu, SF))')
+      && src.includes('for (let t = 0; t < r.triSide.length; t++) { if (r.triSide[t] !== 0) continue') && src.includes('fs = faceSideBy(W, (q) => rm10lNearVolume(q, RM10L_SUBDIV), RM10L_EPS); if (fs.side === 0) continue')
+      && !src.includes('writeG(')
+      && LM.rm10lNearVolume([0, 250, 0], 0.75) && LM.rm10lNearVolume([K.RM10_RHO + 0.5, 250, 0], 0.75) && !LM.rm10lNearVolume([K.RM10_RHO + 1.0, 250, 0], 0.75)) }   // ★239 이음매 ⓘ·ⓘ′·ⓙ 배선 · ★239-e′ F 바깥면 한 칸 여유(★239-e 정점 덮기는 되돌림 — F 문 인방 회귀)
+  }
+}
+
 console.log(`\n전체 ${pass + fail}항 중 ${pass}항 통과 ${fail ? '❌ ' + fail + '항 실패' : '✅'}`)
 process.exit(fail ? 1 : 0)

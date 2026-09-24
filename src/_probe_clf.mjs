@@ -69,7 +69,7 @@ globalThis.document = { createElement: (t) => t === 'canvas'
 globalThis.window = { devicePixelRatio: 1, innerWidth: 1280, innerHeight: 720, addEventListener: noop, removeEventListener: noop, dispatchEvent: noop, __ethicaT0: performance.now(), location: { search: '' } }
 globalThis.CustomEvent = class { constructor(t, d) { this.type = t; this.detail = d && d.detail } }
 globalThis.requestAnimationFrame = (f) => setTimeout(() => f(performance.now()), 0)
-const logs = []; const keep = (a) => { const l = a.join(' '); if (/\\[(BAKE|DSK|ROOM|ACH|ethica|ZI)/.test(l)) logs.push(l) }
+const logs = []; const keep = (a) => { const l = a.join(' '); if (/\\[(BAKE|DSK|ROOM|ACH|ethica|ZI)/.test(l)) logs.push(l); if (/\\[RM10L\\]/.test(l)) process.stderr.write(l + '\\n') }   // ★239 G 베이크 줄은 바로 보인다
 console.info = (...a) => keep(a); console.log = (...a) => keep(a)
 globalThis.__effects = []; globalThis.__layout = []; globalThis.__frames = []; globalThis.__comp = null
 const scene = new THREE.Scene()

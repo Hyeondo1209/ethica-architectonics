@@ -29,7 +29,7 @@ import {
   RM10_ON, RM10_K, RM10_PHI, RM10_AX_R, RM10_RHO, RM10_WALL_T, RM10_FLOOR_Y, RM10_ROOF_Y,   // ★79 등불 방
   RM10_DOOR_H, RM10_ENTRY_TH, RM10_DOOR_HTH, RM10_FLOOR_OPEN_R, rm10Steps,
   RM10_CONE_DEG, RM10_CONE_Y, rm10R, RM10_FLOOR_R, RM10_BOT_Y, RM10_CENTER_Y,   // ★79-3 원뿔대
-  RM10_TIER_N, RM10_TIER_RISE, RM10_TIER_SIGN, rm10Tiers, RM10_LAND_RIN, RM10_LAND_Y,
+  RM10_TIER_N, RM10_TIER_RISE, RM10_TIER_SIGN, rm10Tiers, RM10_LAND_RIN, RM10_LAND_Y, RM10_LAND_BOT,   // ★240 층계참 밑면
   RM10_EXIT_TH, RM10_EXIT_DHTH, RM10_EXIT_TH0, RM10_EXIT_TH1, RM10_EXIT_RIN, RM10_EXIT_ROUT,   // ★79-5 출구 통로
   RM10_EXIT_FLOOR_Y, RM10_EXIT_ROOF_Y, RM10_TERR_TH, RM10_TERR_DHTH,
   RM10_EXIT_W, RM10_EXIT_DOOR_W, RM10_STR_L, RM10_STR_END, RM10_TERR_DOOR_W, RM10_CONE_T,   // ★79-6/7
@@ -38,6 +38,7 @@ import {
   RIB_CUT_ON, RIB_CUT_MODE, RIB_CUT_BOX_HW, RIB_CUT_CAP_T,   // ★56 리브 절단(1p7)
   RIB_WALL_ON, RIB_WALL_T, RIB_WALL_SCOPE,                   // ★57 리브 벽 두께
   LAMP_CONDUIT_ON, LAMP_TUBE_T, LAMP_WORLD_KS, LR_RM10_R0K, LR_RM10_LENK, LR_RM10_POW,
+  RM10L_PTL_ON, RM10L_POOL_MESH_ON, RM10L_GLOW_ON,   // ★239 빛 구획 G — 등불 방 점광·웅덩이 메시 스위치 · ★239-d 기둥 빛 안개
   CLF_PTL_ON, clLampSpecs, LAMP_POOL_MESH_ON, LAMP_ROD_SEG, LAMP_SHADE_T,   // ★226 빛 구획 F — 점광 스위치 · 등불 명세 정본 · ★232 웅덩이 메시 스위치   // ★224 등불 = 도관 · 등불 방 뿌리 목 배율
   RIB_VICE_ON, RIB_NEWEL_R, RIB_POLE_ON, ribCenter, spiralU,  // ★58 중세 나선(vice)
   FR_SILL_MAT, TEMPLE_COLOR,                                  // ★60 문지방(나선↔프리즈 방 매듭)
@@ -61,6 +62,7 @@ import { buildCupBowl, buildCupStraps, buildCupRing } from './drumCupGeometry'  
 import { buildLampRoot, buildLampRib } from './lampRootGeometry'
 import { ribClfGLSL } from './lightingModel.js'   // ★238   // ★224 리브 껍질 구멍(등불 = 도관)
 import { buildLampBeam, lampBeamMaterial } from './lampBeam'   // ★225 등불 빛기둥(원뿔대 · 첨탑 셰이더 사본)
+import { buildLampGlow, lampGlowMaterial } from './lampGlow.js'   // ★239-d 등불 방 기둥 빛 안개
 import { buildJunctionKnot, buildLightShaft, shaftCutSolid, lightShaftSpec, buildShaftGrate, discSolid, buildJunctionPlate, buildPzCheek, buildWideStair, wideStairTreads, apronSteps, buildRoomMouthWall, buildCloisterMouthWall, cloisterTransomSpec, cloisterStartCapSpec, ribArchCutSolid, radialPlate } from './junctionGeometry'   // ★70 매듭 · ★71 빛 기둥 · ★75 넓은 계단
 import { kneeTreads, kneeStairSpec } from './kneeStair'   // ★66 계단 규격·참
 import { buildFlareShell } from './exitFlareGeometry'   // ★80 S자 나팔
@@ -1171,6 +1173,13 @@ function LightShaft() {
 //  ⚠광량·색은 Phase 3 전면 재조정 전제(전부 노브). 1p10 정리 텍스트(비석/각인)는 별도 세션.
 // 등불 봉: 정점 색 세로 기울기(진입고에서 목까지 밝음→어둠 보간, 진입고 위 = 상단색 고정) — 튜닝 노브 = 아래 두 색
 // ── ★221 뿌리 목 — 리브 재질 공유(리브의 연장) · 기하 1회 생성 후 9기 공유(useMemo는 등불마다 도니 모듈 캐시가 정본) ──
+//  ★★★239-d 등불 방 조명 기둥 빛 안개 — 관 + 뿌리 목을 법선으로 부풀린 셸 · ★225 셰이더 파생(lampGlow.js 머리 주석)
+function LampGlow({ y0, r0K, lenK, pow }) {
+  const geo = useMemo(() => buildLampGlow(y0, r0K, lenK, pow), [y0, r0K, lenK, pow])
+  const mat = useMemo(() => lampGlowMaterial(y0, r0K, lenK), [y0, r0K, lenK])
+  useEffect(() => () => geo?.dispose?.(), [geo])
+  return geo ? <mesh geometry={geo} material={mat} userData={{ lightVolume: true }} /> : null
+}
 function LampRoot({ r0K = 1, lenK = 1, pow = LR_POW }) {
   const geo = useMemo(() => buildLampRoot(r0K, lenK, pow), [r0K, lenK, pow])
   useEffect(() => () => geo?.dispose?.(), [geo])   // 튜너로 갈아끼울 때 옛 기하 폐기
@@ -1361,7 +1370,7 @@ export function LampRoom() {
   )
 
   return (
-    <>
+    <group userData={{ rm10l: true }}>{/* ★★★239 빛 구획 G(등불 방) 소속 — LampRoomLight가 이 태그를 찾아 실내 면에 정점색을 굽는다(중앙 등불은 rm10lSkip) */}
       {/* 방 본체 — 로컬 프레임(원점 = 축, x = 반경 바깥, z = 회랑 진행) */}
       <group position={[AX, 0, AZ]} rotation-y={-RM10_PHI}>
         {/* ★79-3 바닥 = 동심원 여러 겹(두 어법 스위치). 정본 = rm10Tiers() */}
@@ -1416,6 +1425,16 @@ export function LampRoom() {
             안쪽 반지름은 원기둥 기준 RM10_LAND_RIN(5.4) — 첫 단 띠 5.51~8.51을 온전히 받는다.
             높이는 회랑 바닥보다 0.02 아래(RM10_LAND_Y) — 겹치는 띠 2.78에서 회랑이 위를 덮어 z-파이팅이 없다. */}
         {ring('ld', RM10_LAND_RIN, rO, RM10_LAND_Y, th0, th1, true)}
+        {/* ★★★240 층계참 몸(현도 "종잇장 — 두께감 · 계단과 자연스럽게" · ⓑ): 밑면 = 첫 챌판 상자 밑면 − 0.02(RM10_LAND_BOT) · 안쪽 모서리 면 · 양 끝면.
+            계단 쪽 끝면(th1 = 첫 단 thA)이 층계참 윗면과 첫 단 사이 0.2 챌판도 막는다. 바깥(rO)은 벽·회랑 판 속. 명암 = LampRoomLight가 그대로 굽는다(닫힌 몸 — 판 안쪽은 공극 밖이 아님: 안쪽 사본은 보이지 않는다). */}
+        {ring('ldb', RM10_LAND_RIN, rO, RM10_LAND_BOT, th0, th1, false)}
+        {cyl('ldi', RM10_LAND_RIN, RM10_LAND_BOT, RM10_LAND_Y, th0, th1)}
+        {[th0, th1].map((a, i) => (
+          <mesh key={'lde' + i} position={[(RM10_LAND_RIN + rO) / 2 * Math.cos(a), (RM10_LAND_BOT + RM10_LAND_Y) / 2, (RM10_LAND_RIN + rO) / 2 * Math.sin(a)]} rotation-y={-a}>
+            <planeGeometry args={[rO - RM10_LAND_RIN, RM10_LAND_Y - RM10_LAND_BOT]} />
+            <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
+          </mesh>
+        ))}
         {/* 하강 계단 50단 — 정본 = rm10Steps(). 디딤판 = 링 섹터 / 챌판 = 방사 회전 박스 */}
         {steps.map((s) => {
           const [a0, a1] = s.thA < s.thB ? [s.thA, s.thB] : [s.thB, s.thA]
@@ -1531,12 +1550,13 @@ export function LampRoom() {
           )
         })()}
         {/* 중앙 등불 — 회랑 등불과 **같은 어법**(관 + 깔때기 갓 + 웅덩이). 다른 건 관이 훨씬 길다는 것뿐 */}
-        <group>
+        <group userData={{ rm10lSkip: true }}>{/* ★239 등불 부재는 굽지 않는다(회랑 등불과 같은 판단 — 광원) */}
           <LampRod y0={RM10_CENTER_Y + LAMP_MOUTH_Y1 + LAMP_FUNNEL_H} y1={LAMP_TOP_Y} />
           {/* ★221-b(2026.09.18 현도 "마지막 등불방 조명에도 똑같이"): 뿌리 목 — 로컬 프레임(관 축 = 리브 #10 방위의 r=CL_R)이
               회랑 등불과 동일. ★221-c: 관 36m·천장 282라 같은 목이 너무 작게 읽혀(현도) 방 전용 배율 LR_RM10_R0K·LENK */}
           <LampRoot r0K={LR_RM10_R0K} lenK={LR_RM10_LENK} pow={LR_RM10_POW} />
-          <pointLight position={[0, LAMP_ENTRY_Y - 1.2, 0]} color={LAMP_LGT_JOINT_COL} intensity={LAMP_LGT_JOINT_I} distance={15} decay={2} />
+          {RM10L_GLOW_ON && <LampGlow y0={RM10_CENTER_Y + LAMP_MOUTH_Y1 + LAMP_FUNNEL_H} r0K={LR_RM10_R0K} lenK={LR_RM10_LENK} pow={LR_RM10_POW} />}{/* ★239-d 기둥 빛 안개(갓 목 ~ 리브) */}
+          {RM10L_PTL_ON && <pointLight position={[0, LAMP_ENTRY_Y - 1.2, 0]} color={LAMP_LGT_JOINT_COL} intensity={LAMP_LGT_JOINT_I} distance={15} decay={2} />}{/* ★239 헌장 Ⅱ: 명암은 베이크(LampRoomLight) — 점광은 구 체제 스위치 */}
           <mesh geometry={SHADE_GEO} position={[0, RM10_CENTER_Y + LAMP_MOUTH_Y1 + LAMP_FUNNEL_H / 2, 0]}>
             {/* ★237 등불 방 갓도 같은 셸(같은 관·같은 틈) */}
             <meshStandardMaterial color={LAMP_SHADE_COL} roughness={0.6} emissive={LAMP_SHADE_EMIS} emissiveIntensity={LAMP_SHADE_EMIS_I} side={THREE.DoubleSide} />
@@ -1550,17 +1570,20 @@ export function LampRoom() {
               <meshBasicMaterial color={LAMP_GLOW_MOUTH_COL} side={THREE.DoubleSide} />
             </mesh>
           )}
-          <mesh position={[0, RM10_CENTER_Y - 0.005, 0]} rotation-x={-Math.PI / 2}>
-            <circleGeometry args={[LAMP_POOL_R, 32]} />
-            <meshBasicMaterial color={LAMP_POOL_HALO_COL} transparent opacity={LAMP_POOL_HALO_OP} />
-          </mesh>
-          <pointLight position={[0, RM10_CENTER_Y + LAMP_MOUTH_Y1 - 0.25, 0]} color={LAMP_LGT_MOUTH_COL} intensity={LAMP_LGT_MOUTH_I} distance={11} decay={2} />
+          {/* 웅덩이 헤일로 — ★239 RM10L_POOL_MESH_ON=false: 바닥 명암의 픽셀 빛 자국(LampRoomLight)이 대신(★232 회랑과 같은 어법) */}
+          {RM10L_POOL_MESH_ON && (
+            <mesh position={[0, RM10_CENTER_Y - 0.005, 0]} rotation-x={-Math.PI / 2}>
+              <circleGeometry args={[LAMP_POOL_R, 32]} />
+              <meshBasicMaterial color={LAMP_POOL_HALO_COL} transparent opacity={LAMP_POOL_HALO_OP} />
+            </mesh>
+          )}
+          {RM10L_PTL_ON && <pointLight position={[0, RM10_CENTER_Y + LAMP_MOUTH_Y1 - 0.25, 0]} color={LAMP_LGT_MOUTH_COL} intensity={LAMP_LGT_MOUTH_I} distance={11} decay={2} />}
         </group>
       </group>
       {/* 천장(월드 좌표로 만든 CSG 결과 — 그룹 밖에서 그대로 놓는다) */}
       <mesh geometry={roofGeo}>
         <meshStandardMaterial {...SHELL_MAT} side={THREE.DoubleSide} />
       </mesh>
-    </>
+    </group>
   )
 }

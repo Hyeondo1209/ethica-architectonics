@@ -68,8 +68,9 @@ export async function run({ THREE, scene, LM, K, errs, args }) {
         if (N) { nn.fromBufferAttribute(N, ids[k]).applyMatrix3(nMat).normalize(); nrm.push(nn.x, nn.y, nn.z) } else nrm.push(0, 0, 0)
         col.push(useV ? lum({ r: CA.getX(ids[k]), g: CA.getY(ids[k]), b: CA.getZ(ids[k]) }) : 1); { const AZ = g.attributes.aZiPath; pth.push(AZ && useV ? AZ.getX(ids[k]) : 0, AZ && useV ? AZ.getY(ids[k]) : 0, AZ && useV ? AZ.getZ(ids[k]) : 0) } }
       const AC = g.attributes.aClf, clf = (AC && m.vertexColors) ? AC.getX(ids[0]) : null   // ★226 면 방향 게이트(셰이더와 같은 규칙)
-      const AM = g.attributes.aClfMark; for (let k = 0; k < 3; k++) mk.push(AM && clf !== null ? AM.getX(ids[k]) : 0)   // ★232
-      mat.push({ alb, emi, basic, comp: o.userData.__comp || '?', clf, mid: o.id, gtype: (o.geometry.userData.bakedClf ? 'CLF:' : '') + (o.geometry.type || '') })
+      const AR = g.attributes.aRm10l, rm = (AR && m.vertexColors) ? AR.getX(ids[0]) : null   // ★239 G 게이트(셰이더와 같은 규칙 · 2 = 앞면만)
+      const AM = g.attributes.aClfMark || g.attributes.aRm10lMark; for (let k = 0; k < 3; k++) mk.push(AM && (clf !== null || rm !== null) ? AM.getX(ids[k]) : 0)   // ★232 · ★239
+      mat.push({ alb, emi, basic, comp: o.userData.__comp || '?', clf, rm, mid: o.id, gtype: (o.geometry.userData.bakedClf ? 'CLF:' : o.geometry.userData.bakedRm10l ? 'RM10L:' : '') + (o.geometry.type || '') })
     }
   }
   scene.traverse((o) => {
@@ -136,6 +137,30 @@ export async function run({ THREE, scene, LM, K, errs, args }) {
       const lo = bad.filter((b) => b.grazing < 0.2), drs = lo.map((b) => b.dr); if (lo.length) console.log(`     스침<0.2: dr 범위 ${Math.min(...drs)}~${Math.max(...drs)} · 그중 안벽(dr<-2.5) ${lo.filter((b) => b.dr < -2.5).length} · 바깥벽(dr>2.5) ${lo.filter((b) => b.dr > 2.5).length} · 물러난 점 반경−CL_R 최대 ${Math.max(...lo.map((b) => b.qr))}`) }
   }
   //  ★226 HUD free: 자세(월드 x,y,z,yaw°,pitch°) — _probe_zoneI --look과 같은 규약(Euler(pitch, yaw, 0, 'YXZ')) · 셰이딩 + 부재 가색 + 정점색 값 세 장
+  //  ★239 G 양면 판(aRm10l = 2) — 셰이더가 뒷면을 버리므로 광선도 그 면을 지나쳐 다음 명중을 쓴다(사본이 같은 평면에 있다)
+  const backDiscarded = (h, d) => { const t = (SIDX[h.faceIndex * 3] / 3) | 0, m = mat[t]; if (!(m.rm !== null && m.rm > 1.5)) return false
+    const o9 = t * 9, u = [pos[o9 + 3] - pos[o9], pos[o9 + 4] - pos[o9 + 1], pos[o9 + 5] - pos[o9 + 2]], w = [pos[o9 + 6] - pos[o9], pos[o9 + 7] - pos[o9 + 1], pos[o9 + 8] - pos[o9 + 2]]
+    const wn = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]]; return wn[0] * d.x + wn[1] * d.y + wn[2] * d.z >= 0 }
+  const visFirst = (r, d) => { const h0 = bvh.raycastFirst(r, THREE.DoubleSide, 0, 400); if (!h0 || !backDiscarded(h0, d)) return h0
+    const all = bvh.raycast(r, THREE.DoubleSide, 0, 400).sort((a, b) => a.distance - b.distance); for (const h of all) if (!backDiscarded(h, d)) return h; return null }
+  { const Z = globalThis.window.__ethicaRm10l; if (Z) { let nIn = 0, nOut = 0, n2 = 0; for (const r of Z.records) for (const s of (r.triSide || [])) { if (s === 2) n2++; if (s) nIn++; else nOut++ }
+      console.log(`RM10L 베이크: 수광 메시 ${Z.records.length}(재격자 ${Z.nRegrid} · 변 세분 ${Z.nFallback}) · 실내 삼각형 ${nIn}(양면 판 ${n2}) · 바깥면 ${nOut} · poolRef ${Z.spec.poolRef.toFixed(6)}`) } else console.log('RM10L 베이크 핸들 없음') }
+  //  ★239-d 기둥 빛 안개 미리보기 — 셰이더와 같은 식(p + n·uW 셸 · facing^uEdgePow(실표면 법선) · 세로 분포 · 리브 쪽 깃털) · 포화 합성(먼 겹부터 L = L(1−a) + C·a)
+  const GLW = { pos: [], nrm: [], y: [], top: [], U: null }
+  scene.traverse((o) => { const m = o.material; if (!o.isMesh || !m || !m.uniforms || !m.uniforms.uW || !o.visible) return; const U = m.uniforms; GLW.U = U
+    const g = o.geometry, P = g.attributes.position, N = g.attributes.normal, AT = g.attributes.aTopY, n3 = new THREE.Matrix3().getNormalMatrix(o.matrixWorld), q = new THREE.Vector3(), nn = new THREE.Vector3()
+    for (let i = 0; i < P.count; i++) { nn.fromBufferAttribute(N, i); q.fromBufferAttribute(P, i).addScaledVector(nn, U.uW.value); const ly = q.y; q.applyMatrix4(o.matrixWorld); nn.applyMatrix3(n3).normalize()
+      GLW.pos.push(q.x, q.y, q.z); GLW.nrm.push(nn.x, nn.y, nn.z); GLW.y.push(ly); GLW.top.push(AT ? AT.getX(i) : 1e4) } })
+  let gBvh = null; if (GLW.pos.length) { const gg = new THREE.BufferGeometry(); gg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(GLW.pos), 3)); const id = new Uint32Array(GLW.pos.length / 3); for (let i = 0; i < id.length; i++) id[i] = i; gg.setIndex(new THREE.BufferAttribute(id, 1)); gBvh = new MeshBVH(gg); console.log(`안개 미리보기: 셸 ${id.length / 3}삼각형 · 두께 ${GLW.U.uW.value} · 세기 ${GLW.U.uOpacity.value} · 지수 ${GLW.U.uEdgePow.value}`) }
+  const sm = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t) }
+  const glowOver = (L, r, dir, tMax) => { if (!gBvh || args.includes('--noglow')) return L; const U = GLW.U, hs = gBvh.raycast(r, THREE.DoubleSide, 0, tMax).filter((h) => h.distance < tMax - 1e-3).sort((a, b) => b.distance - a.distance)
+    //  ⛔★239-d 도구 결함(실측): MeshBVH는 색인 버퍼를 **재배열**한다 — faceIndex·3을 정점 번호로 바로 쓰면 엉뚱한 삼각형의 법선·높이로 칠한다(비대칭 띠·고리 무늬 = 가짜). 재배열된 색인을 거친다(장면 렌더러의 SIDX와 같은 규칙)
+    for (const h of hs) { const GI = gBvh.geometry.index.array, v0 = GI[h.faceIndex * 3], v1 = GI[h.faceIndex * 3 + 1], v2 = GI[h.faceIndex * 3 + 2], b = h.barycoord, w = [b.x, b.y, b.z], at = (A, k, c) => w[0] * A[v0 * c + k] + w[1] * A[v1 * c + k] + w[2] * A[v2 * c + k]
+      const n = LM.nrm([at(GLW.nrm, 0, 3), at(GLW.nrm, 1, 3), at(GLW.nrm, 2, 3)]), ly = at(GLW.y, 0, 1), td = at(GLW.top, 0, 1) - ly
+      const facing = Math.abs(n[0] * dir.x + n[1] * dir.y + n[2] * dir.z), edge = Math.pow(facing, U.uEdgePow.value), vY = (ly - U.uY0.value) / (U.uY1.value - U.uY0.value)
+      const len = sm(0, U.uLo.value, vY) * (U.uB0.value + (1 - U.uB0.value) * Math.min(1, vY / U.uYe.value)) * sm(0, U.uTopM.value, td), a = Math.max(0, Math.min(1, U.uOpacity.value * edge * len))
+      L = L * (1 - a) + 0.95 * a }
+    return L }
   const renderPose = (name, pose, W = 640, H = 360) => {
     const [px, py, pz, yawD, pitD] = pose, yaw = yawD * Math.PI / 180, pit = pitD * Math.PI / 180
     const tanV = Math.tan(35 * Math.PI / 180), tanH = tanV * W / H, E = new THREE.Euler(pit, yaw, 0, 'YXZ')
@@ -144,7 +169,7 @@ export async function run({ THREE, scene, LM, K, errs, args }) {
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       dir.set(((x + 0.5) / W * 2 - 1) * tanH, (1 - (y + 0.5) / H * 2) * tanV, -1).normalize().applyEuler(E)
       ray.origin.set(px, py, pz); ray.direction.copy(dir)
-      const h = bvh.raycastFirst(ray, THREE.DoubleSide, 0, 400), q = (y * W + x) * 4
+      const h = visFirst(ray, dir), q = (y * W + x) * 4
       let L = LM.displayLum(0.9), mc = [200, 220, 255], vv = 255
       if (h) { const t = (SIDX[h.faceIndex * 3] / 3) | 0, o9 = t * 9, P = h.point, m = mat[t]
         const a = [pos[o9], pos[o9 + 1], pos[o9 + 2]], b = [pos[o9 + 3], pos[o9 + 4], pos[o9 + 5]], c = [pos[o9 + 6], pos[o9 + 7], pos[o9 + 8]]
@@ -158,6 +183,9 @@ export async function run({ THREE, scene, LM, K, errs, args }) {
         let vc = bu * col[t * 3] + bv * col[t * 3 + 1] + bw * col[t * 3 + 2], gate = 'raw'
         { const q9 = t * 9, it = (k) => bu * pth[q9 + k] + bv * pth[q9 + 3 + k] + bw * pth[q9 + 6 + k], wW = it(0), wT = it(1)   // ★230 셰이더와 같은 가중 혼합 · ★231 직사 = 해석 프로파일
           if (wW + wT > 1e-4) { const pl = LM.ziToLocal([P.x, P.y, P.z]), A = LM.zoneIPathA(pl), h = LM.zoneIHoleProfileAt(pl), D = K.ZI_DIM; vc *= 1 + (A - 1) * Math.min(1, wW); const tT = D + (1 - D) * Math.min(1, (A - D) / (1 - D) + h); vc += (tT - vc) * Math.min(1, wT) } }
+        if (m.rm !== null) { const wn = [v0[1] * v1[2] - v0[2] * v1[1], v0[2] * v1[0] - v0[0] * v1[2], v0[0] * v1[1] - v0[1] * v1[0]]   // ★239 G 게이트(셰이더와 같은 식)
+          const front = wn[0] * dir.x + wn[1] * dir.y + wn[2] * dir.z < 0; gate = (m.rm * (front ? 1 : -1) > 0.5) ? 'in' : 'off'; if (gate === 'off') vc = 1
+          else { const mm = bu * mk[t * 3] + bv * mk[t * 3 + 1] + bw * mk[t * 3 + 2]; if (mm > 1e-4) vc = Math.min(1, vc + K.RM10L_MARK_K * (1 - K.CLF_DIM) * LM.clfPoolAt(LM.ziToLocal([P.x, P.y, P.z]), LM.rm10lPoolSpec()) * mm) } }
         if (m.clf !== null) { const wn = [v0[1] * v1[2] - v0[2] * v1[1], v0[2] * v1[0] - v0[0] * v1[2], v0[0] * v1[1] - v0[1] * v1[0]]
           const front = wn[0] * dir.x + wn[1] * dir.y + wn[2] * dir.z < 0; gate = (m.clf * (front ? 1 : -1) > 0.5) ? 'in' : 'off'; if (gate === 'off') vc = 1
           else { const mm = bu * mk[t * 3] + bv * mk[t * 3 + 1] + bw * mk[t * 3 + 2]; if (mm > 1e-4) vc = Math.min(1, vc + K.CLF_MARK_K * (1 - K.CLF_DIM) * LM.clfPoolAt(LM.ziToLocal([P.x, P.y, P.z])) * mm) } }   // ★232 셰이더와 같은 식
@@ -171,7 +199,11 @@ export async function run({ THREE, scene, LM, K, errs, args }) {
           const svP = globalThis.__noPt; globalThis.__noDir = true; globalThis.__noPt = true; shade([P.x, P.y, P.z], n, m.alb, vc, m.emi, m.basic); const Eind = globalThis.__lastE; globalThis.__noDir = sv; globalThis.__noPt = svP
           const e = (A[key] ||= { n: 0, L: 0, ny: 0, r: 0, sp: 0, Ew: 0, En: 0 }); e.n++; e.L += L; e.ny += nn[1]; e.r += rr; e.sp += globalThis.__lastSpec || 0; e.Ew += Ew; e.En += En; e.Ei = (e.Ei || 0) + Eind }
         const edge = Math.min(bu, bv, bw) * Math.sqrt(Math.min(d00, d11)) < 0.03; imW.data[q] = imW.data[q + 1] = imW.data[q + 2] = edge ? 0 : vv; imW.data[q + 3] = 255
-        const key = `${m.comp}#${m.mid} ${m.gtype} clf=${m.clf} gate=${gate}`; tally[key] = (tally[key] || 0) + 1 }
+        const key = `${m.comp}#${m.mid} ${m.gtype} clf=${m.clf} gate=${gate}`; tally[key] = (tally[key] || 0) + 1
+      if (globalThis.__pix && globalThis.__pix.has(x + ',' + y)) { const t = (SIDX[h.faceIndex * 3] / 3) | 0, o9 = t * 9, m = mat[t], L3 = [0, 1, 2].map((k) => { const q = LM.ziToLocal([pos[o9 + 3 * k], pos[o9 + 3 * k + 1], pos[o9 + 3 * k + 2]]); return `(r${Math.hypot(q[0], q[2]).toFixed(3)} φ${(Math.atan2(q[2], q[0]) * 180 / Math.PI).toFixed(3)} y${q[1].toFixed(2)} v${col[t * 3 + k].toFixed(3)})` })
+        const a = [pos[o9], pos[o9 + 1], pos[o9 + 2]], b2 = [pos[o9 + 3] - a[0], pos[o9 + 4] - a[1], pos[o9 + 5] - a[2]], c2 = [pos[o9 + 6] - a[0], pos[o9 + 7] - a[1], pos[o9 + 8] - a[2]], wn = LM.nrm([b2[1] * c2[2] - b2[2] * c2[1], b2[2] * c2[0] - b2[0] * c2[2], b2[0] * c2[1] - b2[1] * c2[0]]), wl = LM.ziToLocal([wn[0], wn[1], wn[2]]), w0 = LM.ziToLocal([0, 0, 0])
+        console.log(`PIX ${x},${y} ${m.comp}#${m.mid} clf=${m.clf} rm=${m.rm} gate=${gate} vc=${vc.toFixed(3)} 감김법선(로컬)=${[wl[0] - w0[0], wl[1], wl[2] - w0[2]].map((z) => z.toFixed(2)).join(',')} 앞면=${(wn[0] * dir.x + wn[1] * dir.y + wn[2] * dir.z) < 0} ${L3.join(' ')}`) } }
+      L = glowOver(L, ray, dir, h ? h.distance : 400)   // ★239-d 안개(불투명 명중 앞쪽만)
       const g8 = Math.round(Math.max(0, Math.min(1, L)) * 255)
       imS.data[q] = imS.data[q + 1] = imS.data[q + 2] = g8; imM.data[q] = mc[0]; imM.data[q + 1] = mc[1]; imM.data[q + 2] = mc[2]; imV.data[q] = imV.data[q + 1] = imV.data[q + 2] = vv
       imS.data[q + 3] = imM.data[q + 3] = imV.data[q + 3] = 255 }
@@ -249,6 +281,7 @@ export async function run({ THREE, scene, LM, K, errs, args }) {
       const sset = new Set(sm); let triSeam = 0, triMixed = 0; if (I) for (let i = 0; i < I.count; i += 3) { const k = [I.getX(i), I.getX(i + 1), I.getX(i + 2)].filter((v) => sset.has(v)).length; if (k === 3) triSeam++; else if (k > 0) triMixed++ }
       let dark = 0; for (let i = 0; i < C.count; i++) if (C.getX(i) < 0.05) dark++
       console.log(`이음매덤프 #${o.id} ${o.userData.__comp} 색인형 ${I ? I.array.constructor.name : '없음'} 정점 ${P.count} 최대색인 ${maxIdx} 범위밖 ${bad} · 이음매 정점 ${sm.length} 값 ${cMin.toFixed(3)}~${cMax.toFixed(3)} NaN ${nNaN} aZiPath최대 ${azMax} · 삼각형 이음매 ${triSeam} 섞임 ${triMixed} · 전체 색<0.05 정점 ${dark}`) }); return }
+  { const PX = arg('pix', ''); if (PX) globalThis.__pix = new Set(PX.split(';')) }   // ★239-e --pix=x,y;x,y — 그 픽셀의 명중 삼각형 정체
   const POSES = arg('poses', '')
   if (POSES) { for (const ps of POSES.split(';')) { const [nm, rest] = ps.split(':'); renderPose(nm, rest.split(',').map(Number)) } return }
   //  자세(회랑 로컬 φ° · r · y) — 층계참 높이는 clLandingY(j) · 눈높이 +1.6

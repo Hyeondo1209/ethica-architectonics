@@ -2478,3 +2478,128 @@ export function ribClfGLSL(V = ribClfVolume()) {
 }`
   return { fn, anchor: RIB_PT_ANCHOR, inject: RIB_PT_ANCHOR + '\n\t\tif ( ethInClf > 0.5 ) directLight.color = vec3( 0.0 );   // ★238 회랑 안 = 점광 차단', head: 'float ethInClf = ethInCloister( vEthW );\n' }
 }
+
+// ══ ★★★239 빛 구획 G — 등불 방(1p10) 명암 (2026.09.24 셋째 대화) ═══════════════════════════════════════════════════════
+//  근거·노브 = constants ★239 블록. F(★226)와 같은 수학(해석적 다각형 조도 + 수신 평면 클리핑 · 광선 0)을 **방 로컬** 좌표에서 부른다.
+//  방 로컬 = 원점 방 축 · x = 반경 바깥 · z = 회랑 진행(Dome.jsx LampRoom 그룹: position (AX,0,AZ) · rotation-y −RM10_PHI).
+//  공극 = 원기둥(층계참 위 r < RHO) ∪ 원뿔대(r < rm10R(y) · 그릇 단 위) ∪ 입구 문 살(벽 두께) ∪ 출구 문 살(원뿔 벽 두께). 경계 전부 엄격(δ).
+import { RM10L_ON, RM10L_FILL, RM10L_POOL_K, RM10L_GAMMA, RM10L_MARK_K, RM10L_MARK_POW, RM10L_EPS,
+  RM10_PHI, RM10_AX_R, RM10_RHO, RM10_WALL_T, RM10_ROOF_Y, RM10_CENTER_Y, RM10_FLOOR_Y, RM10_DOOR_H, RM10_ENTRY_TH, RM10_DOOR_HTH,
+  RM10_LAND_Y, RM10_EXIT_TH, RM10_EXIT_DHTH, RM10_CONE_T, CL_FLOOR_END, rm10R, rm10Tiers } from './constants.js'
+/** 등불 웅덩이 기준 조도(정본 · F·G 공용 단위) — 웅덩이(r = LAMP_POOL_R · 위 향)에서 수평 CL_HW 떨어진 벽 · 바닥 + CLF_POOL_REF_H · 등불 향.
+ *  clfSpec().poolRef와 정의가 같다(회전 불변 — check_lux가 항등을 문다). F가 꺼져도 G가 같은 단위를 쓰게 따로 둔다. */
+export function lampPoolRef() {
+  const pool = diskPolys({ c: [0, 0, 0], r: LAMP_POOL_R, sn: [0, 1, 0], seg: 24 })[0]
+  return polyIrradianceClip([CL_HW, CLF_POOL_REF_H, 0], [-1, 0, 0], pool.v, pool.n)
+}
+/** 방 기하 상수(파생) */
+export function rm10lFrame() {
+  const AX = RM10_AX_R * Math.cos(RM10_PHI), AZ = RM10_AX_R * Math.sin(RM10_PHI)
+  return { AX, AZ, c: Math.cos(RM10_PHI), s: Math.sin(RM10_PHI), rho: RM10_RHO, rO: RM10_RHO + RM10_WALL_T, roof: RM10_ROOF_Y,
+    doorTop: CL_FLOOR_END + RM10_DOOR_H, eth0: RM10_ENTRY_TH - RM10_DOOR_HTH, eth1: RM10_ENTRY_TH + RM10_DOOR_HTH,
+    xth0: RM10_EXIT_TH - RM10_EXIT_DHTH, xth1: RM10_EXIT_TH + RM10_EXIT_DHTH, xy0: RM10_FLOOR_Y, xy1: RM10_FLOOR_Y + RM10_DOOR_H, tiers: rm10Tiers() }
+}
+/** 상부 여정 로컬(LampRoom이 놓인 그룹의 좌표) → 방 로컬 · 그 역 */
+export function rm10lToRoom(pu, F = rm10lFrame()) { const dx = pu[0] - F.AX, dz = pu[2] - F.AZ; return [dx * F.c + dz * F.s, pu[1], -dx * F.s + dz * F.c] }
+export function rm10lFromRoom(q, F = rm10lFrame()) { return [F.AX + q[0] * F.c - q[2] * F.s, q[1], F.AZ + q[0] * F.s + q[2] * F.c] }
+/** 그 반경의 바닥 윗면(단 링은 g.top − 0.02에 놓인다 — Dome.jsx) · 바깥 겹 밖은 바깥 겹 높이 */
+export function rm10lFloorAt(r, F = rm10lFrame()) { for (const g of F.tiers) if (r >= g.r0 && r < g.r1) return g.top - 0.02; return F.tiers[0].top - 0.02 }
+const _angIn = (th, a0, a1) => { let t = th; while (t < a0) t += 2 * Math.PI; while (t > a0 + 2 * Math.PI) t -= 2 * Math.PI; return t < a1 }
+/** 문 살 안인가(방 로컬 · 벽 두께 구간) — 'entry' | 'exit' | null */
+export function rm10lDoorSlot(q, F = rm10lFrame(), dlt = 1e-3) {
+  const r = Math.hypot(q[0], q[2]), th = Math.atan2(q[2], q[0]), y = q[1]
+  if (_angIn(th, F.eth0 + dlt / F.rho, F.eth1 - dlt / F.rho) && y > RM10_LAND_Y + dlt && y < F.doorTop - dlt && r >= F.rho - dlt && r < F.rO - dlt) return 'entry'
+  if (_angIn(th, F.xth0 + dlt / F.rho, F.xth1 - dlt / F.rho) && y > F.xy0 + dlt && y < F.xy1 - dlt && r >= rm10R(y) - dlt && r < rm10R(y) + RM10_CONE_T - dlt) return 'exit'
+  return null
+}
+/** 방 **공극** 안인가(방 로컬 점) */
+export function rm10lInterior(q, F = rm10lFrame(), dlt = 1e-3) {
+  const r = Math.hypot(q[0], q[2]), y = q[1]
+  if (!(y < F.roof - dlt)) return false
+  if (r < rm10R(y) - dlt) return y > rm10lFloorAt(r, F) + dlt
+  return rm10lDoorSlot(q, F, dlt) !== null
+}
+/** 삼각형 실내 쪽 — clfFaceSide와 **같은 규칙**(네 점 · 한 발짝 · 동수면 중심)을 술어만 바꿔 쓴다(check_lux가 clfInterior를 넣어 clfFaceSide와 전수 항등을 문다).
+ *  반환 { side: +1 | −1 | 0, both } — both = 양쪽 다 공극에 면함(허공에 뜬 두께 0 판: 계단 디딤판·층계참 — 윗면·밑면이 둘 다 보인다). */
+export function faceSideBy(W, inside, eps) {
+  const u = [W[1][0] - W[0][0], W[1][1] - W[0][1], W[1][2] - W[0][2]], v = [W[2][0] - W[0][0], W[2][1] - W[0][1], W[2][2] - W[0][2]]
+  const nx = u[1] * v[2] - u[2] * v[1], ny = u[2] * v[0] - u[0] * v[2], nz = u[0] * v[1] - u[1] * v[0], L = Math.hypot(nx, ny, nz)
+  if (L < 1e-12) return { side: 0, both: false }
+  const n = [nx / L, ny / L, nz / L], c = [(W[0][0] + W[1][0] + W[2][0]) / 3, (W[0][1] + W[1][1] + W[2][1]) / 3, (W[0][2] + W[1][2] + W[2][2]) / 3]
+  const cnt = (sg) => { let k = 0, cIn = false
+    for (const [j, q] of [c, W[0], W[1], W[2]].entries()) { const o = [q[0] + n[0] * eps * sg, q[1] + n[1] * eps * sg, q[2] + n[2] * eps * sg]
+      if (inside(o)) { k++; if (j === 0) cIn = true } }
+    return { k, cIn } }
+  const a = cnt(1), b = cnt(-1)
+  if (!a.k && !b.k) return { side: 0, both: false, kp: 0, kn: 0 }
+  const both = a.k > 0 && b.k > 0
+  if (a.k !== b.k) return { side: a.k > b.k ? 1 : -1, both, kp: a.k, kn: b.k }
+  return { side: a.cIn ? 1 : b.cIn ? -1 : 1, both, kp: a.k, kn: b.k }   // ★239-e kp·kn = 양쪽 공극 점 수(이음매 우선 판정)
+}
+export const rm10lFaceSide = (Wq, F = rm10lFrame(), eps = RM10L_EPS) => faceSideBy(Wq, (o) => rm10lInterior(o, F), eps)
+/** 공극 안으로 물린 점(방 로컬) — 공극 밖(벽 속·바닥 밑·천장 위)에 놓인 정점은 **공극 안 최근접점 근사**에서 잰다(★233 어법). 공극 안이면 항등. */
+export function rm10lClampToVolume(q, F = rm10lFrame(), d = 2e-3) {
+  if (rm10lInterior(q, F)) return q
+  const th = Math.atan2(q[2], q[0]); let r = Math.hypot(q[0], q[2]), y = Math.min(F.roof - d, q[1])
+  //  ⛔★239 첫 판은 문 살 판정에 rm10lDoorSlot(반경 조건 포함)을 써서 벽 너머 점이 문 살이 아니라 원기둥 안벽으로 물렸다(check_lux ⓔ가 잡음) → 방위·높이 **띠**만 본다
+  const band = (yy) => (_angIn(th, F.eth0, F.eth1) && yy > RM10_LAND_Y - d && yy < F.doorTop + d) ? 'entry' : (_angIn(th, F.xth0, F.xth1) && yy > F.xy0 - d && yy < F.xy1 + d) ? 'exit' : null
+  for (let it = 0; it < 3; it++) {
+    const slot = band(y)                                                          // 문 살 방향이면 문 살 바깥 끝까지 허용
+    const rMax = slot === 'entry' ? F.rO : slot === 'exit' ? rm10R(y) + RM10_CONE_T : rm10R(y)
+    r = Math.min(r, rMax - d)
+    const fl = r < rm10R(y) ? rm10lFloorAt(r, F) : (slot === 'entry' ? RM10_LAND_Y : F.xy0)
+    y = Math.max(y, fl + d); y = Math.min(y, F.roof - d)
+    if (slot === 'entry') y = Math.min(y, F.doorTop - d); else if (slot === 'exit') y = Math.min(y, F.xy1 - d)
+  }
+  return [r * Math.cos(th), y, r * Math.sin(th)]
+}
+// ★239-b 관 옆면 발광 — 표시 그러데이션(LampRod와 같은 식: 진입고 위 TOP · 목에서 BOT · 선형)의 선형 광도를 세기 분포로 쓴다
+import { RM10L_TUBE_ON, RM10L_TUBE_K, RM10L_TUBE_N, LAMP_ROD_TOP_COL as _RTC, LAMP_ROD_BOT_COL as _RBC, LAMP_ENTRY_Y as _LEY, LAMP_MOUTH_Y1 as _LMY1, LAMP_FUNNEL_H as _LFH } from './constants.js'
+const _lin = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4) }
+const _hexLum = (h) => { const n = parseInt(h.slice(1), 16); return 0.2126 * _lin((n >> 16) & 255) + 0.7152 * _lin((n >> 8) & 255) + 0.0722 * _lin(n & 255) }
+/** 관 발광체(방 로컬 · 축 위) — y0 = 갓 목(LampRod 아래끝) · y1 = LAMP_TOP_Y · prof(y) = 표시 광도 / 꼭대기 광도 */
+export function rm10lTubeSpec() {
+  const y0 = RM10_CENTER_Y + _LMY1 + _LFH, y1 = _LTOP, lt = _hexLum(_RTC), lb = _hexLum(_RBC)
+  const prof = (y) => { const t = Math.min(1, Math.max(0, (_LEY - y) / (_LEY - y0))); return (lt + (lb - lt) * t) / lt }   // LampRod: c = TOP.lerp(BOT, t) — 광도는 채널 선형 합이라 lerp와 교환(sRGB 복호 뒤 색 = 선형 보간 · 근사: three가 선형 공간에서 lerp)
+  return { y0, y1, R: _LTR, N: RM10L_TUBE_N, prof }
+}
+/** 관 조도(원시) — 램버트 원통 요소 dl의 방향 세기 = L·2R·dl·sinφ(φ = 시선과 축의 각) · 수광 cos · 1/d². 중점 규칙 N표본. 가림 없음(관은 방 한가운데 · 수광면이 등지면 0) */
+export function rm10lTubeIrr(q, n, T = rm10lTubeSpec()) {
+  const dl = (T.y1 - T.y0) / T.N; let E = 0
+  for (let k = 0; k < T.N; k++) { const y = T.y0 + (k + 0.5) * dl, dx = -q[0], dy = y - q[1], dz = -q[2], d2 = dx * dx + dy * dy + dz * dz, d = Math.sqrt(d2)
+    const cr = (n[0] * dx + n[1] * dy + n[2] * dz) / d; if (cr <= 0) continue
+    const sinPhi = Math.sqrt(dx * dx + dz * dz) / d; E += T.prof(y) * 2 * T.R * sinPhi * cr / d2 * dl }
+  return E / Math.PI
+}
+/** ★239-e 방 공극까지의 거리가 m 미만인가(방 로컬) — 이음매 판정용 여유. 방 벽이 **삼각형을 가로질러 자르면** 네 점 규칙은 점이 모두 벽 밖이라 그 삼각형을 놓친다
+ *  (실측: 회랑 끝캡 문선 조각의 바깥 면 = 방 벽과의 교차선을 따라 0.17/1.0 교대 = 톱니). 벽 밖으로 한 격자 칸(m) 안의 점을 방 쪽으로 친다. */
+export function rm10lNearVolume(q, m, F = rm10lFrame()) { if (rm10lInterior(q, F)) return true; const c = rm10lClampToVolume(q, F); return Math.hypot(q[0] - c[0], q[1] - c[1], q[2] - c[2]) < m }
+/** 명세(한 번) — 웅덩이 다각형(방 로컬 · 축 위) · 기준 조도(F와 같은 단위) · ★239-b 관 발광체와 기준(원기둥 벽 · 관 중간 높이 · 관 향 = 1) */
+export function rm10lSpec() {
+  if (!RM10L_ON) return null
+  const F = rm10lFrame()
+  const pool = diskPolys({ c: [0, RM10_CENTER_Y, 0], r: LAMP_POOL_R, sn: [0, 1, 0], seg: 24 })[0]
+  const tube = RM10L_TUBE_ON ? rm10lTubeSpec() : null
+  const tubeRef = tube ? rm10lTubeIrr([RM10_RHO, (tube.y0 + tube.y1) / 2, 0], [-1, 0, 0], tube) : 0
+  return { F, pool, poolRef: lampPoolRef(), tube, tubeRef }
+}
+/** ★239-c 값을 잴 점 = 실내 쪽 법선으로 한 발짝(RM10L_EPS) 띄운 뒤 공극 안으로 물린 점.
+ *  ⛔★239(현도 09.24 "바닥 원판 옆면에 규칙적인 검은 무늬"): 그릇 챌판의 아랫변은 두 단의 **경계 반경** 위라, 물림이 바닥 높이를 고를 때 Float32 잡음이 단을 골랐다
+ *   (실측: 아랫변 192정점 중 144개는 윗단 높이로 들려 1.44 · 48개는 제자리 0 → 둘레 따라 번갈아 = 검은 쐐기). 한 발짝 띄우면 항상 **그 면이 보는 공기** 쪽에서 잰다. */
+export function rm10lEvalPoint(q, n, F = rm10lFrame(), eps = RM10L_EPS) { return rm10lClampToVolume([q[0] + n[0] * eps, q[1] + n[1] * eps, q[2] + n[2] * eps], F) }
+/** 원시 항(노브 없음) — 방 로컬 점 q · 실내 쪽 단위 법선 n. 웅덩이 = 기준점에서 1 */
+export function rm10lTermsAt(q, n, S = rm10lSpec()) {
+  if (!S || !(S.poolRef > 0)) return { pool: 0, tube: 0 }
+  return { pool: polyIrradianceClip(q, n, S.pool.v, S.pool.n) / S.poolRef, tube: S.tube && S.tubeRef > 0 ? rm10lTubeIrr(q, n, S.tube) / S.tubeRef : 0 }
+}
+/** 런타임 노브(J 튜너가 고쳐 쓴다 · 정본 초기값 = constants) */
+import { RM10L_GLOW_OP, RM10L_GLOW_W, RM10L_GLOW_POW } from './constants.js'   // ★239-d 안개 튜너 초기값
+export const RM10L_TUNE = { FILL: RM10L_FILL, POOL_K: RM10L_POOL_K, TUBE_K: RM10L_TUBE_K, GAMMA: RM10L_GAMMA, MARK_K: RM10L_MARK_K, MARK_POW: RM10L_MARK_POW, GLOW_OP: RM10L_GLOW_OP, GLOW_W: RM10L_GLOW_W, GLOW_POW: RM10L_GLOW_POW }
+/** 합성(정본) — clfCompose와 같은 형(값 = DIM + (1−DIM)·min(1, 채움 + K·웅덩이)^γ) */
+export function rm10lCompose(T, k = RM10L_TUNE) {
+  const E = k.FILL + k.POOL_K * T.pool + (k.TUBE_K ?? 0) * (T.tube ?? 0)   // ★239-b 관 옆면 발광
+  return CLF_DIM + (1 - CLF_DIM) * Math.pow(Math.min(1, Math.max(0, E)), k.GAMMA)
+}
+export function rm10lShadeAt(q, n, S = rm10lSpec(), k = RM10L_TUNE) { return S ? rm10lCompose(rm10lTermsAt(q, n, S), k) : 1 }
+/** 바닥 빛 자국(★232 어법) — 회랑과 **같은 GLSL 함수**(clfPoolGLSL)를 등불 하나(방 축 · 상부 여정 로컬)로 부른다 · 반경 = 빛기둥 발(LB_FOOT_R) */
+export function rm10lPoolSpec(p = RM10L_MARK_POW, K = RM10L_MARK_K) { const F = rm10lFrame(); return { shape: clfPoolShape(p), R: _LBF, lamps: [[F.AX, F.AZ]], K } }

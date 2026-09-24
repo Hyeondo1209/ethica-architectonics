@@ -279,5 +279,35 @@ function distToCenterline3(pr, py, pz) {
   }
 }
 
+// ── ★★★239-d 등불 방 조명 기둥 빛 안개 (2026.09.24 셋째 · 현도 "은은히 빛나는 조명기둥") ──
+//  셰이더 파생(빛기둥 문자열에서 두 줄만) · 셸 무균열(같은 위치 = 같은 법선) · 관–목 이음 연속 · 범위 = 갓 목 ~ 목 최고점 · 분포 = 관 발광 · 합성 = ★225-c · 배선.
+{
+  console.log('— ★239-d. 등불 방 기둥 빛 안개 (관 + 뿌리 목 셸 · ★225 셰이더 파생) —')
+  const K = await import('./constants.js'), fs = await import('node:fs')
+  if (!K.RM10L_GLOW_ON) ok(true, '★239-d 소등(RM10L_GLOW_ON=false) — 안개 없음 · 검사 생략')
+  else {
+    const { lampBeamMaterial } = await import('./lampBeam.js'), GL = await import('./lampGlow.js'), LMx = await import('./lightingModel.js'), THREEx = await import('three')
+    const a = lampBeamMaterial().fragmentShader.split('\n'), b = GL.lampGlowFrag().split('\n'), dl = []
+    for (let i = 0; i < Math.max(a.length, b.length); i++) if (a[i] !== b[i]) dl.push(i)
+    ok(a.length === b.length && dl.length === 2 && b.some((l) => l.includes('float len = smoothstep(0.0, uLo, vY)')) && b.some((l) => l.includes('float edge = pow(facing, uEdgePow);')) && b.some((l) => l.includes('float facing = abs(dot(nrm, normalize(vV)));')),
+      `★239-d 조각 셰이더 = 빛기둥 문자열에서 ${dl.length}줄만 다름(선언 · 세로 감쇠) — 실루엣·포화·깃털 줄 공유(사본 아님)`)
+    const y0 = K.RM10_CENTER_Y + K.LAMP_MOUTH_Y1 + K.LAMP_FUNNEL_H, g = GL.buildLampGlow(y0, K.LR_RM10_R0K, K.LR_RM10_LENK, K.LR_RM10_POW), G = GL.lampGlowSpec(y0, K.LR_RM10_R0K, K.LR_RM10_LENK)
+    const P = g.attributes.position, N = g.attributes.normal, map = new Map(); let worst = 0, shared = 0, ny = 0, yMin = 1e9, yMax = -1e9
+    for (let i = 0; i < P.count; i++) { const key = [P.getX(i), P.getY(i), P.getZ(i)].map((v) => Math.round(v * 1e4)).join(','), nn = [N.getX(i), N.getY(i), N.getZ(i)]
+      const e = map.get(key); if (e) { shared++; worst = Math.max(worst, Math.hypot(nn[0] - e[0], nn[1] - e[1], nn[2] - e[2])) } else map.set(key, nn)
+      yMin = Math.min(yMin, P.getY(i)); yMax = Math.max(yMax, P.getY(i)); if (Math.abs(P.getY(i) - G.yEnd) < 1e-4) ny = Math.max(ny, Math.abs(N.getY(i))) }
+    ok(shared > 1000 && worst < 1e-4 && ny < 1e-4, `★239-d 셸 무균열: 같은 위치 정점 ${shared}쌍 법선 최대 차 ${worst.toExponential(1)} · 관–목 이음 고리 법선 |y| ${ny.toExponential(1)}(수평 = 부풀려도 연속)`)
+    ok(Math.abs(yMin - y0) < 1e-3 && Math.abs(yMax - G.y1) < 1e-3 && Math.abs(G.b0 - LMx.rm10lTubeSpec().prof(y0)) < 1e-15 && g.userData.glowShellCount === K.LR_SEG * 16 * 6,
+      `★239-d 범위 y ${yMin.toFixed(2)}(갓 목) ~ ${yMax.toFixed(2)}(목이 리브에 닿는 최고점) · 분포 아래 ${G.b0.toFixed(3)} = ★239-b 관 발광 · 셸 = LampRoot와 같은 매개변수 곡면`)
+    const m = GL.lampGlowMaterial(y0, K.LR_RM10_R0K, K.LR_RM10_LENK)
+    ok(m.depthWrite === false && m.transparent && m.blending === (K.LB_BLEND === 'additive' ? THREEx.AdditiveBlending : THREEx.NormalBlending) && m.uniforms.uW.value === K.RM10L_GLOW_W && m.uniforms.uOpacity.value === K.RM10L_GLOW_OP && m.uniforms.uEdgePow.value === K.RM10L_GLOW_POW
+      && K.RM10L_GLOW_POW === 2 * K.CLF_MARK_POW && m.uniforms.uTopFade.value === 0 && m.uniforms.uAxial.value === 0 && K.RM10L_GLOW_W >= 0 && K.RM10L_GLOW_OP >= 0 && K.RM10L_GLOW_OP <= 1 && K.RM10L_GLOW_LO_M > 0 && K.RM10L_GLOW_TOP_M > 0,
+      `★239-d 재질: 무깊이쓰기 · ${K.LB_BLEND === 'additive' ? 'additive' : '포화 합성(★225-c)'} · 두께 ${K.RM10L_GLOW_W}m · 세기 ${K.RM10L_GLOW_OP} · 지수 ${K.RM10L_GLOW_POW} = 2·CLF_MARK_POW(★233 빛 자국과 같은 종 모양) · 실표면 법선(uAxial 0)`)
+    const dome = fs.readFileSync(new URL('./Dome.jsx', import.meta.url), 'utf8'), lr = dome.slice(dome.indexOf('export function LampRoom')), skip = lr.slice(lr.indexOf('rm10lSkip: true'))
+    ok((lr.match(/<LampGlow /g) || []).length === 1 && /\{RM10L_GLOW_ON && <LampGlow y0=\{RM10_CENTER_Y \+ LAMP_MOUTH_Y1 \+ LAMP_FUNNEL_H\}/.test(skip) && fs.readFileSync(new URL('./LampRoomLight.jsx', import.meta.url), 'utf8').includes('for (const gm of lampGlowMaterials())'),
+      '★239-d 배선: 등불 방 등불 그룹(rm10lSkip — 굽지 않음) 안 1기 · 스위치 뒤 · J 튜너가 유니폼을 고친다')
+  }
+}
+
 console.log(fail === 0 ? `\n전부 통과 (${n}항)` : `\n실패 ${fail}/${n}`)
 process.exit(fail === 0 ? 0 : 1)

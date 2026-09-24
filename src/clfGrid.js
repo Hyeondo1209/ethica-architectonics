@@ -44,6 +44,16 @@ export function regridPrimitive(g, L) {
     return gridGeo(th.length, rows, (u, v) => { const q = chordAt(f, t0, tl, segs, r, th[u]); return [q[0], h / 2 - h * v / (rows - 1), q[2]] },
       (u) => { const e = th[u], a = t0 + tl * (e.j + e.t) / segs; return [Math.sin(a), 0, Math.cos(a)] })
   }
+  //  ★239 원뿔대(위·아래 반경이 다른 열린 원통 — 등불 방 아래 벽). 같은 θ 줄의 위·아래 **현 점**을 높이로 선형 보간 — 위·아래 현이 평행이라 원래 사다리꼴 면 위(면 동일).
+  //   법선 = three 규약(sinθ, (rB − rT)/h, cosθ) 정규화. F(회랑)에는 원뿔대가 없다(재격자 117 · 변 세분 0) — 이 가지는 F 경로에 닿지 않는다.
+  if (g.type === 'CylinderGeometry' && p.radiusTop !== p.radiusBottom && p.openEnded) {
+    const rT = p.radiusTop, rB = p.radiusBottom, h = p.height, t0 = p.thetaStart, tl = p.thetaLength, segs = p.radialSegments
+    const f = (th, rr) => [rr * Math.sin(th), 0, rr * Math.cos(th)], slope = (rB - rT) / h
+    const th = thetaList(t0, tl, segs, Math.max(rT, rB), L), rows = Math.max(2, Math.ceil(Math.hypot(h, rB - rT) / L) + 1)
+    return gridGeo(th.length, rows, (u, v) => { const a = chordAt(f, t0, tl, segs, rT, th[u]), b = chordAt(f, t0, tl, segs, rB, th[u]), s = v / (rows - 1)
+      return [a[0] + (b[0] - a[0]) * s, h / 2 - h * s, a[2] + (b[2] - a[2]) * s] },
+      (u) => { const e = th[u], a = t0 + tl * (e.j + e.t) / segs, n = [Math.sin(a), slope, Math.cos(a)], l = Math.hypot(...n); return [n[0] / l, n[1] / l, n[2] / l] })
+  }
   if (g.type === 'RingGeometry') {
     const r0 = p.innerRadius, r1 = p.outerRadius, t0 = p.thetaStart, tl = p.thetaLength, segs = p.thetaSegments
     const f = (th, rr) => [rr * Math.cos(th), rr * Math.sin(th), 0]                  // three RingGeometry 규약(xy 평면 · 법선 +z)

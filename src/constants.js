@@ -2310,6 +2310,10 @@ export function rm10Tiers() {
                top: RM10_FLOOR_Y + RM10_TIER_SIGN * i * RM10_TIER_RISE })
   return out
 }
+//  ★★★240 입구 층계참 = 몸 있는 판(2026.09.24 셋째 · 현도 HUD free:87.88,236.59,144.98 "등불방으로 가는 계단 참이 종잇장 — 계단과 자연스럽게 잇고 두께감" · 현도 ⓑ 선택)
+//  구판 = 윗면 한 장(두께 0) — 방 원뿔 공기 위에 떠 있어 밑에서 종이로 읽혔고, 첫 단(0.2 아래)과의 사이 챌판도 없었다.
+//  밑면 = **첫 계단 챌판 상자의 밑면**(단 0 top − (단높이 + 판두께)) − 0.02: 첫 챌판 상자 절반(0.3m)이 층계참 끝과 겹쳐 같은 평면이 되지 않게 층계참이 그 몫을 삼킨다(규율 4). 두께 ≈ 1.06.
+export const RM10_LAND_BOT = rm10Steps()[0].top - (CL_STEP_RISE + PASS_T) - 0.02
 
 //  ★79-5 파생 — 통로 띠와 두 문의 각폭
 export const RM10_CONE_T    = RM10_WALL_T / Math.cos(RM10_CONE_DEG * Math.PI / 180)  // 기운 면의 **수직** 두께가 t가 되게
@@ -6218,3 +6222,35 @@ export const ZI_PATH_BLUR_R = 1.2                 // ★Claude 값(규율 12) ·
 //  ⇒ 갓 = 얇은 셸(바깥 불변 · 안벽을 관 12각의 변 안쪽까지 · 위를 고리로 닫음). 두께 = 관 다각형 처짐 + 여유 — 틈을 덮는 최소치(파생).
 export const LAMP_ROD_SEG  = 12                                                        // 관 둘레 분할(LampRod Lathe) — 갓 두께 파생의 근거
 export const LAMP_SHADE_T  = LAMP_TUBE_R * (1 - Math.cos(Math.PI / LAMP_ROD_SEG)) + 0.004   // ≈0.028 — 안벽 반경 0.672 < 관 변 0.676
+
+// ══ ★★★239 빛 구획 G — 등불 방(1p10) 명암 베이크 (2026.09.24 셋째 대화 · 조명 헌장 Ⅰ G행 = 공급지 "등불" · Ⅱ = 굽는다) ══════════════════════
+//  F(★226~★238)와 같은 기계: 해석적 다각형 조도 + 수신 평면 클리핑 · 광선 0 · 원시 재격자 · gl_FrontFacing 게이트 · 개발 튜너(J 키).
+//  공급지 = 방 바닥 한복판 웅덩이(빛기둥 발 r = LAMP_POOL_R @ RM10_CENTER_Y)의 **되쏨** 하나 + 채움. 헌장 G행 문자 그대로(창 없음).
+//  ★정규화 = F와 **같은 등불**이라 같은 단위: 웅덩이 기준 조도 = F 기준점 정의(등불 옆 CL_HW 거리 · 바닥 + CLF_POOL_REF_H · 등불 향)
+//   — lightingModel.lampPoolRef()가 정본이고 check_lux가 clfSpec().poolRef와 항등을 문다. 세기 노브만 G 전용(튜너로 현도가 잡는다).
+//  ⚠차폐: 그릇 바닥 단(단 윗면은 웅덩이 평면 위라 클리핑이 0을 준다 — 식에서 나온다) 외에 **계단·안쪽 단의 가림은 무시**(1차 · 광선 0 · 측정 대상).
+export const RM10L_ON         = true                 // ⛔false = 베이크 없음(구 체제 — 흰 방)
+export const RM10L_PTL_ON     = false                // 등불 방 점광 2기(접합부·하향) — 헌장 Ⅱ: 명암은 베이크(F의 CLF_PTL_ON과 같은 판단 · 한 줄 복귀)
+export const RM10L_POOL_MESH_ON = false              // 등불 방 웅덩이 헤일로 메시 — ★232 회랑과 같은 어법(픽셀 빛 자국이 대신 · 한 줄 복귀)
+export const RM10L_FILL       = CLF_FILL             // ④ 채움 초기값 = F 승계(Claude 값 · J 튜너)
+export const RM10L_POOL_K     = CLF_POOL_K           // ② 웅덩이 되쏨 세기 초기값 = F 승계(같은 등불 = 같은 물리 · J 튜너)
+export const RM10L_GAMMA      = CLF_GAMMA            // 대비 지수 초기값 = F 승계
+export const RM10L_MARK_K     = CLF_MARK_K           // 바닥 빛 자국 세기 = F 승계(J 튜너)
+export const RM10L_MARK_POW   = CLF_MARK_POW         // 바닥 빛 자국 모양 = F 승계
+export const RM10L_SUBDIV     = CLF_SUBDIV           // 정점색 해상도 = F 승계
+export const RM10L_EPS        = CLF_EPS              // 안팎 판정 한 발짝 = F 승계
+// ★★★239-b 관 옆면 발광(2026.09.24 셋째 · 현도 "길게 내려온 조명의 옆부분에서도 빛이 은은히 나오는 느낌" → Claude 판단: 눈속임 볼륨이 아니라 **공급지**로 굽는다 — 헌장 Ⅱ)
+//  관(LampRod · 축 · 반경 LAMP_TUBE_R · 갓 목 위 ~ LAMP_TOP_Y) 옆면 = 램버트 원통 발광체. 세기 분포 = 관의 **표시 그러데이션 광도 그대로**(TOP_COL ↔ BOT_COL · 손 숫자 0).
+//  기준 = 원기둥 벽(r = RHO) · 관 한가운데 높이 · 관 향 = 1. ⚠**회랑 등불은 무접촉**(★224 "도관 = 옆으로 안 샌다" 어법 유지 — 등불 방 관만 현도 새 결정).
+export const RM10L_TUBE_ON  = true                 // ⛔false = 관 발광 항 없음(★239 1차 그대로)
+export const RM10L_TUBE_K   = 0.35                 // ★Claude 값(규율 12) — 기준 벽(관 중간 높이)의 관 몫 · J 튜너
+export const RM10L_TUBE_N   = 128                  // 관 축 적분 표본(중점 규칙 · 최근접 수광면 ≥ 3.6m에서 간격 0.3m — 검사가 수렴을 잰다)
+// ★★★239-d 등불 방 조명 기둥 빛 안개(2026.09.24 셋째 · 현도 "빛 안개를 추가하는 것이 효과적일 것 같아 — 은은히 빛나는 조명기둥")
+//  기둥 = 관(갓 목 위) + 뿌리 목(★221-d 방 전용 나팔) 전체. 볼륨 = 그 실제 표면(같은 매개변수 곡면)을 법선으로 W만큼 부풀린 얇은 셸 · 셰이더 = ★225 빛기둥 조각 셰이더에서
+//  **세로 감쇠 줄만** 치환(실루엣·포화 합성·깃털 = 같은 문자열). 세로 분포 = ★239-b 관 발광과 같은 표시 그러데이션 · 리브 쪽 끝·갓 쪽 끝 깃털. W·세기·지수는 J 튜너가 즉시(셰이더 유니폼).
+export const RM10L_GLOW_ON   = true                // ⛔false = 안개 없음
+export const RM10L_GLOW_W    = 1.2                 // ★Claude 값(규율 12) 안개 두께(m · 기둥 표면에서 법선으로) · J 튜너
+export const RM10L_GLOW_OP   = 0.18                // ★Claude 값 안개 세기(한 겹 · 포화 합성) · J 튜너
+export const RM10L_GLOW_POW  = 2 * CLF_MARK_POW      // 실루엣 지수 — facing^p = (1−x²)^(p/2) ⇒ p = 2·CLF_MARK_POW = ★233 빛 자국과 **같은 종 모양**(1−x²)². ⛔★239-d 첫 판 = LB_EDGE_POW 2.5(빛기둥 승계) → (1−x²)^1.25는 가장자리 직전 기울기가 커 안개 경계가 선으로 읽혔다(미리보기 실측) · J 튜너
+export const RM10L_GLOW_LO_M = 1.5                 // ★Claude 값 갓 쪽 아래끝 깃털 길이(m)
+export const RM10L_GLOW_TOP_M = 4.0                // ★Claude 값 리브 쪽 위끝 깃털 길이(m · 목이 리브에 닿는 높이에서 아래로)
