@@ -15,6 +15,7 @@
 //  ⚠법선: 스윕 방향으로만 정점을 공유(indexed), 모서리 넷에서는 스트립을 나눠 각지게.
 
 import * as THREE from 'three'
+import { XPL_NRM_W } from './constants.js'   // ★241-c 음영 법선 u 창
 import {
   RM10_FLARE_R, RM10_FLARE_SWEEP, RM10_FLARE_C, RM10_ARC_TH1, RM10_FLARE_LEN,
   RM10_FLARE_W1, RM10_FLARE_H1, RM10_FLARE_EASE, RM10_FLARE_EASE_HI, RM10_FLARE_B1_0,
@@ -115,7 +116,7 @@ export function flareSection (t) {
   return { a0: hw, b0: hw, a1: hw, b1: Math.max(b1, hw * 0.999), h }
 }
 
-function strip (A, B) {
+function stripCoarse (A, B) {
   const n = A.length, pos = [], idx = []
   for (let i = 0; i < n; i++) pos.push(...A[i], ...B[i])
   for (let i = 0; i < n - 1; i++) { const a = i * 2; idx.push(a, a + 1, a + 3, a, a + 3, a + 2) }
@@ -124,6 +125,101 @@ function strip (A, B) {
   g.setIndex(idx); g.computeVertexNormals()
   return g
 }
+
+//  ★★★241 빛 구획 X — **같은 띠를 촘촘하게 다시 짓는다**(정점색 해상도 · 규율 36: 변을 쪼개지 않고 면을 다시 짓는다).
+//   원래 띠 = 레일 A·B 사이 사각형 사슬, 사각형마다 대각선 A_i→B_i+1로 두 삼각형(폭 방향 정점 2개 → 아가리 쪽 변 40m).
+//   ⛔첫 판(쌍선형 격자)은 **원래 면과 최대 0.31m 달랐다**(실측 — 천장 램프 사각형은 비평면이라 원래 면 = 대각선에서 꺾인 두 삼각형).
+//    화면의 천장 모양이 바뀌면 조형 변경이다 ⇒ 원래 **삼각형 위에만** 점을 놓는다:
+//   ⓐ 평면 사각형(바닥 디딤·수직 벽 — 뒤틀림 < 1e-5): 진행 방향으로도 현 위 보간 기둥을 끼운다(평면이라 원래 면과 동일).
+//   ⓑ 비평면 사각형(기운 −N벽 · 천장 램프): 기둥을 끼우지 않고, 원래 두 삼각형 각각을 **긴 두 변 사이 지퍼**로 채운다(꺾임선 = 대각선 보존).
+//   ⓒ 기둥 A→B는 제 길이/L 칸(기둥마다 칸 수가 다르다) · 칸 수가 다른 두 줄 사이 = 지퍼 삼각분할(T자 이음 0) · 감김 = 원래 strip()과 같은 향.
+function lerp3 (a, b, f) { return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f] }
+const _d3 = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2])
+export function quadTwist (a, b, c, d) {   // a=A_i b=B_i c=A_i+1 d=B_i+1 → d의 평면(a,b,c)까지 거리
+  const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
+  const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]], L = Math.hypot(...n)
+  if (L < 1e-12) return 0
+  return Math.abs((d[0] - a[0]) * n[0] + (d[1] - a[1]) * n[1] + (d[2] - a[2]) * n[2]) / L
+}
+export const FLARE_TWIST_TOL = 1e-5
+function stripFine (A, B, L) {
+  const pos = [], idx = []
+  const add = (p) => { pos.push(p[0], p[1], p[2]); return pos.length / 3 - 1 }
+  const line = (p, q, i0, i1) => {                                   // p→q 칸 나눔 · 끝점 색인 공유(있으면)
+    const m = Math.max(1, Math.ceil(_d3(p, q) / L - 1e-9)), ids = []
+    for (let k = 0; k <= m; k++) ids.push(k === 0 && i0 != null ? i0 : k === m && i1 != null ? i1 : add(lerp3(p, q, k / m)))
+    return ids
+  }
+  const zip = (P, Q) => {                                             // 두 줄(각각 시작→끝) 사이 · 퇴화(같은 색인) 삼각형은 버린다
+    const pm = P.length - 1, qm = Q.length - 1
+    let i = 0, j = 0
+    const put = (a, b, c) => { if (a !== b && b !== c && a !== c) idx.push(a, b, c) }
+    while (i < pm || j < qm) {
+      if (i < pm && (j === qm || (i + 1) / pm <= (j + 1) / qm)) { put(P[i], P[i + 1], Q[j]); i++ }
+      else { put(P[i], Q[j + 1], Q[j]); j++ }
+    }
+  }
+  let col = line(A[0], B[0])
+  for (let i = 0; i + 1 < A.length; i++) {
+    const tw = quadTwist(A[i], B[i], A[i + 1], B[i + 1])
+    if (tw < FLARE_TWIST_TOL) {                                        // ⓐ 평면 — 현 위 기둥 삽입
+      const n = Math.max(1, Math.ceil(Math.max(_d3(A[i], A[i + 1]), _d3(B[i], B[i + 1])) / L - 1e-9))
+      for (let j = 1; j <= n; j++) {
+        const nxt = j === n ? line(A[i + 1], B[i + 1]) : line(lerp3(A[i], A[i + 1], j / n), lerp3(B[i], B[i + 1], j / n))
+        zip(col, nxt); col = nxt
+      }
+    } else {                                                           // ⓑ 비평면 — 원래 두 삼각형(대각선 A_i→B_i+1) 각각을 채운다
+      const nxt = line(A[i + 1], B[i + 1])
+      const dg = line(A[i], B[i + 1], col[0], nxt[nxt.length - 1])
+      zip(col, dg)                                                     // 삼각형 (A_i, B_i, B_i+1)
+      zip(dg, nxt)                                                     // 삼각형 (A_i, B_i+1, A_i+1) — 끝이 B_i+1에서 만난다
+      col = nxt
+    }
+  }
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  g.setIndex(idx); g.computeVertexNormals()
+  return g
+}
+
+//  ★241 촘촘한 판의 **음영 법선 = 매개 곡면의 해석 법선** — 셸은 표본 사이가 평면 조각이라(낮은 구간 1.6m · 계단 구간 디딤 0.416m)
+//   면 법선이 조각마다 2~3°씩 뛴다(실측: 챌판 자리 두 기둥이 정점을 나눠 갖지 않아 평균도 안 된다). 아가리는 벽에 스치듯 비치므로
+//   이 몇 도가 명암 9%로 커져 **세로 띠**가 됐다(프로브 x8). ⇒ 벽·천장의 음영 법선을 셸이 근사하는 매개 곡면 X(u, k)에서 직접 잰다:
+//   +N벽 X = p(u) + a(u)·N(u) (수직) · −N벽 X = p(u) + (−b0 + (b0 − b1)·k)·N(u), y = 바닥(매끈) + k·층고 · 천장 X = p(u) + (−b1 + (a1 + b1)·k)·N(u), y = 천장.
+//   위치·색인 무변 — 음영 법선만(부호는 원래 면 법선 쪽). 바닥(디딤·챌판 = 다른 면)은 그대로.
+function flareSurf (key, u, k) {
+  const t = Math.min(1, Math.max(0, u / RM10_FLARE_LEN)), p = flarePoint(RM10_FLARE_SWEEP * t), sec = flareSection(t), yF = floorSmooth(t), yR = yF + sec.h
+  const at = (off, y) => [p.x + off * p.nx, y, p.z + off * p.nz]
+  if (key === 'fliwDome') return at(sec.a0, yF + k * sec.h)
+  if (key === 'fliwOuter') return at(-sec.b0 + (sec.b0 - sec.b1) * k, yF + k * sec.h)
+  return at(-sec.b1 + (sec.a1 + sec.b1) * k, yR)
+}
+function analyticNormals (g, key) {
+  //  h = 0.25m 할선(u) — 단면 확대 곡선이 시작점에서 기울기 무한(pow(t, EASE<1))이라 미분 대신 셸 표본 간격 수준의 할선으로 잰다(시작부 12~24° 어긋남 실측 → 수리)
+  const P = g.attributes.position, N = g.attributes.normal, out = new Float32Array(P.count * 3), h = 1e-3, hu = 0.25
+  for (let i = 0; i < P.count; i++) {
+    const x = P.getX(i), y = P.getY(i), z = P.getZ(i), f = Math.atan2(z - RM10_FLARE_C[1], x - RM10_FLARE_C[0])
+    let sw = RM10_ARC_TH1 + Math.PI - f; sw -= 2 * Math.PI * Math.floor((sw + Math.PI) / (2 * Math.PI))
+    const u = sw * RM10_FLARE_R, t = Math.min(1, Math.max(0, u / RM10_FLARE_LEN)), sec = flareSection(t), yF = floorSmooth(t), pp = flarePoint(RM10_FLARE_SWEEP * t)
+    const off = (x - pp.x) * pp.nx + (z - pp.z) * pp.nz
+    const k = key === 'fliroof' ? (off + sec.b1) / (sec.a1 + sec.b1 || 1) : Math.min(1, Math.max(0, (y - yF) / (sec.h || 1)))
+    //  ★241-c(현도 09.25 "나팔 입으로 이어지는 천장 — 경사가 갑자기 높아지며 명암도 급격히 바뀐다 · 얼룩처럼 보인다"):
+    //   낮은 구간 → 터짐 구간 경계(u = LEN·TB)에서 천장 기울기·단면 확대율이 **꺾인다**(실측: 천장 법선 u62.6 (0,−1) → u64.2 앞·아래 50° · 값 0.22 → 1.0이 1.5m 안).
+    //   ⇒ 음영 법선을 u 방향 ±XPL_NRM_W 창으로 평균(상자 필터 · 9표본) — 꺾임이 창 폭에 걸쳐 돌아간다(모양 무변 · 음영만). 매끈한 곳은 대칭 평균이라 방향 불변.
+    let n = [0, 0, 0]
+    for (let j = -4; j <= 4; j++) { const uj = Math.max(0, Math.min(RM10_FLARE_LEN, u + XPL_NRM_W * j / 4))
+      const ua = Math.max(0, Math.min(RM10_FLARE_LEN - 2 * hu, uj - hu)), du = [0, 1, 2].map((c) => (flareSurf(key, ua + 2 * hu, k)[c] - flareSurf(key, ua, k)[c]) / (2 * hu))
+      const dk = [0, 1, 2].map((c) => (flareSurf(key, uj, Math.min(1, k + h))[c] - flareSurf(key, uj, Math.max(0, k - h))[c]))
+      const m = [du[1] * dk[2] - du[2] * dk[1], du[2] * dk[0] - du[0] * dk[2], du[0] * dk[1] - du[1] * dk[0]], lm = Math.hypot(...m) || 1
+      const sg = (m[0] * N.getX(i) + m[1] * N.getY(i) + m[2] * N.getZ(i)) < 0 ? -1 : 1
+      n = [n[0] + sg * m[0] / lm, n[1] + sg * m[1] / lm, n[2] + sg * m[2] / lm] }
+    const l = Math.hypot(...n) || 1; n = n.map((v) => v / l)
+    if (n[0] * N.getX(i) + n[1] * N.getY(i) + n[2] * N.getZ(i) < 0) n = n.map((v) => -v)
+    out[3 * i] = n[0]; out[3 * i + 1] = n[1]; out[3 * i + 2] = n[2]
+  }
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(out, 3))
+}
+export const FLARE_SMOOTH_KEYS = ['fliwDome', 'fliwOuter', 'fliroof']
 
 //  ── 껍질 ──────────────────────────────────────────────────────────────────
 //  모서리 순서: 0 바닥+N(안) → 1 바닥−N(바깥) → 2 천장−N → 3 천장+N
@@ -152,7 +248,9 @@ function mergeGeo (list) {
   return g
 }
 
-export function buildFlareShell () {
+export function buildFlareShell (opts = {}) {
+  //  ★241 opts.grid = L → 모든 띠를 stripFine(L)로(베이크 전용 · 기본 호출은 비트 동일)
+  const strip = opts.grid ? (A, B) => stripFine(A, B, opts.grid) : stripCoarse
   const sp = stairProfile(), S = sp.samples
   const C = [[], [], [], []], E = [[], [], [], []]
   const meta = []
@@ -244,6 +342,8 @@ export function buildFlareShell () {
   for (let k = 0; k <= 4; k++) { const j = k % 4; rc.push(C[j][N]); re.push(E[j][N]); sc.push(C[j][0]); se.push(E[j][0]) }
   out.push({ key: 'flrim', walk: false, geo: strip(rc, re) })   // 아가리(정조준·수직 단면)
   out.push({ key: 'flcap', walk: false, geo: strip(sc, se) })   // 시작 테두리
+  for (const m of out) m.geo.userData.flareKey = m.key            // ★241 베이크 재격자 표지(위치·색인 무변)
+  if (opts.grid) for (const m of out) if (FLARE_SMOOTH_KEYS.includes(m.key)) analyticNormals(m.geo, m.key)   // ★241 촘촘한 판만(기본 호출 무변)
   return out
 }
 

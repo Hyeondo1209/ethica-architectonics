@@ -3464,11 +3464,132 @@ console.log('\n── O. ★178 경계 분할(정점색 보간 스미어 소거)
       src.includes("'if (vRm10l > 1.5 && !gl_FrontFacing) discard; if (vRm10l * (gl_FrontFacing ? 1.0 : -1.0) > 0.5) { vec3 clfC = vColor.rgb; if (vClfMark > 1e-4) clfC = min(vec3(1.0), clfC + uClfPoolK * clfPool(vClfW) * vClfMark); diffuseColor.rgb *= clfC; }'")
       && src.includes(".replace('#include <color_fragment>', '#ifdef USE_COLOR\\n  ' + RM10L_GATE + '\\n#endif')") && (lr.match(/userData=\{\{ rm10l: true \}\}/g) || []).length === 1 && (lr.match(/userData=\{\{ rm10lSkip: true \}\}/g) || []).length === 1
       && (lr.match(/<pointLight/g) || []).length === 2 && (lr.match(/RM10L_PTL_ON && <pointLight/g) || []).length === 2 && /\{RM10L_POOL_MESH_ON && \(\s*<mesh position=\{\[0, RM10_CENTER_Y - 0\.005, 0\]\}/.test(lr)
-      && /<LampRoomLight \/>/.test(app) && /regridPrimitive\(g, RM10L_SUBDIV\)/.test(src) && src.includes('rm10lTermsAt(rm10lEvalPoint(p, nl), nl, S)') && src.includes('rm10lTermsAt(rm10lEvalPoint(W[j], nl), nl, SM.S)') && !src.includes('rm10lClampToVolume(') && src.includes("tri.push({ t, side: 2, copy: false }); tri.push({ t, side: 2, copy: true })")
+      && /<LampRoomLight \/>/.test(app) && /regridPrimitive\(g, RM10L_SUBDIV\)/.test(src) && src.includes('T = rm10xTermsAt(p, nl, S, SX)') && LM.rm10xTermsAt.toString().includes('rm10lTermsAt(ev.zone === ') && src.includes('rm10lTermsAt(rm10lEvalPoint(W[j], nl), nl, SM.S)') && !src.includes('rm10lClampToVolume(') && src.includes("tri.push({ t, side: 2, copy: false }); tri.push({ t, side: 2, copy: true })")
       && src.includes('if (r.seam || !r.triSide) continue') && src.includes("g.setAttribute('aClf', new THREE.BufferAttribute(side2, 1))") && src.includes('for (const o of extra) if (SM.bakeOne(o)) nX++') && src.includes('clfCompose(clfTermsAt(clfClampToVolume(pu), nu, SF))')
       && src.includes('for (let t = 0; t < r.triSide.length; t++) { if (r.triSide[t] !== 0) continue') && src.includes('fs = faceSideBy(W, (q) => rm10lNearVolume(q, RM10L_SUBDIV), RM10L_EPS); if (fs.side === 0) continue')
       && !src.includes('writeG(')
       && LM.rm10lNearVolume([0, 250, 0], 0.75) && LM.rm10lNearVolume([K.RM10_RHO + 0.5, 250, 0], 0.75) && !LM.rm10lNearVolume([K.RM10_RHO + 1.0, 250, 0], 0.75)) }   // ★239 이음매 ⓘ·ⓘ′·ⓙ 배선 · ★239-e′ F 바깥면 한 칸 여유(★239-e 정점 덮기는 되돌림 — F 문 인방 회귀)
+  }
+}
+
+// ───────────────────────── S-23. ★241 빛 구획 X(출구 통로·나팔) 명암 — 공극·발광면·정규화·물리·참값·재격자·배선 (2026.09.25) ─────────────────────────
+{
+  console.log('\n── S-23. ★241 빛 구획 X — 출구 통로·나팔 명암 ──')
+  const { flarePoint, flareSection, buildFlareShell, quadTwist, FLARE_TWIST_TOL } = await import('./exitFlareGeometry.js')
+  const K = await import('./constants.js')
+  const F = LM.xplFrame(), S = LM.xplSpec(), up = (u, off, y) => { const p = flarePoint(u / F.R); return [p.x + off * p.nx, y, p.z + off * p.nz] }
+  const arc = (thD, r, y) => { const t = thD * Math.PI / 180; return [r * Math.cos(t), y, r * Math.sin(t)] }
+  const yE = K.RM10_EXIT_FLOOR_Y + 1.6, rM = (K.rm10R(yE) + K.RM10_CONE_T + K.RM10_EXIT_ROUT) / 2
+  if (!S) T('★241 보존계(XPL_ON=false) — 명세 null · 통로 공극 없음 · 나머지 절 보류(규율 28)', !K.XPL_ON && !LM.xplInterior([0, 0, 0]))
+  else {
+  //  ⓐ 공극 — 안: 반원호 3 · 나팔 3(중심선 눈높이) / 밖: 원뿔 벽 속 · 바깥벽 너머 · 지붕 위 · 바닥 밑 · 슬릿 개구(벽 속) · 아가리 너머 · 방 안(통로 아님)
+  { const w2 = K.rm10Windows()[2], uw = (w2.u0 + w2.u1) / 2, Bw = LM.xplFlareBounds(uw, K.RM10_EXIT_FLOOR_Y + K.RM10_WIN_SILL + 0.4, F)
+    const ins = [arc(100, rM, yE), arc(160, rM, yE), arc(225, rM, yE), up(5, 0, yE), up(40, 0, yE), up(80, 0, LM.xplFloorAt(80, F) + 1.6)]
+    const outs = [arc(160, K.rm10R(yE) + K.RM10_CONE_T / 2, yE), arc(160, K.RM10_EXIT_ROUT + 0.1, yE), arc(160, rM, F.y1 + 0.1), arc(160, rM, F.y0 - 0.1),
+      up(uw, Bw.a + 0.1, K.RM10_EXIT_FLOOR_Y + K.RM10_WIN_SILL + 0.4), up(F.LEN + 0.5, 0, LM.xplFloorAt(F.LEN, F) + 1.6), [0, K.RM10_FLOOR_Y + 2, 0]]
+    T(`ⓐ 통로 공극 — 안 ${ins.length}점 전부 안 · 밖 ${outs.length}점(원뿔 벽 속·바깥벽 너머·지붕 위·바닥 밑·슬릿 개구·아가리 너머·방 안) 전부 밖 · 방 ∪ 통로 술어가 둘을 합친다`,
+      ins.every((q) => LM.xplInterior(q)) && outs.every((q) => !LM.xplInterior(q)) && LM.rm10xInterior([0, K.RM10_FLOOR_Y + 2, 0]) && LM.rm10xInterior(ins[0])) }
+  //  ⓑ 발광면 — 조각 수 파생 · 발광 법선이 통로 안을 향한다(중심 + n·5cm = 공극) · 아가리 = 사각형 하나(나팔 끝 단면)
+  { const nS = K.rm10Windows().reduce((a, w) => a + Math.max(1, Math.ceil((w.u1 - w.u0) / K.XPL_PIECE - 1e-9)), 0), cen = (v) => [0, 1, 2].map((k) => v.reduce((a, q) => a + q[k], 0) / v.length)
+    const into = (e) => { const c = cen(e.v); return LM.xplInterior([c[0] + e.n[0] * 0.05, c[1] + e.n[1] * 0.05, c[2] + e.n[2] * 0.05]) }
+    const M = S.E.mouth[0], mc = LM.xplMouthPt(M, 0.5, 0.5), s1 = flareSection(1)
+    T(`ⓑ 발광면 — 슬릿 조각 ${S.E.slit.length} = Σ⌈폭/PIECE⌉ ${nS} · 문 조각 ${S.E.door.length} · 전부 법선 5cm 앞이 통로 공극 · 아가리 ${(M.o1 - M.o0).toFixed(1)}×${(M.yR - M.yF).toFixed(1)} = 나팔 끝 단면(${(s1.a0 + s1.b0).toFixed(1)}×${s1.h.toFixed(1)}) · 아가리 법선 5cm 앞 = 나팔 공극`,
+      S.E.slit.length === nS && S.E.door.length >= 2 && S.E.slit.every(into) && S.E.door.every(into) && S.E.mouth.length === 1
+      && Math.abs(M.o1 - M.o0 - (s1.a0 + s1.b0)) < 1e-9 && Math.abs(M.yR - M.yF - s1.h) < 1e-6 && LM.xplFlareInterior([mc[0] + M.n[0] * 0.05, mc[1], mc[2] + M.n[2] * 0.05])) }
+  //  ⓒ 정규화 — 슬릿 기준점(슬릿 #0 맞은편 −N벽 눈높이)에서 슬릿 항 = 1 · 문 기준점(문 맞은편 바깥벽)에서 문 항 = 1 · 두 기준점 모두 통로 공극에 붙어 있다
+  { const a = LM.xplTermsAt(S.skyRefP, S.skyRefN, S), b = LM.xplTermsAt(S.doorRefP, S.doorRefN, S)
+    T(`ⓒ 정규화 — 슬릿 기준 win ${a.win.toFixed(9)} · 문 기준 door ${b.door.toFixed(9)} · skyRef ${S.skyRef.toExponential(3)} · doorRef ${S.doorRef.toExponential(3)} > 0`,
+      Math.abs(a.win - 1) < 1e-9 && Math.abs(b.door - 1) < 1e-9 && S.skyRef > 0 && S.doorRef > 0
+      && LM.xplInterior([S.skyRefP[0] + S.skyRefN[0] * 0.01, S.skyRefP[1], S.skyRefP[2] + S.skyRefN[2] * 0.01]) && LM.xplInterior([S.doorRefP[0] + S.doorRefN[0] * 0.01, S.doorRefP[1], S.doorRefP[2] + S.doorRefN[2] * 0.01])) }
+  //  ⓓ 물리 — 반원호 한가운데 = 채움만(공급지 0) · 문 항은 문에서 멀어지면 줄어든다 · 아가리는 나팔 앞부분(u 20)에서 0 · 바닥의 아가리 항은 u 따라 커진다 · +N벽(창 벽)은 슬릿을 못 본다
+  { const nA = (thD) => { const t = thD * Math.PI / 180; return [-Math.cos(t), 0, -Math.sin(t)] }, oW = (thD) => arc(thD, K.RM10_EXIT_ROUT - 0.02, yE)
+    const d0 = LM.xplTermsAt(oW(92), nA(92), S).door, d1 = LM.xplTermsAt(oW(105), nA(105), S).door, d2 = LM.xplTermsAt(oW(125), nA(125), S).door, mid = LM.xplTermsAt(oW(170), nA(170), S)
+    const fl = (u) => LM.xplTermsAt(up(u, 0, LM.xplFloorAt(u, F) + 0.02), [0, 1, 0], S).mouth, m20 = fl(20), m45 = fl(45), m60 = fl(60), m75 = fl(75)
+    const B = LM.xplFlareBounds(22, yE, F), pw = LM.xplTermsAt(up(22, B.a - 0.02, K.RM10_EXIT_FLOOR_Y + 1.0), (() => { const p = flarePoint(22 / F.R); return [-p.nx, 0, -p.nz] })(), S).win
+    T(`ⓓ 물리 — 반원호 170° 슬릿 ${mid.win.toExponential(1)}·아가리 ${mid.mouth}·문 ${mid.door} → 값 ${LM.xplCompose(mid).toFixed(3)} = 채움 · 문 항 92° ${d0.toFixed(3)} > 105° ${d1.toFixed(3)} > 125° ${d2.toFixed(4)} · 바닥 아가리 u20 ${m20} < u45 ${m45.toFixed(3)} < u60 ${m60.toFixed(3)} < u75 ${m75.toFixed(3)} · 창 벽의 슬릿 몫 ${pw.toExponential(1)} ≈ 0`,
+      mid.win < 0.01 && mid.mouth === 0 && mid.door === 0 && d0 > d1 && d1 > d2 && m20 === 0 && m45 < m60 && m60 < m75 && pw < 0.01) }
+  //  ⓔ 참값 대조 — 실제 나팔 셸 BVH 광선 가시 + 층화 적분(단위 휘도) ↔ 모델 · 합성값 차 ≤ 0.08(기본 노브) · 도구 자기검증(벽 밖 → 가림)
+  { const THREE = await import('three'), { MeshBVH } = await import('three-mesh-bvh'), tris = []
+    for (const m of buildFlareShell()) { const g = m.geo.toNonIndexed(), p = g.attributes.position.array; for (let i = 0; i < p.length; i++) tris.push(p[i]) }
+    const G = new THREE.BufferGeometry(); G.setAttribute('position', new THREE.Float32BufferAttribute(tris, 3)); const bvh = new MeshBVH(G), ray = new THREE.Ray(), o = new THREE.Vector3(), dv = new THREE.Vector3()
+    const vis = (a, b) => { o.set(...a); dv.set(b[0] - a[0], b[1] - a[1], b[2] - a[2]); const d = dv.length(); dv.normalize(); ray.set(o, dv); return !bvh.raycastFirst(ray, THREE.DoubleSide, 0, d - 2e-3) }
+    const quadE = (q, n, v, sn, ns) => { let E = 0; const [a, b, c, d] = v
+      for (let i = 0; i < ns; i++) for (let j = 0; j < ns; j++) { const s = (i + 0.5) / ns, t = (j + 0.5) / ns, bot = [0, 1, 2].map((k) => a[k] + (b[k] - a[k]) * s), top = [0, 1, 2].map((k) => d[k] + (c[k] - d[k]) * s), x = [0, 1, 2].map((k) => bot[k] + (top[k] - bot[k]) * t)
+        const lb = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]), lt = Math.hypot(c[0] - d[0], c[1] - d[1], c[2] - d[2]), h = Math.hypot(d[0] - a[0], d[1] - a[1], d[2] - a[2]), dA = (lb + (lt - lb) * t) / ns * h / ns
+        const r = [x[0] - q[0], x[1] - q[1], x[2] - q[2]], d2 = r[0] ** 2 + r[1] ** 2 + r[2] ** 2, dd = Math.sqrt(d2), cr = (r[0] * n[0] + r[1] * n[1] + r[2] * n[2]) / dd, ce = -(r[0] * sn[0] + r[1] * sn[1] + r[2] * sn[2]) / dd
+        if (cr > 0 && ce > 0 && vis(q, x)) E += cr * ce * dA / d2 } return E }
+    const M = S.E.mouth[0], truth = (q, n) => { let win = 0, mouth = 0; for (const e of S.E.slit) win += quadE(q, n, e.v, e.n, 4)
+      for (let i = 0; i < 12; i++) for (let j = 0; j < 8; j++) mouth += quadE(q, n, [LM.xplMouthPt(M, i / 12, j / 8), LM.xplMouthPt(M, (i + 1) / 12, j / 8), LM.xplMouthPt(M, (i + 1) / 12, (j + 1) / 8), LM.xplMouthPt(M, i / 12, (j + 1) / 8)], M.n, 4)
+      return { win: win / S.skyRef, mouth: mouth / S.skyRef, door: 0 } }
+    const pts = []
+    for (const u of [13, 31, 48, 56, 68, 76, 84]) { const p = flarePoint(u / F.R), yF = LM.xplFloorAt(u, F), Bn = LM.xplFlareBounds(u, yF + 1.6, F), Bp = LM.xplFlareBounds(u, yF + 1.0, F)
+      pts.push([up(u, -Bn.b + 0.02, yF + 1.6), [p.nx, 0, p.nz]], [up(u, 0, yF + 0.02), [0, 1, 0]], [up(u, Bp.a - 0.02, yF + 1.0), [-p.nx, 0, -p.nz]]) }
+    let worst = 0, wn = ''; for (const [q, n] of pts) { const m = LM.xplTermsAt(q, n, S), t = truth(q, n), d = Math.abs(LM.xplCompose({ ...m, door: 0 }) - LM.xplCompose(t)); if (d > worst) { worst = d; wn = q.map((v) => v.toFixed(1)).join(',') } }
+    const pm = flarePoint(0.5 * F.SW), sm = flareSection(0.5), yy = K.RM10_EXIT_FLOOR_Y + 3
+    const tool = !vis([pm.x, yy, pm.z], [pm.x + (sm.a0 + 2) * pm.nx, yy, pm.z + (sm.a0 + 2) * pm.nz]) && vis([pm.x, yy, pm.z], [pm.x - 0.8 * sm.b0 * pm.nx, yy, pm.z - 0.8 * sm.b0 * pm.nz])
+    T(`ⓔ 참값 대조 — 나팔 ${pts.length}점(−N벽·바닥·+N벽 × u 7곳) 모델 ↔ 광선 적분 합성값 최대 차 ${worst.toFixed(3)} ≤ 0.08 (최악 ${wn}) · 도구 자기검증(벽 밖 가림·안 보임) ${tool}`, worst <= 0.08 && tool) }
+  //  ⓕ 재격자 — 촘촘한 판(grid) 정점이 원래 면 위(≤ 1e-4 · BVH 최근접) · 기본 호출은 flareKey 표지만 · 비평면 사각형은 꺾임 보존(기둥 삽입 없음)
+  { const THREE = await import('three'), { MeshBVH } = await import('three-mesh-bvh'), C = buildFlareShell(), Fn = buildFlareShell({ grid: K.RM10L_SUBDIV })
+    let dmax = 0, same = C.length === Fn.length, keys = true
+    for (let i = 0; i < C.length; i++) { if (C[i].key !== Fn[i].key || C[i].geo.userData.flareKey !== C[i].key) keys = false
+      if (!C[i].key.startsWith('fli')) continue
+      const bv = new MeshBVH(C[i].geo), P = Fn[i].geo.attributes.position, v = new THREE.Vector3(), tg = {}
+      for (let k = 0; k < P.count; k += 3) { v.fromBufferAttribute(P, k); dmax = Math.max(dmax, bv.closestPointToPoint(v, tg).distance) } }
+    const a = [0, 0, 0], b = [1, 0, 0], c = [0, 0, 1]
+    T(`ⓕ 나팔 재격자 — 안쪽 셸 정점 → 원래 면 최대 ${dmax.toExponential(2)} ≤ 1e-4 · 부재 ${C.length}개 키 일치·표지 ${keys} · 뒤틀림 판정(평면 0 · 들린 점 ${quadTwist(a, b, c, [1, 0.1, 1]).toFixed(2)} > 허용 ${FLARE_TWIST_TOL})`,
+      dmax <= 1e-4 && same && keys && quadTwist(a, b, c, [1, 0, 1]) < FLARE_TWIST_TOL && quadTwist(a, b, c, [1, 0.1, 1]) > FLARE_TWIST_TOL) }
+  //  ⓕ′ 음영 법선 — 촘촘한 판 창 벽(fliwDome)은 매개 곡면 해석 법선: 꺾임 없는 구간(u 5~60)에서 같은 변 두 끝 법선 차 ≤ 1° · 면 법선과 ≤ 2°
+  //   (★241 x8 세로 띠 = 디딤 조각마다 뛰는 면 법선 2.3° — 반증: analyticNormals 끄면 이웃 차가 조각 경계에서 커진다)
+  { const g = buildFlareShell({ grid: K.RM10L_SUBDIV }).find((m) => m.key === 'fliwDome').geo, P = g.attributes.position, N = g.attributes.normal, I = g.index.array
+    const uOf = (i) => LM.xplFlareParam([P.getX(i), P.getY(i), P.getZ(i)], F).u, ang = (c) => Math.acos(Math.min(1, Math.abs(c))) * 180 / Math.PI
+    let nb = 0, fa = 0
+    for (let t = 0; t < I.length; t += 3) { const ids = [I[t], I[t + 1], I[t + 2]]; if (!ids.every((i) => uOf(i) > 5 && uOf(i) < 60)) continue
+      for (let e = 0; e < 3; e++) { const a = ids[e], b = ids[(e + 1) % 3], dh = Math.hypot(P.getX(a) - P.getX(b), P.getZ(a) - P.getZ(b))   // 평면 거리만큼은 곡률로 돈다(벽 반경 ≥ R − a) → 초과분만 = 뜀
+        nb = Math.max(nb, ang(N.getX(a) * N.getX(b) + N.getY(a) * N.getY(b) + N.getZ(a) * N.getZ(b)) - dh / (F.R - flareSection(60 / F.LEN).a0) * 180 / Math.PI) }
+      const q = ids.map((i) => [P.getX(i), P.getY(i), P.getZ(i)]), u = [0, 1, 2].map((k) => q[1][k] - q[0][k]), v = [0, 1, 2].map((k) => q[2][k] - q[0][k])
+      const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]], l = Math.hypot(...n)
+      if (l > 1e-4) for (const i of ids) fa = Math.max(fa, ang((n[0] * N.getX(i) + n[1] * N.getY(i) + n[2] * N.getZ(i)) / l)) }
+    T(`ⓕ′ 창 벽 음영 법선 = 해석 — u 5~60 이웃 법선 차 − 곡률 몫 최대 ${nb.toFixed(2)}° ≤ 0.3 · 면 법선 대비 ${fa.toFixed(2)}° ≤ 2`, nb <= 0.3 && fa <= 2) }
+  //  ⓖ 평가점 구역 — 방 안 점 = G · 통로 바닥 = X · 방 문 살 = G · 벽 속 점은 가까운 공극으로 물린다
+  { const e1 = LM.rm10xEvalPoint([0, K.RM10_FLOOR_Y + 2, 0], [0, 1, 0]), e2 = LM.rm10xEvalPoint(arc(160, rM, F.y0 + 0.02), [0, 1, 0]), e3 = LM.rm10xEvalPoint(arc(90, K.rm10R(yE) + K.RM10_CONE_T * 0.5, yE), [0, 0, 1])
+    const e4 = LM.rm10xEvalPoint(arc(160, K.RM10_EXIT_ROUT + 0.2, yE), [-1, 0, 0])
+    T(`ⓖ 평가점 구역 — 방 ${e1.zone} · 통로 바닥 ${e2.zone} · 문 살 ${e3.zone} · 바깥벽 너머 점 → ${e4.zone}(공극 안 ${LM.xplInterior(e4.p)})`, e1.zone === 'G' && e2.zone === 'X' && e3.zone === 'G' && e4.zone === 'X' && LM.xplInterior(e4.p)) }
+  //  ⓗ 노브 위생
+  T('ⓗ 노브 위생 — XPL_ON 불리언 · FILL∈[0,1) · SKY_K·DOOR_K ≥ 0 · PIECE∈(0.1,3] · VIS_M > RM10L_EPS · NEAR0 < NEAR1 · BISECT ≥ 8 · XPL_TUNE 초기값 = constants',
+    typeof K.XPL_ON === 'boolean' && K.XPL_FILL >= 0 && K.XPL_FILL < 1 && K.XPL_SKY_K >= 0 && K.XPL_DOOR_K >= 0 && K.XPL_PIECE > 0.1 && K.XPL_PIECE <= 3 && K.XPL_VIS_M > K.RM10L_EPS
+    && K.XPL_NEAR0 < K.XPL_NEAR1 && K.XPL_BISECT >= 8 && LM.XPL_TUNE.FILL === K.XPL_FILL && LM.XPL_TUNE.SKY_K === K.XPL_SKY_K && LM.XPL_TUNE.DOOR_K === K.XPL_DOOR_K)
+  //  ⓘ 배선 — G 베이크가 방 ∪ 통로 술어(거르기·판정 둘 다) · 평가점 구역 · 나팔 촘촘한 판 · 통로 값은 xplCompose · 튜너 X_ 노브 · 셸이 표지를 싣는다
+  { const src = readFileSync(new URL('./LampRoomLight.jsx', import.meta.url), 'utf-8'), efg = readFileSync(new URL('./exitFlareGeometry.js', import.meta.url), 'utf-8')
+    T('ⓘ 배선 — rm10xFaceSide 2곳(거르기·판정) · rm10lFaceSide 0 · rm10xTermsAt(정본) · flareFine(flareKey) · buildFlareShell({ grid: RM10L_SUBDIV }) · 튜너 xplCompose·X_SKY_K·X_DOOR_K·X_FILL · 셸 flareKey 표지',
+      (src.match(/rm10xFaceSide\(/g) || []).length === 2 && !src.includes('rm10lFaceSide(') && src.includes('T = rm10xTermsAt(p, nl, S, SX)') && src.includes('col[3 * i] = col[3 * i + 1] = col[3 * i + 2] = rm10xCompose(T)')
+      && src.includes('const fk = g.userData && g.userData.flareKey, rg = fk ? flareFine(fk) : regridPrimitive(g, RM10L_SUBDIV)') && src.includes('buildFlareShell({ grid: RM10L_SUBDIV })')
+      && src.includes("const val = rm10xCompose({ w: r.xz ? r.xz[i] : 0,") && ['X_FILL', 'X_SKY_K', 'X_DOOR_K'].every((k) => src.includes(`['${k}'`)) && efg.includes('for (const m of out) m.geo.userData.flareKey = m.key')) }
+  //  ⓚ ★241-a 방 문 이음매 — 문선 면을 가로질러(원뿔 바깥면 ±) 5cm마다 값의 뜀 ≤ 0.05 · 무게 w가 방 쪽 0 → 통로 쪽 1 · 문 띠 밖은 null
+  //   (반증: XPL_DOOR_BLEND → 1e-3이면 경계에서 G 0.18 ↔ X 0.5 뜀 = 현도 09.25 톱니)
+  { const S0 = LM.rm10lSpec(), Fr = LM.rm10lFrame(), th = Fr.xth0, yy = K.RM10_EXIT_FLOOR_Y + 2, nn = [-Math.sin(th), 0, Math.cos(th)], rb = K.rm10R(yy) + K.RM10_CONE_T
+    let prev = null, jmax = 0, w0 = 1, w1 = 0
+    for (let r = K.rm10R(yy) - 0.3; r <= rb + 1.2; r += 0.05) { const T = LM.rm10xTermsAt([r * Math.cos(th), yy, r * Math.sin(th)], nn, S0, S), v = LM.rm10xCompose(T)
+      if (prev !== null) jmax = Math.max(jmax, Math.abs(v - prev)); prev = v; if (r < rb - 1) w0 = Math.min(w0, 1 - T.w); if (r > rb + 1) w1 = Math.max(w1, T.w) }
+    const out = LM.rm10xDoorW([rb * Math.cos(th + 0.5), yy, rb * Math.sin(th + 0.5)])
+    T(`ⓚ 방 문 이음매 섞기 — 문선 면 가로질러 5cm 뜀 최대 ${jmax.toFixed(3)} ≤ 0.05 · 방 쪽 w 0 ${w0 === 1} · 통로 쪽 w 1 ${w1 === 1} · 문 띠 밖 ${out}`, jmax <= 0.05 && w0 === 1 && w1 === 1 && out === null) }
+  //  ⓛ ★241-b 곡률 반전점 테두리(flcap) 봉인 — 통로 공극 XPL_SEAL_M 안 삼각형만 굽는다(> 0) · 판 바깥 절반은 그대로(외면 불변) · 배선
+  { const cap = buildFlareShell({ grid: K.RM10L_SUBDIV }).find((m) => m.key === 'flcap').geo.toNonIndexed(), P = cap.attributes.position, src = readFileSync(new URL('./LampRoomLight.jsx', import.meta.url), 'utf-8')
+    let nIn = 0, nOut = 0, nBoth = 0; for (let t = 0; t < P.count / 3; t++) { const W = [0, 1, 2].map((j) => [P.getX(3 * t + j), P.getY(3 * t + j), P.getZ(3 * t + j)])
+      const f2 = LM.faceSideBy(W, (q) => LM.xplNearVolume(q), K.RM10L_EPS); if (f2.side) nIn++; else nOut++; if (f2.both) nBoth++ }
+    T(`ⓛ 나팔 시작 테두리 봉인 — 공극 ${K.XPL_SEAL_M}m 안 삼각형 ${nIn} > 0(양쪽 ${nBoth} > 0 = 원호 쪽·나팔 쪽 둘 다 굽는다) · 바깥 ${nOut} > 0 · SEAL_M < PASS_T/2(${K.PASS_T / 2}) · 배선(flcap 우선 가지 · both → 뒤집은 사본)`, nIn > 0 && nBoth > 0 && nOut > 0 && K.XPL_SEAL_M <= K.PASS_T / 2 + 1e-9
+      && src.includes("        if (fk === 'flcap') { const f2 = faceSideBy(W, (q) => xplNearVolume(q), RM10L_EPS)") && src.includes('if (f2.side && f2.both) { tri.push({ t, side: 2, copy: false }); tri.push({ t, side: 2, copy: true }); nSeal += 2 }')) }
+  //  ⓜ ★241-c 천장 꺾임(낮은 구간 → 터짐) 음영 법선 — u 창 평균: 꺾임 ±1.5m에서 이웃 정점 법선 차 최대 ≤ 12° (반증: XPL_NRM_W → 0이면 꺾임 한 칸에 ~50°)
+  { const g = buildFlareShell({ grid: K.RM10L_SUBDIV }).find((m) => m.key === 'fliroof').geo, Pp = g.attributes.position, Nn = g.attributes.normal, I = g.index.array, uB = F.LEN * K.RM10_FLARE_TB
+    let jm = 0; const uOf = (i) => LM.xplFlareParam([Pp.getX(i), Pp.getY(i), Pp.getZ(i)], F).u
+    for (let t = 0; t < I.length; t += 3) for (let e = 0; e < 3; e++) { const a = I[t + e], b = I[t + (e + 1) % 3]; if (Math.abs(uOf(a) - uB) > 1.5 || Math.abs(uOf(b) - uB) > 1.5) continue
+      jm = Math.max(jm, Math.acos(Math.min(1, Nn.getX(a) * Nn.getX(b) + Nn.getY(a) * Nn.getY(b) + Nn.getZ(a) * Nn.getZ(b))) * 180 / Math.PI) }
+    T(`ⓜ 천장 꺾임 음영 법선 창(±${K.XPL_NRM_W}m) — 경계 ±1.5m 이웃 법선 차 최대 ${jm.toFixed(1)}° ≤ 12`, jm <= 12 && K.XPL_NRM_W > 0) }
+  //  ⓙ ★241 geometry 인스턴스 고정 — LampRoom이 다시 렌더돼도 베이크가 살아남는다: 나팔 셸·문선·끝캡 = 모듈 캐시 · 인라인 생성 0 · 감시(교체 경보 + 되돌림)
+  { const dome = readFileSync(new URL('./Dome.jsx', import.meta.url), 'utf-8'), lr = dome.slice(dome.indexOf('export function LampRoom'), dome.indexOf('export function', dome.indexOf('export function LampRoom') + 10))
+    const src = readFileSync(new URL('./LampRoomLight.jsx', import.meta.url), 'utf-8')
+    T('ⓙ geometry 인스턴스 고정 — LampRoom 안 buildFlareShell()·radialPlate( 인라인 호출 0 · flareShellOnce 1 · radialPlateOnce 2 · 감시(r.o.geometry !== r.geo → 경보·되돌림)',
+      !/buildFlareShell\(\)/.test(lr) && !/[^a-zA-Z]radialPlate\(/.test(lr) && (lr.match(/flareShellOnce\(\)/g) || []).length === 1 && (lr.match(/radialPlateOnce\(/g) || []).length === 2
+      && src.includes('if (r.geo && r.o.geometry !== r.geo)') && src.includes('r.o.geometry = r.geo')) }
   }
 }
 

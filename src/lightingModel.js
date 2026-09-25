@@ -2603,3 +2603,246 @@ export function rm10lCompose(T, k = RM10L_TUNE) {
 export function rm10lShadeAt(q, n, S = rm10lSpec(), k = RM10L_TUNE) { return S ? rm10lCompose(rm10lTermsAt(q, n, S), k) : 1 }
 /** 바닥 빛 자국(★232 어법) — 회랑과 **같은 GLSL 함수**(clfPoolGLSL)를 등불 하나(방 축 · 상부 여정 로컬)로 부른다 · 반경 = 빛기둥 발(LB_FOOT_R) */
 export function rm10lPoolSpec(p = RM10L_MARK_POW, K = RM10L_MARK_K) { const F = rm10lFrame(); return { shape: clfPoolShape(p), R: _LBF, lamps: [[F.AX, F.AZ]], K } }
+
+// ══ ★★★241 빛 구획 X — 출구 통로(반원호)·나팔 명암(2026.09.25 · 근거·노브 = constants ★241 블록) ════════════════════════════
+//  좌표 = **방 로컬**(rm10lToRoom 결과 = Dome LampRoom 그룹 안 좌표 = exitFlareGeometry 좌표). G(등불 방)와 한 베이크 — 공극 ∪ · 항은 평가점이 든 공극이 고른다.
+import { XPL_ON, XPL_FILL, XPL_SKY_K, XPL_DOOR_K, XPL_PIECE, XPL_BISECT, XPL_DOOR_BLEND, XPL_SEAL_M, XPL_NEAR0, XPL_NEAR1, XPL_VIS_DU, XPL_VIS_NO, XPL_VIS_NY, XPL_VIS_M, XPL_MARCH,
+  RM10_EXIT_TH0, RM10_ARC_TH1, RM10_EXIT_ROUT, RM10_EXIT_FLOOR_Y, RM10_EXIT_ROOF_Y, RM10_FLARE_ON, RM10_FLARE_C, RM10_FLARE_R, RM10_FLARE_SWEEP,
+  RM10_FLARE_LEN, RM10_WIN_ON, RM10_WIN_MODE, RM10_WIN_SILL, RM10_WIN_SLIT_H, rm10Windows, RM10_DOOR_H as _RDH } from './constants.js'
+import { flarePoint, flareSection, floorSmooth, stairProfile } from './exitFlareGeometry.js'
+/** 통로 기하 상수(파생 · 한 번) — 반원호 = Dome ★79-5 ring·cyl 식 그대로(바닥 링 y0−0.02 · 지붕 y1 · 바깥벽 RO · 안쪽 = 방 원뿔 바깥면) */
+let _xplF = null
+export function xplFrame() {
+  if (_xplF) return _xplF
+  const st = stairProfile().samples
+  _xplF = { th0: RM10_EXIT_TH0, th1: RM10_FLARE_ON ? RM10_ARC_TH1 : RM10_EXIT_TH0, rO: RM10_EXIT_ROUT, y0: RM10_EXIT_FLOOR_Y - 0.02, y1: RM10_EXIT_ROOF_Y,
+    C: RM10_FLARE_C, R: RM10_FLARE_R, SW: RM10_FLARE_SWEEP, LEN: RM10_FLARE_LEN, su: st.map((q) => q.u), sy: st.map((q) => q.y), flare: RM10_FLARE_ON }
+  return _xplF
+}
+/** 나팔 매개(방 로컬 점) — s = 회전각 · u = 호길이 · t = u/LEN · off = 폭 방향(+N = 뒤집기 중심 쪽 = 창 벽) */
+export function xplFlareParam(q, F = xplFrame()) {
+  const dx = q[0] - F.C[0], dz = q[2] - F.C[1], d = Math.hypot(dx, dz), f = Math.atan2(dz, dx)
+  let s = RM10_ARC_TH1 + Math.PI - f; s = s - 2 * Math.PI * Math.floor((s + Math.PI) / (2 * Math.PI))   // (−π, π]
+  return { s, u: s * F.R, t: s / F.SW, off: F.R - d }
+}
+/** 나팔 바닥 윗면(계단 윤곽 = 표본 꺾은선 · 셸의 바닥 띠와 같은 직선 보간) */
+export function xplFloorAt(u, F = xplFrame()) {
+  const U = F.su, Y = F.sy; if (u <= U[0]) return Y[0]; if (u >= U[U.length - 1]) return Y[Y.length - 1]
+  let lo = 0, hi = U.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (U[m] <= u) lo = m; else hi = m }
+  const w = (u - U[lo]) / ((U[hi] - U[lo]) || 1); return Y[lo] + (Y[hi] - Y[lo]) * w
+}
+/** 나팔 단면 경계(u에서) — 바닥 yF · 천장 yR · 창 벽 a · 바깥벽 b(y)(원뿔 추종 구간은 바닥 b0 → 천장 b1 선형) */
+export function xplFlareBounds(u, y, F = xplFrame()) {
+  const t = u / F.LEN, sec = flareSection(Math.min(1, Math.max(0, t))), yF = xplFloorAt(u, F), yR = floorSmooth(Math.min(1, Math.max(0, t))) + sec.h
+  const k = Math.min(1, Math.max(0, (y - yF) / ((yR - yF) || 1)))
+  return { yF, yR, a: sec.a0, b: sec.b0 + (sec.b1 - sec.b0) * k }
+}
+/** 반원호 공극 안인가(방 로컬) — 방위 th0~th1 · 방 원뿔 바깥면 < r < RO · 바닥 링 < y < 지붕. 경계 엄격(δ) */
+export function xplArcInterior(q, F = xplFrame(), dlt = 1e-3) {
+  const r = Math.hypot(q[0], q[2]), y = q[1]
+  if (!(y > F.y0 + dlt && y < F.y1 - dlt)) return false
+  if (!(r > rm10R(y) + RM10_CONE_T + dlt && r < F.rO - dlt)) return false
+  return _angIn(Math.atan2(q[2], q[0]), F.th0 + dlt / r, F.th1 - dlt / r)
+}
+/** 나팔 공극 안인가(방 로컬) — 0 < u < LEN · 바닥 < y < 천장 · −b < off < a(창 개구 = 벽 속 = 밖 · 회랑 창 인방과 같은 판단) */
+export function xplFlareInterior(q, F = xplFrame(), dlt = 1e-3) {
+  if (!F.flare) return false
+  const P = xplFlareParam(q, F); if (!(P.u > dlt && P.u < F.LEN - dlt)) return false
+  const B = xplFlareBounds(P.u, q[1], F)
+  return q[1] > B.yF + dlt && q[1] < B.yR - dlt && P.off < B.a - dlt && P.off > -B.b + dlt
+}
+export function xplInterior(q, F = xplFrame(), dlt = 1e-3) { return XPL_ON && (xplArcInterior(q, F, dlt) || xplFlareInterior(q, F, dlt)) }
+/** 통로 공극 안으로 물린 점(방 로컬) — 반원호·나팔 중 **가까운 쪽**의 상자에 가둔다(★233 어법) */
+export function xplClampToVolume(q, F = xplFrame(), d = 2e-3) {
+  if (xplInterior(q, F)) return q
+  const cand = []
+  { let r = Math.hypot(q[0], q[2]), th = Math.atan2(q[2], q[0]), y = Math.min(F.y1 - d, Math.max(F.y0 + d, q[1]))   // 반원호
+    let t = th; while (t < F.th0) t += 2 * Math.PI; while (t > F.th0 + 2 * Math.PI) t -= 2 * Math.PI
+    if (t > F.th1) t = (t - F.th1 < F.th0 + 2 * Math.PI - t) ? F.th1 - d / 17 : F.th0 + d / 17
+    r = Math.min(F.rO - d, Math.max(rm10R(y) + RM10_CONE_T + d, r))
+    cand.push([r * Math.cos(t), y, r * Math.sin(t)]) }
+  if (F.flare) { const P = xplFlareParam(q, F), u = Math.min(F.LEN - d, Math.max(d, P.u))   // 나팔
+    const B0 = xplFlareBounds(u, q[1], F), y = Math.min(B0.yR - d, Math.max(B0.yF + d, q[1])), B = xplFlareBounds(u, y, F)
+    const off = Math.min(B.a - d, Math.max(-B.b + d, P.off)), p = flarePoint(u / F.R)
+    cand.push([p.x + off * p.nx, y, p.z + off * p.nz]) }
+  let best = cand[0], bd = Infinity
+  for (const c of cand) { const dd = Math.hypot(c[0] - q[0], c[1] - q[1], c[2] - q[2]); if (dd < bd && xplInterior(c, F)) { bd = dd; best = c } }
+  return best
+}
+const _up = (p, off, y) => [p.x + off * p.nx, y, p.z + off * p.nz]
+/** 발광면 목록(방 로컬 · 한 번) — ① 슬릿 조각 ② 아가리 셀 ③ 방 쪽 문 조각. 조각 = 평면 다각형 v + 발광 법선 n(통로 안쪽 향) */
+export function xplEmitters(F = xplFrame()) {
+  const slit = [], mouth = [], door = []
+  if (F.flare && RM10_WIN_ON) {
+    if (RM10_WIN_MODE !== 'slit') console.warn('[XPL] 창 체제가 slit이 아니다 — 슬릿 발광면 없음(사다리꼴 체제 발광면 미구현)')
+    else for (const w of rm10Windows()) {
+      const m = Math.max(1, Math.ceil((w.u1 - w.u0) / XPL_PIECE - 1e-9))
+      for (let j = 0; j < m; j++) {
+        const ua = w.u0 + (w.u1 - w.u0) * j / m, ub = w.u0 + (w.u1 - w.u0) * (j + 1) / m
+        const pa = flarePoint(ua / F.R), pb = flarePoint(ub / F.R), aa = flareSection(ua / F.LEN).a0, ab = flareSection(ub / F.LEN).a0
+        const ys = xplFloorAt(ua, F) + RM10_WIN_SILL, yh = ys + RM10_WIN_SLIT_H                  // 낮은 구간 = 평지(창턱 수평)
+        const v = [_up(pa, aa, ys), _up(pb, ab, ys), _up(pb, ab, yh), _up(pa, aa, yh)]
+        const e = [v[1][0] - v[0][0], 0, v[1][2] - v[0][2]], L = Math.hypot(e[0], e[2]), pm = flarePoint((ua + ub) / 2 / F.R)
+        let n = [-e[2] / L, 0, e[0] / L]; if (n[0] * -pm.nx + n[2] * -pm.nz < 0) n = [-n[0], 0, -n[2]]   // 발광 = −N(창 벽에서 통로 쪽)
+        slit.push({ k: w.k, u: (ua + ub) / 2, v, n })
+      }
+    }
+    const p1 = flarePoint(F.SW), s1 = flareSection(1), yF = xplFloorAt(F.LEN, F), yR = floorSmooth(1) + s1.h
+    mouth.push({ p1, n: [-p1.tx, 0, -p1.tz], o0: -s1.b0, o1: s1.a0, yF, yR })   // 아가리 = 수직 사각형 하나(λ: −N 끝 0 → +N 끝 1 · μ: 바닥 0 → 천장 1)
+  }
+  { const Fr = rm10lFrame(), yb = RM10_EXIT_FLOOR_Y, yt = yb + _RDH, rb = rm10R(yb) + RM10_CONE_T, rt = rm10R(yt) + RM10_CONE_T
+    const m = Math.max(1, Math.ceil((Fr.xth1 - Fr.xth0) * rb / XPL_PIECE - 1e-9))
+    for (let j = 0; j < m; j++) { const a = Fr.xth0 + (Fr.xth1 - Fr.xth0) * j / m, b = Fr.xth0 + (Fr.xth1 - Fr.xth0) * (j + 1) / m, c = (a + b) / 2
+      const P = (r, th, y) => [r * Math.cos(th), y, r * Math.sin(th)], v = [P(rb, a, yb), P(rb, b, yb), P(rt, b, yt), P(rt, a, yt)]
+      const e1 = [v[1][0] - v[0][0], v[1][1] - v[0][1], v[1][2] - v[0][2]], e2 = [v[3][0] - v[0][0], v[3][1] - v[0][1], v[3][2] - v[0][2]]
+      let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]; const L = Math.hypot(...n); n = n.map((x) => x / L)
+      if (n[0] * Math.cos(c) + n[2] * Math.sin(c) < 0) n = n.map((x) => -x)                  // 발광 = 바깥(통로 쪽)
+      door.push({ v, n }) } }
+  return { slit, mouth, door }
+}
+/** 아가리 위 점(λ, μ) — 방 로컬 */
+export function xplMouthPt(M, lam, mu) { const off = M.o0 + (M.o1 - M.o0) * lam; return [M.p1.x + off * M.p1.nx, M.yF + (M.yR - M.yF) * mu, M.p1.z + off * M.p1.nz] }
+/** 행진 가시 — p → q 곧게, 끝점 제외 표본이 test를 하나라도 어기면 가림 */
+function _march(p, q, test, step = XPL_MARCH) {
+  const d = Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2]), n = Math.max(2, Math.ceil(d / step))
+  for (let k = 1; k < n; k++) { const f = k / n; if (!test([p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f, p[2] + (q[2] - p[2]) * f])) return false }
+  return true
+}
+/** +N벽 여유(평면 · 방 로컬) — 선분 p→q 위 min(a(u) − off). 0.4m 표본의 최소 근처를 삼분 탐색으로 다듬는다:
+ *  보이는 창의 경계 = **벽을 스치는 선**이라 표본 간격 행진은 짧은 관통을 놓쳐 λh가 마디마다 들쭉날쭉했다(프로브 x8: +N벽 세로 띠) */
+function _latMargin(p, q, F) {
+  const g = (f) => { const x = [p[0] + (q[0] - p[0]) * f, p[1], p[2] + (q[2] - p[2]) * f], P = xplFlareParam(x, F); if (!(P.u > 0 && P.u < F.LEN)) return Infinity; return flareSection(P.u / F.LEN).a0 - P.off }
+  const d = Math.hypot(q[0] - p[0], q[2] - p[2]), n = Math.max(2, Math.ceil(d / XPL_MARCH))
+  let km = 1, gm = Infinity; for (let k = 1; k < n; k++) { const v = g(k / n); if (v < gm) { gm = v; km = k } }
+  let lo = Math.max(1e-6, (km - 1) / n), hi = Math.min(1 - 1e-6, (km + 1) / n)
+  for (let i = 0; i < 24; i++) { const m1 = lo + (hi - lo) / 3, m2 = hi - (hi - lo) / 3; if (g(m1) < g(m2)) hi = m2; else lo = m1 }
+  return Math.min(gm, g((lo + hi) / 2))
+}
+/** ★241 아가리 **보이는 창**(나팔 공극 안 점 p) — 셀별 0/1 가시(첫 판)는 벽에 세로 띠·톱니를 그렸다(프로브 실측) ⇒ 연속량으로 바꾼다.
+ *  가림은 셋뿐이다: ⓐ +N벽(창 벽 · 수직 · 곡선 안쪽 = 볼록) ⓑ 바닥(계단) ⓒ 천장. −N벽은 오목이라 가리지 않는다.
+ *  ⓐ는 높이와 무관(수직 벽) → 아가리 폭 λ에서 **보이는 구간 = [0, λh]**(−N 끝이 가장 잘 보인다 · 이분법).
+ *  ⓑⓒ는 보이는 폭의 한가운데 수직선에서 **[μl, μh]**(이분법). 보이는 창 = 사각형 [0, λh] × [μl, μh] — 해석 다각형 조도 하나.
+ *  ⚠근사: 폭 방향 위치에 따른 바닥·천장 가림 차이는 무시(한가운데 대표) — 참값 대조가 잰다. */
+export function xplMouthWindow(p, S) {
+  const F = S.F, M = S.E.mouth[0]
+
+  const ver = (x) => { const P = xplFlareParam(x, F); if (!(P.u > 0 && P.u < F.LEN)) return true; const B = xplFlareBounds(P.u, x[1], F); return x[1] > B.yF && x[1] < B.yR }
+  const mid = 0.5
+  const latOK = (lam) => _latMargin(p, xplMouthPt(M, lam, mid), F) > 0   // +N벽만(수직 벽 → 평면 판정)
+  if (!latOK(0)) return { lh: 0, ml: mid, mh: mid }
+  let lo = 0, hi = 1
+  if (latOK(1)) lo = 1
+  else for (let i = 0; i < XPL_BISECT; i++) { const m = (lo + hi) / 2; if (latOK(m)) lo = m; else hi = m }
+  const lh = lo, lc = lh / 2
+  const vis = (mu) => _march(p, xplMouthPt(M, lc, mu), ver)
+  let seed = -1; for (const mu of [0.5, 0.75, 0.25, 0.9, 0.1, 0.99, 0.01]) if (vis(mu)) { seed = mu; break }
+  if (seed < 0) return { lh: 0, ml: mid, mh: mid }
+  let a0 = 0, a1 = seed; if (vis(0)) a1 = 0; else for (let i = 0; i < XPL_BISECT; i++) { const m = (a0 + a1) / 2; if (vis(m)) a1 = m; else a0 = m }
+  let b0 = seed, b1 = 1; if (vis(1)) b0 = 1; else for (let i = 0; i < XPL_BISECT; i++) { const m = (b0 + b1) / 2; if (vis(m)) b0 = m; else b1 = m }
+  return { lh, ml: a1, mh: b0 }
+}
+/** 보이는 창 표 — 마디(u · 폭 · 높이 정규화)마다 { λh, μl, μh }. 연속량이라 보간이 매끈하다 */
+export function xplVisNode(u, a, b, F = xplFrame()) {   // a·b ∈ [0,1] — 폭·높이 정규화 → 방 로컬 점
+  const m = XPL_VIS_M, B0 = xplFlareBounds(u, 0, F), y = B0.yF + m + (B0.yR - B0.yF - 2 * m) * b, B = xplFlareBounds(u, y, F)
+  const off = -B.b + m + (B.a + B.b - 2 * m) * a, p = flarePoint(u / F.R); return _up(p, off, y)
+}
+export function xplVisTable(S) {
+  const F = S.F, NU = Math.max(2, Math.ceil(F.LEN / XPL_VIS_DU) + 1), us = Array.from({ length: NU }, (_, i) => Math.min(F.LEN - 0.02, Math.max(0.02, F.LEN * i / (NU - 1))))
+  const V = new Float32Array(NU * XPL_VIS_NO * XPL_VIS_NY * 3)
+  let any = 0
+  for (let i = 0; i < NU; i++) for (let a = 0; a < XPL_VIS_NO; a++) for (let b = 0; b < XPL_VIS_NY; b++) {
+    const w = xplMouthWindow(xplVisNode(us[i], a / (XPL_VIS_NO - 1), b / (XPL_VIS_NY - 1), F), S), o = ((i * XPL_VIS_NO + a) * XPL_VIS_NY + b) * 3
+    V[o] = w.lh; V[o + 1] = w.ml; V[o + 2] = w.mh; if (w.lh > 0) any++
+  }
+  return { NU, us, V, any }
+}
+/** 표 보간(삼선형) — 나팔 매개 P · 점 y → 보이는 창 { lh, ml, mh } */
+export function xplVisAt(P, y, T, F = xplFrame()) {
+  const m = XPL_VIS_M, u = Math.min(F.LEN - 0.02, Math.max(0.02, P.u)), fi = (u - T.us[0]) / (T.us[T.NU - 1] - T.us[0]) * (T.NU - 1)
+  const i0 = Math.min(T.NU - 2, Math.max(0, Math.floor(fi))), wu = Math.min(1, Math.max(0, fi - i0))
+  let lh = 0, ml = 0, mh = 0
+  for (const [ii, wi] of [[i0, 1 - wu], [i0 + 1, wu]]) { if (wi <= 0) continue
+    const B = xplFlareBounds(T.us[ii], y, F), bn = Math.min(1, Math.max(0, (y - B.yF - m) / (B.yR - B.yF - 2 * m))), an = Math.min(1, Math.max(0, (P.off + B.b - m) / (B.a + B.b - 2 * m)))
+    const fa = an * (XPL_VIS_NO - 1), fb = bn * (XPL_VIS_NY - 1), a0 = Math.min(XPL_VIS_NO - 2, Math.floor(fa)), b0 = Math.min(XPL_VIS_NY - 2, Math.floor(fb)), wa = fa - a0, wb = fb - b0
+    for (const [aa, wA] of [[a0, 1 - wa], [a0 + 1, wa]]) for (const [bb, wB] of [[b0, 1 - wb], [b0 + 1, wb]]) { const w = wi * wA * wB; if (w <= 0) continue
+      const o = ((ii * XPL_VIS_NO + aa) * XPL_VIS_NY + bb) * 3; lh += w * T.V[o]; ml += w * T.V[o + 1]; mh += w * T.V[o + 2] } }
+  return { lh, ml, mh }
+}
+/** 원시 조도(단위 휘도) — 슬릿·문(자기 판 반공간 = 볼록 벽 가림 · 수신 평면 클리핑) · 아가리(보이는 창 사각형) */
+export function xplRawAt(q, n, S) {
+  const E = S.E; let win = 0, mouth = 0, door = 0
+  for (const e of E.slit) win += polyIrradianceClip(q, n, e.v, e.n)
+  for (const e of E.door) door += polyIrradianceClip(q, n, e.v, e.n)
+  if (S.vis && S.vis.any && E.mouth.length) { const P = xplFlareParam(q, S.F)
+    if (P.u > 0 && P.u < S.F.LEN) { const M = E.mouth[0]
+      const irr = (w) => (w.lh > 1e-4 && w.mh > w.ml + 1e-4 ? polyIrradianceClip(q, n, [xplMouthPt(M, 0, w.ml), xplMouthPt(M, w.lh, w.ml), xplMouthPt(M, w.lh, w.mh), xplMouthPt(M, 0, w.mh)], M.n) : 0)
+      //  ★241 아가리 가까이는 표 보간이 창 아랫변(μl)을 흐려 과대·과소가 크다(실측: u84 +N벽 표 0.21 ↔ 참값 0.68 — 가까운 아랫부분이 조도를 지배) ⇒
+      //   아가리 평면까지 거리 d < XPL_NEAR1이면 **직접 이분법**(점당 ~0.4ms), NEAR0~NEAR1은 둘을 smoothstep으로 섞는다(경계 이음 없음)
+      const d = (q[0] - M.p1.x) * M.n[0] + (q[2] - M.p1.z) * M.n[2]
+      if (d >= XPL_NEAR1) mouth = irr(xplVisAt(P, q[1], S.vis, S.F))
+      else { const md = irr(xplMouthWindow(q, S)); if (d <= XPL_NEAR0) mouth = md
+        else { const x = (d - XPL_NEAR0) / (XPL_NEAR1 - XPL_NEAR0), w = x * x * (3 - 2 * x); mouth = md * (1 - w) + irr(xplVisAt(P, q[1], S.vis, S.F)) * w } } } }
+  return { win, mouth, door }
+}
+/** 명세(한 번) — 발광면 · 가시율 표 · 기준 조도 둘(슬릿 #0 맞은편 벽 눈높이 · 문 맞은편 바깥벽 문 중간 높이) */
+export function xplSpec() {
+  if (!XPL_ON || !RM10L_ON) return null
+  const F = xplFrame(), E = xplEmitters(F), S = { F, E, vis: null }
+  if (F.flare && E.mouth.length) S.vis = xplVisTable(S)
+  const w0 = F.flare && E.slit.length ? rm10Windows()[0] : null
+  if (w0) { const u = (w0.u0 + w0.u1) / 2, p = flarePoint(u / F.R), B = xplFlareBounds(u, xplFloorAt(u, F) + 1.6, F)
+    S.skyRefP = _up(p, -B.b + 1e-3, xplFloorAt(u, F) + 1.6); S.skyRefN = [p.nx, 0, p.nz] }
+  S.skyRef = S.skyRefP ? xplRawAt(S.skyRefP, S.skyRefN, { ...S, vis: null }).win : 0
+  const Fr = rm10lFrame(), th = (Fr.xth0 + Fr.xth1) / 2
+  S.doorRefP = [(F.rO - 1e-3) * Math.cos(th), RM10_EXIT_FLOOR_Y + _RDH / 2, (F.rO - 1e-3) * Math.sin(th)]; S.doorRefN = [-Math.cos(th), 0, -Math.sin(th)]
+  S.doorRef = xplRawAt(S.doorRefP, S.doorRefN, { ...S, vis: null }).door
+  return S
+}
+/** 원시 항(노브 없음) — 슬릿·아가리 = 슬릿 기준점에서 1인 단위(같은 휘도) · 문 = 문 기준점에서 1 */
+export function xplTermsAt(q, n, S) {
+  if (!S) return { win: 0, mouth: 0, door: 0 }
+  const R = xplRawAt(q, n, S)
+  return { win: S.skyRef > 0 ? R.win / S.skyRef : 0, mouth: S.skyRef > 0 ? R.mouth / S.skyRef : 0, door: S.doorRef > 0 ? R.door / S.doorRef : 0 }
+}
+export const XPL_TUNE = { FILL: XPL_FILL, SKY_K: XPL_SKY_K, DOOR_K: XPL_DOOR_K }
+/** 합성(정본) — F·G와 같은 형: DIM + (1−DIM)·min(1, 채움 + K하늘·(슬릿 + 아가리) + K문·문)^γ · γ = G 튜너 값 공유(한 대비) */
+export function xplCompose(T, k = XPL_TUNE, gamma = RM10L_TUNE.GAMMA) {
+  const E = k.FILL + k.SKY_K * (T.win + T.mouth) + k.DOOR_K * T.door
+  return CLF_DIM + (1 - CLF_DIM) * Math.pow(Math.min(1, Math.max(0, E)), gamma)
+}
+/** 방 ∪ 통로 — G 베이크의 공극 술어(★241) · 평가점 고르기(한 발짝 띄운 점이 든 공극 · 둘 다 밖이면 가까운 공극으로 물림) */
+export function rm10xInterior(q, F = rm10lFrame(), dlt = 1e-3) { return rm10lInterior(q, F, dlt) || xplInterior(q, xplFrame(), dlt) }
+export const rm10xFaceSide = (Wq, F = rm10lFrame(), eps = RM10L_EPS) => faceSideBy(Wq, (o) => rm10xInterior(o, F), eps)
+export function rm10xEvalPoint(q, n, F = rm10lFrame(), eps = RM10L_EPS) {
+  const o = [q[0] + n[0] * eps, q[1] + n[1] * eps, q[2] + n[2] * eps]
+  if (rm10lInterior(o, F)) return { zone: 'G', p: o }
+  if (xplInterior(o)) return { zone: 'X', p: o }
+  const a = rm10lClampToVolume(o, F); if (!XPL_ON) return { zone: 'G', p: a }
+  const b = xplClampToVolume(o), da = Math.hypot(a[0] - o[0], a[1] - o[1], a[2] - o[2]), db = Math.hypot(b[0] - o[0], b[1] - o[1], b[2] - o[2])
+  return db < da && xplInterior(b) ? { zone: 'X', p: b } : { zone: 'G', p: a }
+}
+
+/** ★241-a 방 문 이음매 섞기 무게(X 몫 0~1) — 현도 09.25 "등불방에서 나팔 가는 입구 옆면 톱니".
+ *  실측(--pix): 문선 판(radialPlate)이 문 살(방 공극 · G 값 0.69)과 통로(X 값 0.17)의 경계 r = 원뿔 바깥면에 걸쳐, 한 삼각형 안에서 0.69/0.17이 갈렸다.
+ *  ⇒ 문 띠(방위 = 문 살 ± 여유 · 높이 = 문 높이 + 여유) 안에서는 경계까지의 수평 부호 거리 d로 smoothstep(−B, B, d) — 방 쪽 0 · 통로 쪽 1.
+ *  띠 밖(원뿔 벽이 방과 통로를 가르는 곳)은 공극이 이어지지 않으므로 섞지 않는다(평가점 구역 그대로). null = 띠 밖 */
+export function rm10xDoorW(q, F = rm10lFrame(), B = XPL_DOOR_BLEND) {
+  const r = Math.hypot(q[0], q[2]), y = q[1], th = Math.atan2(q[2], q[0]), m = B / Math.max(1, r)
+  if (!_angIn(th, F.xth0 - m, F.xth1 + m) || !(y > F.xy0 - B && y < F.xy1 + B)) return null
+  const d = r - (rm10R(y) + RM10_CONE_T), x = Math.min(1, Math.max(0, (d + B) / (2 * B)))
+  return x * x * (3 - 2 * x)
+}
+/** ★241-b 통로 공극까지 거리 m 미만인가(방 로컬) — 나팔 시작 테두리(flcap) 봉인용(rm10lNearVolume의 통로판) */
+export function xplNearVolume(q, m = XPL_SEAL_M) { if (xplInterior(q)) return true; const c = xplClampToVolume(q); return xplInterior(c) && Math.hypot(q[0] - c[0], q[1] - c[1], q[2] - c[2]) < m }
+
+/** ★241-a 방 ∪ 통로 원시 항(정본 — LampRoomLight가 부른다) — 문 띠 안은 G·X 둘 다 재서 무게 w(X 몫)로 싣는다.
+ *  q = 면 위 점 · n = 실내 쪽 단위 법선(방 로컬). 반환 { w, pool, tube, win, mouth, door } */
+export function rm10xTermsAt(q, n, S, SX, F = rm10lFrame(), eps = RM10L_EPS) {
+  const ev = rm10xEvalPoint(q, n, F, eps), o = [q[0] + n[0] * eps, q[1] + n[1] * eps, q[2] + n[2] * eps]
+  const wd = SX ? rm10xDoorW(o, F) : null, w = wd === null ? (ev.zone === 'X' ? 1 : 0) : wd
+  const tg = w < 1 ? rm10lTermsAt(ev.zone === 'G' ? ev.p : rm10lClampToVolume(o, F), n, S) : { pool: 0, tube: 0 }
+  const tx = w > 0 ? xplTermsAt(ev.zone === 'X' ? ev.p : xplClampToVolume(o), n, SX) : { win: 0, mouth: 0, door: 0 }
+  return { w, pool: tg.pool, tube: tg.tube, win: tx.win, mouth: tx.mouth, door: tx.door }
+}
+/** 합성(정본) — (1 − w)·G + w·X */
+export function rm10xCompose(T) { return (1 - T.w) * (T.w < 1 ? rm10lCompose(T) : 0) + T.w * (T.w > 0 ? xplCompose(T) : 0) }

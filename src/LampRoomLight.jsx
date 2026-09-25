@@ -10,8 +10,10 @@ import { useRef, useEffect, useState } from 'react'
 import * as THREE from 'three'
 import { useFrame, useThree, invalidate } from '@react-three/fiber'
 import { RM10L_ON, RM10L_SUBDIV, CLF_DIM, CLF_ON, RM10L_EPS } from './constants.js'
-import { rm10lSpec, rm10lTermsAt, rm10lCompose, rm10lFaceSide, rm10lToRoom, rm10lFromRoom, rm10lEvalPoint, RM10L_TUNE, rm10lPoolSpec, clfPoolGLSL, clfPoolShape,
+import { rm10lSpec, rm10lTermsAt, rm10lCompose, rm10lToRoom, rm10lFromRoom, rm10lEvalPoint, RM10L_TUNE, rm10lPoolSpec, clfPoolGLSL, clfPoolShape,
   clfSpec, clfFaceSide, clfTermsAt, clfCompose, clfClampToVolume, faceSideBy, rm10lNearVolume } from './lightingModel.js'   // ★239 ⓙ 이음매: 방 부재가 회랑 공극에 면한 곳 = F 정본으로
+import { rm10xFaceSide, xplSpec, XPL_TUNE, xplNearVolume, rm10xTermsAt, rm10xCompose } from './lightingModel.js'   // ★241 빛 구획 X(출구 통로·나팔) — 방 공극 ∪ 통로 공극 한 베이크
+import { buildFlareShell } from './exitFlareGeometry.js'   // ★241 나팔 셸 촘촘한 판(같은 면 · 꺾임 보존)
 import { subdivideLongEdges } from './ziSubdivide.js'
 import { regridPrimitive } from './clfGrid.js'
 import { bootNow, bootPass } from './bootProbe.js'
@@ -37,13 +39,19 @@ const skipped = (o, root) => { for (let c = o; c && c !== root; c = c.parent) if
 
 export function LampRoomLight() {
   const { scene } = useThree()
-  const done = useRef(false), frames = useRef(0), bakeRef = useRef(null), seam = useRef({ done: false, frames: 0, G: null, S: null })
+  const done = useRef(false), frames = useRef(0), watch = useRef(0), bakeRef = useRef(null), seam = useRef({ done: false, frames: 0, G: null, S: null })
   const [baked, setBaked] = useState(false)
   useFrame(() => {
     //  ★239 ⓘ 이음매(F 베이크 뒤 한 번) — **F가 바깥면(triSide 0)으로 둔 회랑 부재 삼각형 중 방 공극에 면한 것**에 G 값을 쓴다.
     //   실측(09.24 프로브): 회랑 바닥판 끝(#697 · φ 47.5~47.7° · y 237.23~238.43)이 방 문 살 너머 원뿔 공기로 물려 있어 그 밑면이 방에서 1.0 흰 면으로 보였다.
     //   F 부재는 이미 비색인(F 베이크) · F 게이트(aClf)를 그대로 쓴다: aClf를 **사본**으로 갈아 끼워 쓴 값(±1)을 싣는다 — F 기록의 side 배열(구 aClf)은 0 그대로라 F 튜너가 덮지 않는다.
     //   G 튜너 합류: 기록 { o, terms, side = 이음매 정점만 ±1 }.
+    //  ★241 감시(베이크 뒤 60프레임마다) — 누가 베이크된 geometry를 갈아 끼웠으면(렌더마다 새 geometry를 넘기는 부재 · 현도 09.25 나팔) 경고하고 되돌린다.
+    //   원인은 부재 쪽(Dome 인라인 생성)에서 고친다 — 이건 재발을 **보이게** 하는 경보다(조용히 명암이 사라지는 대신 콘솔에 이름이 뜬다).
+    if (done.current && bakeRef.current && ++watch.current % 60 === 0) {
+      for (const r of bakeRef.current) if (r.geo && r.o.geometry !== r.geo) {
+        if (!r.warned) { r.warned = true; console.warn(`[RM10L] ★241 베이크된 geometry가 교체됐다 — ${r.o.name || r.o.type}#${r.o.id} (렌더마다 새 geometry를 넘기는 부재?) · 되돌림`) }
+        r.o.geometry = r.geo; invalidate() } }
     const SM = seam.current
     if (done.current && !SM.done && SM.G) {
       if (!CLF_ON) { SM.done = true; return }
@@ -92,6 +100,10 @@ export function LampRoomLight() {
     done.current = true
     if (!G) { console.warn('[RM10L] 등불 방 그룹(userData.rm10l)을 못 찾았다 — 베이크 없음'); return }
     const t0 = bootNow(), S = rm10lSpec(), SF = CLF_ON ? clfSpec() : null   // ★239 ⓙ 회랑 공극에 면한 방 부재 = F 정본
+    const tX = bootNow(), SX = xplSpec(), msX = bootNow() - tX   // ★241 통로 발광면·아가리 가시율 표(한 번)
+    let flareMap = null, nFlare = 0, nX = 0
+    let nSeal = 0, nBlend = 0
+    const flareFine = (key) => { if (!flareMap) flareMap = new Map(buildFlareShell({ grid: RM10L_SUBDIV }).map((m) => [m.key, m.geo])); const g0 = flareMap.get(key); return g0 ? g0.clone() : null }
     let nJ = 0
     G.updateWorldMatrix(true, true)
     const inv = new THREE.Matrix4().copy(G.matrixWorld).invert(), Lm = new THREE.Matrix4(), nMat = new THREE.Matrix3()
@@ -108,20 +120,25 @@ export function LampRoomLight() {
       const eachTri = (g, f) => { const I = g.index, n = I ? I.count : g.attributes.position.count; for (let i = 0; i + 2 < n; i += 3) f(I ? I.getX(i) : i, I ? I.getX(i + 1) : i + 1, I ? I.getX(i + 2) : i + 2) }
       //  ⑴ 원본 삼각형으로 먼저 거른다 — 실내에 면한 삼각형이 없으면 손대지 않는다(출구 통로·나팔 등)
       let any = false
-      eachTri(o.geometry, (a, b, c) => { if (!any && (rm10lFaceSide([loc(o.geometry, a), loc(o.geometry, b), loc(o.geometry, c)]).side !== 0 || (SF && clfFaceSide([locU(o.geometry, a), locU(o.geometry, b), locU(o.geometry, c)]) !== 0))) any = true })
+      eachTri(o.geometry, (a, b, c) => { if (!any && (rm10xFaceSide([loc(o.geometry, a), loc(o.geometry, b), loc(o.geometry, c)]).side !== 0 || (SF && clfFaceSide([locU(o.geometry, a), locU(o.geometry, b), locU(o.geometry, c)]) !== 0))) any = true })
       if (!any) { nSkip++; return false }
       //  ⑵ 재격자(원통·원뿔대·고리·상자) — 모르는 기하(천장 CSG)만 변 세분 → 비색인화
       let g = o.geometry
       if (!g.attributes.normal) g.computeVertexNormals()
-      const rg = regridPrimitive(g, RM10L_SUBDIV)
-      if (rg) nRegrid++; else nFallback++
+      //  ★241 나팔 셸(BufferGeometry — 원시 매개 없음) = 같은 부재의 촘촘한 판(exitFlareGeometry.stripFine · 원래 삼각형 위 · 꺾임 보존)
+      const fk = g.userData && g.userData.flareKey, rg = fk ? flareFine(fk) : regridPrimitive(g, RM10L_SUBDIV)
+      if (rg) nRegrid++; else nFallback++; if (fk && rg) nFlare++
       g = (rg || subdivideLongEdges(g, RM10L_SUBDIV)).toNonIndexed()
       const P0 = g.attributes.position, N0 = g.attributes.normal, nT0 = P0.count / 3
       //  ⑶ 판정 — 양면 판(both)은 뒤집은 사본을 덧붙인다(머리 주석)
       const tri = []                                                            // { t, side, flipCopy }
       for (let t = 0; t < nT0; t++) {
-        const W = [loc(g, 3 * t), loc(g, 3 * t + 1), loc(g, 3 * t + 2)], fs = rm10lFaceSide(W)
-        if (fs.side !== 0 && fs.both) { tri.push({ t, side: 2, copy: false }); tri.push({ t, side: 2, copy: true }); nBoth++ }
+        const W = [loc(g, 3 * t), loc(g, 3 * t + 1), loc(g, 3 * t + 2)], fs = rm10xFaceSide(W)   // ★241 방 ∪ 통로
+        if (fk === 'flcap') { const f2 = faceSideBy(W, (q) => xplNearVolume(q), RM10L_EPS)   // ★241-b 곡률 반전점 테두리 봉인
+          //  ⛔첫 판은 fs.side === 0인 것만 봤다 — 모서리가 공극에 닿은 삼각형은 일반 가지가 **한쪽만** 구워 틈으로 뒷면(1.0)이 보였다(--pix rm=−1)
+          //  ⛔그 전 판은 한쪽만 구웠다 — 테두리는 원호 쪽·나팔 쪽 **양쪽**이 공극에 닿아, 틈으로 보이던 건 굽지 않은 반대쪽 면이었다(--pix: rm=−1 · 앞면 · gate off → 1.0)
+          if (f2.side && f2.both) { tri.push({ t, side: 2, copy: false }); tri.push({ t, side: 2, copy: true }); nSeal += 2 } else { tri.push({ t, side: f2.side * flip, copy: false }); if (f2.side) nSeal++ } }
+        else if (fs.side !== 0 && fs.both) { tri.push({ t, side: 2, copy: false }); tri.push({ t, side: 2, copy: true }); nBoth++ }
         else if (fs.side === 0 && SF) { const fc = clfFaceSide([locU(g, 3 * t), locU(g, 3 * t + 1), locU(g, 3 * t + 2)]); tri.push({ t, side: fc * flip, copy: false, f: fc !== 0 }); if (fc) nJ++ }   // ★239 ⓙ
         else tri.push({ t, side: fs.side * flip, copy: false })
       }
@@ -131,6 +148,7 @@ export function LampRoomLight() {
       const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3))
       const P = geo.attributes.position, N = geo.attributes.normal
       const col = new Float32Array(nT * 9), side = new Float32Array(nT * 3), triSide = new Int8Array(nT), terms = new Float32Array(nT * 3), termsT = new Float32Array(nT * 3), mark = new Float32Array(nT * 3), fromF = new Uint8Array(nT * 3)
+      const xz = new Float32Array(nT * 3), xW = new Float32Array(nT * 3), xM = new Float32Array(nT * 3), xD = new Float32Array(nT * 3)   // ★241 통로 정점(1) · 슬릿·아가리·문 원시 항
       for (let k = 0; k < nT; k++) {
         const s = tri[k].side; triSide[k] = s
         const W = [loc(geo, 3 * k), loc(geo, 3 * k + 1), loc(geo, 3 * k + 2)]
@@ -148,9 +166,12 @@ export function LampRoomLight() {
             const pu = rm10lFromRoom(W[j]), nu0 = rm10lFromRoom([0, 0, 0]), nu1 = rm10lFromRoom(nl), nu = [nu1[0] - nu0[0], nu1[1], nu1[2] - nu0[2]]
             const val = clfCompose(clfTermsAt(clfClampToVolume(pu), nu, SF)); col[3 * i] = col[3 * i + 1] = col[3 * i + 2] = val; fromF[i] = 1; continue }
           const p = W[j], key = `${Math.round(p[0] * 1e3)},${Math.round(p[1] * 1e3)},${Math.round(p[2] * 1e3)},${Math.round(nl[0] * 1e3)},${Math.round(nl[1] * 1e3)},${Math.round(nl[2] * 1e3)}`
-          let T = cache.get(key); if (T === undefined) { T = rm10lTermsAt(rm10lEvalPoint(p, nl), nl, S); cache.set(key, T); nShade++ }   // ★239-c 한 발짝 띄워 잰다(챌판 경계 반경의 Float32 단 선택 수리)
-          terms[i] = T.pool; termsT[i] = T.tube
-          col[3 * i] = col[3 * i + 1] = col[3 * i + 2] = rm10lCompose(T)
+          //  ★241 평가점 = 한 발짝 띄운 점이 든 공극(방 = G 항 · 통로 = X 항) · 둘 다 밖이면 가까운 공극으로 물림(★239-c 어법 확장)
+          //  ★241-a 문 띠 안이면 G·X 둘 다 재서 섞는다(무게 w = X 몫) · 띠 밖은 평가점 구역 그대로(w = 0 또는 1)
+          let T = cache.get(key); if (T === undefined) { T = rm10xTermsAt(p, nl, S, SX); cache.set(key, T); nShade++; if (T.w > 0) nX++; if (T.w > 0 && T.w < 1) nBlend++ }   // ★239-c 한 발짝 · ★241-a 문 섞기(정본 = lightingModel)
+          xz[i] = T.w; xW[i] = T.win; xM[i] = T.mouth; xD[i] = T.door; terms[i] = T.pool; termsT[i] = T.tube
+          col[3 * i] = col[3 * i + 1] = col[3 * i + 2] = rm10xCompose(T)
+          if (T.w >= 1) continue                                                  // 통로엔 등불 빛 자국 없음(mark 0)
           if (nl[1] > 0.9) mark[i] = 1                                           // 바닥 빛 자국 가중(위 향 실내 면)
         }
         if (s !== 0) nIn++
@@ -160,38 +181,43 @@ export function LampRoomLight() {
       geo.userData.bakedRm10l = true
       o.geometry = geo
       mats.forEach((m) => { m.vertexColors = true; m.defaultAttributeValues = { ...(m.defaultAttributeValues || {}), aRm10lMark: [0] }; chain(m, rm10lPatch, '|rm10l'); m.needsUpdate = true })
-      records.push({ o, triSide, terms, termsT, side, fromF })
+      records.push({ o, geo, triSide, terms, termsT, side, fromF, xz, xW, xM, xD })
       nMesh++; nTri += nT; nVert += P.count
       return true
     }
     for (const o of meshes) bakeOne(o)
-    if (typeof window !== 'undefined') window.__ethicaRm10l = { records, spec: S, group: G, nRegrid, nFallback, nBoth, nJ }   // 개발 핸들(프로브·검사)
+    if (typeof window !== 'undefined') window.__ethicaRm10l = { records, spec: S, specX: SX, group: G, nRegrid, nFallback, nBoth, nJ, nFlare, nX }   // 개발 핸들(프로브·검사)
     bakeRef.current = records; setBaked(true); seam.current.G = G; seam.current.S = S; seam.current.bakeOne = bakeOne
     bootPass('RM10L', t0)
     console.info(`[RM10L] ★239 등불 방 명암: 수광 메시 ${nMesh}(재격자 ${nRegrid} · 변 세분 ${nFallback} · 바깥 전용·비표준 ${nSkip}) · 삼각형 ${nTri}(실내 면 ${nIn} · 양면 판 사본 ${nBoth} · ⓙ 회랑 쪽 ${nJ}) · 정점 ${nVert} · 음영 계산 ${nShade} · ${(bootNow() - t0).toFixed(0)}ms`)
+    console.info(`[XPL] ★241 출구 통로·나팔 명암: 나팔 촘촘한 판 ${nFlare} · 통로 음영 계산 ${nX}(문 이음매 섞기 ${nBlend}) · 테두리 봉인 삼각형 ${nSeal} · 명세(가시율 표) ${msX.toFixed(0)}ms`)
     invalidate()
   })
   //  개발 튜너(`J` 키 · 개발 서버 전용 — F의 `K` 튜너와 같은 형): 정점마다 저장한 원시 항을 rm10lCompose로 다시 합치기만 한다(재계산 0 · 즉시).
   useEffect(() => {
     if (!baked || !(import.meta.env && import.meta.env.DEV) || typeof document === 'undefined') return
     const KN = [['FILL', 0, 0.6, 0.01, '채움 — 웅덩이를 못 보는 면의 밝기(위쪽 원통·천장)'], ['POOL_K', 0, 12, 0.1, '웅덩이 되쏨 — 1 = 회랑 등불과 같은 물리(같은 등불)'], ['TUBE_K', 0, 2, 0.01, '★239-b 관 옆면 발광 — 원기둥 벽(관 중간 높이)의 관 몫'],
-      ['GAMMA', 0.5, 3, 0.05, '대비 지수(1 = 선형)'], ['MARK_K', 0, 1, 0.02, '바닥 빛 자국 세기'], ['GLOW_OP', 0, 0.8, 0.01, '★239-d 기둥 빛 안개 세기'], ['GLOW_W', 0, 5, 0.05, '★239-d 안개 두께(m)'], ['GLOW_POW', 0.5, 8, 0.1, '★239-d 안개 실루엣 지수 — 클수록 기둥 가까이 모임'], ['MARK_POW', 0.5, 6, 0.1, '빛 자국 모양 — 클수록 중심에 모임']]
+      ['GAMMA', 0.5, 3, 0.05, '대비 지수(1 = 선형)'], ['MARK_K', 0, 1, 0.02, '바닥 빛 자국 세기'], ['GLOW_OP', 0, 0.8, 0.01, '★239-d 기둥 빛 안개 세기'], ['GLOW_W', 0, 5, 0.05, '★239-d 안개 두께(m)'], ['GLOW_POW', 0.5, 8, 0.1, '★239-d 안개 실루엣 지수 — 클수록 기둥 가까이 모임'], ['MARK_POW', 0.5, 6, 0.1, '빛 자국 모양 — 클수록 중심에 모임'],
+      ['X_FILL', 0, 0.6, 0.01, '★241 통로 채움 — 어느 공급지도 못 보는 면(어두운 원호)'], ['X_SKY_K', 0, 3, 0.01, '★241 슬릿·아가리 세기 — 슬릿 #0 맞은편 벽 눈높이의 몫'], ['X_DOOR_K', 0, 2, 0.01, '★241 방 쪽 문(약한 공급지) — 문 맞은편 바깥벽의 몫']]
+    const TGT = (k) => (k.startsWith('X_') ? [XPL_TUNE, k.slice(2)] : [RM10L_TUNE, k])   // ★241 통로 노브는 XPL_TUNE에
     const box = document.createElement('div'); box.style.cssText = 'position:fixed;left:16px;top:16px;z-index:9;background:rgba(20,20,18,.86);color:#eee;font:12px/1.5 monospace;padding:10px 12px;border-radius:8px;display:none;min-width:320px'
     box.innerHTML = '<b>등불 방 명암 튜닝 (J 닫기)</b><br><small>즉시 반영 · 값은 [복사] → 붙여 주세요</small><br>'
     const apply = () => {
       for (const r of bakeRef.current || []) { const C = r.o.geometry.attributes.color, Tm = r.terms, sd = r.side
-        for (let i = 0; i < C.count; i++) { if (sd[i] === 0 || (r.fromF && r.fromF[i])) continue; const val = rm10lCompose({ pool: Tm[i], tube: r.termsT ? r.termsT[i] : 0 }); C.setXYZ(i, val, val, val) }
+        for (let i = 0; i < C.count; i++) { if (sd[i] === 0 || (r.fromF && r.fromF[i])) continue
+          const val = rm10xCompose({ w: r.xz ? r.xz[i] : 0, pool: Tm[i], tube: r.termsT ? r.termsT[i] : 0, win: r.xW ? r.xW[i] : 0, mouth: r.xM ? r.xM[i] : 0, door: r.xD ? r.xD[i] : 0 }); C.setXYZ(i, val, val, val) }
         C.needsUpdate = true }
       POOL_U.uClfPoolK.value = (RM10L_TUNE.MARK_K ?? 0) * (1 - CLF_DIM); POOL_U.uClfPool.value = clfPoolShape(RM10L_TUNE.MARK_POW)
       for (const gm of lampGlowMaterials()) { gm.uniforms.uOpacity.value = RM10L_TUNE.GLOW_OP; gm.uniforms.uW.value = RM10L_TUNE.GLOW_W; gm.uniforms.uEdgePow.value = RM10L_TUNE.GLOW_POW }   // ★239-d 즉시
       invalidate() }
     for (const [k, lo, hi, st, tip] of KN) { const row = document.createElement('div'); row.title = tip
-      row.innerHTML = `<span style="display:inline-block;width:62px">${k}</span><input type="range" min="${lo}" max="${hi}" step="${st}" value="${RM10L_TUNE[k]}" style="width:170px;vertical-align:middle"> <span class="v">${RM10L_TUNE[k]}</span>`
-      box.appendChild(row); const inp = row.querySelector('input'); inp.oninput = () => { RM10L_TUNE[k] = +inp.value; row.querySelector('.v').textContent = inp.value; apply() } }
+      const [tg, tk] = TGT(k)
+      row.innerHTML = `<span style="display:inline-block;width:62px">${k}</span><input type="range" min="${lo}" max="${hi}" step="${st}" value="${tg[tk]}" style="width:170px;vertical-align:middle"> <span class="v">${tg[tk]}</span>`
+      box.appendChild(row); const inp = row.querySelector('input'); inp.oninput = () => { tg[tk] = +inp.value; row.querySelector('.v').textContent = inp.value; apply() } }
     const btn = document.createElement('button'); btn.textContent = '복사(constants 값)'; btn.style.cssText = 'margin-top:6px;display:block'; box.appendChild(btn)
     const out = document.createElement('pre'); out.style.cssText = 'margin:6px 0 0;white-space:pre-wrap;color:#9c9'; box.appendChild(out)
     document.body.appendChild(box)
-    const fmt = () => `RM10L_FILL=${RM10L_TUNE.FILL} RM10L_POOL_K=${RM10L_TUNE.POOL_K} RM10L_TUBE_K=${RM10L_TUNE.TUBE_K} RM10L_GAMMA=${RM10L_TUNE.GAMMA} RM10L_MARK_K=${RM10L_TUNE.MARK_K} RM10L_MARK_POW=${RM10L_TUNE.MARK_POW} RM10L_GLOW_OP=${RM10L_TUNE.GLOW_OP} RM10L_GLOW_W=${RM10L_TUNE.GLOW_W} RM10L_GLOW_POW=${RM10L_TUNE.GLOW_POW}`
+    const fmt = () => `RM10L_FILL=${RM10L_TUNE.FILL} RM10L_POOL_K=${RM10L_TUNE.POOL_K} RM10L_TUBE_K=${RM10L_TUNE.TUBE_K} RM10L_GAMMA=${RM10L_TUNE.GAMMA} RM10L_MARK_K=${RM10L_TUNE.MARK_K} RM10L_MARK_POW=${RM10L_TUNE.MARK_POW} RM10L_GLOW_OP=${RM10L_TUNE.GLOW_OP} RM10L_GLOW_W=${RM10L_TUNE.GLOW_W} RM10L_GLOW_POW=${RM10L_TUNE.GLOW_POW} XPL_FILL=${XPL_TUNE.FILL} XPL_SKY_K=${XPL_TUNE.SKY_K} XPL_DOOR_K=${XPL_TUNE.DOOR_K}`
     btn.onclick = () => { out.textContent = fmt(); console.info('[RM10L tune] ' + fmt()); try { navigator.clipboard.writeText(fmt()) } catch { /* 클립보드 거부 — 화면 값 사용 */ } }
     const key = (ev) => { if (ev.code === 'KeyJ' && !ev.repeat) box.style.display = box.style.display === 'none' ? 'block' : 'none' }
     addEventListener('keydown', key)

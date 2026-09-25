@@ -6254,3 +6254,26 @@ export const RM10L_GLOW_OP   = 0.18                // ★Claude 값 안개 세�
 export const RM10L_GLOW_POW  = 2 * CLF_MARK_POW      // 실루엣 지수 — facing^p = (1−x²)^(p/2) ⇒ p = 2·CLF_MARK_POW = ★233 빛 자국과 **같은 종 모양**(1−x²)². ⛔★239-d 첫 판 = LB_EDGE_POW 2.5(빛기둥 승계) → (1−x²)^1.25는 가장자리 직전 기울기가 커 안개 경계가 선으로 읽혔다(미리보기 실측) · J 튜너
 export const RM10L_GLOW_LO_M = 1.5                 // ★Claude 값 갓 쪽 아래끝 깃털 길이(m)
 export const RM10L_GLOW_TOP_M = 4.0                // ★Claude 값 리브 쪽 위끝 깃털 길이(m · 목이 리브에 닿는 높이에서 아래로)
+
+// ══ ★★★241 빛 구획 X — 출구 통로(반원호)·나팔 명암 베이크 (2026.09.25 · 헌장 Ⅰ 표 밖 구획 — 공급지 = 현도 결정) ══════════════
+//  현도 09.25: 공급지 = **① 나팔 옆 슬릿 창(6) ② 나팔 출구(아가리)** + **③ 방 쪽 문 = 약한 공급지**(\"문 근처만 방빛이 스민다\").
+//  실측(_probe_exit): 반원호 44.4m엔 창이 없다 · 아가리(40×26 = 1,040㎡)는 곡률 때문에 u < 36에서 0% 보인다 · 슬릿 합계 33.3㎡(= 아가리의 1/31).
+//  ⇒ 빛의 지형은 기하에서 나온다: 문 근처 방빛 → 어두운 원호 → 슬릿 빛 띠 → 아가리 쪽 밝아짐. 명암 = G(LampRoomLight)와 **한 베이크**(방 공극 ∪ 통로 공극 · 이음매 0).
+//  ★슬릿·아가리 = **같은 휘도**(둘 다 같은 돔 내부를 본다 — 물리 파생) → 한 노브 SKY_K. 기준 = 슬릿 #0 맞은편(−N) 벽 눈높이(바닥 + 1.6) · 벽 향 → E = SKY_K.
+//  ⚠슬릿은 두께 PASS_T 판의 **안면 개구**를 램버트 발광면으로 둔다(회랑 창 ★226과 같은 근사 — 판 두께가 가파른 각의 빛을 깎는 몫은 무시).
+export const XPL_ON      = true                 // ⛔false = 통로 베이크 없음(구 체제 — 장면광 그대로)
+export const XPL_FILL    = CLF_FILL             // ④ 채움 초기값 = F 승계(Claude 값 · J 튜너)
+export const XPL_SKY_K   = CLF_WIN_K            // ①② 슬릿·아가리 세기 초기값 = F 창 승계(같은 종류의 개구 · Claude 값 · J 튜너)
+export const XPL_DOOR_K  = 0.25                 // ③ 방 쪽 문(약한 공급지) — 기준 = 문 맞은편 바깥벽(r = RM10_EXIT_ROUT · 문 중간 높이)에서 E = K · ★Claude 값(규율 12) · J 튜너
+export const XPL_PIECE   = 1.0                  // 슬릿·문 발광 조각 길이(m) — 조각 = 수직(또는 원뿔 사다리꼴) 평면 · 곡률 반경 ≥ 15 → 1m 현 처짐 ≤ 8mm
+export const XPL_NEAR0   = 5.0                  // 아가리 평면까지 이 거리 안 = 보이는 창 직접 계산(표 보간은 가까운 아랫변을 흐린다 — 실측 u84 +N벽 0.21 ↔ 참값 0.68)
+export const XPL_NEAR1   = 10.0                 // NEAR0~NEAR1 = 직접·표 smoothstep 섞기(경계선 없음)
+export const XPL_BISECT  = 12                   // 아가리 보이는 창 이분법 반복(폭 λ · 높이 μ) — 2⁻¹² × 40m ≈ 1cm
+export const XPL_VIS_DU  = 1.0                  // 보이는 창 표 격자 간격(나팔 호길이 u · m) — 마디마다 {λh, μl, μh}(연속량 · ★241 첫 판 셀 0/1 표는 벽에 세로 띠를 그려 폐기)
+export const XPL_VIS_NO  = 7                    // 가시율 표 폭 방향 마디 수
+export const XPL_VIS_NY  = 7                    // 가시율 표 높이 방향 마디 수
+export const XPL_VIS_M   = 0.06                 // 표 마디 벽 여유(m) — 한 발짝(RM10L_EPS 0.05)보다 크게: 평가점이 마디 상자 안에 든다
+export const XPL_NRM_W   = 3.0                  // ★241-c 나팔 벽·천장 음영 법선 u 창 반폭(m) — 낮은 구간/터짐 경계의 꺾임(천장 0.22 → 1.0이 1.5m 안)을 이 폭에 걸쳐 돌린다 · 모양 무변
+export const XPL_DOOR_BLEND = 0.75              // ★241-a 방 문 살 바깥면(r = 원뿔 바깥면) 양쪽 이 거리(m)에서 G(방빛) ↔ X(통로) 값을 smoothstep으로 섞는다 — 경계가 삼각형을 가로지르면 톱니(현도 09.25)
+export const XPL_SEAL_M  = 0.3                  // ★241-b 나팔 시작 테두리(flcap) 중 통로 공극에서 이 거리 안의 면 = 굽는다(곡률 반전점 이음매 틈으로 흰 테두리가 비치던 것 · 판 두께 PASS_T 0.6의 절반 — 바깥 면은 그대로)
+export const XPL_MARCH   = 0.4                  // 가시 행진 간격(m) — 공극 밖 표본 하나 = 가림

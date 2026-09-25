@@ -1329,6 +1329,15 @@ export function Terrace() {
 //  ⚠좌표: 이 컴포넌트는 App의 −RIB_DEST_PHI 그룹 **안**에 있다. 그래서 방 로컬 50°가 월드 60°이고,
 //   천장을 뚫는 리브는 월드 #(RM10_K + RIB_DEST_K) = #12다. ribHoleSolid는 월드 방위로 만들므로
 //   그룹 회전을 되돌리는 rotateY(+XPHI)를 한 번 건다. 이 한 줄을 빠뜨리면 구멍이 10° 어긋난다.
+//  ★241 버그 수리(2026.09.25 현도 화면: "곡률이 바뀌는 지점부터 명암이 하나도 없다 · J 슬라이더 무반응") —
+//   나팔 셸과 문선·끝캡 판을 **렌더마다 새로 지어** geometry 프롭으로 넘기고 있었다(buildFlareShell()·radialPlate() 인라인 호출).
+//   App 상태가 바뀌어 LampRoom이 다시 렌더되면 R3F가 **새 geometry로 갈아 끼워** 베이크(정점색·게이트)가 통째로 사라진다
+//   (원호의 <ringGeometry args>는 인자가 같아 인스턴스가 유지 → 원호만 명암이 남았다). 튜너는 버려진 옛 geometry를 고치고 있었다.
+//   프로브는 한 번만 렌더하므로 못 잡았다(규율 47). ⇒ 같은 인자 = 같은 인스턴스(모듈 캐시).
+let _flareShell = null
+const flareShellOnce = () => _flareShell || (_flareShell = buildFlareShell())
+const _plateCache = new Map()
+const radialPlateOnce = (corners, thick, theta) => { const k = JSON.stringify([corners, thick, theta]); let g = _plateCache.get(k); if (!g) { g = radialPlate(corners, thick, theta); _plateCache.set(k, g) } return g }
 export function LampRoom() {
   const XPHI = RIB_XFER_ON ? RIB_DEST_PHI : 0
   const AX = RM10_AX_R * Math.cos(RM10_PHI), AZ = RM10_AX_R * Math.sin(RM10_PHI)
@@ -1489,7 +1498,7 @@ export function LampRoom() {
                   → 통로의 안쪽 경계 = **방 원뿔 그 자체**. 벽 하나, 문 하나, 두께(1.66)가 곧 인방 깊이다. */}
               {/* 문선 둘 + 인방 밑면 — 원뿔이므로 **사다리꼴 판**이다(박스로 하면 위가 벌어진다) */}
               {[i0, i1].map((th, k) => (
-                <mesh key={'xij' + k} geometry={radialPlate([
+                <mesh key={'xij' + k} geometry={radialPlateOnce([
                   [rm10R(y0) + RM10_CONE_T, y0], [rm10R(y0), y0],
                   [rm10R(y0 + RM10_DOOR_H), y0 + RM10_DOOR_H], [rm10R(y0 + RM10_DOOR_H) + RM10_CONE_T, y0 + RM10_DOOR_H],
                 ], t2, th)}>
@@ -1511,7 +1520,7 @@ export function LampRoom() {
               {FL ? null : [o0, o1].map((th, k) => rbx('xoj' + k, RO + t2 / 2, th, (y0 + y1) / 2, t2, y1 - y0, t2))}
               {/* 끝캡 둘 — 여기가 뚫리면 밖이 보인다. 안쪽 변이 원뿔을 따르는 **사다리꼴** */}
               {(FL ? [b0] : [b0, b1]).map((th, k) => (
-                <mesh key={'xc' + k} geometry={radialPlate([
+                <mesh key={'xc' + k} geometry={radialPlateOnce([
                   [rm10R(y0 - t2) + RM10_CONE_T - t2, y0 - t2], [RO + t2, y0 - t2],
                   [RO + t2, y1 + t2], [rm10R(y1 + t2) + RM10_CONE_T - t2, y1 + t2],
                 ], t2, th)}>
@@ -1533,7 +1542,7 @@ export function LampRoom() {
                   · 회전각은 노브가 아니라 **정조준 조건이 정한다**(cos s = R/(rCL+R−AX) → 110.8°).
                     구 직선이 하던 '나서는 방향 못 박기'를 곡선의 마지막 20°가 대신한다.
                   · 총 39.5 → 108.8(6.6초 → 18.1초). 회랑 22.7초에 준하는 다리가 생긴다. */}
-              {FL ? buildFlareShell().map((m) => (
+              {FL ? flareShellOnce().map((m) => (
                 <mesh key={m.key} geometry={m.geo} userData={m.walk ? { walkable: true } : undefined}>
                   <meshStandardMaterial {...(m.walk ? FLOOR_MAT : SHELL_MAT)} side={THREE.DoubleSide} />
                 </mesh>
